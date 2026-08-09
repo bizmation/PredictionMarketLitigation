@@ -256,3 +256,10 @@ coverage
 # swallows our source directory src/shared/lib — the architecture's home for
 # shared helpers (dates, ids). Re-include it.
 !src/shared/lib/
+.bmad-loop/runs/
+.bmad-loop/cache/
+.bmad-loop/policy.toml
+_bmad/render/
+
+# Local scoping archive — not source, and this repo is public.
+/Prediction Market Litigation scoping.zip
