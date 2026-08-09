@@ -251,3 +251,8 @@ coverage
 .cache
 .wrangler
 .dev.vars*
+
+# The Python packaging block above ignores `lib/` (build output), which also
+# swallows our source directory src/shared/lib — the architecture's home for
+# shared helpers (dates, ids). Re-include it.
+!src/shared/lib/

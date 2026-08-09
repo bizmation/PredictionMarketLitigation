@@ -5,10 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="AI chat agent built with Cloudflare Agents"
+      content="Open source of record for U.S. prediction-market litigation. Built by AI, governed and approved by a human; corrections welcome."
     />
-    <title>Agent Starter</title>
+    <title>Prediction Market Litigation</title>
     <link rel="icon" href="/favicon.ico" />
+    <!-- Cormorant Garamond headings over Lora body (Classical token sheet).
+         Loaded as <link> rather than a CSS @import: an @import inside the
+         Tailwind-processed stylesheet would both queue behind it and have to
+         be the first rule in the file. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600&family=Lora:wght@400;600&display=swap"
+    />
     <script>
       (() => {
         const mode = localStorage.getItem("theme") || "light";

@@ -1,0 +1,646 @@
+/* ============================================================
+   PML component layer — sits on top of the Classical token sheet.
+   Link order:  tokens.css  →  pml.css
+
+   Ported verbatim from the UX handoff:
+   _bmad-output/planning-artifacts/ux-designs/design_handoff_pml/pml.css
+
+   Every value below resolves to a Classical token; no new hexes
+   except the posture/status ramp, which is documented in the
+   handoff's design-system page as a deliberate extension.
+
+   These class names are a contract. The handoff, the design-system
+   reference page, and Stories 1.3 / 2.x / 3.x all address components
+   by these exact names — do not rename them or restate them as
+   Tailwind utilities.
+   ============================================================ */
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  margin: 0;
+}
+a {
+  color: var(--color-accent-700);
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+a:hover {
+  color: var(--color-accent-600);
+}
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  margin: 0;
+}
+
+.wrap {
+  max-width: 1220px;
+  margin: 0 auto;
+  padding: 0 var(--space-6);
+}
+.kicker {
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-neutral-700);
+  font-feature-settings: "tnum";
+}
+.num {
+  font-feature-settings: "tnum";
+}
+.rule {
+  border: 0;
+  border-top: 1px solid var(--color-divider);
+  margin: 0;
+}
+.muted {
+  color: var(--color-neutral-700);
+}
+
+/* ---- chrome ---------------------------------------------- */
+.topbar {
+  border-bottom: 1px solid var(--color-divider);
+  background: var(--color-bg);
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+.topbar .wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  height: 62px;
+}
+.brand {
+  font-family: var(--font-heading);
+  font-size: 22px;
+  white-space: nowrap;
+}
+.brand em {
+  font-style: normal;
+  color: var(--color-accent-700);
+}
+.brand .sub {
+  color: var(--color-neutral-600);
+}
+.topnav {
+  display: flex;
+  gap: var(--space-4);
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+.topnav a {
+  font-size: 13px;
+  text-decoration: none;
+  color: var(--color-neutral-800);
+  padding: 4px 0;
+  border-bottom: 1px solid transparent;
+}
+.topnav a:hover {
+  border-bottom-color: var(--color-accent);
+  color: var(--color-text);
+}
+.topnav a[aria-current] {
+  border-bottom-color: var(--color-accent);
+  color: var(--color-text);
+}
+.topnav a.ext::after {
+  content: " ↗";
+  color: var(--color-neutral-500);
+}
+
+.trustbar {
+  border-bottom: 1px solid var(--color-divider);
+  background: var(--color-neutral-100);
+}
+.trustbar .wrap {
+  display: flex;
+  gap: var(--space-3) var(--space-4);
+  align-items: center;
+  flex-wrap: wrap;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  font-size: 12px;
+  color: var(--color-neutral-800);
+}
+.trustbar .sep {
+  color: var(--color-neutral-400);
+}
+.trustbar .grow {
+  flex: 1 1 22ch;
+  min-width: 0;
+}
+.trustbar .prov,
+.trustbar .warn {
+  flex: none;
+}
+.trustbar .num {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.trustbar .sep:last-of-type {
+  display: none;
+}
+
+section.band {
+  padding: var(--space-8) 0;
+  border-top: 1px solid var(--color-divider);
+}
+.sec-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+.sec-head h2 {
+  font-size: 30px;
+  font-weight: 400;
+}
+.sec-head .why {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--color-neutral-700);
+  max-width: 46ch;
+  text-align: right;
+  line-height: 1.55;
+}
+@media (max-width: 940px) {
+  .sec-head {
+    flex-wrap: wrap;
+  }
+  .sec-head .why {
+    text-align: left;
+    margin-left: 0;
+  }
+}
+
+footer.foot {
+  border-top: 1px solid var(--color-divider);
+  margin-top: var(--space-8);
+  padding: var(--space-6) 0 var(--space-8);
+  font-size: 12.5px;
+  color: var(--color-neutral-700);
+}
+footer.foot .wrap {
+  display: flex;
+  gap: var(--space-6);
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+footer.foot a {
+  color: var(--color-neutral-800);
+}
+
+/* ---- posture + status ------------------------------------
+   One axis, five steps: the darker the fill, the worse for
+   platforms. Never carried by fill alone — always with a label. */
+.sw {
+  width: 22px;
+  height: 14px;
+  border: 1px solid var(--color-neutral-600);
+  display: inline-block;
+}
+.sw.untracked,
+.sw.none {
+  background: oklch(0.96 0.004 80);
+  border-style: dashed;
+  border-color: var(--color-neutral-400);
+}
+.sw.platform {
+  background: oklch(0.88 0.012 80);
+}
+.sw.pending {
+  background: oklch(0.78 0.012 80);
+}
+.sw.state {
+  background: oklch(0.63 0.012 80);
+}
+.sw.banned {
+  background: oklch(0.42 0.012 80);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border: 1px solid var(--color-neutral-700);
+  white-space: nowrap;
+}
+.badge.go {
+  border-color: oklch(0.52 0.09 150);
+  color: oklch(0.42 0.09 150);
+  background: oklch(0.95 0.03 150);
+}
+.badge.restricted {
+  border-color: oklch(0.6 0.1 78);
+  color: oklch(0.44 0.09 70);
+  background: oklch(0.95 0.045 85);
+}
+.badge.banned {
+  border-color: oklch(0.5 0.13 25);
+  color: oklch(0.98 0.01 25);
+  background: oklch(0.5 0.13 25);
+}
+.badge.upd {
+  border-color: var(--color-accent);
+  color: var(--color-accent-700);
+  background: var(--color-accent-100);
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
+/* ---- provenance ------------------------------------------ */
+.prov {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--color-neutral-800);
+  border: 1px solid var(--color-divider);
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.prov .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-accent-600);
+  flex: none;
+}
+.prov.agent .dot {
+  background: transparent;
+  border: 1px solid var(--color-neutral-600);
+}
+.prov.agent {
+  border-style: dashed;
+}
+
+.warn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border: 1px solid var(--color-accent-600);
+  color: var(--color-accent-700);
+  background: var(--color-accent-100);
+  white-space: nowrap;
+}
+
+.lastupd {
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+  font-feature-settings: "tnum";
+}
+
+/* ---- not-live draft --------------------------------------
+   The single most important state on ops.: a draft must never
+   be mistakable for published tracker content. Diagonal ticket
+   edge + explicit words, not colour alone. */
+.draft {
+  border: 1px solid var(--color-accent-600);
+  background: var(--color-bg);
+  position: relative;
+}
+.draft::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 5px;
+  background: repeating-linear-gradient(
+    45deg,
+    var(--color-accent-400) 0 4px,
+    var(--color-bg) 4px 8px
+  );
+}
+.draft > * {
+  margin-left: 5px;
+}
+.draftbanner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px dashed var(--color-accent-600);
+  background: var(--color-accent-100);
+  font-size: 12.5px;
+}
+.draftbanner strong {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-accent-700);
+}
+
+/* ---- run status ------------------------------------------ */
+.run {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border: 1px solid var(--color-neutral-500);
+  color: var(--color-neutral-800);
+  white-space: nowrap;
+}
+.run::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border: 1px solid var(--color-neutral-700);
+}
+.run.published {
+  border-color: var(--color-accent-600);
+  color: var(--color-accent-700);
+}
+.run.published::before {
+  background: var(--color-accent);
+  border-color: var(--color-accent-700);
+}
+.run.awaiting {
+  border-color: var(--color-accent-600);
+  color: var(--color-accent-700);
+  background: var(--color-accent-100);
+}
+.run.awaiting::before {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--color-accent-400) 0 2px,
+    transparent 2px 4px
+  );
+}
+.run.noop::before {
+  background: var(--color-bg);
+}
+.run.failed {
+  border-color: var(--color-neutral-900);
+  color: var(--color-neutral-100);
+  background: var(--color-neutral-900);
+}
+.run.failed::before {
+  background: var(--color-neutral-100);
+  border-color: var(--color-neutral-100);
+}
+.run.stopped::before {
+  background: var(--color-neutral-500);
+}
+.run.rejected::before {
+  background: var(--color-neutral-700);
+}
+.origin {
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-neutral-600);
+  border: 1px dashed var(--color-neutral-400);
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+/* ---- tables ---------------------------------------------- */
+table.grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+table.grid th {
+  text-align: left;
+  font-family: var(--font-body);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-neutral-600);
+  font-weight: 500;
+  padding: 0 var(--space-3) 6px 0;
+  border-bottom: 1px solid var(--color-neutral-700);
+}
+table.grid td {
+  padding: 9px var(--space-3) 9px 0;
+  border-bottom: 1px solid var(--color-divider);
+  vertical-align: top;
+}
+table.grid tbody tr.pick {
+  cursor: pointer;
+}
+table.grid tbody tr.pick:hover td {
+  background: var(--color-accent-100);
+}
+table.grid tr[aria-selected="true"] td {
+  background: var(--color-accent-100);
+}
+table.grid tr[aria-selected="true"] td:first-child {
+  box-shadow: inset 2px 0 0 var(--color-accent);
+  padding-left: var(--space-2);
+}
+
+/* ---- panels ---------------------------------------------- */
+.panel {
+  border: 1px solid var(--color-divider);
+}
+.panel.strong {
+  border-color: var(--color-neutral-700);
+}
+.panel > .ph {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-divider);
+  background: var(--color-neutral-100);
+}
+.panel > .pb {
+  padding: var(--space-4);
+}
+
+/* ---- empty / failed states -------------------------------
+   First-class, never an apology. A dashed frame, the reason,
+   and what it means for the reader. */
+.empty {
+  border: 1px dashed var(--color-neutral-400);
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  color: var(--color-neutral-700);
+  font-size: 13px;
+  line-height: 1.65;
+}
+.empty b {
+  display: block;
+  font-family: var(--font-heading);
+  font-size: 19px;
+  font-weight: 400;
+  color: var(--color-text);
+  margin-bottom: var(--space-2);
+}
+.empty .hint {
+  display: block;
+  margin-top: var(--space-2);
+  font-size: 12px;
+  color: var(--color-neutral-600);
+}
+
+/* ---- controls -------------------------------------------- */
+.chip {
+  font: inherit;
+  font-size: 12.5px;
+  padding: 3px 11px;
+  background: none;
+  cursor: pointer;
+  border: 1px solid var(--color-neutral-400);
+  color: var(--color-neutral-800);
+}
+.chip:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent-700);
+}
+.chip[aria-pressed="true"] {
+  border-color: var(--color-accent-600);
+  color: var(--color-accent-700);
+  background: var(--color-accent-100);
+}
+.chip:focus-visible,
+.topnav a:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.filters {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+.export {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+.export button {
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: none;
+  border: 1px solid var(--color-neutral-400);
+  color: var(--color-neutral-800);
+  padding: 3px 9px;
+  cursor: pointer;
+}
+.export button:hover {
+  border-color: var(--color-accent-600);
+  color: var(--color-accent-700);
+  background: var(--color-accent-100);
+}
+
+/* ---- step timeline (evidence) ---------------------------- */
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-left: 1px solid var(--color-divider);
+}
+.steps li {
+  position: relative;
+  padding: 0 0 var(--space-4) var(--space-4);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.steps li::before {
+  content: "";
+  position: absolute;
+  left: -3.5px;
+  top: 6px;
+  width: 6px;
+  height: 6px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-neutral-700);
+}
+.steps li.done::before {
+  background: var(--color-neutral-700);
+}
+.steps li.now::before {
+  background: var(--color-accent);
+  border-color: var(--color-accent-700);
+}
+.steps li.skip::before {
+  border-style: dashed;
+}
+.steps .sd {
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-neutral-600);
+  font-feature-settings: "tnum";
+}
+
+/* ---- diff ------------------------------------------------ */
+.diff {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.diff .col {
+  border: 1px solid var(--color-divider);
+}
+.diff .col h4 {
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-family: var(--font-body);
+  color: var(--color-neutral-600);
+  font-weight: 500;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-divider);
+}
+.diff .col p {
+  margin: 0;
+  padding: var(--space-3);
+}
+.diff del {
+  text-decoration: line-through;
+  text-decoration-color: var(--color-neutral-500);
+  color: var(--color-neutral-600);
+}
+.diff ins {
+  text-decoration: none;
+  border-bottom: 2px solid var(--color-accent);
+}
+@media (max-width: 800px) {
+  .diff {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---- native controls, themed ------------------------------ */
+input[type="range"],
+input[type="checkbox"],
+input[type="radio"],
+progress {
+  accent-color: var(--color-accent-600);
+}
+input[type="range"] {
+  height: 22px;
+}
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}

@@ -4,6 +4,7 @@ import { useAgentChat } from "@cloudflare/ai-chat/react";
 import { getToolName, isToolUIPart, type UIMessage } from "ai";
 import type { MCPServersState } from "agents";
 import type { ChatAgent } from "./server";
+import { DesignSystemGallery } from "./shared/ui/DesignSystemGallery";
 import {
   Badge,
   Button,
@@ -963,6 +964,16 @@ function Chat() {
 }
 
 export default function App() {
+  // TEMPORARY (story 1.2): dev-only door to the design-system gallery at ?ds=1,
+  // so the trust components can be verified before real routing exists.
+  // Story 1.3 replaces this with the apex / ops. / admin shells and their routes.
+  if (
+    import.meta.env.DEV &&
+    new URLSearchParams(window.location.search).has("ds")
+  ) {
+    return <DesignSystemGallery />;
+  }
+
   return (
     <Toasty>
       <Suspense

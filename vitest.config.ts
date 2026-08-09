@@ -1,19 +1,42 @@
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import react from "@vitejs/plugin-react";
 import agents from "agents/vite";
 import { defineConfig } from "vitest/config";
 
-// Tests run inside workerd against the real Worker config (architecture testing
-// standard: Vitest + Workers pool, co-located src/**/*.test.ts).
-// Config shape per current docs (pool-workers 0.20.x plugin API, Vitest ≥4.1).
-// agents() mirrors vite.config.ts — transforms @callable() decorators in agent classes.
+// Two projects, because the two kinds of code under test need different runtimes.
+//
+// "workers" — Worker/Agent/Workflow code, run inside workerd against the real
+//   wrangler.jsonc (architecture testing standard). agents() transforms the
+//   @callable() decorators in agent classes, mirroring vite.config.ts.
+//
+// "ui" — presentational components from src/shared/ui. These cannot run in the
+//   workers project: vitest-pool-workers externalizes `react`
+//   (cloudflare/workers-sdk#10170). They need no DOM either — assertions go
+//   through renderToStaticMarkup — so environment is plain node rather than
+//   jsdom, which keeps jsdom out of the dependency tree.
 export default defineConfig({
-  plugins: [
-    agents(),
-    cloudflareTest({
-      wrangler: { configPath: "./wrangler.jsonc" }
-    })
-  ],
   test: {
-    include: ["src/**/*.test.{ts,tsx}"]
+    projects: [
+      {
+        plugins: [
+          agents(),
+          cloudflareTest({
+            wrangler: { configPath: "./wrangler.jsonc" }
+          })
+        ],
+        test: {
+          name: "workers",
+          include: ["src/**/*.test.ts"]
+        }
+      },
+      {
+        plugins: [react()],
+        test: {
+          name: "ui",
+          environment: "node",
+          include: ["src/**/*.test.tsx"]
+        }
+      }
+    ]
   }
 });
