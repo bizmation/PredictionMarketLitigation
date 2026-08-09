@@ -117,7 +117,7 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
               "/": (x, y) => x / y,
               "%": (x, y) => x % y
             };
-            if (operator === "/" && b === 0) {
+            if ((operator === "/" || operator === "%") && b === 0) {
               return { error: "Division by zero" };
             }
             return {

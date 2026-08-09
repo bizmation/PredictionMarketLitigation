@@ -4,7 +4,7 @@ baseline_commit: 9ddc455967997d76d8d0e96104055ade57e08197
 
 # Story 1.1: Scaffold Cloudflare Agents Starter
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -160,4 +160,23 @@ Modified:
 - _bmad-output/implementation-artifacts/sprint-status.yaml (status transitions)
 - _bmad-output/implementation-artifacts/1-1-scaffold-cloudflare-agents-starter.md (this file)
 
-Not adopted from starter (deliberate): .github/workflows (sanity-check.yml, semgrep.yml), LICENSE, README.md, npm-agents-banner.svg
+Not adopted from starter (deliberate): .github/workflows (sanity-check.yml, semgrep.yml), LICENSE (later added in code review), README.md, npm-agents-banner.svg
+
+Code review follow-ups (2026-08-09):
+- LICENSE (MIT)
+- .nvmrc
+- package.json (engines + @cloudflare/vite-plugin bump)
+- package-lock.json (lockfile after vite-plugin bump)
+- .gitignore (`!.env.example`)
+- src/server.ts (`calculate` modulo-by-zero guard)
+
+### Review Findings
+
+- [x] [Review][Patch] Add root MIT `LICENSE` (decision: keep `"license": "MIT"` + ship LICENSE now) [`LICENSE`]
+- [x] [Review][Patch] Align Wrangler toolchain — top-level `wrangler@^4.120.0` nests under `@cloudflare/vite-plugin@1.46.0` as `wrangler@4.113.0` [`package.json`:38]
+- [x] [Review][Patch] Pin Node ≥20.12 via `engines` and/or `.nvmrc` — machine default Node 16 fails install; README/story document the requirement but nothing enforces it [`package.json`]
+- [x] [Review][Patch] `.gitignore` `.env.*` also ignores `.env.example` — conflicts with architecture’s planned root `.env.example` [`.gitignore`:249]
+- [x] [Review][Patch] `calculate` guards `/` by zero but not `%` [`src/server.ts`:120]
+- [x] [Review][Defer] Unauthenticated starter agent surface (chat + Workers AI + `@callable` MCP add/remove) [`src/server.ts`:39] — deferred, pre-existing
+- [x] [Review][Defer] Starter HTML still titled “Agent Starter” [`index.html`:10] — deferred, pre-existing
+- [x] [Review][Defer] Starter UI edge cases (blob URL leak on unmount, silent approval no-op, send/attachment races, unguarded mediaType/text) [`src/app.tsx`] — deferred, pre-existing
