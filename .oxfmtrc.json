@@ -1,0 +1,13 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "trailingComma": "none",
+  "printWidth": 80,
+  "ignorePatterns": [
+    "_bmad/**",
+    "_bmad-output/**",
+    ".claude/**",
+    ".agents/**",
+    "docs/**",
+    "env.d.ts"
+  ]
+}

@@ -233,3 +233,20 @@ __marimo__/
 # and frank risk/competitive notes. Publish deliberately, never by default.
 _bmad-output/**/.decision-log.md
 _bmad-output/**/addendum.md
+
+# ── Node / Cloudflare (merged from agents-starter, story 1.1) ─────
+node_modules/
+logs
+*.log
+npm-debug.log*
+coverage
+*.lcov
+*.tsbuildinfo
+.npm
+.eslintcache
+*.tgz
+.env
+.env.*
+.cache
+.wrangler
+.dev.vars*

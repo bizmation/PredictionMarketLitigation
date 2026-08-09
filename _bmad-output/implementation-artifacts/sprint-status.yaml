@@ -44,8 +44,8 @@ story_location: "{project-root}/_bmad-output/implementation-artifacts"
 
 development_status:
   # Epic 1: Dual-Site Platform & Design System
-  epic-1: backlog
-  1-1-scaffold-cloudflare-agents-starter: backlog
+  epic-1: in-progress
+  1-1-scaffold-cloudflare-agents-starter: review
   1-2-design-tokens-core-trust-components: backlog
   1-3-dual-site-shells-trust-chrome: backlog
   1-4-admin-access-protection: backlog

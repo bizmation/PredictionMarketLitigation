@@ -1,0 +1,48 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pml",
+  "main": "src/server.ts",
+  "compatibility_date": "2026-06-11",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // ── Future bindings land here (stubs only — see architecture.md) ──
+  // Wrangler env semantics: bindings (d1_databases, vars, …) are NON-INHERITABLE
+  // and must be re-declared inside each env block; name/main/compatibility_date inherit.
+  //
+  // Story 2.1 — D1 canonical store:
+  //   "d1_databases": [{ "binding": "DB", "database_name": "pml", "database_id": "<created-in-2.1>" }]
+  // Story 1.5 — environments + custom domains (separate D1 per env):
+  //   "env": {
+  //     "staging":    { "routes": [...], "d1_databases": [...] },
+  //     "production": {
+  //       "routes": [
+  //         { "pattern": "predictionmarketlitigation.com", "custom_domain": true },
+  //         { "pattern": "ops.predictionmarketlitigation.com", "custom_domain": true }
+  //       ],
+  //       "d1_databases": [...]
+  //     }
+  //   }
+  // Story 1.4 — Cloudflare Access protects /admin + /api/admin/* (zero-trust config, not wrangler)
+  // Story 3.2 — AI Gateway binding/credentials via Worker secrets (never committed)
+
+  "ai": { "binding": "AI", "remote": true },
+  "assets": {
+    "directory": "./public",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/agents/*", "/oauth/*"]
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "ChatAgent",
+        "name": "ChatAgent"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "new_sqlite_classes": ["ChatAgent"],
+      "tag": "v1"
+    }
+  ]
+}
