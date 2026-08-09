@@ -224,10 +224,9 @@ __marimo__/
 # Claude Code — personal/local
 .claude/settings.local.json
 
-# BMAD installer-generated skill copies (reinstall via the BMAD installer;
-# ~38 MB of duplicated tooling, kept out of version control)
-.claude/skills/
-.agents/skills/
+# BMAD installer-generated skill copies are TRACKED as of 2026-08-09
+# (pre-upgrade rollback safety — reversal of the init-time exclusion).
+# They are BMAD open-source content; bulk (~19 MB), not secrets.
 
 # BMAD internal planning — keep private on this PUBLIC repo.
 # Decision logs hold candid rationale/overrides; addenda hold private context
