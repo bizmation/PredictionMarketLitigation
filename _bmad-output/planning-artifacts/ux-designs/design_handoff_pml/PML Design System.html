@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PML — Design system</title>
+<link rel="stylesheet" href="_ds/classical-85c77590-4a2f-41a0-92df-b00754b50bd3/styles.css">
+<link rel="stylesheet" href="pml.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Lora:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+  .spec { display: grid; grid-template-columns: 260px 1fr; gap: var(--space-8); align-items: start; }
+  .spec .note { font-size: 13px; line-height: 1.65; color: var(--color-neutral-800); text-wrap: pretty; }
+  .spec .note h3 { font-size: 19px; font-weight: 400; margin-bottom: var(--space-2); }
+  .spec .note p { margin: 0 0 var(--space-3); }
+  .spec .note code { font-family: var(--font-body); font-size: 12px; color: var(--color-accent-700); }
+  .demo { display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: center; }
+  .stack { display: grid; gap: var(--space-4); }
+  .swatches { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--space-3); }
+  .swatches .s { border: 1px solid var(--color-divider); }
+  .swatches .chip { display: block; height: 62px; border: 0; cursor: default; }
+  .swatches .lab { padding: var(--space-2) var(--space-3); font-size: 12px; line-height: 1.4; }
+  .swatches .lab b { display: block; font-weight: 500; }
+  .swatches .lab span { color: var(--color-neutral-600); font-size: 11px; font-feature-settings: "tnum"; }
+  .typerow { display: grid; grid-template-columns: 150px 1fr; gap: var(--space-4); align-items: baseline;
+    padding: var(--space-3) 0; border-bottom: 1px solid var(--color-divider); }
+  .typerow .m { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-neutral-600);
+    font-feature-settings: "tnum"; }
+  .scale { display: flex; gap: var(--space-3); align-items: flex-end; }
+  .scale div { text-align: center; font-size: 10.5px; color: var(--color-neutral-600); font-feature-settings: "tnum"; }
+  .scale i { display: block; background: var(--color-accent-200); border: 1px solid var(--color-accent-600);
+    margin-bottom: 5px; }
+  .inv { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .inv th { text-align: left; font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; font-weight: 500;
+    color: var(--color-neutral-600); padding: 0 var(--space-3) 6px 0; border-bottom: 1px solid var(--color-neutral-700); }
+  .inv td { padding: 9px var(--space-3) 9px 0; border-bottom: 1px solid var(--color-divider); vertical-align: top; }
+  .inv td:first-child { font-family: var(--font-body); color: var(--color-accent-700); font-size: 12.5px; white-space: nowrap; }
+  @media (max-width: 940px) { .spec { grid-template-columns: 1fr; } .swatches { grid-template-columns: repeat(2, 1fr); } }
+</style>
+</head>
+<body>
+
+<div class="topbar"><div class="wrap">
+  <div class="brand">Prediction<em>Market</em>Litigation <span class="sub">/ design system</span></div>
+  <nav class="topnav" aria-label="Primary">
+    <a href="PML Tracker.html">Apex tracker</a>
+    <a href="PML Ops.html">ops.</a>
+    <a href="PML Admin.html">Admin</a>
+    <a href="#" aria-current="page">Design system</a>
+  </nav>
+</div></div>
+
+<div class="trustbar"><div class="wrap">
+  <span class="warn">⚠ Internal reference</span>
+  <span class="sep">·</span>
+  <span class="grow">Classical tokens carry type, colour and spacing. This sheet documents only what PML adds on top.</span>
+  <span class="sep">·</span>
+  <span class="num">v1 · 9 Aug 2026</span>
+</div></div>
+
+<div class="wrap">
+<header style="padding:var(--space-8) 0 var(--space-6)">
+  <div class="kicker">Foundations &amp; components</div>
+  <h1 style="font-size:clamp(34px,4.4vw,54px);font-weight:400;line-height:1.05;max-width:18ch">
+    Trust furniture is product UI, so it gets real components.</h1>
+  <p style="max-width:64ch;font-size:16px;line-height:1.7;color:var(--color-neutral-800);margin-top:var(--space-4)">
+    Everything here resolves to a Classical token. The one deliberate extension is the posture ramp, because the
+    system is mono and this product has to encode five mutually exclusive legal states without inventing five hues.
+    Load <code style="font-family:var(--font-body);color:var(--color-accent-700)">styles.css</code> then
+    <code style="font-family:var(--font-body);color:var(--color-accent-700)">pml.css</code>; use the classes below
+    rather than restyling.</p>
+</header>
+</div>
+
+<!-- ---------- TYPE ---------- -->
+<section class="band" id="type"><div class="wrap">
+  <div class="sec-head">
+    <div><div class="kicker">01</div><h2>Type</h2></div>
+    <p class="why">Cormorant Garamond over Lora, straight from the tokens. Nothing here sets bold; weight is
+      carried by size and rule, italics by case names.</p>
+  </div>
+  <div class="spec">
+    <div class="note">
+      <h3>Rules</h3>
+      <p>Case captions are always italic. Docket numbers, dates, figures and any column of numerals set tabular
+        (<code>.num</code>). Section labels use <code>.kicker</code> — 11px, .16em tracking, uppercase.</p>
+      <p>Minimum body size is 12.5px, and only for metadata. Legal text never goes below 13px.</p>
+    </div>
+    <div>
+      <div class="typerow"><span class="m">H1 · 52/1.05</span>
+        <span style="font-family:var(--font-heading);font-size:44px;font-weight:400;line-height:1.05">Where litigation stands</span></div>
+      <div class="typerow"><span class="m">H2 · 30/1.15</span>
+        <span style="font-family:var(--font-heading);font-size:30px;font-weight:400">The circuit split</span></div>
+      <div class="typerow"><span class="m">H3 · 21/1.2</span>
+        <span style="font-family:var(--font-heading);font-size:21px;font-weight:400">Evidence detail</span></div>
+      <div class="typerow"><span class="m">Case caption</span>
+        <em style="font-family:var(--font-heading);font-size:18px">KalshiEX LLC v. Flaherty</em>,
+        <span class="num" style="font-size:13px">172 F.4th 220 (3d Cir. 2026)</span></div>
+      <div class="typerow"><span class="m">Body · 14.5/1.72</span>
+        <span style="font-size:14.5px;line-height:1.72">The court held the Act preempts otherwise applicable
+          state laws that purport to regulate sports-related event contracts on CFTC-licensed exchanges.</span></div>
+      <div class="typerow"><span class="m">Meta · 12/1.5</span>
+        <span class="num" style="font-size:12px;color:var(--color-neutral-700)">Run 2026-08-09-0612 · 04:12 elapsed · $0.38</span></div>
+      <div class="typerow"><span class="m">Kicker · 11/.16em</span><span class="kicker">A2 · Status board</span></div>
+    </div>
+  </div>
+</div></section>
+
+<!-- ---------- COLOR ---------- -->
+<section class="band" id="color"><div class="wrap">
+  <div class="sec-head">
+    <div><div class="kicker">02</div><h2>Colour</h2></div>
+    <p class="why">Classical is mono gold. Posture is therefore encoded as depth, not hue — one perceptual axis,
+      five steps, dark meaning worse for platforms.</p>
+  </div>
+
+  <div class="spec">
+    <div class="note">
+      <h3>Posture ramp</h3>
+      <p>Generated in OKLCH on the neutral hue at fixed lightness steps, so a state's fill can also take its
+        circuit's hue on the map without breaking the ordering.</p>
+      <p>Never used alone. Every posture fill is accompanied by its label, and the legend appears above any
+        surface that uses it.</p>
+    </div>
+    <div class="swatches">
+      <div class="s"><span class="chip sw untracked" style="width:auto"></span>
+        <span class="lab"><b>No tracked activity</b><span>L 0.962 · dashed edge</span></span></div>
+      <div class="s"><span class="chip sw platform" style="width:auto"></span>
+        <span class="lab"><b>Decided for platform</b><span>L 0.885</span></span></div>
+      <div class="s"><span class="chip sw pending" style="width:auto"></span>
+        <span class="lab"><b>Pending — skeptical</b><span>L 0.790</span></span></div>
+      <div class="s"><span class="chip sw state" style="width:auto"></span>
+        <span class="lab"><b>Decided for state</b><span>L 0.645</span></span></div>
+      <div class="s"><span class="chip sw banned" style="width:auto"></span>
+        <span class="lab"><b>Banned</b><span>L 0.440</span></span></div>
+    </div>
+  </div>
+
+  <div class="spec" style="margin-top:var(--space-8)">
+    <div class="note">
+      <h3>Operational status</h3>
+      <p>A separate axis from posture, and they can disagree — a state can be heading for the platforms on the
+        law and still be closed today. Status uses texture rather than depth so the two never blur: outline for
+        go, hatch for restricted, solid ink for banned.</p>
+    </div>
+    <div class="demo">
+      <span class="badge go">Go</span>
+      <span class="badge restricted">Restricted</span>
+      <span class="badge banned">Banned</span>
+      <span class="badge upd">updated</span>
+      <span class="muted" style="font-size:12.5px">Circuit hue is applied only on the map, from a 13-step
+        low-chroma wheel; it never appears in text or chrome.</span>
+    </div>
+  </div>
+</div></section>
+
+<!-- ---------- SPACING ---------- -->
+<section class="band" id="space"><div class="wrap">
+  <div class="sec-head">
+    <div><div class="kicker">03</div><h2>Spacing &amp; structure</h2></div>
+    <p class="why">The Classical scale at 1.15× density. Sections are separated by hairlines, not cards;
+      panels are bordered and unfilled.</p>
+  </div>
+  <div class="spec">
+    <div class="note">
+      <h3>Rules</h3>
+      <p>Page gutter <code>--space-6</code>, section padding <code>--space-8</code> top and bottom with a
+        1px divider between. Panel padding <code>--space-4</code>. Table rows 9px vertical.</p>
+      <p>Two-pane surfaces are 1.5fr / 1fr, except cases, which run 1fr / 3fr because the record carries prose.
+        Everything collapses to one column at 940px.</p>
+    </div>
+    <div>
+      <div class="scale">
+        <div><i style="width:4.6px;height:4.6px"></i>1</div>
+        <div><i style="width:9.2px;height:9.2px"></i>2</div>
+        <div><i style="width:13.8px;height:13.8px"></i>3</div>
+        <div><i style="width:18.4px;height:18.4px"></i>4</div>
+        <div><i style="width:27.6px;height:27.6px"></i>6</div>
+        <div><i style="width:36.8px;height:36.8px"></i>8</div>
+      </div>
+      <div class="panel" style="margin-top:var(--space-6)">
+        <div class="ph"><span class="kicker">Panel header</span>
+          <span class="lastupd" style="margin-left:auto">Updated 9 Aug 2026</span></div>
+        <div class="pb" style="font-size:13.5px;line-height:1.6">Panel body. Bordered, unfilled, header tinted
+          to <code style="font-family:var(--font-body);color:var(--color-accent-700)">--color-neutral-100</code>.</div>
+      </div>
+    </div>
+  </div>
+</div></section>
+
+<!-- ---------- COMPONENTS ---------- -->
+<section class="band" id="components"><div class="wrap">
+  <div class="sec-head">
+    <div><div class="kicker">04</div><h2>Components</h2></div>
+    <p class="why">Twelve pieces carry the whole product. Trust furniture is half of them, by design.</p>
+  </div>
+
+  <div class="stack">
+
+    <div class="spec">
+      <div class="note">
+        <h3>ProvenanceLabel</h3>
+        <p>Frozen at publish time and shown at the point of use, never in a footer. Human approval is a filled
+          dot; agent approval is a hollow dot on a dashed border, so the weaker claim looks weaker.</p>
+      </div>
+      <div class="demo">
+        <span class="prov"><span class="dot"></span> Human-approved</span>
+        <span class="prov agent"><span class="dot"></span> Agent-approved · gate-v2.1</span>
+        <span class="warn">⚠ General legal information — not legal advice</span>
+      </div>
+    </div>
+
+    <div class="spec">
+      <div class="note">
+        <h3>NotLiveDraftBanner</h3>
+        <p>The most important state in the system. A draft must be impossible to mistake for published tracker
+          content, so it carries a hatched edge, a dashed rule, and the words in full — three signals, none of
+          them colour alone.</p>
+      </div>
+      <div class="draft">
+        <div class="draftbanner">
+          <strong>Not live · awaiting approval</strong>
+          <span>This text is a proposal. The tracker still shows the previously approved value.</span>
+          <span class="prov agent" style="margin-left:auto"><span class="dot"></span> Drafted by agent</span>
+        </div>
+        <div style="padding:var(--space-4);font-size:13.5px;line-height:1.65">
+          <em>Proposed:</em> New Jersey posture <del style="color:var(--color-neutral-600)">decided for platform</del>
+          <ins style="text-decoration:none;border-bottom:2px solid var(--color-accent)">pending — skeptical</ins>,
+          on the certiorari deadline passing without a petition.
+        </div>
+      </div>
+    </div>
+
+    <div class="spec">
+      <div class="note">
+        <h3>RunStatusChip &amp; origin flag</h3>
+        <p>Seven run outcomes, all first-class. A boring run is evidence too — an empty run gets the same
+          treatment as a publish, because hiding them would make the log a highlight reel.</p>
+      </div>
+      <div class="demo">
+        <span class="run published">Published</span>
+        <span class="run awaiting">Awaiting approval</span>
+        <span class="run noop">Empty — no change</span>
+        <span class="run rejected">Rejected</span>
+        <span class="run stopped">Budget-stopped</span>
+        <span class="run failed">Failed</span>
+        <span class="origin">scheduled</span>
+        <span class="origin">catch-up</span>
+        <span class="origin">manual</span>
+      </div>
+    </div>
+
+    <div class="spec">
+      <div class="note">
+        <h3>LastUpdated &amp; UpdatedBadge</h3>
+        <p>Visible on every tracker surface, never inferred. Anything that moved inside the last thirty days
+          also carries the badge, in the row and in the detail panel.</p>
+      </div>
+      <div class="demo">
+        <span class="lastupd">Updated 9 Aug 2026, 06:12 ET</span>
+        <span class="badge upd">updated</span>
+        <span class="badge upd num">Reviewed 9 Aug 2026</span>
+      </div>
+    </div>
+
+    <div class="spec">
+      <div class="note">
+        <h3>EvidenceStepTimeline</h3>
+        <p>Live and historical from the same component. Completed steps take a filled node, the running step
+          the accent node, skipped steps a dashed one.</p>
+      </div>
+      <ul class="steps">
+        <li class="done"><span class="sd">06:12:04 · 1.2s</span><br>Fetching — 14 dockets, 2 changed</li>
+        <li class="done"><span class="sd">06:12:31 · 47s · $0.31</span><br>Drafting — 1 posture change proposed</li>
+        <li class="done"><span class="sd">06:13:18 · 3s</span><br>Guardrails — passed; Tier-1 source present</li>
+        <li class="now"><span class="sd">06:13:21</span><br>Awaiting approval — HITL, 2h 14m elapsed</li>
+        <li class="skip"><span class="sd">—</span><br>Publish</li>
+      </ul>
+    </div>
+
+    <div class="spec">
+      <div class="note">
+        <h3>Diff</h3>
+        <p>Every human edit to an agent draft is published side by side, original left and published right.
+          Struck text is what the operator removed; underscored text is what they wrote.</p>
+      </div>
+      <div class="diff">
+        <div class="col"><h4>Agent draft</h4>
+          <p>Utah has <del>banned prediction markets</del>.</p></div>
+        <div class="col"><h4>Published after operator edit</h4>
+          <p>Utah has <ins>entered summary judgment for the State; sports event contracts are unavailable</ins>.</p></div>
+      </div>
+    </div>
+
+    <div class="spec">
+      <div class="note">
+        <h3>Empty states</h3>
+        <p>Written, not generic. Each says what happened, what it means, and what it is not — an untracked
+          state is not a finding of legality, and an unrun eval is not a passing eval.</p>
+      </div>
+      <div class="stack">
+        <div class="empty"><b>No material change</b>
+          The run completed and proposed nothing. Sources were checked and matched the published record.
+          <span class="hint">Empty runs are kept in the log deliberately.</span></div>
+        <div class="empty"><b>Evals not run</b>
+          This run predates the eval suite. The field is empty rather than zero.
+          <span class="hint">An empty eval is not a passing eval.</span></div>
+        <div class="empty"><b>No tracked activity</b>
+          Nothing in this state has been reviewed.
+          <span class="hint">Absence of a finding is not a finding of legality.</span></div>
+      </div>
+    </div>
+
+    <div class="spec">
+      <div class="note">
+        <h3>Tables</h3>
+        <p>Hairline rules, uppercase heads, sortable where the column is ordinal. Selection is an accent inset
+          on the first cell with matching padding, so nothing under it is obscured.</p>
+      </div>
+      <table class="grid">
+        <thead><tr><th>State</th><th>Status</th><th>Posture</th><th>Updated</th></tr></thead>
+        <tbody>
+          <tr class="pick" aria-selected="true"><td>New Jersey<br><span class="lastupd">3d Cir.</span></td>
+            <td><span class="badge go">Go</span></td><td>Decided for platform</td>
+            <td class="num">9 Aug 2026 <span class="badge upd">updated</span></td></tr>
+          <tr class="pick"><td>Utah<br><span class="lastupd">10th Cir.</span></td>
+            <td><span class="badge banned">Banned</span></td><td>Decided for state</td>
+            <td class="num">5 Aug 2026</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="spec">
+      <div class="note">
+        <h3>Controls</h3>
+        <p>Filters are pressed-state chips; exports sit at the end of the filter row and carry the retrieval
+          date, gate mode and provenance into the file itself.</p>
+      </div>
+      <div class="filters" style="margin:0">
+        <span class="kicker">Status</span>
+        <button class="chip" aria-pressed="true">All</button>
+        <button class="chip" aria-pressed="false">Go</button>
+        <button class="chip" aria-pressed="false">Restricted</button>
+        <span class="export" style="margin-left:var(--space-4)">
+          <button type="button">CSV</button><button type="button">JSON</button></span>
+      </div>
+    </div>
+
+  </div>
+</div></section>
+
+<!-- ---------- INVENTORY ---------- -->
+<section class="band" id="inventory"><div class="wrap">
+  <div class="sec-head">
+    <div><div class="kicker">05</div><h2>Class inventory</h2></div>
+    <p class="why">What to reach for, and where it is already in use.</p>
+  </div>
+  <table class="inv">
+    <thead><tr><th>Class</th><th>Component</th><th>Used on</th></tr></thead>
+    <tbody>
+      <tr><td>.sw.platform / .pending / .state / .banned / .untracked</td><td>PostureLegend swatch</td><td>Apex map, board, circuit index, case list</td></tr>
+      <tr><td>.badge.go / .restricted / .banned</td><td>StatusBadge</td><td>Apex board, state detail, entity ledger</td></tr>
+      <tr><td>.badge.upd</td><td>UpdatedBadge</td><td>Apex board, cert signal</td></tr>
+      <tr><td>.prov / .prov.agent</td><td>ProvenanceLabel</td><td>Every published item; ops. evidence</td></tr>
+      <tr><td>.warn</td><td>TrustDisclaimer tag</td><td>Trust bar, all surfaces</td></tr>
+      <tr><td>.lastupd</td><td>LastUpdated</td><td>Panels, rows, map header</td></tr>
+      <tr><td>.draft + .draftbanner</td><td>NotLiveDraftBanner</td><td>ops. pending drafts, admin queue</td></tr>
+      <tr><td>.run.published / .awaiting / .empty / .rejected / .stopped / .failed</td><td>RunStatusChip</td><td>ops. run log, evidence header</td></tr>
+      <tr><td>.origin</td><td>Run origin flag</td><td>ops. run log</td></tr>
+      <tr><td>.steps</td><td>EvidenceStepTimeline</td><td>ops. evidence detail</td></tr>
+      <tr><td>.diff</td><td>Before/after diff</td><td>ops. evidence, admin edit-then-approve</td></tr>
+      <tr><td>.empty</td><td>EmptyRunState and friends</td><td>ops. run log, evidence, apex map</td></tr>
+      <tr><td>.grid</td><td>Data table</td><td>Apex board, ops. run log, admin queue</td></tr>
+      <tr><td>.panel / .panel.strong</td><td>Bordered surface</td><td>Everywhere</td></tr>
+      <tr><td>.chip / .export</td><td>Filter and export controls</td><td>Apex board and cases, ops. run log</td></tr>
+    </tbody>
+  </table>
+</div></section>
+
+<footer class="foot"><div class="wrap">
+  <span>PML design system · v1</span>
+  <a href="PML Tracker.html">Apex tracker</a>
+  <a href="PML Ops.html">ops.</a>
+  <a href="PML Admin.html">Admin</a>
+  <span style="margin-left:auto">Built on Classical. Tokens are the source of truth.</span>
+</div></div></footer>
+
+</body>
+</html>

@@ -1,0 +1,2478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PredictionMarketLitigation — U.S. Litigation Tracker</title>
+<link rel="stylesheet" href="_ds/classical-85c77590-4a2f-41a0-92df-b00754b50bd3/styles.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Lora:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/d3@7.9.0/dist/d3.min.js" integrity="sha384-CjloA8y00+1SDAUkjs099PVfnY2KmDC2BZnws9kh8D/lX1s46w6EPhpXdqMfjK6i" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/topojson-client@3.1.0/dist/topojson-client.min.js" integrity="sha384-Ukv1p/xTma6P4/2bY5KzWBw+ydSpXmhCMtyciIQVDJ1RmOxtCYNMF1uXT9T63H67" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<style>
+  /* ---- issue map ---- */
+  .chart { width: 100%; }
+  .chartcard { border: 1px solid var(--color-divider); margin-bottom: var(--space-6); }
+  .chartcard > .ch { display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap;
+    padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--color-divider);
+    background: var(--color-neutral-100); }
+  .chartcard > .ch .kicker { flex: none; }
+  .chartcard > .ch .note { font-size: 12px; color: var(--color-neutral-700); margin-left: auto; text-align: right;
+    max-width: 58ch; line-height: 1.5; }
+  .issuebar { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
+    border: 1px solid var(--color-neutral-700); padding: var(--space-3) var(--space-4);
+    margin-bottom: var(--space-6); background: var(--color-neutral-100); }
+  .issuebar .lead { font-family: var(--font-heading); font-size: 20px; }
+  .issuebar .fam { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--color-neutral-600); }
+  .issuematters { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+  .issuematters button { font: inherit; font-size: 12px; background: none; cursor: pointer;
+    border: 1px solid var(--color-neutral-400); color: var(--color-neutral-800); padding: 2px 9px; }
+  .issuematters button:hover { border-color: var(--color-accent-600); color: var(--color-accent-700);
+    background: var(--color-accent-100); }
+  .issuematters button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+  .issuehint { font-size: 12.5px; color: var(--color-neutral-700); line-height: 1.6; }
+
+  /* ---- reader poll ---- */
+  .poll { border: 1px solid var(--color-neutral-700); margin-top: var(--space-6); }
+  .poll .ph { display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap;
+    padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--color-divider);
+    background: var(--color-neutral-100); }
+  .poll .pq { font-family: var(--font-heading); font-size: 20px; }
+  .poll .pn { margin-left: auto; font-size: 11.5px; color: var(--color-neutral-600); }
+  .pgrid { display: grid; grid-template-columns: 1fr 1px 1.15fr; }
+  .pgrid .vr { background: var(--color-divider); }
+  .pcol { padding: var(--space-4); }
+  .plabel { font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--color-neutral-600); margin-bottom: var(--space-3); }
+  .pvote { display: flex; gap: var(--space-3); flex-wrap: wrap; }
+  .pbtn { font: inherit; font-size: 13.5px; display: inline-flex; align-items: center; gap: 8px;
+    padding: 7px 14px; background: none; cursor: pointer; color: var(--color-neutral-800);
+    border: 1px solid var(--color-neutral-400); }
+  .pbtn svg { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 1.6;
+    stroke-linecap: round; stroke-linejoin: round; }
+  .pbtn:hover { border-color: var(--color-accent-600); color: var(--color-accent-700);
+    background: var(--color-accent-100); }
+  .pbtn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+  .pbtn[aria-pressed="true"] { border-color: var(--color-accent-600); color: var(--color-accent-700);
+    background: var(--color-accent-100); box-shadow: inset 0 -2px 0 var(--color-accent); }
+  .pterms { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+  .pterms button { font: inherit; font-size: 13px; padding: 5px 12px; background: none; cursor: pointer;
+    border: 1px solid var(--color-neutral-400); color: var(--color-neutral-800);
+    font-feature-settings: "tnum"; }
+  .pterms button:hover { border-color: var(--color-accent-600); color: var(--color-accent-700);
+    background: var(--color-accent-100); }
+  .pterms button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+  .pterms button[aria-pressed="true"] { border-color: var(--color-accent-600); color: var(--color-accent-700);
+    background: var(--color-accent-100); box-shadow: inset 0 -2px 0 var(--color-accent); }
+  .pres { margin-top: var(--space-4); font-size: 12.5px; }
+  .pres .row { display: grid; grid-template-columns: 92px 1fr 46px; gap: var(--space-3); align-items: center;
+    margin-bottom: 7px; }
+  .pres .track { height: 9px; border: 1px solid var(--color-neutral-500); background: var(--color-bg);
+    position: relative; }
+  .pres .fill { position: absolute; inset: 0 auto 0 0; background: var(--color-accent-300); }
+  .pres .row.me .fill { background: var(--color-accent); }
+  .pres .row.me .lab { color: var(--color-accent-700); }
+  .pres .pct { text-align: right; font-feature-settings: "tnum"; color: var(--color-neutral-700); }
+  .pfoot { border-top: 1px solid var(--color-divider); padding: var(--space-3) var(--space-4);
+    font-size: 11.5px; color: var(--color-neutral-600); line-height: 1.6; }
+  @media (max-width: 820px) { .pgrid { grid-template-columns: 1fr; }
+    .pgrid .vr { height: 1px; width: auto; } }
+  body { background: var(--color-bg); color: var(--color-text); font-family: var(--font-body); margin: 0; }
+  a { color: var(--color-accent-700); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+  a:hover { color: var(--color-accent-600); }
+  .wrap { max-width: 1220px; margin: 0 auto; padding: 0 var(--space-6); }
+  h1, h2, h3, h4 { font-family: var(--font-heading); font-weight: var(--font-heading-weight); margin: 0; }
+  .kicker { font-family: var(--font-body); font-size: 11px; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--color-neutral-700); font-feature-settings: "tnum"; }
+  .rule { border: 0; border-top: 1px solid var(--color-divider); margin: 0; }
+  .num { font-feature-settings: "tnum"; }
+
+  /* masthead */
+  .topbar { border-bottom: 1px solid var(--color-divider); background: var(--color-bg);
+    position: sticky; top: 0; z-index: 30; }
+  .topbar .wrap { display: flex; align-items: center; gap: var(--space-6); height: 62px; }
+  .brand { font-family: var(--font-heading); font-size: 22px; letter-spacing: .01em; white-space: nowrap; }
+  .brand em { font-style: normal; color: var(--color-accent-700); }
+  .topnav { display: flex; gap: var(--space-4); margin-left: auto; flex-wrap: wrap; }
+  .topnav a { font-size: 13px; text-decoration: none; color: var(--color-neutral-800); padding: 4px 0;
+    border-bottom: 1px solid transparent; }
+  .topnav a:hover { border-bottom-color: var(--color-accent); color: var(--color-text); }
+  .topnav a[aria-current="true"] { border-bottom-color: var(--color-accent); color: var(--color-text); }
+  .topnav a.ext::after { content: " ↗"; color: var(--color-neutral-500); }
+  .topnav a.coffee { border: 1px solid var(--color-accent-600); color: var(--color-accent-700);
+    padding: 4px 10px; margin-left: var(--space-2); }
+  .topnav a.coffee:hover { background: var(--color-accent-100); border-bottom-color: var(--color-accent-600); }
+
+  .trustbar { border-bottom: 1px solid var(--color-divider); background: var(--color-neutral-100); }
+  .trustbar .wrap { display: flex; gap: var(--space-3) var(--space-4); align-items: center; flex-wrap: wrap;
+    padding-top: 6px; padding-bottom: 6px; font-size: 12px; color: var(--color-neutral-800); }
+  .trustbar .sep { color: var(--color-neutral-400); }
+  .trustbar .grow { flex: 1 1 22ch; min-width: 0; }
+  .trustbar .prov, .trustbar .warn { flex: none; }
+  .trustbar .num { flex: 0 1 auto; min-width: 0; }
+  .warn { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; letter-spacing: .08em;
+    text-transform: uppercase; padding: 2px 8px; border: 1px solid var(--color-accent-600);
+    color: var(--color-accent-700); background: var(--color-accent-100); white-space: nowrap; }
+
+
+  .about { border-bottom: 1px solid var(--color-divider); background: var(--color-bg); }
+  .about .wrap { display: grid; grid-template-columns: auto 1fr 1fr auto auto; gap: var(--space-4);
+    align-items: center; padding-top: var(--space-3); padding-bottom: var(--space-3); }
+  .about .lbl { font-size: 9.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--color-neutral-600);
+    white-space: nowrap; line-height: 1.4; }
+  .about .goal { display: grid; grid-template-columns: 16px 1fr; gap: var(--space-2);
+    border-left: 1px solid var(--color-divider); padding-left: var(--space-4); }
+  .about .goal i { font-style: normal; font-family: var(--font-heading); font-size: 15px;
+    font-feature-settings: "tnum"; color: var(--color-accent-700); line-height: 1.2; }
+  .about .goal b { display: block; font-family: var(--font-heading); font-size: 14.5px; font-weight: 400;
+    line-height: 1.2; }
+  .about .goal span { display: block; font-size: 11.5px; line-height: 1.45; color: var(--color-neutral-800);
+    margin-top: 2px; text-wrap: pretty; }
+  .about .gh { display: flex; flex-direction: column; gap: 6px; align-items: flex-end;
+    border-left: 1px solid var(--color-divider); padding-left: var(--space-4); }
+  .about .gh .btn { padding: 4px 10px; font-size: 12px; }
+  .founder { display: grid; grid-template-columns: 1fr 62px; gap: var(--space-3); align-items: center;
+    border-left: 1px solid var(--color-divider); padding-left: var(--space-4); }
+  .founder .plate { width: 62px; height: 62px; padding: 2px; background: var(--color-surface);
+    border: 1px solid var(--color-divider); line-height: 0; box-sizing: border-box; }
+  .founder .plate img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 20%; display: block;
+    filter: saturate(.82) sepia(.06) contrast(1.02); }
+  @media (max-width: 940px) { .about .wrap { grid-template-columns: 1fr; }
+    .about .goal, .about .gh, .founder { border-left: 0; padding-left: 0; align-items: flex-start; } }
+
+  header.masthead { padding: var(--space-8) 0 var(--space-6); }
+  header.masthead h1 { font-size: clamp(38px, 5.2vw, 62px); font-weight: 400; line-height: 1.04; max-width: 16ch; }
+  .dek { margin-top: var(--space-4); max-width: 62ch; font-size: 16.5px; line-height: 1.62; text-wrap: pretty;
+    color: var(--color-neutral-800); }
+  .mast-grid { display: grid; grid-template-columns: 1.15fr 1fr; gap: var(--space-8); align-items: start; }
+  .mast-meta { border-left: 1px solid var(--color-divider); padding-left: var(--space-6); font-size: 13px;
+    color: var(--color-neutral-800); line-height: 1.7; }
+  .mast-meta dt { font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--color-neutral-600); }
+  .mast-meta dd { margin: 0 0 var(--space-3); }
+
+  section.band { padding: var(--space-8) 0; border-top: 1px solid var(--color-divider); }
+  .sec-head { display: flex; align-items: baseline; gap: var(--space-4); margin-bottom: var(--space-6); }
+  .sec-head h2 { font-size: 30px; font-weight: 400; }
+  .sec-head .why { margin-left: auto; font-size: 13px; color: var(--color-neutral-700); max-width: 46ch;
+    text-align: right; line-height: 1.55; }
+
+  .explain { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-8); }
+  .explain h3 { font-size: 21px; font-weight: 400; margin-bottom: var(--space-2); }
+  .explain p { font-size: 15px; line-height: 1.72; text-wrap: pretty; margin: 0 0 var(--space-3); }
+  .explain h3:not(:first-child) { margin-top: var(--space-6); }
+  .blist { list-style: none; margin: 0 0 var(--space-3); padding: 0; }
+  .blist li { font-size: 14.5px; line-height: 1.6; padding: var(--space-2) 0 var(--space-2) var(--space-4);
+    border-bottom: 1px solid var(--color-divider); position: relative; text-wrap: pretty; }
+  .blist li:last-child { border-bottom: 0; }
+  .blist li::before { content: ""; position: absolute; left: 2px; top: 15px; width: 5px; height: 5px;
+    background: var(--color-accent); }
+  .blist strong { font-weight: 600; }
+  .explain .q { font-family: var(--font-heading); font-size: 25px; line-height: 1.28; font-weight: 400;
+    border-left: 2px solid var(--color-accent); padding-left: var(--space-4); margin: 0 0 var(--space-4);
+    text-align: left; }
+  .tl { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0; margin-top: var(--space-8);
+    border-top: 1px solid var(--color-neutral-700); }
+  .tl > div { padding: var(--space-3) var(--space-4) 0; border-right: 1px solid var(--color-divider); }
+  .tl > div:first-child { padding-left: 0; }
+  .tl > div:last-child { border-right: 0; padding-right: 0; }
+  .tl .yr { font-family: var(--font-heading); font-size: 15px; font-feature-settings: "tnum";
+    color: var(--color-accent-700); }
+  .tl p { font-size: 12.5px; line-height: 1.55; margin: 4px 0 var(--space-3); color: var(--color-neutral-800); }
+  @media (max-width: 940px) { .tl { grid-template-columns: 1fr 1fr; } }
+
+  /* posture legend */
+  .legend { border: 1px solid var(--color-divider); border-left: 2px solid var(--color-accent);
+    padding: var(--space-3) var(--space-4); margin-bottom: var(--space-4); background: var(--color-neutral-100);
+    display: grid; gap: var(--space-3); }
+  .legrow { display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-6); align-items: center; }
+  .legend .lg-label { font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--color-neutral-600);
+    width: 74px; flex: none; }
+  .lg { display: flex; align-items: center; gap: 8px; font-size: 12.5px; cursor: help; }
+  .lg[title] { border-bottom: 1px dotted transparent; }
+  .lg[title]:hover { border-bottom-color: var(--color-neutral-400); }
+  .sw { width: 22px; height: 14px; border: 1px solid var(--color-neutral-600); display: inline-block; }
+  .sw.platform { background: oklch(0.87 0.06 150); border-color: oklch(0.52 0.09 150); }
+  .sw.pending { background: oklch(0.88 0.07 88); border-color: oklch(0.60 0.10 78); }
+  .sw.state { background: oklch(0.76 0.10 45); border-color: oklch(0.52 0.12 40); }
+  .sw.banned { background: oklch(0.55 0.14 25); border-color: oklch(0.42 0.13 25); }
+  .sw.none { background: oklch(0.97 0.002 80); border-style: dashed; border-color: var(--color-neutral-400); }
+  .pchip { display: inline-flex; align-items: center; gap: 7px; font: inherit; font-size: 12.5px; cursor: pointer;
+    background: none; border: 1px solid transparent; padding: 2px 8px 2px 4px; color: var(--color-neutral-800); }
+  .pchip:hover { border-color: var(--color-neutral-400); }
+  .pchip[aria-pressed="true"] { border-color: var(--color-accent-600); background: var(--color-accent-100); }
+  .pchip:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+  .pchip b { font-family: var(--font-heading); font-size: 15px; font-weight: 400; font-feature-settings: "tnum";
+    color: var(--color-neutral-700); }
+  .cchip { display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 12px; cursor: pointer;
+    background: none; border: 1px solid transparent; padding: 1px 5px; color: var(--color-neutral-800);
+    white-space: nowrap; flex: none; }
+  .cchip:hover { border-color: var(--color-neutral-400); }
+  .cchip[aria-pressed="true"] { border-color: var(--color-accent-600); color: var(--color-accent-700); }
+  .cchip:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+  .cchip i { display: inline-block; width: 18px; height: 0; border-top-width: 3px; border-top-style: solid; }
+
+  /* map + circuit index */
+  .f1 { display: grid; grid-template-columns: 1fr; gap: var(--space-6); align-items: start; }
+  #circuitlist { display: grid; grid-template-columns: repeat(auto-fit, minmax(390px, 1fr)); }
+  #circuitlist .crow { border-right: 1px solid var(--color-divider); }
+  .layerbar { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center;
+    border: 1px solid var(--color-divider); border-left: 2px solid var(--color-accent);
+    padding: var(--space-3) var(--space-4); margin-bottom: var(--space-3); background: var(--color-neutral-100); }
+  .layerbar .lg-label { width: auto; }
+  .echip { font: inherit; font-size: 12px; padding: 3px 10px; background: none; cursor: pointer;
+    border: 1px solid var(--color-neutral-400); color: var(--color-neutral-800); }
+  .echip:hover { border-color: var(--color-accent); color: var(--color-accent-700); }
+  .echip[aria-pressed="true"] { border-color: var(--color-accent-600); color: var(--color-accent-700);
+    background: var(--color-accent-100); }
+  .echip:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+  .layernote { font-size: 12px; color: var(--color-neutral-700); margin-left: auto; max-width: 46ch;
+    text-align: right; line-height: 1.45; }
+  .mapcard { border: 1px solid var(--color-divider); background: var(--color-neutral-100); position: relative; }
+  .mapcard .caphead { display: flex; align-items: baseline; gap: var(--space-3);
+    padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--color-divider); }
+  #map { display: block; width: 100%; height: 560px; }
+  #mapfallback { display: none; padding: var(--space-6); font-size: 13px; color: var(--color-neutral-700); }
+  .st { cursor: pointer; }
+  .st:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+  .circ { fill: none; stroke-width: 1.6; stroke-linejoin: round; pointer-events: none; }
+  .circ.sel { stroke-width: 3.6; }
+  .clabel { font-family: var(--font-heading); font-size: 14px; font-feature-settings: "tnum";
+    paint-order: stroke; stroke: var(--color-bg); stroke-width: 4px;
+    stroke-linejoin: round; cursor: pointer; }
+  .clabel.sel { fill: var(--color-accent-700); }
+
+  .tooltip { position: fixed; pointer-events: none; z-index: 60; opacity: 0; transition: opacity .12s;
+    background: var(--color-bg); border: 1px solid var(--color-neutral-700); box-shadow: var(--shadow-md);
+    padding: var(--space-2) var(--space-3); max-width: 280px; font-size: 12.5px; line-height: 1.5; }
+  .tooltip h4 { font-size: 16px; font-weight: 500; margin-bottom: 2px; }
+  .tooltip .tt-row { color: var(--color-neutral-800); }
+
+  .circuits { border: 1px solid var(--color-divider); }
+  .circuits .caphead { display: flex; align-items: baseline; gap: var(--space-3);
+    padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--color-divider); background: var(--color-neutral-100); }
+  .crow { display: grid; grid-template-columns: 44px 1fr auto; gap: var(--space-3); align-items: center;
+    padding: 9px var(--space-4); border-bottom: 1px solid var(--color-divider); cursor: pointer; text-align: left;
+    width: 100%; background: none; border-left: 0; border-right: 0; border-top: 0; font: inherit; color: inherit; }
+  .crow:last-child { border-bottom: 0; }
+  .crow:hover { background: var(--color-accent-100); }
+  .crow[aria-selected="true"] { background: var(--color-accent-100); box-shadow: inset 2px 0 0 var(--color-accent); }
+  .crow:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+  .cnum { font-family: var(--font-heading); font-size: 26px; font-weight: 400; font-feature-settings: "tnum";
+    line-height: 1; color: var(--color-neutral-700); }
+  .crow[data-posture="untracked"] .cnum { color: var(--color-neutral-400); }
+  .cbody { font-size: 12.5px; line-height: 1.45; }
+  .cbody .cname { font-size: 13.5px; }
+  .cbody .ccase { color: var(--color-neutral-700); font-style: italic; }
+  .cbody .cnone { color: var(--color-neutral-500); }
+
+  /* badges */
+  .badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; letter-spacing: .06em;
+    text-transform: uppercase; padding: 2px 7px; border: 1px solid var(--color-neutral-700); white-space: nowrap; }
+  .badge.go { border-color: oklch(0.52 0.09 150); color: oklch(0.42 0.09 150);
+    background: oklch(0.95 0.03 150); }
+  .badge.restricted { border-color: oklch(0.60 0.10 78); color: oklch(0.44 0.09 70);
+    background: oklch(0.95 0.045 85); }
+  .badge.banned { border-color: oklch(0.50 0.13 25); color: oklch(0.98 0.01 25);
+    background: oklch(0.50 0.13 25); }
+  .badge.upd { border-color: var(--color-accent); color: var(--color-accent-700); background: var(--color-accent-100);
+    text-transform: none; letter-spacing: .02em; }
+  .prov { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--color-neutral-800);
+    border: 1px solid var(--color-divider); padding: 2px 8px; }
+  .prov .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-accent-600); }
+  .prov.agent .dot { background: transparent; border: 1px solid var(--color-neutral-600); }
+
+  /* status board */
+  .board { display: grid; grid-template-columns: 1.5fr 1fr; gap: var(--space-6); align-items: start; }
+  .filters { display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap; margin-bottom: var(--space-3); }
+  .chip { font: inherit; font-size: 12.5px; padding: 3px 11px; background: none; cursor: pointer;
+    border: 1px solid var(--color-neutral-400); color: var(--color-neutral-800); }
+  .chip:hover { border-color: var(--color-accent); color: var(--color-accent-700); }
+  .chip[aria-pressed="true"] { border-color: var(--color-accent-600); color: var(--color-accent-700); background: var(--color-accent-100); }
+  .chip:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+  table.board-t { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  table.board-t th { text-align: left; font-family: var(--font-body); font-size: 10.5px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--color-neutral-600); font-weight: 500; padding: 0 var(--space-3) 6px 0;
+    border-bottom: 1px solid var(--color-neutral-700); }
+  table.board-t th button { font: inherit; background: none; border: 0; padding: 0; cursor: pointer; color: inherit;
+    letter-spacing: inherit; text-transform: inherit; }
+  table.board-t th button:hover { color: var(--color-accent-700); }
+  table.board-t th button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+  table.board-t td { padding: 9px var(--space-3) 9px 0; border-bottom: 1px solid var(--color-divider); vertical-align: top; }
+  table.board-t tr { cursor: pointer; }
+  table.board-t tbody tr:hover td { background: var(--color-accent-100); }
+  table.board-t tr[aria-selected="true"] td { background: var(--color-accent-100); }
+  table.board-t tr[aria-selected="true"] td:first-child { box-shadow: inset 2px 0 0 var(--color-accent);
+    padding-left: var(--space-2); }
+  td.stname { font-family: var(--font-heading); font-size: 17px; }
+  td .case { font-style: italic; color: var(--color-neutral-800); }
+  td .cite { display: block; font-size: 11.5px; color: var(--color-neutral-600); }
+
+  .detail { border: 1px solid var(--color-neutral-700); position: sticky; top: 78px; }
+  .detail .dhead { padding: var(--space-4); border-bottom: 1px solid var(--color-divider); }
+  .detail .dhead h3 { font-size: 27px; font-weight: 400; line-height: 1.1; }
+  .detail .dbody { padding: var(--space-4); font-size: 13px; }
+  .detail dl { margin: 0; display: grid; grid-template-columns: 96px 1fr; gap: 6px var(--space-3); }
+  .detail dt { font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--color-neutral-600); padding-top: 2px; }
+  .detail dd { margin: 0; line-height: 1.5; }
+  .plat { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: var(--space-2); }
+  .plat th { text-align: left; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; font-weight: 500;
+    color: var(--color-neutral-600); padding-bottom: 5px; border-bottom: 1px solid var(--color-divider); }
+  .plat td { padding: 6px 0; border-bottom: 1px solid var(--color-divider); }
+  .plat td:last-child { text-align: right; }
+  .srcline { font-size: 12px; margin-top: var(--space-3); line-height: 1.6; }
+
+  /* cases */
+  .casebar { display: flex; gap: var(--space-3); align-items: center; flex-wrap: wrap;
+    padding-bottom: var(--space-4); margin-bottom: var(--space-4); border-bottom: 1px solid var(--color-divider); }
+  .casebar .srch { font: inherit; font-size: 13.5px; padding: 6px 10px; min-width: 320px; flex: 1 1 320px;
+    background: var(--color-bg); border: 1px solid var(--color-neutral-400); color: inherit; }
+  .casebar select { font: inherit; font-size: 13px; padding: 6px 10px; background: var(--color-bg);
+    border: 1px solid var(--color-neutral-400); color: inherit; }
+  .casebar .srch:focus-visible, .casebar select:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+  .casechips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .casechips button { font: inherit; font-size: 12px; padding: 3px 9px; background: none; cursor: pointer;
+    border: 1px solid var(--color-neutral-400); color: var(--color-neutral-800);
+    display: inline-flex; align-items: center; gap: 6px; }
+  .casechips button[aria-pressed="true"] { border-color: var(--color-accent-600); background: var(--color-accent-100);
+    color: var(--color-accent-700); }
+  .casechips button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+  #case-count { margin-left: auto; font-size: 12px; color: var(--color-neutral-600); }
+  .forum { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--color-neutral-600); white-space: nowrap; }
+  .forum::before { content: ""; width: 6px; height: 6px; flex: none; border: 1px solid var(--color-neutral-500); }
+  .forum.federal::before { background: var(--color-neutral-500); }
+  .forum.state::before { background: var(--color-bg); }
+  .forum.both::before { background: linear-gradient(135deg, var(--color-neutral-500) 0 50%, var(--color-bg) 50% 100%); }
+  .cases { display: grid; grid-template-columns: 1fr 3fr; gap: var(--space-8); align-items: start; }
+  .caselist { border-top: 1px solid var(--color-neutral-700); }
+  .caseitem { display: block; width: 100%; text-align: left; font: inherit; color: inherit; background: none;
+    border: 0; border-bottom: 1px solid var(--color-divider); padding: var(--space-3) 0; cursor: pointer; }
+  .caseitem:hover { background: var(--color-accent-100); }
+  .caseitem[aria-selected="true"] { background: var(--color-accent-100); box-shadow: inset 2px 0 0 var(--color-accent); padding-left: var(--space-3); }
+  .caseitem:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+  .caseitem .cap { display: block; font-family: var(--font-heading); font-size: 15.5px; line-height: 1.22; }
+  .caseitem .meta { display: block; font-size: 11.5px; color: var(--color-neutral-700); margin-top: 3px; }
+  .itag { display: inline-flex; align-items: center; font-size: 10.5px; letter-spacing: .08em;
+    text-transform: uppercase; padding: 2px 7px; border: 1px solid var(--color-neutral-400);
+    color: var(--color-neutral-800); white-space: nowrap; }
+  .itag.primary { border-color: var(--color-accent-600); color: var(--color-accent-700); }
+  .ctag { display: inline-flex; align-items: center; gap: 5px; margin-top: 6px; font-size: 10px;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--color-neutral-800); }
+  .ctag .sw { width: 13px; height: 9px; }
+  .docket { list-style: none; margin: var(--space-4) 0 0; padding: 0; border-left: 1px solid var(--color-divider); }
+  .docket li { position: relative; padding: 0 0 var(--space-4) var(--space-4); font-size: 13px; line-height: 1.55; }
+  .docket li::before { content: ""; position: absolute; left: -3.5px; top: 7px; width: 6px; height: 6px;
+    background: var(--color-bg); border: 1px solid var(--color-neutral-700); }
+  .docket li:first-child::before { background: var(--color-accent); border-color: var(--color-accent-700); }
+  .docket .d { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-neutral-600);
+    font-feature-settings: "tnum"; }
+
+  /* entities */
+  .etabs { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-bottom: var(--space-6); }
+  .etab { font: inherit; background: none; cursor: pointer; text-align: left; padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--color-divider); min-width: 214px; color: inherit; }
+  .etab:hover { border-color: var(--color-neutral-400); background: var(--color-accent-100); }
+  .etab[aria-selected="true"] { border-color: var(--color-accent-600); background: var(--color-accent-100); }
+  .etab:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+  .etab .en { display: block; font-family: var(--font-heading); font-size: 18px; line-height: 1.15; }
+  .etab .et { display: block; font-size: 11px; color: var(--color-neutral-700); margin-top: 3px; }
+  .etab .ec { display: flex; gap: 3px; margin-top: 8px; }
+  .etab .ec span { height: 6px; flex: none; }
+  .estats { display: flex; gap: var(--space-4); margin-top: var(--space-3);
+    padding-top: var(--space-2); border-top: 1px solid var(--color-divider); }
+  .estats div { line-height: 1.1; }
+  .estats b { display: block; font-family: var(--font-heading); font-size: 20px; font-weight: 400;
+    font-feature-settings: "tnum"; }
+  .estats span { font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-neutral-600); }
+  .etab .bar { margin-top: var(--space-3); }
+  .etab .barcap { font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--color-neutral-600); margin-bottom: 4px; }
+  .rtag { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; border: 1px solid var(--color-neutral-400);
+    padding: 1px 6px; color: var(--color-neutral-800); }
+  .rtag.P { border-color: var(--color-accent-600); color: var(--color-accent-700); }
+  .ent { display: grid; grid-template-columns: 1fr 1.6fr; gap: var(--space-8); align-items: start; }
+  .ledger { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: var(--space-3); }
+  .ledger td { padding: 7px 0; border-bottom: 1px solid var(--color-divider); vertical-align: top; }
+  .ledger td:first-child { width: 96px; }
+  .ledger .sts { font-size: 13px; line-height: 1.5; }
+  .ledger .sts button { font: inherit; background: none; border: 0; padding: 0; cursor: pointer;
+    color: var(--color-accent-700); text-decoration: underline; text-underline-offset: 3px; }
+  .ledger .sts button:hover { color: var(--color-accent-600); }
+  .matters { list-style: none; margin: var(--space-3) 0 0; padding: 0; }
+  .matters li { border-bottom: 1px solid var(--color-divider); padding: var(--space-3) 0; }
+  .matters .mrow { display: flex; gap: var(--space-3); align-items: baseline; flex-wrap: wrap; }
+  .matters .mcap { font-family: var(--font-heading); font-size: 16.5px; }
+  .matters .mmeta { font-size: 11.5px; color: var(--color-neutral-600); }
+  .matters p { font-size: 13px; line-height: 1.6; margin: 5px 0 0; color: var(--color-neutral-800); }
+  .matters button.link { font: inherit; font-size: 12px; background: none; border: 0; padding: 0; cursor: pointer;
+    color: var(--color-accent-700); text-decoration: underline; text-underline-offset: 3px; }
+
+  .export { display: flex; gap: var(--space-2); align-items: center; margin-left: auto; }
+  .export button { font: inherit; font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+    background: none; border: 1px solid var(--color-neutral-400); color: var(--color-neutral-800);
+    padding: 3px 9px; cursor: pointer; }
+  .export button:hover { border-color: var(--color-accent-600); color: var(--color-accent-700);
+    background: var(--color-accent-100); }
+  .export button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+  .sec-head .export { flex: none; }
+
+  /* cert */
+  .cert { display: grid; grid-template-columns: 1fr 1.1fr; gap: var(--space-8); align-items: start; }
+  .certgauge { border: 1px solid var(--color-neutral-700); padding: var(--space-6); text-align: center; }
+  .certgauge .val { font-family: var(--font-heading); font-size: 46px; font-weight: 400; line-height: 1.05; }
+  .certgauge .scale { display: flex; gap: 3px; margin: var(--space-4) 0 var(--space-2); }
+  .certgauge .scale span { flex: 1; height: 7px; border: 1px solid var(--color-neutral-500); }
+  .certgauge .scale span.on { background: var(--color-accent-300); border-color: var(--color-accent-600); }
+  .factors { list-style: none; margin: 0; padding: 0; }
+  .factors li { display: grid; grid-template-columns: 18px 1fr; gap: var(--space-3); padding: var(--space-3) 0;
+    border-bottom: 1px solid var(--color-divider); font-size: 13.5px; line-height: 1.55; }
+  .factors .fn { font-family: var(--font-heading); font-feature-settings: "tnum"; color: var(--color-accent-700); }
+  .reserved { border: 1px dashed var(--color-neutral-400); padding: var(--space-3) var(--space-4);
+    font-size: 12.5px; color: var(--color-neutral-600); margin-top: var(--space-4); }
+
+  header.masthead h1 { font-size: clamp(34px, 4.2vw, 52px); font-weight: 400; line-height: 1.05; max-width: 17ch; }
+  .bottomline { font-family: var(--font-heading); font-size: clamp(20px, 2.1vw, 27px); font-weight: 400;
+    line-height: 1.34; margin: var(--space-4) 0 0; border-left: 2px solid var(--color-accent);
+    padding-left: var(--space-4); text-wrap: pretty; }
+  .cta { display: flex; gap: var(--space-3); flex-wrap: wrap; margin-top: var(--space-6); }
+  .latest { border: 1px solid var(--color-neutral-700); }
+  .latest .lh { display: flex; align-items: baseline; gap: var(--space-3);
+    padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--color-divider);
+    background: var(--color-neutral-100); }
+  .latest .live { display: inline-flex; align-items: center; gap: 6px; font-size: 10px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--color-accent-700); }
+  .latest .live::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--color-accent); }
+  .feed { list-style: none; margin: 0; padding: 0; }
+  .feed li { border-bottom: 1px solid var(--color-divider); }
+  .feed li:last-child { border-bottom: 0; }
+  .feed button { display: block; width: 100%; text-align: left; font: inherit; background: none; border: 0;
+    padding: var(--space-3) var(--space-4); cursor: pointer; color: inherit; }
+  .feed button:hover { background: var(--color-accent-100); }
+  .feed button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+  .feed .fd { font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-neutral-600);
+    font-feature-settings: "tnum"; }
+  .feed .ft { display: block; font-size: 13.5px; line-height: 1.5; margin-top: 3px; text-wrap: pretty; }
+  .feed .fc { display: block; font-family: var(--font-heading); font-size: 14px; margin-top: 4px;
+    color: var(--color-neutral-700); }
+
+  .kpis { display: grid; grid-template-columns: repeat(6, 1fr); border: 1px solid var(--color-neutral-700);
+    margin-top: var(--space-6); }
+  .kpi { padding: var(--space-4); border-right: 1px solid var(--color-divider); }
+  .kpi:last-child { border-right: 0; }
+  .kpi b { display: block; font-family: var(--font-heading); font-size: 40px; font-weight: 400; line-height: 1;
+    font-feature-settings: "tnum"; }
+  .kpi b small { font-size: 20px; color: var(--color-neutral-600); }
+  .kpi .k { display: block; font-size: 10px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--color-neutral-600); margin-top: var(--space-2); }
+  .kpi .sub { display: block; font-size: 11.5px; color: var(--color-neutral-700); margin-top: 4px; line-height: 1.4; }
+  .kpi .split { display: flex; gap: var(--space-2); align-items: stretch; }
+  .kpi .split i { font-style: normal; flex: 1; text-align: center; border: 1px solid var(--color-neutral-400);
+    padding: 6px 4px 5px; font-family: var(--font-heading); font-size: 24px; font-feature-settings: "tnum";
+    line-height: 1; }
+  .kpi .split i em { font-style: normal; font-family: var(--font-body); font-size: 8.5px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--color-neutral-600); display: block; margin-top: 5px; }
+  .kpi .split i.go { border-color: oklch(0.52 0.09 150); color: oklch(0.40 0.09 150);
+    background: oklch(0.96 0.025 150); }
+  .kpi .split i.restricted { border-color: oklch(0.60 0.10 78); color: oklch(0.42 0.09 70);
+    background: oklch(0.96 0.04 85); }
+  .kpi .split i.banned { border-color: oklch(0.50 0.13 25); color: oklch(0.40 0.12 25);
+    background: oklch(0.95 0.03 25); }
+  .kpi .split i em { color: inherit; opacity: .75; }
+  @media (max-width: 940px) { .kpis { grid-template-columns: repeat(2, 1fr); }
+    .kpi { border-bottom: 1px solid var(--color-divider); } }
+
+  /* trust */
+  .trust { display: grid; grid-template-columns: 1.1fr 1fr; gap: var(--space-8); }
+  .disclaimer { border-left: 2px solid var(--color-accent); padding-left: var(--space-4); font-size: 13.5px;
+    line-height: 1.7; color: var(--color-neutral-800); }
+  .disclaimer strong { font-weight: 600; color: var(--color-text); }
+  .corr { border: 1px solid var(--color-neutral-700); padding: var(--space-6); }
+  .corr label { display: block; font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--color-neutral-600); margin-bottom: 5px; }
+  .corr input, .corr textarea, .corr select { width: 100%; font: inherit; font-size: 13.5px; background: var(--color-bg);
+    border: 1px solid var(--color-neutral-400); padding: 8px 10px; color: inherit; border-radius: var(--radius-sm); box-sizing: border-box; }
+  .corr input:focus-visible, .corr textarea:focus-visible, .corr select:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+  .corr .row { margin-bottom: var(--space-3); }
+  .ackbox { margin-top: var(--space-4); border: 1px solid var(--color-divider); background: var(--color-neutral-100);
+    padding: var(--space-3) var(--space-4); font-size: 12.5px; line-height: 1.6; }
+  .ackbox code { font-family: var(--font-body); font-feature-settings: "tnum"; color: var(--color-accent-700); }
+
+  .opslink { display: grid; grid-template-columns: 1fr auto; gap: var(--space-6); align-items: center;
+    border: 1px solid var(--color-neutral-700); padding: var(--space-6); background: var(--color-neutral-100); }
+  .opslink h3 { font-size: 26px; font-weight: 400; }
+  .opslink p { margin: var(--space-2) 0 0; font-size: 13.5px; color: var(--color-neutral-800); max-width: 62ch; line-height: 1.6; }
+
+  footer.foot { border-top: 1px solid var(--color-divider); margin-top: var(--space-8); padding: var(--space-6) 0 var(--space-8);
+    font-size: 12.5px; color: var(--color-neutral-700); }
+  footer.foot .wrap { display: flex; gap: var(--space-6); flex-wrap: wrap; align-items: baseline; }
+  footer.foot a { color: var(--color-neutral-800); }
+
+  @media (max-width: 940px) {
+    .mast-grid, .f1, .board, .cases, .cert, .trust, .opslink { grid-template-columns: 1fr; }
+    .mast-meta { border-left: 0; border-top: 1px solid var(--color-divider); padding: var(--space-4) 0 0; }
+    .detail { position: static; }
+    .sec-head { flex-wrap: wrap; } .sec-head .why { text-align: left; margin-left: 0; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar"><div class="wrap">
+  <div class="brand"><b style="font-size:28px">Prediction<em>Market</em>Litigation</b></div>
+  <nav class="topnav" aria-label="Primary">
+    <a href="#brief">Overview</a>
+    <a href="#circuits">Circuit split</a>
+    <a href="#states">States</a>
+    <a href="#issues">Issues</a>
+    <a href="#cases">Cases</a>
+    <a href="#entities">Entities</a>
+    <a href="#cert">Cert signal</a>
+    <a href="PML Ops.html" class="ext">ops.</a>
+    <a href="#repo" class="ext">Repo</a>
+    <a href="#coffee" class="coffee">Buy me a coffee</a>
+  </nav>
+</div></div>
+
+<div class="trustbar"><div class="wrap">
+  <span class="warn">⚠ General legal information — not legal advice</span>
+  <span class="sep">·</span>
+  <span class="grow">Built by AI, governed and approved by a human; corrections welcome.</span>
+  <span class="sep">·</span>
+  <span class="num">Updated <strong>9 Aug 2026, 06:12 ET</strong></span>
+  <span class="sep">·</span>
+  <span class="prov"><span class="dot"></span> Human-approved</span>
+</div></div>
+
+<div class="about"><div class="wrap">
+  <span class="lbl" style="font-weight:700">About<br>this page</span>
+  <div class="goal">
+    <i>1</i>
+    <div><b>Always current</b>
+      <span>A live record of U.S. prediction-market litigation — posture, operational status and primary source
+        for every tracked state, checked daily rather than written once.</span></div>
+  </div>
+  <div class="goal">
+    <i>2</i>
+    <div><b>Open-source governance, demonstrated</b>
+      <span>Built and maintained by an autonomous system, mapped to the
+        <a href="https://www.linkedin.com/" target="_blank" rel="noopener">nine-layer AI governance framework</a>
+        Patrick proposed on LinkedIn. Every run, draft and approval is public on
+        <a href="PML Ops.html">ops.</a></span></div>
+  </div>
+  <div class="founder">
+    <div>
+      <span class="lbl">Founder</span>
+      <div style="font-family:var(--font-heading);font-size:15px;line-height:1.2;margin-top:2px">Patrick Bland</div>
+      <div style="font-size:11.5px;color:var(--color-neutral-700);line-height:1.4">Practising attorney &amp; CTO</div>
+      <a href="https://www.linkedin.com/" target="_blank" rel="noopener" style="font-size:11.5px">LinkedIn ↗</a>
+    </div>
+    <span class="plate"><img src="assets/patrick-bland.jpg" alt="Patrick Bland" width="800" height="800"></span>
+  </div>
+  <div class="gh">
+    <a class="btn btn-secondary" href="#repo">Source on GitHub ↗</a>
+    <a href="PML Ops.html#layers" style="font-size:12px">The nine layers ↗</a>
+  </div>
+</div></div>
+
+<div class="wrap">
+<header class="masthead">
+  <div class="mast-grid" data-comment-anchor="263ab28e-35">
+    <div>
+      <div class="kicker">U.S. Federal &amp; State Litigation · Tracker F1</div>
+      <h1 style="width:581px;height:155px">Where prediction-market litigation actually stands.</h1>
+      <p class="bottomline">One court of appeals says the federal exchange licence wins.
+        Six district courts say the states do. Nothing is settled, and the Supreme Court has not been asked yet
+        — the deadline is 3 September.</p>
+      <div class="cta">
+        <a class="btn btn-primary" href="#states">Check a state</a>
+        <a class="btn btn-secondary" href="#brief">What this fight is about</a>
+        <a class="btn btn-ghost" href="PML Ops.html">See the receipts</a>
+      </div>
+      <dl class="mast-meta" style="border-left:0;padding-left:0;margin-top:var(--space-6);
+        border-top:1px solid var(--color-divider);padding-top:var(--space-4)">
+        <dt>Headline anchor</dt>
+        <dd><em>KalshiEX LLC v. Flaherty</em>, 172 F.4th 220 (3d Cir. 2026)</dd>
+        <dt>Pending drafts</dt>
+        <dd><a href="PML Ops.html#drafts">2 awaiting approval on ops.</a> — not reflected below</dd>
+        <dt>Approval gate</dt>
+        <dd>HITL (human in the loop) · Autonomous mode off</dd>
+      </dl>
+    </div>
+    <div class="latest">
+      <div class="lh">
+        <span class="live" style="font-size:12px">Latest developments</span>
+        <span class="num" style="margin-left:auto;font-size:11.5px;color:var(--color-neutral-600)">as of 9 Aug 2026</span>
+      </div>
+      <ul class="feed" id="feed"></ul>
+    </div>
+  </div>
+  <div class="kpis" id="kpis"></div>
+
+  <div class="poll" id="poll">
+    <div class="ph">
+      <span class="kicker">Reader poll</span>
+      <span class="pq">Will the Supreme Court take it?</span>
+      <span class="pn num" id="poll-n"></span>
+    </div>
+    <div class="pgrid">
+      <div class="pcol">
+        <div class="plabel">Cert granted in <em>Flaherty</em>?</div>
+        <div class="pvote">
+          <button class="pbtn" type="button" data-vote="yes" aria-pressed="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10v12"></path><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"></path></svg>
+            They grant
+          </button>
+          <button class="pbtn" type="button" data-vote="no" aria-pressed="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true" style="transform:rotate(180deg)"><path d="M7 10v12"></path><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"></path></svg>
+            They deny
+          </button>
+        </div>
+        <div class="pres" id="poll-cert"></div>
+      </div>
+      <div class="vr"></div>
+      <div class="pcol">
+        <div class="plabel">And if they grant — which term?</div>
+        <div class="pterms" id="poll-terms"></div>
+        <div class="pres" id="poll-termres"></div>
+      </div>
+    </div>
+    <div class="pfoot">An unscientific reader poll. It is not evidence, not a forecast, and not connected to any
+      market — the tracker's own <a href="#cert">cert reading</a> is qualitative and set by a named human.
+      One vote per browser, stored locally; nothing is sent anywhere.</div>
+  </div>
+</header>
+</div>
+
+<!-- ============ EXECUTIVE SUMMARY ============ -->
+<section class="band" id="brief"><div class="wrap">
+  <div class="sec-head">
+    <div>
+      <div class="kicker">The situation</div>
+      <h2>What this fight is about</h2>
+    </div>
+    <p class="why">Written for readers who are not lawyers. Every claim below is carried in the case records
+      further down, each with a primary source.</p>
+  </div>
+
+  <div class="explain">
+    <div>
+      <p class="q">A federally licensed exchange now sells contracts on who wins Sunday's game. Forty-eight
+        states call that a bet. Congress never said which one is right.</p>
+      <h3>What a prediction market is</h3>
+      <p>You buy a contract that pays out if a stated event happens — a candidate wins, inflation lands above a
+        number, a team covers. Kalshi, Polymarket US, Crypto.com and Robinhood Derivatives run these as federally
+        regulated exchanges, licensed by the Commodity Futures Trading Commission the same way a soybean futures
+        market is licensed.</p>
+      <h3>What changed</h3>
+      <ul class="blist">
+        <li><strong>The contracts moved to sports.</strong> For most of their history these markets tracked
+          economic events, and nobody objected. In early 2025 the platforms began listing contracts on sporting
+          events.</li>
+        <li><strong>Gaming regulators saw a sportsbook.</strong> A contract that pays out when the Titans win is
+          a sports bet under any state definition — and sports betting is licensed, taxed and policed state by
+          state.</li>
+        <li><strong>Nobody can point to a statute that resolves it.</strong> The state laws predate the federal
+          one by a century, and the federal one never mentions sports.</li>
+      </ul>
+      <h3>The legal question, in one sentence</h3>
+      <p>The Commodity Exchange Act gives the CFTC “exclusive jurisdiction” over swaps and futures traded on
+        federally licensed exchanges.</p>
+      <ul class="blist">
+        <li><strong>The platforms say</strong> that language preempts state gambling law: if the CFTC licensed
+          the market, no state may shut it down.</li>
+        <li><strong>The states say</strong> Congress wrote that statute to regulate financial derivatives after
+          the 2008 crisis, not to strip states of a police power they have held for a century — and that a bet on
+          a football game is not a swap in any meaningful sense.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>How the states are enforcing</h3>
+      <p>By every tool they have, often several at once in the same state.</p>
+      <ul class="blist">
+        <li><strong>Cease-and-desist orders.</strong> Gaming boards order the platforms to stop, on penalty of
+          unlicensed-gaming charges.</li>
+        <li><strong>State-court suits.</strong> Attorneys general sue at home, where platforms have repeatedly
+          failed to move the case into federal court.</li>
+        <li><strong>Criminal charges.</strong> Arizona filed twenty misdemeanor counts — the first criminal
+          prosecution of a CFTC-registered operator.</li>
+        <li><strong>Statutes and taxes.</strong> Minnesota passed an outright ban; Kentucky wrote a 14.25% excise
+          tax and barred licensed sportsbooks from dealing with the platforms.</li>
+        <li><strong>Tribal claims.</strong> Tribes have sued under the Indian Gaming Regulatory Act, arguing the
+          contracts cut into exclusivity they paid for.</li>
+        <li><strong>And the federal government pushing back.</strong> Since April 2026 the CFTC has sued nine
+          states in its own name.</li>
+      </ul>
+      <h3>Why this tracker exists</h3>
+      <ul class="blist">
+        <li><strong>The answer depends on the courthouse.</strong> One appellate ruling says preempted; final
+          judgments and denials in Utah, New York, Wisconsin, Ohio, Maryland and Nevada say otherwise.</li>
+        <li><strong>It changes most weeks.</strong> Four of the nineteen states below moved in the last month.</li>
+        <li><strong>Compliance needs the order, not the headline.</strong> Every status here links to the ruling
+          that makes it true.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="tl">
+    <div>
+      <div class="yr">2023–24</div>
+      <p>Kalshi beats the CFTC over election contracts in federal court. The agency drops its appeal. Election
+        markets go live.</p>
+    </div>
+    <div>
+      <div class="yr">Early 2025</div>
+      <p>Sports event contracts launch. Nevada, then a wave of other gaming regulators, issue cease-and-desist
+        orders.</p>
+    </div>
+    <div>
+      <div class="yr">Late 2025</div>
+      <p>Maryland becomes the first federal court to side with a state. Nevada dissolves its own earlier
+        injunction: these are not swaps.</p>
+    </div>
+    <div>
+      <div class="yr">Apr 2026</div>
+      <p>The Third Circuit rules for Kalshi in <em>Flaherty</em> — still the only federal appellate decision on
+        the merits.</p>
+    </div>
+    <div>
+      <div class="yr">Spring 2026</div>
+      <p>The CFTC starts suing states. Arizona charges Kalshi criminally. Minnesota bans prediction markets
+        outright.</p>
+    </div>
+    <div>
+      <div class="yr">Summer 2026</div>
+      <p>Utah enters final judgment for the state; New York and Wisconsin deny relief; Minnesota's ban is
+        enjoined. Six circuits now hold appeals.</p>
+    </div>
+  </div>
+</div></section>
+
+<!-- ============ A1 · CIRCUIT SPLIT ============ -->
+<section class="band" id="circuits"><div class="wrap">
+  <div class="sec-head">
+    <div>
+      <div class="kicker">A1 · Heat map</div>
+      <h2>The circuit split</h2>
+    </div>
+    <p class="why">Geography and doctrine disagree. The map colors states by the posture that controls them;
+      the index colors the courts of appeals. Select either — the other follows.</p>
+  </div>
+
+  <div class="legend">
+    <div class="legrow" id="postlegend">
+      <span class="lg-label">Posture</span>
+    </div>
+    <div class="legrow" id="circlegend" style="flex-wrap:nowrap;overflow-x:auto">
+      <span class="lg-label">Circuit</span>
+    </div>
+  </div>
+
+  <div class="layerbar">
+    <span class="lg-label">Layer</span>
+    <button class="chip" id="layer-posture" aria-pressed="true">Posture</button>
+    <button class="chip" id="layer-entity" aria-pressed="false">Entity activity</button>
+    <span class="sep" style="color:var(--color-neutral-400)">|</span>
+    <span class="lg-label">Entities</span>
+    <span id="entchips" style="display:flex;gap:var(--space-2);flex-wrap:wrap"></span>
+    <button class="echip" id="entclear">Clear</button>
+    <span class="layernote" id="layernote"></span>
+  </div>
+
+  <div class="f1">
+    <div class="mapcard">
+      <div class="caphead">
+        <span class="kicker" id="mapcap">Controlling posture by state</span>
+        <button class="chip" id="circtoggle" aria-pressed="true" style="margin-left:auto">Circuit overlay</button>
+        <span class="num" style="font-size:11.5px;color:var(--color-neutral-600)">Updated 9 Aug 2026</span>
+      </div>
+      <svg id="map" role="img" aria-label="Map of the United States, states shaded by litigation posture">
+        <defs>
+          <pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <rect width="6" height="6" fill="#f3f2f2"></rect>
+            <line x1="0" y1="0" x2="0" y2="6" stroke="#facb8d" stroke-width="3"></line>
+          </pattern>
+        </defs>
+      </svg>
+      <div id="mapfallback">Map geometry could not be loaded. The circuit index and the state board carry the
+        same postures — this view is a second reading of the same record, never the only one.</div>
+    </div>
+
+    <div class="circuits">
+      <div class="caphead">
+        <span class="kicker">Courts of appeals</span>
+        <span style="margin-left:auto;font-size:11.5px;color:var(--color-neutral-600)">7 of 13 with tracked activity</span>
+      </div>
+      <div id="circuitlist"></div>
+    </div>
+  </div>
+</div></section>
+
+<!-- ============ A2 · STATUS BOARD ============ -->
+<section class="band" id="states"><div class="wrap">
+  <div class="sec-head">
+    <div>
+      <div class="kicker">A2 · Status board</div>
+      <h2>State by state</h2>
+    </div>
+    <p class="why">Operational status answers the compliance question — can this platform take the order in this
+      state today. Posture answers where the law is heading. They are not the same field, and they can disagree.</p>
+  </div>
+
+  <div class="board">
+    <div>
+      <div class="filters">
+        <span class="kicker">Status</span>
+        <button class="chip" data-filter="all" aria-pressed="true">All</button>
+        <button class="chip" data-filter="go" aria-pressed="false">Go</button>
+        <button class="chip" data-filter="restricted" aria-pressed="false">Restricted</button>
+        <button class="chip" data-filter="banned" aria-pressed="false">Banned</button>
+        <span style="margin-left:auto;font-size:12px;color:var(--color-neutral-600)" id="rowcount"></span>
+        <span class="export" style="margin-left:var(--space-3)">
+          <button type="button" data-export="states-csv">CSV</button>
+          <button type="button" data-export="states-json">JSON</button>
+        </span>
+      </div>
+      <table class="board-t">
+        <thead>
+          <tr>
+            <th scope="col"><button data-sort="name">State</button></th>
+            <th scope="col"><button data-sort="status">Status</button></th>
+            <th scope="col"><button data-sort="posture">Posture</button></th>
+            <th scope="col">Controlling case</th>
+            <th scope="col"><button data-sort="updated">Updated</button></th>
+          </tr>
+        </thead>
+        <tbody id="boardbody"></tbody>
+      </table>
+      <p style="font-size:12px;color:var(--color-neutral-600);margin-top:var(--space-3);line-height:1.6">
+        Every status and posture cell above links to at least one Tier‑1 source in the state panel.
+        States with no tracked activity are absent from this table rather than shown as neutral — absence is not a finding.
+      </p>
+    </div>
+
+    <aside class="detail" id="detail" aria-live="polite"></aside>
+  </div>
+</div></section>
+
+<!-- ============ ISSUE MAP ============ -->
+<section class="band" id="issues"><div class="wrap">
+  <div class="sec-head">
+    <div>
+      <div class="kicker">A2b · Issue map</div>
+      <h2>What is actually being litigated</h2>
+    </div>
+    <p class="why">Every matter carries a controlling issue and its secondary issues, drawn from a fixed
+      vocabulary. Click anything below: the panel names the matters, and the case record further down filters
+      to match.</p>
+  </div>
+
+  <div class="issuebar" id="issuebar"></div>
+
+  <div class="chartcard">
+    <div class="ch"><span class="kicker">Issue × posture</span>
+      <span class="note">How each issue has actually come out. Depth of tone is the count, not the outcome —
+        the outcome is the column.</span></div>
+    <div class="chart" id="ch-matrix" style="height:520px"></div>
+  </div>
+
+  <div class="chartcard">
+    <div class="ch"><span class="kicker">When each issue entered the record</span>
+      <span class="note">One mark per matter, placed at its first docket event. Colour is that matter's posture
+        today.</span></div>
+    <div class="chart" id="ch-time" style="height:460px"></div>
+  </div>
+
+  <div class="chartcard">
+    <div class="ch"><span class="kicker">Frequency, split by posture</span>
+      <span class="note">Preemption is pleaded almost everywhere; the state-law theories are where the losses
+        are.</span></div>
+    <div class="chart" id="ch-strip" style="height:430px"></div>
+  </div>
+
+  <div class="chartcard">
+    <div class="ch"><span class="kicker">Issue families</span>
+      <span class="note">The vocabulary itself: five families, the tags inside each, and one segment per
+        matter on the outer ring — hover a segment to name it.</span></div>
+    <div class="chart" id="ch-tree" style="height:640px"></div>
+  </div>
+</div></section>
+
+<!-- ============ A3 · CASES ============ -->
+<section class="band" id="cases"><div class="wrap">
+  <div class="sec-head">
+    <div>
+      <div class="kicker">A3 · Case record</div>
+      <h2>Cases</h2>
+    </div>
+    <p class="why">One record per case, one posture per case. If a state and a circuit disagree on screen,
+      that is a data error — report it.</p>
+    <span class="export" style="margin-left:var(--space-4)">
+      <button type="button" data-export="cases-csv">CSV</button>
+      <button type="button" data-export="cases-json">JSON</button>
+    </span>
+  </div>
+  <div class="casebar">
+    <input id="case-q" class="srch" type="search" placeholder="Search caption, court, docket number or state…"
+      aria-label="Search cases">
+    <select id="case-track" aria-label="Filter by legal track"></select>
+    <select id="case-forum" aria-label="Filter by forum"></select>
+    <select id="case-state" aria-label="Filter by state"></select>
+    <select id="case-circuit" aria-label="Filter by circuit"></select>
+    <div class="casechips" id="case-post"></div>
+    <span class="num" id="case-count"></span>
+  </div>
+  <div class="cases">
+    <div class="caselist" id="caselist"></div>
+    <div id="casedetail"></div>
+  </div>
+</div></section>
+
+<!-- ============ ENTITIES ============ -->
+<section class="band" id="entities"><div class="wrap">
+  <div class="sec-head">
+    <div>
+      <div class="kicker">A3b · Entity record</div>
+      <h2>Platforms and parties</h2>
+    </div>
+    <p class="why">The same order can reach one platform and not another. This view reads the record the other
+      way round — by who is actually bound.</p>
+  </div>
+  <div class="etabs" id="etabs"></div>
+  <div class="ent" id="entdetail"></div>
+</div></section>
+
+<!-- ============ A4 · CERT SIGNAL ============ -->
+<section class="band" id="cert"><div class="wrap">
+  <div class="sec-head">
+    <div>
+      <div class="kicker">A4 · Qualitative signal</div>
+      <h2>Certiorari likelihood</h2>
+    </div>
+    <p class="why">Qualitative only. No market-derived number ships in v1 — the space below the reading is
+      deliberately held open for one, with its methodology and its reflexivity caveat.</p>
+  </div>
+  <div class="cert">
+    <div>
+      <div class="certgauge">
+        <div class="kicker">Reading</div>
+        <div class="val">Elevated</div>
+        <div class="scale" aria-hidden="true"><span class="on"></span><span class="on"></span><span class="on"></span><span></span><span></span></div>
+        <div style="font-size:12px;color:var(--color-neutral-700)">Remote · Low · <strong>Elevated</strong> · Likely · Near-certain</div>
+        <hr class="rule" style="margin:var(--space-4) 0">
+        <div style="font-size:12.5px;line-height:1.6;color:var(--color-neutral-800)">
+          A qualitative editorial reading of the factors at right. It is not a probability, and it is not derived
+          from any market.
+        </div>
+        <div style="margin-top:var(--space-4);display:flex;gap:var(--space-3);justify-content:center;flex-wrap:wrap">
+          <span class="prov"><span class="dot"></span> Human-approved</span>
+          <span class="badge upd num">Reviewed 9 Aug 2026</span>
+        </div>
+      </div>
+      <div class="reserved">Reserved: market-derived cert probability (Kalshi / Robinhood), with methodology
+        and reflexivity caveat. Not shipped in v1.</div>
+    </div>
+    <div>
+      <div class="kicker" style="margin-bottom:var(--space-3)">Factors named in this reading</div>
+      <ul class="factors">
+        <li><span class="fn">1</span><span><strong>Only appellate merits holding on the core question.</strong>
+          <em>Flaherty</em> remains the sole court of appeals decision reaching CEA preemption on the merits.
+          Nothing yet splits against it at the appellate level.</span></li>
+        <li><span class="fn">2</span><span><strong>A deep district-court split underneath it.</strong>
+          Utah, New York, Wisconsin, Ohio, Maryland and Nevada rejected preemption or denied relief; Arizona,
+          Tennessee and Minnesota went the other way. Six circuits hold appeals from that record.</span></li>
+        <li><span class="fn">3</span><span><strong>New Jersey timing.</strong> The certiorari deadline has been
+          extended twice, to 3 September 2026. No petition had been filed as of 9 August.</span></li>
+        <li><span class="fn">4</span><span><strong>Two bellwethers outstanding.</strong> The Ninth Circuit
+          (argued 16 April) and the Massachusetts Supreme Judicial Court (argued 4 May) could each reframe the
+          question before any petition is conferenced.</span></li>
+        <li><span class="fn">5</span><span><strong>The federal government is a party.</strong> The CFTC has sued
+          nine states in its own name, which raises the odds of a government filing at the petition stage.</span></li>
+      </ul>
+      <p style="font-size:12.5px;color:var(--color-neutral-700);line-height:1.7;margin-top:var(--space-4)">
+        Factors are the whole method. There is no weighting, no model and no score behind this reading —
+        if a factor changes, the reading is re-argued in the open and the change appears as a draft on
+        <a href="#ops">ops.</a> before it appears here.
+      </p>
+    </div>
+  </div>
+</div></section>
+
+<!-- ============ A5/A6 · TRUST + CORRECTION ============ -->
+<section class="band" id="trust"><div class="wrap">
+  <div class="sec-head">
+    <div>
+      <div class="kicker">A5 / A6 · Provenance</div>
+      <h2>How this page is made</h2>
+    </div>
+  </div>
+  <div class="trust">
+    <div>
+      <div class="disclaimer">
+        <p><strong>Not legal advice.</strong> This site publishes general legal information about pending
+          litigation. Reading it creates no attorney-client relationship, and nothing here is a substitute for
+          counsel licensed in your jurisdiction.</p>
+        <p><strong>Built by AI, approved by a human.</strong> Every row on this page was drafted by an
+          autonomous pipeline and published only after a named human cleared the Approval Gate. The gate is
+          currently set to HITL; autonomous mode is off. Each published item carries its provenance label at the
+          point of use, frozen at publish time.</p>
+        <p><strong>Drafts are not here.</strong> Proposed changes — including two pending right now — live in
+          full on <a href="#ops">ops.</a>, labelled not live. The tracker never renders an unapproved draft.</p>
+      </div>
+      <div style="display:flex;gap:var(--space-3);flex-wrap:wrap;margin-top:var(--space-6)">
+        <a class="btn btn-primary" href="PML Ops.html">See the receipts on ops.</a>
+        <a class="btn btn-secondary" href="#repo">Public repository</a>
+        <a class="btn btn-ghost" href="#coffee">Buy me a coffee</a>
+      </div>
+      <p style="font-size:12px;color:var(--color-neutral-600);margin-top:var(--space-4)">Powered by Bizmation.</p>
+    </div>
+
+    <div class="corr" id="correct">
+      <div class="kicker">A6 · Report a discrepancy</div>
+      <h3 style="font-size:24px;font-weight:400;margin:var(--space-2) 0 var(--space-4)">Corrections welcome</h3>
+      <div class="row">
+        <label for="c-what">What is wrong</label>
+        <select id="c-what">
+          <option>A status or posture is wrong</option>
+          <option>A citation is wrong or missing</option>
+          <option>A docket event is stale</option>
+          <option>Something else</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="c-where">Where</label>
+        <input id="c-where" type="text" value="New Jersey — operational status" >
+      </div>
+      <div class="row">
+        <label for="c-name">Your name</label>
+        <input id="c-name" type="text" placeholder="How the issue should be attributed">
+      </div>
+      <div class="row">
+        <label for="c-contact">Contact — email or GitHub handle</label>
+        <input id="c-contact" type="text" placeholder="So we can come back to you with questions">
+      </div>
+      <div class="row">
+        <label for="c-detail">Detail and, if you have it, a primary source</label>
+        <textarea id="c-detail" rows="3" placeholder="Docket number, opinion link, Federal Register cite…"></textarea>
+      </div>
+      <div class="warn" style="display:flex;text-transform:none;letter-spacing:0;font-size:12px;line-height:1.5;
+        padding:var(--space-2) var(--space-3);white-space:normal;margin-bottom:var(--space-3)">
+        ⚠ This opens a public GitHub issue. Everything you type here — including your name and contact — is
+        visible to anyone. Leave both blank to file anonymously.
+      </div>
+      <button class="btn btn-primary btn-block" type="button" id="c-submit">Open a GitHub issue</button>
+      <div class="ackbox">
+        Corrections are filed as public issues in the repository. You get a tracking ID immediately —
+        e.g. <code>PML‑C‑2026‑0184</code> — and the resulting draft, approved or rejected, is visible on
+        <a href="PML Ops.html">ops.</a> with its reason attached.
+      </div>
+    </div>
+  </div>
+</div></section>
+
+<section class="band" id="ops"><div class="wrap">
+  <div class="opslink">
+    <div>
+      <div class="kicker">The other half of the system</div>
+      <h3>ops.predictionmarketlitigation.com</h3>
+      <p>The run log, full evidence for every run, the pending drafts in full text, the current approval mode
+        and its audit trail, and the nine-layer governance explainer. No login. If you want to check whether this
+        tracker deserves the trust it asks for, that is where you check.</p>
+    </div>
+    <a class="btn btn-primary" href="PML Ops.html">Open ops. ↗</a>
+  </div>
+</div></section>
+
+<footer class="foot"><div class="wrap">
+  <span>© 2026 PredictionMarketLitigation</span>
+  <a href="PML Ops.html">ops.</a>
+  <a href="#repo">Repository</a>
+  <a href="#correct">Corrections</a>
+  <a href="#coffee">Support the project</a>
+  <span style="margin-left:auto">General legal information only. No attorney-client relationship.</span>
+</div></div></footer>
+
+<div class="tooltip" id="tt" role="tooltip"></div>
+
+<script>
+const POSTURE = {
+  platform: { label: "Decided for platform", fill: "var(--color-accent-200)", stroke: "var(--color-accent-600)" },
+  state:    { label: "Expected / decided for state", fill: "var(--color-neutral-500)", stroke: "var(--color-neutral-800)" },
+  pending:  { label: "Pending — skeptical", fill: "url(#hatch)", stroke: "var(--color-accent-600)" },
+  banned:   { label: "Banned", fill: "var(--color-neutral-900)", stroke: "var(--color-neutral-900)" },
+  untracked:{ label: "No tracked activity", fill: "transparent", stroke: "var(--color-neutral-400)" }
+};
+const STATUS = { go: "Go", restricted: "Restricted", banned: "Banned" };
+
+const CIR_LABEL = { "1":"1st","2":"2d","3":"3d","4":"4th","5":"5th","6":"6th","7":"7th","8":"8th","9":"9th","10":"10th","11":"11th","DC":"D.C.","Fed":"Fed." };
+
+const STATES = [
+  { name: "New Jersey", circuit: "3", posture: "platform", status: "go", updated: "2026-08-09", fresh: true,
+    caseName: "KalshiEX LLC v. Flaherty", caseCite: "172 F.4th 220 (3d Cir. 2026)", caseId: "flaherty",
+    note: "The only federal appellate merits holding on CEA preemption. Sports event contracts are swaps under CEA \u00a7 1a(47)(A)(ii); the Act field- and conflict-preempts state gambling law as applied to CFTC-licensed DCMs. New Jersey's certiorari deadline was extended to September 3, 2026; no petition had been filed as of August 9.",
+    src: [["3d Cir. opinion, 172 F.4th 220 (Apr. 6, 2026)", "https://www2.ca3.uscourts.gov/opinarch/251922p.pdf"], ["SCOTUS extension application docket No. 25A1465", "https://www.supremecourt.gov/docket/docketfiles/html/public/25A1465.html"]],
+    platforms: { "Kalshi": "go", "Polymarket US (QCX)": "go", "Robinhood Derivatives": "go", "Crypto.com / NADEX": "go", "Coinbase Financial Markets": "go" },
+    platformNote: "The holding runs to sports-related event contracts traded on a CFTC-licensed DCM, not to a named platform." },
+
+  { name: "Utah", circuit: "10", posture: "state", status: "banned", updated: "2026-08-05", fresh: true,
+    caseName: "KalshiEX LLC v. Cox", caseCite: "No. 2:26-cv-00151-RJS (D. Utah)", caseId: "cox",
+    note: "Judge Shelby granted summary judgment for the State on August 4, 2026 \u2014 the first final district-court merits disposition. Express, field and conflict preemption all rejected. Kalshi appealed to the Tenth Circuit on August 5 (No. 26-4100).",
+    src: [["D. Utah summary-judgment decision (Aug. 4, 2026)", "https://www.courthousenews.com/wp-content/uploads/2026/08/kalshi-utah-shelby-decision.pdf"], ["AP / ABC News report", "https://abcnews.com/US/wireStory/federal-judge-lets-utah-enforce-anti-gambling-laws-135411228"]],
+    platforms: { "Kalshi": "banned", "Polymarket US (QCX)": "banned", "Robinhood Derivatives": "banned", "Crypto.com / NADEX": "banned", "Coinbase Financial Markets": "banned" },
+    platformNote: "The judgment binds Kalshi. Utah gambling law applies on its own terms to the others; no platform has an injunction here." },
+
+  { name: "Minnesota", circuit: "8", posture: "platform", status: "go", updated: "2026-07-27", fresh: false,
+    caseName: "United States v. Minnesota", caseCite: "No. 0:26-cv-02661 (D. Minn.)", caseId: "minnesota",
+    note: "Judge Menendez granted the CFTC's preliminary injunction on July 27, 2026, blocking enforcement of SF 4760 \u2014 the first-in-the-nation statutory prediction-market ban \u2014 despite its August 1 effective date. The court held many event contracts fall within the CEA swap definition, expressly declining to hold that all do.",
+    src: [["Reuters report on the injunction (July 27, 2026)", "https://www.reuters.com/world/judge-blocks-minnesota-implementing-novel-prediction-markets-ban-2026-07-27/"], ["SF 4760, Minn. Stat. \u00a7 609.7615", "https://www.revisor.mn.gov/bills/94/2026/0/SF/4760/"], ["CFTC Press Release 9233-26", "https://www.cftc.gov/PressRoom/PressReleases/9233-26"]],
+    platforms: { "Kalshi": "go", "Polymarket US (QCX)": "go", "Robinhood Derivatives": "go", "Crypto.com / NADEX": "go", "Coinbase Financial Markets": "go" },
+    platformNote: "The injunction runs against enforcement of the statute itself, so it reaches every platform. It is preliminary." },
+
+  { name: "New York", circuit: "2", posture: "state", status: "restricted", updated: "2026-07-31", fresh: true,
+    caseName: "KalshiEX LLC v. Williams", caseCite: "No. 1:25-cv-08846-AT (S.D.N.Y.)", caseId: "williams",
+    note: "Judge Torres denied Kalshi's preliminary injunction on July 7, 2026, holding New York's gambling laws are not preempted as applied to sports contracts. Kalshi appealed to the Second Circuit on July 8 (No. 26-1835). The State sued Kalshi on July 31; the CFTC's own suit against New York remains pending.",
+    src: [["Reuters \u2014 PI denied (July 8, 2026)", "https://www.reuters.com/legal/government/judge-rejects-kalshi-bid-block-new-york-gambling-enforcement-law-2026-07-08/"], ["Reuters \u2014 New York sues Kalshi (July 31, 2026)", "https://www.reuters.com/world/new-york-sues-kalshi-follows-coinbase-gemini-lawsuits-2026-07-31/"]],
+    platforms: { "Kalshi": "restricted", "Polymarket US (QCX)": "restricted", "Robinhood Derivatives": "restricted", "Crypto.com / NADEX": "restricted", "Coinbase Financial Markets": "restricted" },
+    platformNote: "AG actions of April 21, 2026 name Coinbase Financial Markets and Gemini Titan specifically; the NYSGC cease-and-desist named Kalshi." },
+
+  { name: "Wisconsin", circuit: "7", posture: "state", status: "restricted", updated: "2026-08-07", fresh: true,
+    caseName: "United States v. Wisconsin", caseCite: "No. 2:26-cv-749 (E.D. Wis.)", caseId: "wisconsin",
+    note: "Judge Griesbach denied the CFTC's preliminary injunction on July 28\u201329, 2026, finding Wisconsin's gambling statutes are not preempted by federal commodities regulation. The CFTC appealed to the Seventh Circuit on August 7. Separately, the Ho-Chunk Nation won the first federal IGRA ruling against Kalshi on May 11, 2026.",
+    src: [["Bloomberg Law \u2014 CFTC loses PI bid", "https://news.bloomberglaw.com/securities-law/cftc-loses-bid-to-halt-wisconsin-prediction-market-crackdown"], ["Litigation tracker \u2014 docket history", "https://mickbransfield.com/2025/08/11/summary-of-legal-actions-involving-kalshis-sports-event-contracts/"]],
+    platforms: { "Kalshi": "restricted", "Polymarket US (QCX)": "restricted", "Robinhood Derivatives": "restricted", "Crypto.com / NADEX": "restricted", "Coinbase Financial Markets": "restricted" },
+    platformNote: "AG Kaul's three Dane County suits (Apr. 23\u201324, 2026) name Kalshi, Robinhood, Coinbase, Polymarket and Crypto.com, alleging Class I felony violations." },
+
+  { name: "Nevada", circuit: "9", posture: "state", status: "banned", updated: "2026-07-01", fresh: false,
+    caseName: "KalshiEX LLC v. Hendrick / State v. KalshiEX", caseCite: "No. 2:25-cv-00575 (D. Nev.); 26 OC 00050 1B", caseId: "nevada",
+    note: "The most developed enforcement record in the country. The April 2025 federal injunction was dissolved in November 2025 on a holding that sports contracts are not swaps; state-court injunctions followed, and the Nevada Supreme Court denied an emergency stay on July 1, 2026. A statewide geofencing injunction is operative and a contempt proceeding is underway.",
+    src: [["D. Nev. order dissolving the PI (Nov. 24, 2025)", "https://business.cch.com/srd/20251201_SRD_NV_Kalshi-v-Hendrick_order_injunction_dissolved.pdf"], ["NGCB cease-and-desist order (Mar. 4, 2025)", "https://www.gaming.nv.gov/siteassets/content/about/press-release/NGCB_-_News_Release_-_KalshiEX_Cease_and_Desist_Order__3-4-2025.pdf"], ["D. Nev. order remanding to state court", "https://www.gaming.nv.gov/contentassets/b9f7b024bdbc4c8693d3a511ea5d9841/ecf-no.-45---order-remanding-to-state-court.pdf"]],
+    platforms: { "Kalshi": "banned", "Polymarket US (QCX)": "banned", "Robinhood Derivatives": "banned", "Crypto.com / NADEX": "banned", "Coinbase Financial Markets": "banned" },
+    platformNote: "Separate state-court TROs issued against Polymarket (Jan. 29, 2026) and Coinbase (Feb. 5, 2026); NADEX's federal PI was denied in October 2025." },
+
+  { name: "Washington", circuit: "9", posture: "state", status: "banned", updated: "2026-07-20", fresh: false,
+    caseName: "State of Washington v. KalshiEX LLC", caseCite: "No. 26-2-10264-3 SEA (King Cty. Super. Ct.)", caseId: "washington",
+    note: "Judge McHale granted the State's amended preliminary injunction on July 17, 2026 (order filed July 20), finding likelihood of success on the Gambling Act, Consumer Protection Act and Recovery of Money Lost at Gambling Act claims and rejecting express, field and conflict preemption. Implementing terms were due in early August.",
+    src: [["King County Superior Court order (July 2026)", "https://www.courthousenews.com/wp-content/uploads/2026/07/WA-order-kalshi.pdf"], ["Reuters \u2014 Washington judge blocks Kalshi contracts", "https://www.reuters.com/legal/government/washington-judge-blocks-kalshi-contracts-cites-states-gambling-law-2026-07-21/"]],
+    platforms: { "Kalshi": "banned", "Polymarket US (QCX)": "restricted", "Robinhood Derivatives": "restricted", "Crypto.com / NADEX": "restricted", "Coinbase Financial Markets": "restricted" },
+    platformNote: "The injunction names Kalshi. Crypto.com / NADEX filed its own federal challenge on July 22, 2026 (W.D. Wash. No. 2:26-cv-02579)." },
+
+  { name: "Arizona", circuit: "9", posture: "platform", status: "go", updated: "2026-07-06", fresh: false,
+    caseName: "KalshiEX LLC v. Johnson", caseCite: "No. CV-26-01715-PHX-MTL (D. Ariz.)", caseId: "arizona",
+    note: "Judge Liburdi granted a preliminary injunction on May 5, 2026 on three independent preemption grounds \u2014 field, obstacle and impossibility \u2014 after Arizona brought the first criminal charges ever filed against a CFTC-registered prediction market operator. Arizona appealed to the Ninth Circuit on July 6 (No. 26-4281).",
+    src: [["National Law Review \u2014 order summary", "https://natlawreview.com/article/federal-court-blocks-arizona-enforcing-gambling-laws-against-prediction-markets"], ["Arizona AG press release \u2014 20 misdemeanor charges", "https://www.azag.gov/press-release/attorney-general-mayes-charges-kalshi-illegal-gambling-operation-election-wagering"]],
+    platforms: { "Kalshi": "go", "Polymarket US (QCX)": "go", "Robinhood Derivatives": "go", "Crypto.com / NADEX": "go", "Coinbase Financial Markets": "go" },
+    platformNote: "The injunction blocks state enforcement of the challenged gambling provisions, and so is not limited to the criminally charged entities." },
+
+  { name: "Tennessee", circuit: "6", posture: "platform", status: "go", updated: "2026-07-30", fresh: true,
+    caseName: "KalshiEX LLC v. Orgel", caseCite: "No. 3:26-cv-00034 (M.D. Tenn.); 6th Cir. No. 26-5235", caseId: "orgel",
+    note: "Judge Trauger granted Kalshi's preliminary injunction on February 19, 2026, holding the contracts are likely swaps and that conflict preemption applies. Tennessee appealed; the Sixth Circuit heard argument on July 30, 2026 alongside the Ohio appeal. No merits ruling.",
+    src: [["Litigation tracker \u2014 6th Cir. Nos. 26-5235 / 26-3196", "https://mickbransfield.com/2025/08/11/summary-of-legal-actions-involving-kalshis-sports-event-contracts/"], ["Bloomberg Law \u2014 Sixth Circuit argument", "https://news.bloomberglaw.com/litigation/kalshi-states-try-to-sway-sixth-circuit-on-sports-betting-rules"]],
+    platforms: { "Kalshi": "go", "Polymarket US (QCX)": "restricted", "Robinhood Derivatives": "restricted", "Crypto.com / NADEX": "restricted", "Coinbase Financial Markets": "restricted" },
+    platformNote: "The injunction runs to Kalshi. The Sports Wagering Council's January 9, 2026 cease-and-desist letters also named Polymarket and Crypto.com, which have no injunction." },
+
+  { name: "Ohio", circuit: "6", posture: "state", status: "restricted", updated: "2026-07-30", fresh: true,
+    caseName: "KalshiEX LLC v. Schuler", caseCite: "No. 2:25-cv-01165 (S.D. Ohio); 6th Cir. No. 26-3196", caseId: "schuler",
+    note: "Chief Judge Morrison denied Kalshi's preliminary injunction on March 9, 2026: \u201chistory reveals no evidence that Congress intended to preempt state sports gambling laws.\u201d The Casino Control Commission proposed a $5 million fine in April. Argued in the Sixth Circuit July 30, 2026; no ruling.",
+    src: [["Litigation tracker \u2014 S.D. Ohio and 6th Cir. history", "https://mickbransfield.com/2025/08/11/summary-of-legal-actions-involving-kalshis-sports-event-contracts/"], ["Bloomberg Law \u2014 Sixth Circuit argument", "https://news.bloomberglaw.com/litigation/kalshi-states-try-to-sway-sixth-circuit-on-sports-betting-rules"]],
+    platforms: { "Kalshi": "restricted", "Polymarket US (QCX)": "restricted", "Robinhood Derivatives": "restricted", "Crypto.com / NADEX": "restricted", "Coinbase Financial Markets": "restricted" },
+    platformNote: "No platform holds an injunction here. Senate Bill 430 would classify these contracts as sports wagering requiring state licensure." },
+
+  { name: "Maryland", circuit: "4", posture: "state", status: "restricted", updated: "2026-05-07", fresh: false,
+    caseName: "KalshiEX LLC v. Martin", caseCite: "No. 1:25-cv-01283-ABA (D. Md.); 4th Cir. No. 25-1892", caseId: "martin",
+    note: "The first federal court to side with state regulators. Judge Abelson denied the preliminary injunction on August 1, 2025, applying a strong presumption against preemption. Argued in the Fourth Circuit on May 7, 2026; still pending as of August 9.",
+    src: [["Litigation tracker \u2014 4th Cir. No. 25-1892", "https://mickbransfield.com/2025/08/11/summary-of-legal-actions-involving-kalshis-sports-event-contracts/"], ["Fourth Circuit oral-argument audio", "https://www.ca4.uscourts.gov/oral-argument/oral-argument-audio-files"]],
+    platforms: { "Kalshi": "restricted", "Polymarket US (QCX)": "restricted", "Robinhood Derivatives": "restricted", "Crypto.com / NADEX": "restricted", "Coinbase Financial Markets": "restricted" },
+    platformNote: "No injunction is in force for any platform pending the Fourth Circuit's decision." },
+
+  { name: "Massachusetts", circuit: "1", posture: "pending", status: "restricted", updated: "2026-06-23", fresh: false,
+    caseName: "Commonwealth v. KalshiEX LLC", caseCite: "SJC-13906 (Mass.)", caseId: "massachusetts",
+    note: "The Superior Court granted the Commonwealth a preliminary injunction on January 20, 2026; the Appeals Court stayed it on February 17. The Supreme Judicial Court heard argument on May 4, 2026 and had not issued a decision as of August 9 \u2014 one of two bellwether rulings outstanding.",
+    src: [["Massachusetts new opinions (SJC-13906 not yet listed)", "https://www.mass.gov/info-details/new-opinions"], ["Massachusetts amicus announcements", "https://www.mass.gov/info-details/amicus-announcements-from-september-2025-to-august-2026"]],
+    platforms: { "Kalshi": "restricted", "Polymarket US (QCX)": "restricted", "Robinhood Derivatives": "restricted", "Crypto.com / NADEX": "restricted", "Coinbase Financial Markets": "restricted" },
+    platformNote: "Robinhood's federal suit was dismissed in March 2026; Polymarket's is stayed pending the SJC. A June 23 amendment adds under-21 marketing allegations." },
+
+  { name: "Michigan", circuit: "6", posture: "pending", status: "restricted", updated: "2026-07-27", fresh: false,
+    caseName: "Nessel v. KalshiEX LLC", caseCite: "6th Cir. No. 26-1639", caseId: "michigan",
+    note: "A TRO and geofencing track continued through the update window. Kalshi appealed the Western District of Michigan's ruling to the Sixth Circuit on July 27, 2026. No merits ruling.",
+    src: [["Litigation tracker \u2014 6th Cir. No. 26-1639", "https://mickbransfield.com/2025/08/11/summary-of-legal-actions-involving-kalshis-sports-event-contracts/"]],
+    platforms: { "Kalshi": "restricted", "Polymarket US (QCX)": "restricted", "Robinhood Derivatives": "restricted", "Crypto.com / NADEX": "restricted", "Coinbase Financial Markets": "restricted" },
+    platformNote: "Enforcement here has proceeded through geofencing orders rather than a merits ruling." },
+
+  { name: "Kentucky", circuit: "6", posture: "pending", status: "restricted", updated: "2026-07-15", fresh: false,
+    caseName: "United States v. Kentucky", caseCite: "No. 3:26-cv-00049 (E.D. Ky.)", caseId: "kentucky",
+    note: "The CFTC's ninth state suit, filed June 23, 2026, after the AG brought Franklin Circuit Court actions against Kalshi and Polymarket. The Kentucky Wagering Consumer Protection Act (HB 904) took effect July 15, barring licensed sportsbooks from contracting with either platform. A separate operator coalition is challenging the state's 14.25% excise tax.",
+    src: [["Kentucky AG announcement", "https://www.kentucky.gov/Pages/Activity-stream.aspx?n=AttorneyGeneral&prId=1944"], ["Washington Post \u2014 excise-tax challenge", "https://www.washingtonpost.com/business/2026/06/12/prediction-markets-kentucky-tax-lawsuit/34cb13ee-66cc-11f1-bdd4-805ebb99a693_story.html"]],
+    platforms: { "Kalshi": "restricted", "Polymarket US (QCX)": "restricted", "Robinhood Derivatives": "restricted", "Crypto.com / NADEX": "restricted", "Coinbase Financial Markets": "restricted" },
+    platformNote: "HB 904 names Kalshi and Polymarket. The excise-tax suit was brought by Kalshi, Crypto.com and Polymarket jointly." },
+
+  { name: "Illinois", circuit: "7", posture: "pending", status: "banned", updated: "2026-06-09", fresh: false,
+    caseName: "United States v. Illinois", caseCite: "No. 1:26-cv-03659 (N.D. Ill.)", caseId: "illinois",
+    note: "The Gaming Board declared prediction markets illegal gambling in October 2025 and issued cease-and-desist letters. Illinois moved to stay the CFTC's suit on June 9, 2026 pending a related Coinbase injunction motion. No merits ruling; Illinois residents cannot access the platforms.",
+    src: [["Litigation tracker \u2014 N.D. Ill. docket", "https://mickbransfield.com/2025/08/11/summary-of-legal-actions-involving-kalshis-sports-event-contracts/"]],
+    platforms: { "Kalshi": "banned", "Polymarket US (QCX)": "banned", "Robinhood Derivatives": "banned", "Crypto.com / NADEX": "banned", "Coinbase Financial Markets": "banned" },
+    platformNote: "Access is blocked in practice rather than by injunction; the cease-and-desist letters named Kalshi, Crypto.com and Polymarket." },
+
+  { name: "Connecticut", circuit: "2", posture: "pending", status: "restricted", updated: "2026-07-22", fresh: false,
+    caseName: "United States v. Connecticut", caseCite: "No. 3:26-cv-00498 (D. Conn.)", caseId: "connecticut",
+    note: "Consumer Protection issued cease-and-desist orders to Kalshi, Robinhood and Crypto.com; Kalshi obtained a TRO in December 2025. Connecticut's motion to dismiss the CFTC's suit was argued July 22, 2026 on the calendar, but no ruling or confirmation of the hearing was found as of August 9.",
+    src: [["Litigation tracker \u2014 D. Conn. docket", "https://mickbransfield.com/2025/08/11/summary-of-legal-actions-involving-kalshis-sports-event-contracts/"]],
+    platforms: { "Kalshi": "restricted", "Polymarket US (QCX)": "restricted", "Robinhood Derivatives": "restricted", "Crypto.com / NADEX": "restricted", "Coinbase Financial Markets": "restricted" },
+    platformNote: "The cease-and-desist orders named Kalshi, Robinhood and Crypto.com." },
+
+  { name: "Rhode Island", circuit: "1", posture: "pending", status: "restricted", updated: "2026-08-03", fresh: true,
+    caseName: "KalshiEX LLC v. Furcolo", caseCite: "No. 1:26-cv-00327 (D.R.I.)", caseId: "rhodeisland",
+    note: "The AG sued Kalshi and Polymarket in Providence County Superior Court on May 21, 2026; the case was removed and the CFTC was added on June 22. A motion hearing took place before Judge McElroy on August 3, 2026 with no ruling confirmed as of August 9.",
+    src: [["Litigation tracker \u2014 D.R.I. docket", "https://mickbransfield.com/2025/08/11/summary-of-legal-actions-involving-kalshis-sports-event-contracts/"]],
+    platforms: { "Kalshi": "restricted", "Polymarket US (QCX)": "restricted", "Robinhood Derivatives": "restricted", "Crypto.com / NADEX": "restricted", "Coinbase Financial Markets": "restricted" },
+    platformNote: "The state complaint names Kalshi and Polymarket. No order is in force against any platform." },
+
+  { name: "New Mexico", circuit: "10", posture: "pending", status: "restricted", updated: "2026-06-12", fresh: false,
+    caseName: "United States v. New Mexico", caseCite: "No. 1:26-cv-01912 (D.N.M.)", caseId: "newmexico",
+    note: "AG Torrez sued Kalshi in state court on June 4, 2026; the case was removed June 8 and the CFTC filed its own action June 12. No PI or motion-to-dismiss ruling has been located.",
+    src: [["CFTC Press Release 9251-26", "https://www.cftc.gov/PressRoom/PressReleases/9251-26"]],
+    platforms: { "Kalshi": "restricted", "Polymarket US (QCX)": "restricted", "Robinhood Derivatives": "restricted", "Crypto.com / NADEX": "restricted", "Coinbase Financial Markets": "restricted" },
+    platformNote: "The state action names Kalshi. Nothing in the record addresses the other platforms." },
+
+  { name: "California", circuit: "9", posture: "pending", status: "go", updated: "2026-07-10", fresh: false,
+    caseName: "Blue Lake Rancheria v. Kalshi Inc.", caseCite: "No. 3:25-cv-06162-JSC (N.D. Cal.); 9th Cir. No. 25-7504", caseId: "bluelake",
+    note: "Three tribes sued Kalshi, Robinhood and Vanguard under IGRA, their tribal-state compacts and the Lanham Act. The district court denied a preliminary injunction in November 2025, holding IGRA does not reach third-party platforms. The Ninth Circuit heard argument July 10, 2026; no ruling. The Wisconsin Ho-Chunk decision runs the other way.",
+    src: [["Litigation tracker \u2014 9th Cir. No. 25-7504", "https://mickbransfield.com/2025/08/11/summary-of-legal-actions-involving-kalshis-sports-event-contracts/"], ["Ninth Circuit opinions page", "https://www.ca9.uscourts.gov/decisions/opinions/"]],
+    platforms: { "Kalshi": "go", "Polymarket US (QCX)": "go", "Robinhood Derivatives": "go", "Crypto.com / NADEX": "go", "Coinbase Financial Markets": "go" },
+    platformNote: "No state gambling-enforcement action is tracked here; the live risk is the tribal IGRA track, not a state ban." }
+];
+
+const CIRCUITS = [
+  { id: "1",  name: "First Circuit",    posture: "untracked", note: "No appellate proceeding; Massachusetts is before the SJC and Rhode Island before the district court", states: ["Maine","Massachusetts","New Hampshire","Rhode Island"] },
+  { id: "2",  name: "Second Circuit",   posture: "pending",   note: "KalshiEX v. Williams, No. 26-1835 \u2014 appeal from the Torres PI denial, filed July 8, 2026", states: ["Connecticut","New York","Vermont"] },
+  { id: "3",  name: "Third Circuit",    posture: "platform",  note: "KalshiEX v. Flaherty, 172 F.4th 220 \u2014 decided April 6, 2026 (2-1); the only merits holding", states: ["Delaware","New Jersey","Pennsylvania"] },
+  { id: "4",  name: "Fourth Circuit",   posture: "pending",   note: "KalshiEX v. Martin, No. 25-1892 \u2014 argued May 7, 2026; no ruling", states: ["Maryland","North Carolina","South Carolina","Virginia","West Virginia"] },
+  { id: "5",  name: "Fifth Circuit",    posture: "untracked", note: "Clarke v. CFTC (PredictIt), 74 F.4th 627, final \u2014 an APA matter, not preemption", states: ["Louisiana","Mississippi","Texas"] },
+  { id: "6",  name: "Sixth Circuit",    posture: "pending",   note: "Schuler (26-3196) and Orgel (26-5235) argued July 30, 2026; Michigan appeal No. 26-1639 filed July 27", states: ["Kentucky","Michigan","Ohio","Tennessee"] },
+  { id: "7",  name: "Seventh Circuit",  posture: "pending",   note: "CFTC appeal from the Wisconsin PI denial, filed August 7, 2026; docket not yet confirmed", states: ["Illinois","Indiana","Wisconsin"] },
+  { id: "8",  name: "Eighth Circuit",   posture: "untracked", note: "No appellate proceeding; the Minnesota injunction is at the district court", states: ["Arkansas","Iowa","Minnesota","Missouri","Nebraska","North Dakota","South Dakota"] },
+  { id: "9",  name: "Ninth Circuit",    posture: "pending",   note: "Assad (25-7516), NADEX (25-7187), Robinhood (25-7831) argued April 16; Blue Lake (25-7504) argued July 10; Arizona (26-4281) filed July 6", states: ["Alaska","Arizona","California","Hawaii","Idaho","Montana","Nevada","Oregon","Washington"] },
+  { id: "10", name: "Tenth Circuit",    posture: "pending",   note: "KalshiEX v. Cox, No. 26-4100 \u2014 appeal from the Utah summary judgment, filed August 5, 2026", states: ["Colorado","Kansas","New Mexico","Oklahoma","Utah","Wyoming"] },
+  { id: "11", name: "Eleventh Circuit", posture: "untracked", states: ["Alabama","Florida","Georgia"] },
+  { id: "DC", name: "D.C. Circuit",     posture: "untracked", note: "KalshiEX v. CFTC, No. 24-5205 \u2014 dismissed on the CFTC's own motion, May 5, 2025", states: ["District of Columbia"] },
+  { id: "Fed",name: "Federal Circuit",  posture: "untracked", states: [] }
+];
+
+const CASES = [
+  { id: "flaherty", issues: ["CEA preemption","Swap definition","Field preemption","Conflict preemption"], forum: "federal", cap: "KalshiEX LLC v. Flaherty", court: "3d Cir.", cite: "172 F.4th 220 (3d Cir. 2026)", no: "No. 25-1922",
+    track: "CEA preemption", posture: "platform", states: ["New Jersey"], circuit: "3",
+    docket: [
+      ["09 Aug 2026", "No petition for a writ of certiorari on file. Deadline September 3, 2026.", "SCOTUS docket No. 25A1465", "https://www.supremecourt.gov/docket/docketfiles/html/public/25A1465.html"],
+      ["26 Jun 2026", "Justice Alito grants New Jersey a further extension of the certiorari deadline to September 3, 2026.", "Application for extension", "https://www.supremecourt.gov/DocketPDF/25/25A1465/415064/20260626085851274_2026%200626%20Application%20for%20Extension.pdf"],
+      ["19 May 2026", "Joint status report: New Jersey states its intent to seek Supreme Court review. District case stayed.", "D.N.J. Doc. 41", "https://defirate.com/wp-content/uploads/2026/05/kalshilflahertystay.pdf"],
+      ["06 Apr 2026", "Opinion filed (Porter, J., joined by Chagares, C.J.; Roth, J., dissenting). Sports event contracts are swaps; CEA field- and conflict-preempts state gambling law as applied to CFTC-licensed DCMs.", "3d Cir. opinion", "https://www2.ca3.uscourts.gov/opinarch/251922p.pdf"],
+      ["10 Sep 2025", "Argued before Judges Porter, Chagares and Roth.", "3d Cir. docket", "#"]
+    ] },
+  { id: "cox", issues: ["CEA preemption","Swap definition","State gambling act"], forum: "federal", cap: "KalshiEX LLC v. Cox", court: "D. Utah", cite: "No. 2:26-cv-00151-RJS", no: "10th Cir. No. 26-4100",
+    track: "CEA preemption", posture: "state", states: ["Utah"], circuit: "10",
+    docket: [
+      ["05 Aug 2026", "Notice of appeal to the Tenth Circuit filed (No. 26-4100).", "Litigation tracker", "https://mickbransfield.com/2025/08/11/summary-of-legal-actions-involving-kalshis-sports-event-contracts/"],
+      ["04 Aug 2026", "Judge Shelby grants summary judgment for the State. Express, field and conflict preemption rejected; sports event contracts are not swaps.", "D. Utah decision", "https://www.courthousenews.com/wp-content/uploads/2026/08/kalshi-utah-shelby-decision.pdf"]
+    ] },
+  { id: "minnesota", issues: ["CEA preemption","CFTC enforcement","Sports wagering statute"], forum: "federal", cap: "United States v. Minnesota", court: "D. Minn.", cite: "No. 0:26-cv-02661", no: "No. 0:26-cv-02661",
+    track: "CEA preemption", posture: "platform", states: ["Minnesota"], circuit: "8",
+    docket: [
+      ["01 Aug 2026", "SF 4760 takes effect; enforcement remains enjoined.", "Minn. Stat. \u00a7 609.7615", "https://www.revisor.mn.gov/bills/94/2026/0/SF/4760/"],
+      ["27 Jul 2026", "Judge Menendez grants the CFTC's preliminary injunction. Many event contracts fall within the swap definition; the court expressly declines to hold that all do.", "Reuters", "https://www.reuters.com/world/judge-blocks-minnesota-implementing-novel-prediction-markets-ban-2026-07-27/"],
+      ["19 May 2026", "CFTC sues Minnesota one day after SF 4760 is signed.", "CFTC Press Release 9233-26", "https://www.cftc.gov/PressRoom/PressReleases/9233-26"]
+    ] },
+  { id: "williams", issues: ["CEA preemption","Cease-and-desist","Sports event contracts"], forum: "federal", cap: "KalshiEX LLC v. Williams", court: "S.D.N.Y. / 2d Cir.", cite: "No. 1:25-cv-08846-AT", no: "2d Cir. No. 26-1835",
+    track: "CEA preemption", posture: "state", states: ["New York"], circuit: "2",
+    docket: [
+      ["31 Jul 2026", "New York sues Kalshi, following the April actions against Coinbase and Gemini.", "Reuters", "https://www.reuters.com/world/new-york-sues-kalshi-follows-coinbase-gemini-lawsuits-2026-07-31/"],
+      ["08 Jul 2026", "Kalshi appeals the PI denial to the Second Circuit (No. 26-1835).", "Litigation tracker", "https://mickbransfield.com/2025/08/11/summary-of-legal-actions-involving-kalshis-sports-event-contracts/"],
+      ["07 Jul 2026", "Judge Torres denies Kalshi's preliminary injunction; New York's gambling laws are not preempted as applied to sports contracts.", "Reuters", "https://www.reuters.com/legal/government/judge-rejects-kalshi-bid-block-new-york-gambling-enforcement-law-2026-07-08/"],
+      ["24 Oct 2025", "NYSGC issues a cease-and-desist to KalshiEX LLC; a standstill follows while the PI motion is briefed.", "NYSGC record", "#"]
+    ] },
+  { id: "wisconsin", issues: ["CEA preemption","CFTC enforcement","Tribal / IGRA"], forum: "federal", cap: "United States v. Wisconsin", court: "E.D. Wis. / 7th Cir.", cite: "No. 2:26-cv-749", no: "No. 2:26-cv-749",
+    track: "CEA preemption", posture: "state", states: ["Wisconsin"], circuit: "7",
+    docket: [
+      ["07 Aug 2026", "CFTC appeals the PI denial to the Seventh Circuit.", "Litigation tracker", "https://mickbransfield.com/2025/08/11/summary-of-legal-actions-involving-kalshis-sports-event-contracts/"],
+      ["28 Jul 2026", "Judge Griesbach denies the CFTC's preliminary injunction: Wisconsin's gambling statutes are not preempted by federal commodities regulation.", "Bloomberg Law", "https://news.bloomberglaw.com/securities-law/cftc-loses-bid-to-halt-wisconsin-prediction-market-crackdown"],
+      ["14 Jul 2026", "American Gaming Association moves to intervene.", "Litigation tracker", "https://mickbransfield.com/2025/08/11/summary-of-legal-actions-involving-kalshis-sports-event-contracts/"],
+      ["11 May 2026", "Ho-Chunk Nation wins the first federal IGRA ruling against Kalshi (W.D. Wis.); trial set for May 2027.", "W.D. Wis. docket", "#"]
+    ] },
+  { id: "nevada", issues: ["CEA preemption","State gambling act","Cease-and-desist","Removal / remand"], forum: "both", cap: "KalshiEX LLC v. Hendrick / State v. KalshiEX", court: "D. Nev. / Nev. 1st Jud. Dist.", cite: "No. 2:25-cv-00575; 26 OC 00050 1B", no: "9th Cir. No. 25-7516",
+    track: "CEA preemption", posture: "state", states: ["Nevada"], circuit: "9",
+    docket: [
+      ["01 Jul 2026", "Nevada Supreme Court denies Kalshi's emergency stay (No. 92771); the statewide geofencing injunction remains operative.", "Nev. Sup. Ct. docket", "#"],
+      ["01 Jun 2026", "State-court preliminary injunction entered; Kalshi and Coinbase enjoined.", "Nev. 1st Jud. Dist.", "#"],
+      ["02 Mar 2026", "Judge Du remands the State's action, rejecting Grable, complete preemption and federal-officer removal.", "D. Nev. remand order", "https://www.gaming.nv.gov/contentassets/b9f7b024bdbc4c8693d3a511ea5d9841/ecf-no.-45---order-remanding-to-state-court.pdf"],
+      ["24 Nov 2025", "Chief Judge Gordon dissolves the April 2025 injunction: sports contracts are not swaps.", "D. Nev. order", "https://business.cch.com/srd/20251201_SRD_NV_Kalshi-v-Hendrick_order_injunction_dissolved.pdf"],
+      ["04 Mar 2025", "NGCB issues its cease-and-desist order to KalshiEX LLC.", "NGCB news release", "https://www.gaming.nv.gov/siteassets/content/about/press-release/NGCB_-_News_Release_-_KalshiEX_Cease_and_Desist_Order__3-4-2025.pdf"]
+    ] },
+  { id: "washington", issues: ["State gambling act","Consumer protection","Money lost at gambling","Removal / remand"], forum: "state", cap: "State of Washington v. KalshiEX LLC", court: "King Cty. Super. Ct.", cite: "No. 26-2-10264-3 SEA", no: "No. 26-2-10264-3 SEA",
+    track: "State enforcement", posture: "state", states: ["Washington"], circuit: "9",
+    docket: [
+      ["22 Jul 2026", "Crypto.com / NADEX files its own federal challenge (W.D. Wash. No. 2:26-cv-02579).", "Litigation tracker", "https://mickbransfield.com/2025/08/11/summary-of-legal-actions-involving-kalshis-sports-event-contracts/"],
+      ["20 Jul 2026", "Amended preliminary injunction granted July 17, order filed. Preemption rejected on express, field and conflict grounds.", "King County order", "https://www.courthousenews.com/wp-content/uploads/2026/07/WA-order-kalshi.pdf"],
+      ["05 May 2026", "Judge Coughenour remands to state court: \u201cno obvious affirmative federal question.\u201d", "W.D. Wash. docket", "#"],
+      ["27 Mar 2026", "AG Brown files suit under the Gambling Act, Consumer Protection Act and Recovery of Money Lost at Gambling Act.", "GeekWire", "https://www.geekwire.com/2026/no-more-washington-state-sues-kalshi-alleging-prediction-market-amounts-to-illegal-gambling/"]
+    ] },
+  { id: "arizona", issues: ["CEA preemption","Criminal charges","State gambling act"], forum: "both", cap: "KalshiEX LLC v. Johnson", court: "D. Ariz.", cite: "No. CV-26-01715-PHX-MTL", no: "9th Cir. No. 26-4281",
+    track: "CEA preemption", posture: "platform", states: ["Arizona"], circuit: "9",
+    docket: [
+      ["06 Jul 2026", "Arizona appeals the preliminary injunction to the Ninth Circuit (No. 26-4281).", "Litigation tracker", "https://mickbransfield.com/2025/08/11/summary-of-legal-actions-involving-kalshis-sports-event-contracts/"],
+      ["05 May 2026", "Judge Liburdi grants a preliminary injunction on field, obstacle and impossibility preemption.", "National Law Review", "https://natlawreview.com/article/federal-court-blocks-arizona-enforcing-gambling-laws-against-prediction-markets"],
+      ["17 Mar 2026", "AG Mayes files 20 misdemeanor charges \u2014 the first criminal prosecution of a CFTC-registered operator.", "Arizona AG release", "https://www.azag.gov/press-release/attorney-general-mayes-charges-kalshi-illegal-gambling-operation-election-wagering"]
+    ] },
+  { id: "orgel", issues: ["CEA preemption","Cease-and-desist","Sports wagering statute"], forum: "federal", cap: "KalshiEX LLC v. Orgel", court: "M.D. Tenn. / 6th Cir.", cite: "No. 3:26-cv-00034", no: "6th Cir. No. 26-5235",
+    track: "CEA preemption", posture: "platform", states: ["Tennessee"], circuit: "6",
+    docket: [
+      ["30 Jul 2026", "Argued in the Sixth Circuit, consolidated with the Ohio appeal. No ruling.", "Bloomberg Law", "https://news.bloomberglaw.com/litigation/kalshi-states-try-to-sway-sixth-circuit-on-sports-betting-rules"],
+      ["19 Feb 2026", "Judge Trauger grants Kalshi's preliminary injunction; contracts likely swaps, conflict preemption applies. $500,000 bond.", "M.D. Tenn. order", "#"],
+      ["09 Jan 2026", "Sports Wagering Council cease-and-desist letters to Kalshi, Polymarket and Crypto.com.", "SWC record", "#"]
+    ] },
+  { id: "schuler", issues: ["CEA preemption","Swap definition","Sports wagering statute"], forum: "federal", cap: "KalshiEX LLC v. Schuler", court: "S.D. Ohio / 6th Cir.", cite: "No. 2:25-cv-01165", no: "6th Cir. No. 26-3196",
+    track: "CEA preemption", posture: "state", states: ["Ohio"], circuit: "6",
+    docket: [
+      ["30 Jul 2026", "Argued in the Sixth Circuit before Judges Clay, Gibbons and Bloomekatz. No ruling.", "Bloomberg Law", "https://news.bloomberglaw.com/litigation/kalshi-states-try-to-sway-sixth-circuit-on-sports-betting-rules"],
+      ["11 Jun 2026", "39-state amicus brief filed in support of Ohio.", "Litigation tracker", "https://mickbransfield.com/2025/08/11/summary-of-legal-actions-involving-kalshis-sports-event-contracts/"],
+      ["14 Apr 2026", "Casino Control Commission proposes a $5 million fine.", "OCCC record", "#"],
+      ["09 Mar 2026", "Chief Judge Morrison denies the preliminary injunction; sports event contracts are not swaps.", "S.D. Ohio opinion", "#"]
+    ] },
+  { id: "martin", issues: ["CEA preemption","State gambling act"], forum: "federal", cap: "KalshiEX LLC v. Martin", court: "D. Md. / 4th Cir.", cite: "No. 1:25-cv-01283-ABA", no: "4th Cir. No. 25-1892",
+    track: "CEA preemption", posture: "state", states: ["Maryland"], circuit: "4",
+    docket: [
+      ["07 May 2026", "Argued in the Fourth Circuit before Chief Judge Gregory and Judges Thacker and Benjamin. No ruling as of August 9.", "Oral-argument audio", "https://www.ca4.uscourts.gov/oral-argument/oral-argument-audio-files"],
+      ["01 Aug 2025", "Judge Abelson denies the preliminary injunction \u2014 the first federal court to side with state regulators.", "D. Md. opinion", "#"]
+    ] },
+  { id: "massachusetts", issues: ["State gambling act","Consumer protection","CEA preemption"], forum: "state", cap: "Commonwealth v. KalshiEX LLC", court: "Mass. SJC", cite: "SJC-13906", no: "SJC-13906",
+    track: "CEA preemption", posture: "pending", states: ["Massachusetts"], circuit: "1",
+    docket: [
+      ["09 Aug 2026", "No decision issued; the case is not on the new-opinions list.", "Massachusetts new opinions", "https://www.mass.gov/info-details/new-opinions"],
+      ["23 Jun 2026", "Superior Court complaint amended to add under-21 marketing allegations.", "Suffolk Super. Ct. docket", "#"],
+      ["04 May 2026", "Argued before the Supreme Judicial Court.", "SJC docket", "#"],
+      ["24 Apr 2026", "CFTC amicus supporting Kalshi; 38-state amicus supporting the Commonwealth.", "Amicus announcements", "https://www.mass.gov/info-details/amicus-announcements-from-september-2025-to-august-2026"],
+      ["20 Jan 2026", "Superior Court grants the Commonwealth a preliminary injunction; stayed by the Appeals Court February 17.", "Suffolk Super. Ct. docket", "#"]
+    ] },
+  { id: "michigan", issues: ["State gambling act","Cease-and-desist"], forum: "federal", cap: "Nessel v. KalshiEX LLC", court: "6th Cir.", cite: "No. 26-1639", no: "No. 26-1639",
+    track: "State enforcement", posture: "pending", states: ["Michigan"], circuit: "6",
+    docket: [["27 Jul 2026", "Kalshi appeals the Western District of Michigan's ruling to the Sixth Circuit.", "Litigation tracker", "https://mickbransfield.com/2025/08/11/summary-of-legal-actions-involving-kalshis-sports-event-contracts/"]] },
+  { id: "kentucky", issues: ["State excise tax","Commerce Clause"], forum: "federal", cap: "United States v. Kentucky", court: "E.D. Ky.", cite: "No. 3:26-cv-00049", no: "No. 3:26-cv-00049",
+    track: "CEA preemption", posture: "pending", states: ["Kentucky"], circuit: "6",
+    docket: [
+      ["15 Jul 2026", "The Kentucky Wagering Consumer Protection Act (HB 904) takes effect, barring licensed operators from contracting with Kalshi or Polymarket.", "Kentucky AG release", "https://www.kentucky.gov/Pages/Activity-stream.aspx?n=AttorneyGeneral&prId=1944"],
+      ["23 Jun 2026", "CFTC sues Kentucky \u2014 its ninth state action.", "Litigation tracker", "https://mickbransfield.com/2025/08/11/summary-of-legal-actions-involving-kalshis-sports-event-contracts/"],
+      ["12 Jun 2026", "Kalshi, Crypto.com and Polymarket sue to block the state's 14.25% excise tax.", "Washington Post", "https://www.washingtonpost.com/business/2026/06/12/prediction-markets-kentucky-tax-lawsuit/34cb13ee-66cc-11f1-bdd4-805ebb99a693_story.html"]
+    ] },
+  { id: "bluelake", issues: ["Tribal / IGRA","UIGEA","Standing"], forum: "federal", cap: "Blue Lake Rancheria v. Kalshi Inc.", court: "N.D. Cal. / 9th Cir.", cite: "No. 3:25-cv-06162-JSC", no: "9th Cir. No. 25-7504",
+    track: "Tribal / IGRA", posture: "pending", states: ["California"], circuit: "9",
+    docket: [
+      ["10 Jul 2026", "Argued in the Ninth Circuit before Judges Murguia, McKeown and Paez. No ruling.", "Ninth Circuit opinions", "https://www.ca9.uscourts.gov/decisions/opinions/"],
+      ["10 Nov 2025", "District court denies a preliminary injunction: IGRA does not reach third-party platforms; UIGEA exempts CFTC-regulated transactions.", "N.D. Cal. order", "#"]
+    ] },
+  { id: "illinois", issues: ["CEA preemption","CFTC enforcement"], forum: "federal", cap: "United States v. Illinois", court: "N.D. Ill.", cite: "No. 1:26-cv-03659", no: "No. 1:26-cv-03659",
+    track: "CEA preemption", posture: "pending", states: ["Illinois"], circuit: "7",
+    docket: [
+      ["09 Jun 2026", "Illinois moves to stay the CFTC's case pending a related Coinbase injunction motion.", "Litigation tracker", "https://mickbransfield.com/2025/08/11/summary-of-legal-actions-involving-kalshis-sports-event-contracts/"],
+      ["02 Apr 2026", "CFTC files suit against Illinois.", "Litigation tracker", "https://mickbransfield.com/2025/08/11/summary-of-legal-actions-involving-kalshis-sports-event-contracts/"]
+    ] },
+  { id: "connecticut", issues: ["CEA preemption","CFTC enforcement"], forum: "federal", cap: "United States v. Connecticut", court: "D. Conn.", cite: "No. 3:26-cv-00498", no: "No. 3:26-cv-00498",
+    track: "CEA preemption", posture: "pending", states: ["Connecticut"], circuit: "2",
+    docket: [
+      ["22 Jul 2026", "Motion-to-dismiss argument calendared; no ruling or confirmation located as of August 9.", "Litigation tracker", "https://mickbransfield.com/2025/08/11/summary-of-legal-actions-involving-kalshis-sports-event-contracts/"],
+      ["08 Dec 2025", "Kalshi obtains a TRO halting Connecticut enforcement.", "D. Conn. docket", "#"]
+    ] },
+  { id: "rhodeisland", issues: ["CEA preemption","Consumer protection","State gambling act"], forum: "both", cap: "KalshiEX LLC v. Furcolo", court: "D.R.I.", cite: "No. 1:26-cv-00327", no: "No. 1:26-cv-00327",
+    track: "CEA preemption", posture: "pending", states: ["Rhode Island"], circuit: "1",
+    docket: [
+      ["03 Aug 2026", "Motion hearing before Judge McElroy; no ruling confirmed as of August 9.", "Litigation tracker", "https://mickbransfield.com/2025/08/11/summary-of-legal-actions-involving-kalshis-sports-event-contracts/"],
+      ["22 Jun 2026", "CFTC added to Kalshi's federal suit.", "Litigation tracker", "https://mickbransfield.com/2025/08/11/summary-of-legal-actions-involving-kalshis-sports-event-contracts/"],
+      ["21 May 2026", "AG Neronha sues Kalshi and Polymarket in Providence County Superior Court.", "Providence Cty. Super. Ct.", "#"]
+    ] },
+  { id: "newmexico", issues: ["CEA preemption","CFTC enforcement"], forum: "federal", cap: "United States v. New Mexico", court: "D.N.M.", cite: "No. 1:26-cv-01912", no: "No. 1:26-cv-01912",
+    track: "CEA preemption", posture: "pending", states: ["New Mexico"], circuit: "10",
+    docket: [
+      ["12 Jun 2026", "CFTC files suit against New Mexico.", "CFTC Press Release 9251-26", "https://www.cftc.gov/PressRoom/PressReleases/9251-26"],
+      ["04 Jun 2026", "AG Torrez sues Kalshi in state court; removed June 8.", "D.N.M. docket", "#"]
+    ] }
+];
+const SUMMARY = {
+  flaherty: "New Jersey moved to enforce its gambling laws and constitutional prohibition against Kalshi's sports event contracts; the district court refused Kalshi an injunction and Kalshi took an emergency appeal. A divided panel reversed. Judge Porter held the contracts are swaps under CEA \u00a7 1a(47)(A)(ii) because they trade on a CFTC-licensed DCM and turn on outcomes carrying economic consequences \u2014 rejecting New Jersey's argument that the outcome must be joined to a financial instrument. Preemption followed on two independent grounds: the CEA occupies the field of trading on a DCM, and state enforcement would obstruct the Act by barring a federally licensed exchange from offering its listed contracts. Judge Roth dissented, arguing the presumption against preemption applies with special force to gambling and that CFTC Rule 40.11, which itself bars DCMs from listing gaming contracts, undercuts the conflict holding.",
+  cox: "The first case in the country to reach final judgment on the merits. Judge Shelby granted Utah summary judgment, rejecting express, field and conflict preemption and holding that sports event contracts are not swaps \u2014 squarely against the Third Circuit. The judgment leaves Utah free to enforce its gambling statutes against the contracts, and Kalshi's appeal puts the question before a second court of appeals within a day of the decision.",
+  minnesota: "Minnesota enacted the first statutory prediction-market ban in the country, making it a felony to create, operate, facilitate or advertise a prediction market. The CFTC sued the day after signing, in its own name. Judge Menendez enjoined enforcement six days before the statute took effect, holding many event contracts fall within the CEA's swap definition \u2014 while expressly declining to hold that every event contract does. That limit matters: the order is not a categorical counterweight to Utah.",
+  williams: "Kalshi sought to stop New York from enforcing its gambling laws after the Gaming Commission's cease-and-desist. Judge Torres denied preliminary relief, holding the state's laws are not preempted as applied to sports contracts. Kalshi appealed the next day. The State escalated at the end of July with its own suit against Kalshi, following April actions against Coinbase and Gemini, and the CFTC's separate case against New York remains pending before the same court.",
+  wisconsin: "The CFTC sought to halt Wisconsin's crackdown after the Attorney General filed three civil actions alleging Class I felony violations against five platforms. Judge Griesbach denied the injunction, finding the state statutes are not preempted by federal commodities regulation and that the CFTC had shown neither likelihood of success nor irreparable harm. Wisconsin is also the venue for the Ho-Chunk Nation's IGRA case \u2014 the first federal ruling to side with a tribe against Kalshi, and in direct tension with the Ninth Circuit's Blue Lake track.",
+  nevada: "The longest and most tangled record of any state. Kalshi won a federal injunction in April 2025; Chief Judge Gordon dissolved it in November on a holding that sports contracts are not swaps, reasoning the underlying event must be inherently associated with economic consequence. The fight then moved to state court, where the Gaming Control Board obtained TROs against Kalshi, Polymarket and Coinbase and a preliminary injunction in June 2026. Kalshi's removal was rejected on all three grounds, the Nevada Supreme Court denied an emergency stay, and a contempt proceeding over alleged geofencing noncompliance is live.",
+  washington: "The Attorney General sued in state court under the Gambling Act, the Consumer Protection Act and the Recovery of Money Lost at Gambling Act, with allegations reaching Kalshi's marketing conduct. Kalshi removed; Judge Coughenour remanded for want of an affirmative federal question and the Ninth Circuit declined to stay the remand. Back in King County, Judge McHale granted the State an amended preliminary injunction, rejecting preemption on express, field and conflict grounds and ordering geolocation and marketing records preserved.",
+  arizona: "Arizona brought the first criminal charges ever filed against a CFTC-registered prediction market operator \u2014 twenty misdemeanor counts spanning election wagering and sports proposition bets. The CFTC obtained a TRO blocking the arraignment, then a preliminary injunction. Judge Liburdi rested on three independent grounds, including impossibility: CFTC rules require DCMs to provide impartial access while Arizona law criminalizes unlicensed event wagering, so a platform cannot comply with both. The court aligned itself with the Third Circuit on the swap question.",
+  orgel: "Judge Trauger granted Kalshi a preliminary injunction, holding the contracts are likely swaps \u2014 \u201ca three-hour-long game, and the Titans' winning that game, are both occurrences of events\u201d \u2014 and that conflict preemption applies because a platform cannot simultaneously honor federal impartial-access requirements and Tennessee's restrictions. Tennessee appealed, and the Sixth Circuit heard this case together with Ohio's, giving one panel both sides of the district split at once.",
+  schuler: "The mirror image of Tennessee, from the same circuit. Chief Judge Morrison denied Kalshi's injunction, finding no evidence Congress meant to preempt state sports gambling law and that treating sports scores as federally protected swaps would produce absurd outcomes alongside currency rates, weather and energy prices. Ohio's Casino Control Commission followed with a proposed $5 million fine. Argued the same day as Orgel; the panel questioned whether conduct many regard as sports gambling falls to the CFTC alone.",
+  martin: "The first federal court anywhere to side with state regulators. Judge Abelson denied Kalshi's injunction, applying a strong presumption against preemption on the ground that gambling sits at the core of state sovereign power, and reasoning Kalshi could obtain a Maryland license while still offering impartial DCM access. Argued in the Fourth Circuit with Neal Katyal for Kalshi before an openly skeptical panel; no decision has issued in the fifteen months since the district ruling.",
+  massachusetts: "The Gaming Commission's November 2025 letter produced a Superior Court injunction for the Commonwealth in January, which the Appeals Court then stayed. The Supreme Judicial Court took the case directly and heard argument in May, with the CFTC filing for Kalshi and thirty-eight states for Massachusetts. It is one of two bellwether decisions still outstanding, and the only one that would come from a state high court \u2014 a route to certiorari that does not depend on a federal circuit split.",
+  michigan: "Enforcement here has run through cease-and-desist letters and geofencing orders rather than a merits opinion. Kalshi's appeal from the Western District of Michigan gives the Sixth Circuit a third prediction-market matter, filed three days before the Ohio and Tennessee argument.",
+  kentucky: "Kentucky drew three distinct lines of attack within a month. The Attorney General sued Kalshi and Polymarket in Franklin Circuit Court; both matters were removed and the CFTC then filed its ninth state action. The Wagering Consumer Protection Act took effect in July, barring licensed sportsbooks from contracting with either platform. Separately \u2014 and not a CFTC case \u2014 Kalshi, Crypto.com and Polymarket jointly sued to block the state's 14.25% excise tax on operator transaction fees as discriminatory and preempted.",
+  bluelake: "Three California tribes sued Kalshi, Robinhood and Vanguard under IGRA, their tribal-state compacts and the Lanham Act. Judge Corley denied relief, holding IGRA does not reach third-party platforms and that UIGEA expressly exempts CFTC-regulated transactions from illegal internet gambling. Twenty-seven states and the District of Columbia backed the tribes on appeal. The Ninth Circuit heard argument in July; the Ho-Chunk ruling out of Wisconsin points the other way, leaving the tribal track split independent of the preemption track.",
+  illinois: "The Gaming Board declared prediction markets illegal gambling in October 2025 and issued cease-and-desist letters to Kalshi, Crypto.com and Polymarket. The CFTC sued the State in April. Illinois has moved to stay that case pending a related Coinbase injunction motion rather than brief preemption now, and no merits ruling has issued \u2014 while access remains blocked in practice.",
+  connecticut: "Consumer Protection issued cease-and-desist orders to Kalshi, Robinhood and Crypto.com; Kalshi obtained a TRO in December 2025. The CFTC then sued the State, and Connecticut answered with a motion to dismiss that would keep the federal government out of the dispute entirely. Argument was calendared for late July; nothing in the record confirms it went forward.",
+  rhodeisland: "The Attorney General sued Kalshi and Polymarket in Providence County Superior Court, demanding both stand down. The case was removed to federal court and the CFTC was added a month later, putting the federal agency into a suit it did not begin. A motion hearing went forward in early August with no ruling.",
+  newmexico: "The Attorney General sued Kalshi in state court in early June; the case was removed within days and the CFTC filed its own action four days later. Nothing has been decided \u2014 it is the newest of the CFTC's nine state suits apart from Kentucky."
+};
+
+const POSTURE_SHORT = { platform: "For platform", state: "For state", pending: "Pending", banned: "Banned", untracked: "Untracked" };
+
+/* Posture is the colour: green reads clear for platforms, red reads closed. Circuits are drawn as
+   boundaries only, so one map carries one meaning. */
+const POSTURE_FILL = {
+  untracked: "oklch(0.97 0.002 80)",
+  platform:  "oklch(0.87 0.06 150)",
+  pending:   "oklch(0.88 0.07 88)",
+  state:     "oklch(0.76 0.10 45)",
+  banned:    "oklch(0.55 0.14 25)"
+};
+function tint(cid, posture) { return POSTURE_FILL[posture]; }
+const CIRC_HUE = { "1": 28, "2": 55, "3": 82, "4": 128, "5": 160, "6": 195, "7": 235, "8": 268, "9": 300, "10": 335, "11": 8, "DC": 66, "Fed": 0 };
+const CIRC_DASH = {};
+function circStroke(cid) {
+  return cid === "Fed" ? "var(--color-neutral-700)" : `oklch(0.48 0.13 ${CIRC_HUE[cid] != null ? CIRC_HUE[cid] : 82})`;
+}
+
+const ENTITIES = [
+  { id: "kalshi", key: "Kalshi", name: "Kalshi", legal: "KalshiEX LLC", type: "CFTC-licensed DCM",
+    profile: "The lead litigant in nearly every matter on this page. Kalshi won the 2024 election-contract fight against the CFTC itself, then began listing sports event contracts in early 2025 — the move that started this litigation. It holds the only federal appellate merits ruling in its favor and the only final district judgment against it.",
+    matters: [
+      ["flaherty", "Won. The only appellate merits holding on preemption."],
+      ["cox", "Lost on final judgment; appealed to the Tenth Circuit."],
+      ["williams", "PI denied; appealed to the Second Circuit."],
+      ["nevada", "Won, then lost the injunction; now under a state-court injunction and a contempt proceeding."],
+      ["washington", "Enjoined by the state court; removal rejected."],
+      ["arizona", "Criminally charged, then protected by the CFTC's federal injunction."],
+      ["orgel", "Won a preliminary injunction; on appeal in the Sixth Circuit."],
+      ["schuler", "PI denied; on appeal in the Sixth Circuit. $5M fine proposed."],
+      ["martin", "PI denied — the first federal loss anywhere; argued in the Fourth Circuit."],
+      ["massachusetts", "Enjoined below; the SJC has the case under advisement."],
+      ["michigan", "Appealed to the Sixth Circuit."],
+      ["kentucky", "Sued by the AG; also a plaintiff against the state excise tax."],
+      ["bluelake", "Defendant on the tribal IGRA track; won below, argued on appeal."],
+      ["rhodeisland", "Named in the state complaint; federal case pending."],
+      ["newmexico", "Sued in state court; removed."],
+      ["wisconsin", "Named in the AG's Dane County suits; also the Ho-Chunk IGRA defendant."]
+    ] },
+  { id: "polymarket", key: "Polymarket US (QCX)", name: "Polymarket US", legal: "QCX LLC", type: "CFTC-licensed DCM",
+    profile: "Acquired by Polymarket in July 2025 for $112M and designated a DCM days earlier, giving Polymarket a regulated U.S. venue after its 2022 CFTC settlement and the closed 2025 DOJ probe. It litigates less often than Kalshi but is named alongside it in most state complaints.",
+    matters: [
+      ["massachusetts", "QCX v. Campbell stayed pending the SJC decision."],
+      ["nevada", "State-court TRO entered January 2026; preliminary injunction in June."],
+      ["minnesota", "Filed its own federal challenge to SF 4760 in June 2026."],
+      ["kentucky", "Sued by the AG; barred from sportsbook contracts by HB 904; excise-tax plaintiff."],
+      ["rhodeisland", "Named in the state complaint."],
+      ["wisconsin", "Named in the AG's Dane County suits; separate Dane County civil matter."],
+      ["illinois", "Cease-and-desist from the Gaming Board."],
+      ["orgel", "Received a Tennessee cease-and-desist letter; not a party to the injunction."]
+    ] },
+  { id: "robinhood", key: "Robinhood Derivatives", name: "Robinhood Derivatives", legal: "Robinhood Derivatives, LLC", type: "CFTC-registered FCM",
+    profile: "Not an exchange. Robinhood routes event contracts to Kalshi's and ForecastEx's DCMs as a futures commission merchant, which makes its exposure derivative of theirs — and its dismissals turn as often on who it is as on what the contracts are.",
+    matters: [
+      ["nevada", "Ninth Circuit appeal No. 25-7831 (Dreitzer) pending."],
+      ["massachusetts", "Robinhood v. Campbell dismissed in March 2026."],
+      ["bluelake", "Co-defendant on the tribal IGRA claims."],
+      ["washington", "Filed its own federal preemption suit against the state."],
+      ["connecticut", "Named in the Department of Consumer Protection cease-and-desist orders."],
+      ["wisconsin", "Named in the AG's Dane County suits."]
+    ] },
+  { id: "cryptocom", key: "Crypto.com / NADEX", name: "Crypto.com / NADEX", legal: "North American Derivatives Exchange, Inc.", type: "CFTC-licensed DCM",
+    profile: "The oldest DCM in the group — NADEX predates the dispute by years and was acquired by Crypto.com. Its Nevada loss produced one of the two rulings holding these contracts are not swaps, days before the same judge dissolved Kalshi's injunction.",
+    matters: [
+      ["nevada", "PI denied October 2025; Ninth Circuit appeal No. 25-7187 pending."],
+      ["washington", "Filed W.D. Wash. No. 2:26-cv-02579 in July 2026."],
+      ["kentucky", "Excise-tax plaintiff alongside Kalshi and Polymarket."],
+      ["connecticut", "Named in the cease-and-desist orders."],
+      ["illinois", "Cease-and-desist from the Gaming Board."],
+      ["orgel", "Received a Tennessee cease-and-desist letter."],
+      ["wisconsin", "Named in the AG's Dane County suits."]
+    ] },
+  { id: "coinbase", key: "Coinbase Financial Markets", name: "Coinbase Financial Markets", legal: "Coinbase Financial Markets, Inc.", type: "Broker; launched own markets Jan 2026",
+    profile: "The newest entrant. Coinbase reached event contracts through Kalshi's DCM before launching independent prediction markets in January 2026 — and drew state attention almost immediately, including one of the few rulings to turn on abstention rather than preemption.",
+    matters: [
+      ["nevada", "State-court TRO February 2026; its federal suit dismissed on Younger abstention grounds."],
+      ["williams", "Sued by the New York AG in April 2026, alongside Gemini Titan."],
+      ["illinois", "Its injunction motion is the reason the state's CFTC case is stayed."],
+      ["wisconsin", "Named in the AG's Dane County suits."]
+    ] },
+  { id: "cftc", key: null, name: "CFTC", legal: "U.S. Commodity Futures Trading Commission", type: "Federal regulator — plaintiff",
+    profile: "Since April 2026 the agency has been a plaintiff, not just a licensor. Under Chairman Selig it has sued nine states in the federal government's own name on a single theory: exclusive jurisdiction over swaps traded on federally licensed exchanges. It has also filed as amicus for the platforms in the Sixth Circuit and before the Massachusetts SJC.",
+    states9: ["Arizona", "Connecticut", "Illinois", "New York", "Wisconsin", "Minnesota", "Rhode Island", "New Mexico", "Kentucky"],
+    matters: [
+      ["arizona", "PI granted on three preemption grounds — its clearest win."],
+      ["minnesota", "PI granted, blocking the nation's first statutory ban."],
+      ["wisconsin", "PI denied; appealed to the Seventh Circuit."],
+      ["williams", "Its separate suit against New York remains pending."],
+      ["connecticut", "Facing a motion to dismiss."],
+      ["illinois", "Case stayed at the state's request."],
+      ["rhodeisland", "Added to Kalshi's federal suit in June 2026."],
+      ["newmexico", "Filed June 2026."],
+      ["kentucky", "Its ninth state action."]
+    ] }
+];
+let selEntity = "kalshi";
+
+/* role and life-cycle per entity-matter pair: P = plaintiff, D = defendant, PD = both postures in the same state */
+const ROLE = {
+  "kalshi:flaherty": ["P", 1], "kalshi:cox": ["P", 1], "kalshi:williams": ["P", 1], "kalshi:nevada": ["PD", 1],
+  "kalshi:washington": ["D", 1], "kalshi:arizona": ["PD", 1], "kalshi:orgel": ["P", 1], "kalshi:schuler": ["P", 1],
+  "kalshi:martin": ["P", 1], "kalshi:massachusetts": ["D", 1], "kalshi:michigan": ["D", 1], "kalshi:kentucky": ["D", 1],
+  "kalshi:bluelake": ["D", 1], "kalshi:rhodeisland": ["P", 1], "kalshi:newmexico": ["D", 1], "kalshi:wisconsin": ["D", 1],
+  "polymarket:massachusetts": ["P", 1], "polymarket:nevada": ["D", 1], "polymarket:minnesota": ["P", 1],
+  "polymarket:kentucky": ["D", 1], "polymarket:rhodeisland": ["D", 1], "polymarket:wisconsin": ["D", 1],
+  "polymarket:illinois": ["D", 1], "polymarket:orgel": ["D", 1],
+  "robinhood:nevada": ["P", 1], "robinhood:massachusetts": ["P", 0], "robinhood:bluelake": ["D", 1],
+  "robinhood:washington": ["P", 1], "robinhood:connecticut": ["D", 1], "robinhood:wisconsin": ["D", 1],
+  "cryptocom:nevada": ["P", 1], "cryptocom:washington": ["P", 1], "cryptocom:kentucky": ["P", 1],
+  "cryptocom:connecticut": ["D", 1], "cryptocom:illinois": ["D", 1], "cryptocom:orgel": ["D", 1], "cryptocom:wisconsin": ["D", 1],
+  "coinbase:nevada": ["PD", 1], "coinbase:williams": ["D", 1], "coinbase:illinois": ["P", 1], "coinbase:wisconsin": ["D", 1],
+  "cftc:arizona": ["P", 1], "cftc:minnesota": ["P", 1], "cftc:wisconsin": ["P", 1], "cftc:williams": ["P", 1],
+  "cftc:connecticut": ["P", 1], "cftc:illinois": ["P", 1], "cftc:rhodeisland": ["P", 1], "cftc:newmexico": ["P", 1],
+  "cftc:kentucky": ["P", 1]
+};
+const ROLE_LABEL = { P: "Plaintiff", D: "Defendant", PD: "Both" };
+function roleOf(eid, cid) { return ROLE[eid + ":" + cid] || ["D", 1]; }
+function metrics(e) {
+  let p = 0, d = 0, active = 0, appellate = 0;
+  e.matters.forEach(([cid]) => {
+    const [r, a] = roleOf(e.id, cid);
+    if (r === "P" || r === "PD") p++;
+    if (r === "D" || r === "PD") d++;
+    if (a) active++;
+    const c = CASES.find(x => x.id === cid);
+    if (c && /Cir\./.test(c.no + " " + c.court)) appellate++;
+  });
+  return { total: e.matters.length, p, d, active, appellate };
+}
+
+const stateByName = Object.fromEntries(STATES.map(s => [s.name, s]));
+const circuitById = Object.fromEntries(CIRCUITS.map(c => [c.id, c]));
+const circuitOfState = {};
+CIRCUITS.forEach(c => c.states.forEach(n => circuitOfState[n] = c.id));
+
+let sel = { state: "New Jersey", circuit: null };
+let layerMode = "posture";
+const mapEnts = new Set();
+const mapPostures = new Set();
+const POSTURE_DEF = {
+  untracked: "Nothing in this state has been reviewed. Absence of a finding is not a finding of legality — no case, order or enforcement action is being tracked here.",
+  platform: "A court has held on the merits that the Commodity Exchange Act preempts state gambling law as applied to contracts on a CFTC-licensed exchange, or has enjoined state enforcement on that basis.",
+  pending: "Live enforcement or litigation with no merits ruling yet, and the signals so far run against the platforms — removal fights, stays, cease-and-desist letters, geofencing orders.",
+  state: "A court has rejected preemption or denied the platforms relief, or the record points that way — state gambling law applies and the state may enforce it.",
+  banned: "An order, judgment or statute currently bars the contracts in this state. That is an operational fact today, whatever an appeal may later hold."
+};
+let selCase = "flaherty";
+let filter = "all";
+let sort = { key: "name", dir: 1 };
+
+const fmtDate = iso => new Date(iso + "T12:00:00").toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
+
+/* ---------- circuit index ---------- */
+function renderCircuits() {
+  document.getElementById("circuitlist").innerHTML = CIRCUITS.map(c => {
+    const tracked = c.posture !== "untracked";
+    return `<button class="crow" data-circuit="${c.id}" data-posture="${c.posture}" aria-selected="${sel.circuit === c.id}">
+      <span class="cnum">${CIR_LABEL[c.id]}</span>
+      <span class="cbody">
+        <span class="cname">${c.name}</span><br>
+        <span class="${tracked ? "ccase" : "cnone"}">${c.note || "No tracked activity"}</span>
+      </span>
+      <span class="sw ${c.posture === "untracked" ? "none" : c.posture}" title="${POSTURE[c.posture].label}"
+        style="background:${tint(c.id, c.posture)};border-color:${circStroke(c.id)}"></span>
+    </button>`;
+  }).join("");
+  document.querySelectorAll(".crow").forEach(el =>
+    el.addEventListener("click", () => selectCircuit(el.dataset.circuit)));
+}
+
+/* ---------- status board ---------- */
+function boardRows() {
+  let rows = STATES.filter(s => filter === "all" || s.status === filter);
+  const k = sort.key;
+  const order = { go: 0, restricted: 1, banned: 2 };
+  const pOrder = { platform: 0, pending: 1, state: 2, banned: 3 };
+  rows.sort((a, b) => {
+    let v;
+    if (k === "name") v = a.name.localeCompare(b.name);
+    else if (k === "status") v = order[a.status] - order[b.status];
+    else if (k === "posture") v = pOrder[a.posture] - pOrder[b.posture];
+    else v = a.updated.localeCompare(b.updated);
+    return v * sort.dir;
+  });
+  return rows;
+}
+function renderBoard() {
+  const rows = boardRows();
+  document.getElementById("boardbody").innerHTML = rows.map(s => `
+    <tr data-state="${s.name}" aria-selected="${sel.state === s.name}">
+      <td class="stname">${s.name}<span class="cite">${CIR_LABEL[s.circuit]} Cir.</span></td>
+      <td><span class="badge ${s.status}">${STATUS[s.status]}</span></td>
+      <td>${POSTURE[s.posture].label}</td>
+      <td><span class="case">${s.caseName}</span><span class="cite">${s.caseCite}</span></td>
+      <td class="num">${fmtDate(s.updated)}${s.fresh ? ' <span class="badge upd">updated</span>' : ""}</td>
+    </tr>`).join("");
+  document.getElementById("rowcount").textContent = rows.length + " of " + STATES.length + " tracked states";
+  document.querySelectorAll("#boardbody tr").forEach(tr =>
+    tr.addEventListener("click", () => selectState(tr.dataset.state)));
+}
+
+/* ---------- state detail ---------- */
+function renderDetail() {
+  const s = stateByName[sel.state];
+  const c = circuitById[circuitOfState[s.name]];
+  document.getElementById("detail").innerHTML = `
+    <div class="dhead">
+      <div class="kicker">State detail · is it legal here?</div>
+      <h3>${s.name}</h3>
+      <div style="display:flex;gap:var(--space-3);align-items:center;margin-top:var(--space-3);flex-wrap:wrap">
+        <span class="badge ${s.status}">${STATUS[s.status]}</span>
+        <span style="font-size:12.5px;color:var(--color-neutral-700)">${POSTURE[s.posture].label}</span>
+        ${s.fresh ? '<span class="badge upd">updated this week</span>' : ""}
+      </div>
+    </div>
+    <div class="dbody">
+      <dl>
+        <dt>Circuit</dt><dd>${c.name}</dd>
+        <dt>Controlling</dt><dd><em>${s.caseName}</em>, ${s.caseCite}</dd>
+        <dt>Updated</dt><dd class="num">${fmtDate(s.updated)}</dd>
+        <dt>Provenance</dt><dd><span class="prov"><span class="dot"></span> Human-approved</span></dd>
+      </dl>
+      <p style="font-size:13px;line-height:1.6;margin:var(--space-4) 0 0;color:var(--color-neutral-800)">${s.note}</p>
+
+      <div class="kicker" style="margin-top:var(--space-6)">By platform</div>
+      <table class="plat">
+        <thead><tr><th>Platform</th><th style="text-align:right">Status</th></tr></thead>
+        <tbody>${Object.entries(s.platforms).map(([p, st]) =>
+          `<tr><td>${p}</td><td><span class="badge ${st}">${STATUS[st]}</span></td></tr>`).join("")}</tbody>
+      </table>
+      <p style="font-size:12px;color:var(--color-neutral-700);line-height:1.6;margin-top:var(--space-2)">${s.platformNote}</p>
+
+      <div class="srcline">
+        <span class="kicker">Primary sources</span><br>
+        ${s.src.map(([l, u]) => `<a href="${u}" target="_blank" rel="noopener">${l}</a>`).join("<br>")}
+      </div>
+      <div style="display:flex;gap:var(--space-3);margin-top:var(--space-4);flex-wrap:wrap">
+        <button class="btn btn-secondary" type="button" data-goto-case="${s.caseId}">Open case record</button>
+        <a class="btn btn-ghost" href="#correct">Report an error</a>
+      </div>
+    </div>`;
+  const b = document.querySelector("[data-goto-case]");
+  if (b) b.addEventListener("click", () => { selCase = b.dataset.gotoCase; renderCases();
+    document.getElementById("cases").scrollTo ? window.location.hash = "#cases" : null; });
+}
+
+/* ---------- cases ---------- */
+let caseQ = "", caseTrack = "all", caseState = "all", caseCircuit = "all", caseForum = "all";
+const FORUM = { federal: "Federal court", state: "State court", both: "Federal + state" };
+const casePost = new Set();
+
+function caseMatches(c) {
+  if (caseTrack !== "all" && !(c.issues || []).includes(caseTrack)) return false;
+  if (caseForum !== "all" && c.forum !== caseForum && !(c.forum === "both" && caseForum !== "both")) return false;
+  if (caseState !== "all" && !(c.states || []).includes(caseState)) return false;
+  if (caseCircuit !== "all" && c.circuit !== caseCircuit) return false;
+  if (casePost.size && !casePost.has(c.posture)) return false;
+  if (caseQ) {
+    const hay = [c.cap, c.court, c.no, c.cite || "", c.track, ...(c.issues || []), ...(c.states || [])].join(" ").toLowerCase();
+    if (!caseQ.toLowerCase().split(/\s+/).every(w => hay.includes(w))) return false;
+  }
+  return true;
+}
+
+function renderCaseControls() {
+  const sel = document.getElementById("case-track");
+  if (!sel.options.length) {
+    const tracks = [...new Set(CASES.flatMap(c => c.issues || []))].sort();
+    sel.innerHTML = `<option value="all">All issue tags</option>` +
+      tracks.map(t => `<option value="${t}">${t}</option>`).join("");
+    sel.addEventListener("change", () => { caseTrack = sel.value; renderCases(); });
+
+    const selF = document.getElementById("case-forum");
+    selF.innerHTML = `<option value="all">Federal and state courts</option>` +
+      Object.entries(FORUM).map(([k, v]) => `<option value="${k}">${v}</option>`).join("");
+    selF.addEventListener("change", () => { caseForum = selF.value; renderCases(); });
+
+    const selS = document.getElementById("case-state");
+    const sts = [...new Set(CASES.flatMap(c => c.states || []))].sort();
+    selS.innerHTML = `<option value="all">All states</option>` +
+      sts.map(s => `<option value="${s}">${s}</option>`).join("");
+    selS.addEventListener("change", () => { caseState = selS.value; renderCases(); });
+
+    const selC = document.getElementById("case-circuit");
+    const cirs = [...new Set(CASES.map(c => c.circuit))]
+      .sort((a, b) => CIRCUITS.findIndex(x => x.id === a) - CIRCUITS.findIndex(x => x.id === b));
+    selC.innerHTML = `<option value="all">All circuits</option>` +
+      cirs.map(i => `<option value="${i}">${circuitById[i].name}</option>`).join("");
+    selC.addEventListener("change", () => { caseCircuit = selC.value; renderCases(); });
+    document.getElementById("case-q").addEventListener("input", e => { caseQ = e.target.value.trim(); renderCases(); });
+  }
+  const host = document.getElementById("case-post");
+  const order = ["platform", "pending", "state", "banned"];
+  host.innerHTML = order.map(k => {
+    const n = CASES.filter(c => c.posture === k).length;
+    return `<button data-cp="${k}" aria-pressed="${casePost.has(k)}" title="${POSTURE_DEF[k]}">
+      <span class="sw ${k}"></span>${POSTURE_SHORT[k]} <span class="num" style="color:var(--color-neutral-600)">${n}</span></button>`;
+  }).join("") + `<button data-cp="" aria-pressed="${!casePost.size && caseTrack === "all" && caseState === "all" && caseCircuit === "all" && !caseQ}">Clear</button>`;
+  host.querySelectorAll("button").forEach(b => b.addEventListener("click", () => {
+    const k = b.dataset.cp;
+    if (!k) { casePost.clear(); caseTrack = "all"; caseState = "all"; caseCircuit = "all"; caseForum = "all"; caseQ = "";
+      document.getElementById("case-q").value = ""; sel.value = "all";
+      document.getElementById("case-forum").value = "all";
+      document.getElementById("case-state").value = "all";
+      document.getElementById("case-circuit").value = "all"; }
+    else if (casePost.has(k)) casePost.delete(k); else casePost.add(k);
+    renderCases();
+  }));
+}
+
+function renderCases() {
+  renderCaseControls();
+  const rows = CASES.filter(caseMatches);
+  document.getElementById("case-count").textContent = rows.length + " of " + CASES.length + " cases";
+  document.getElementById("caselist").innerHTML = rows.length ? rows.map(c => `
+    <button class="caseitem" data-case="${c.id}" aria-selected="${selCase === c.id}">
+      <span class="cap">${c.cap}</span>
+      <span class="meta num">${c.court} · ${c.no}</span>
+      <span class="ctag"><span class="sw ${c.posture === "untracked" ? "none" : c.posture}"></span>${POSTURE_SHORT[c.posture]}</span><span class="forum ${c.forum}" style="margin-left:10px">${FORUM[c.forum]}</span>
+    </button>`).join("") : `<div class="empty" style="margin-top:var(--space-4)"><b>No case matches</b>
+      Nothing in the record fits those terms. That is a statement about this filter, not about the litigation —
+      widen it, or <a href="#correct">tell us what is missing</a>.</div>`;
+  document.querySelectorAll(".caseitem").forEach(el =>
+    el.addEventListener("click", () => { selCase = el.dataset.case; renderCases(); }));
+
+  const c = CASES.find(x => x.id === selCase);
+  document.getElementById("casedetail").innerHTML = `
+    <div class="kicker">Case record</div>
+    <h3 style="font-size:29px;font-weight:400;line-height:1.15;margin:var(--space-2) 0 var(--space-3)">${c.cap}</h3>
+    <div style="display:flex;gap:var(--space-3);flex-wrap:wrap;align-items:center">
+      <span class="forum ${c.forum}">${FORUM[c.forum]}</span>
+      <span style="font-size:12.5px;color:var(--color-neutral-700)" class="num">${c.court} · ${c.no}</span>
+      <span class="prov"><span class="dot"></span> Human-approved</span>
+    </div>
+    <p style="font-size:14.5px;margin:var(--space-4) 0 0;line-height:1.72;text-wrap:pretty;
+      border-left:1px solid var(--color-divider);padding-left:var(--space-4);color:var(--color-neutral-800)">${SUMMARY[c.id] || ""}</p>
+    <p style="font-size:13px;margin:var(--space-4) 0 0;line-height:1.6">
+      Posture: <strong>${POSTURE[c.posture].label}</strong> ·
+      Affects ${c.states.map(n => `<a href="#states" data-state-link="${n}">${n}</a>`).join(", ")} ·
+      <a href="#circuits" data-circuit-link="${c.circuit}">${circuitById[c.circuit].name}</a>
+    </p>
+    <div class="kicker" style="margin-top:var(--space-6)">Issues on this record</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:var(--space-2)">
+      ${(c.issues || []).map((t, i) => `<span class="itag${i === 0 ? " primary" : ""}">${t}</span>`).join("")}
+    </div>
+    <div class="kicker" style="margin-top:var(--space-6)">Docket — most recent first</div>
+    <ul class="docket">
+      ${c.docket.map(([d, t, src, url]) => `<li><span class="d">${d}</span><br>${t}<br>
+        <a href="${url || "#"}" target="_blank" rel="noopener" style="font-size:12px">${src} ↗</a></li>`).join("")}
+    </ul>
+    <p style="font-size:12px;color:var(--color-neutral-600);line-height:1.6">Every event above links to a Tier‑1 source.
+      Trade-press reports are used as leads only and never appear as the citation of record.</p>`;
+
+  document.querySelectorAll("[data-state-link]").forEach(a =>
+    a.addEventListener("click", () => selectState(a.dataset.stateLink)));
+  document.querySelectorAll("[data-circuit-link]").forEach(a =>
+    a.addEventListener("click", () => selectCircuit(a.dataset.circuitLink)));
+}
+
+/* ---------- selection ---------- */
+function selectState(name) {
+  sel = { state: name, circuit: circuitOfState[name] };
+  renderBoard(); renderDetail(); renderCircuits(); renderPostureLegend(); paintMap();
+}
+function selectCircuit(id) {
+  const inCircuit = STATES.find(s => circuitOfState[s.name] === id);
+  sel = { state: inCircuit ? inCircuit.name : sel.state, circuit: id };
+  renderBoard(); renderDetail(); renderCircuits(); paintMap();
+}
+
+/* ---------- map ---------- */
+let mapSel = null, circSel = null, labelSel = null, showCirc = true;
+function postureOf(name) {
+  const s = stateByName[name];
+  if (!s) return "untracked";
+  if (layerMode === "entity" && mapEnts.size) {
+    let worst = null;
+    mapEnts.forEach(id => {
+      const e = ENTITIES.find(x => x.id === id);
+      const v = e && e.key ? s.platforms[e.key] : null;
+      if (!v) return;
+      if (v === "banned" || worst === "banned") worst = "banned";
+      else if (v === "restricted" || worst === "restricted") worst = "restricted";
+      else worst = worst || "go";
+    });
+    if (!worst) return "untracked";
+    return worst === "banned" ? "banned" : worst === "restricted" ? "pending" : "platform";
+  }
+  return s.status === "banned" ? "banned" : s.posture;
+}
+
+function renderPostureLegend() {
+  const host = document.getElementById("postlegend");
+  host.querySelectorAll(".pchip").forEach(n => n.remove());
+  const count = k => k === "untracked"
+    ? 50 - STATES.length
+    : STATES.filter(s => postureOf(s.name) === k).length;
+  const order = ["platform", "pending", "state", "banned", "untracked"];
+  host.insertAdjacentHTML("beforeend",
+    `<button class="pchip" data-posture="" aria-pressed="${!mapPostures.size}"
+      title="Show every posture">All <b>${STATES.length}</b></button>` +
+    order.map(k => `<button class="pchip" data-posture="${k}" aria-pressed="${mapPostures.has(k)}"
+      title="${POSTURE_DEF[k]}"><span class="sw ${k === "untracked" ? "none" : k}"></span>
+      ${POSTURE[k].label} <b>${count(k)}</b></button>`).join(""));
+  host.querySelectorAll(".pchip").forEach(b => b.addEventListener("click", () => {
+    const k = b.dataset.posture;
+    if (!k) mapPostures.clear();
+    else if (mapPostures.has(k)) mapPostures.delete(k);
+    else mapPostures.add(k);
+    renderPostureLegend(); paintMap();
+  }));
+}
+
+function renderEntityLayer() {
+  const host = document.getElementById("entchips");
+  if (!host.dataset.built) {
+    host.innerHTML = ENTITIES.filter(e => e.key).map(e =>
+      `<button class="echip" data-ent="${e.id}" aria-pressed="false">${e.name}</button>`).join("");
+    host.dataset.built = "1";
+    host.querySelectorAll(".echip").forEach(b => b.addEventListener("click", () => {
+      const id = b.dataset.ent;
+      if (mapEnts.has(id)) mapEnts.delete(id); else mapEnts.add(id);
+      if (mapEnts.size) layerMode = "entity";
+      renderEntityLayer(); renderPostureLegend(); paintMap();
+    }));
+    document.getElementById("entclear").addEventListener("click", () => {
+      mapEnts.clear(); layerMode = "posture"; renderEntityLayer(); renderPostureLegend(); paintMap();
+    });
+    document.getElementById("layer-posture").addEventListener("click", () => {
+      layerMode = "posture"; renderEntityLayer(); renderPostureLegend(); paintMap();
+    });
+    document.getElementById("layer-entity").addEventListener("click", () => {
+      layerMode = "entity";
+      if (!mapEnts.size) mapEnts.add("kalshi");
+      renderEntityLayer(); renderPostureLegend(); paintMap();
+    });
+  }
+  host.querySelectorAll(".echip").forEach(b =>
+    b.setAttribute("aria-pressed", String(mapEnts.has(b.dataset.ent))));
+  document.getElementById("layer-posture").setAttribute("aria-pressed", String(layerMode === "posture"));
+  document.getElementById("layer-entity").setAttribute("aria-pressed", String(layerMode === "entity"));
+  const names = [...mapEnts].map(id => ENTITIES.find(e => e.id === id).name);
+  document.getElementById("layernote").innerHTML = (layerMode === "entity" && names.length)
+    ? `Showing operational status for <strong>${names.join(", ")}</strong>. Where they differ, the map takes the
+       most restrictive. Depth now reads go → restricted → banned.`
+    : "Showing the controlling legal posture. Pick one or more entities to switch the map to what each platform can actually do.";
+  document.getElementById("mapcap").textContent = (layerMode === "entity" && names.length)
+    ? "Operational status by state · " + names.join(" + ")
+    : "Controlling posture by state";
+}
+function paintMap() {
+  if (!mapSel) return;
+  mapSel.selectAll("path.st")
+    .attr("fill", d => tint(circuitOfState[d.properties.name], postureOf(d.properties.name)))
+    .attr("stroke", d => d.properties.name === sel.state ? "var(--color-accent)" : "var(--color-neutral-500)")
+    .attr("stroke-width", d => d.properties.name === sel.state ? 2.6 : 0.6)
+    .attr("stroke-dasharray", d => stateByName[d.properties.name] ? null : "2 2")
+    .attr("opacity", d => {
+      const inCircuit = !sel.circuit || circuitOfState[d.properties.name] === sel.circuit;
+      const inPosture = !mapPostures.size || mapPostures.has(postureOf(d.properties.name));
+      return inCircuit && inPosture ? 1 : 0.18;
+    });  if (circSel) {
+    circSel.attr("stroke", d => circStroke(d.id))
+      .attr("stroke-dasharray", d => CIRC_DASH[d.id] || null)
+      .attr("opacity", d => !sel.circuit || d.id === sel.circuit ? 1 : 0.4)
+      .classed("sel", d => d.id === sel.circuit).attr("display", showCirc ? null : "none");
+    labelSel.attr("fill", d => circStroke(d.id))
+      .attr("opacity", d => !sel.circuit || d.id === sel.circuit ? 1 : 0.45)
+      .classed("sel", d => d.id === sel.circuit).attr("display", showCirc ? null : "none");
+  }
+  document.querySelectorAll(".cchip").forEach(el =>
+    el.setAttribute("aria-pressed", String((el.dataset.circuit || null) === sel.circuit)));
+}
+const tt = document.getElementById("tt");
+function showTip(evt, name) {
+  const s = stateByName[name];
+  const ents = [...mapEnts];
+  if (s && layerMode === "entity" && ents.length) {
+    tt.innerHTML = `<h4>${s.name}</h4>` + ents.map(id => {
+      const e = ENTITIES.find(x => x.id === id);
+      const v = s.platforms[e.key];
+      return `<div class="tt-row" style="display:flex;gap:8px;justify-content:space-between">
+        <span>${e.name}</span><span class="badge ${v}">${STATUS[v]}</span></div>`;
+    }).join("") + `<div class="tt-row num" style="color:var(--color-neutral-600);margin-top:4px">Updated ${fmtDate(s.updated)}</div>`;
+  } else {
+    tt.innerHTML = s
+      ? `<h4>${s.name}</h4><div class="tt-row"><strong>${POSTURE[s.posture].label}</strong></div>
+         <div class="tt-row"><em>${s.caseName}</em>, ${s.caseCite}</div>
+         <div class="tt-row num" style="color:var(--color-neutral-600)">Updated ${fmtDate(s.updated)}</div>`
+      : `<h4>${name}</h4><div class="tt-row" style="color:var(--color-neutral-600)">No tracked activity.
+         Not a finding of legality — nothing here has been reviewed.</div>`;
+  }
+  tt.style.opacity = 1;
+  tt.style.left = Math.min(evt.clientX + 14, window.innerWidth - 300) + "px";
+  tt.style.top = (evt.clientY + 16) + "px";
+}
+function hideTip() { tt.style.opacity = 0; }
+
+(async function drawMap() {
+  const svg = d3.select("#map");
+  const node = svg.node();
+  const w = node.clientWidth || 700, h = 560;
+  svg.attr("viewBox", `0 0 ${w} ${h}`);
+  try {
+    const topo = await d3.json("https://cdn.jsdelivr.net/npm/us-atlas@3.0.1/states-10m.json");
+    const fc = topojson.feature(topo, topo.objects.states);
+    const proj = d3.geoAlbersUsa().fitSize([w - 24, h - 24], fc);
+    const path = d3.geoPath(proj);
+    const g = svg.append("g").attr("transform", "translate(12,12)");
+    mapSel = g;
+    g.selectAll("path.st").data(fc.features).join("path")
+      .attr("class", "st").attr("d", path)
+      .attr("tabindex", 0)
+      .attr("role", "button")
+      .attr("aria-label", d => d.properties.name + " — " + POSTURE[postureOf(d.properties.name)].label)
+      .on("mousemove", (e, d) => showTip(e, d.properties.name))
+      .on("mouseleave", hideTip)
+      .on("focus", function (e, d) { const r = this.getBoundingClientRect();
+        showTip({ clientX: r.x + r.width / 2, clientY: r.y + r.height / 2 }, d.properties.name); })
+      .on("blur", hideTip)
+      .on("click", (e, d) => { if (stateByName[d.properties.name]) selectState(d.properties.name); })
+      .on("keydown", (e, d) => { if ((e.key === "Enter" || e.key === " ") && stateByName[d.properties.name]) {
+        e.preventDefault(); selectState(d.properties.name); } });
+
+    // federal circuit boundaries, merged from the member states
+    const geoms = topo.objects.states.geometries;
+    const byName = {};
+    geoms.forEach(g => { byName[g.properties.name] = g; });
+    const circFeatures = CIRCUITS.filter(c => c.states.length).map(c => {
+      const members = c.states.map(n => byName[n]).filter(Boolean);
+      const labelMembers = members.filter(g => !["Alaska", "Hawaii"].includes(g.properties.name));
+      return {
+        id: c.id, name: c.name,
+        geom: topojson.merge(topo, members),
+        labelGeom: topojson.merge(topo, labelMembers.length ? labelMembers : members)
+      };
+    });
+    circSel = g.selectAll("path.circ").data(circFeatures).join("path")
+      .attr("class", "circ").attr("d", d => path(d.geom));
+    labelSel = g.selectAll("text.clabel").data(circFeatures).join("text")
+      .attr("class", "clabel")
+      .attr("text-anchor", "middle")
+      .attr("x", d => (path.centroid(d.labelGeom) || [0, 0])[0])
+      .attr("y", d => (path.centroid(d.labelGeom) || [0, 0])[1])
+      .attr("pointer-events", "all")
+      .text(d => CIR_LABEL[d.id])
+      .append("title").text(d => d.name);
+    labelSel = g.selectAll("text.clabel").on("click", (e, d) => selectCircuit(d.id));
+    paintMap();
+  } catch (err) {
+    node.style.display = "none";
+    document.getElementById("mapfallback").style.display = "block";
+  }
+})();
+
+/* ---------- controls ---------- */
+document.getElementById("circtoggle").addEventListener("click", (e) => {
+  showCirc = !showCirc;
+  e.currentTarget.setAttribute("aria-pressed", String(showCirc));
+  paintMap();
+});
+document.querySelectorAll(".filters .chip").forEach(b => b.addEventListener("click", () => {
+  filter = b.dataset.filter;
+  document.querySelectorAll(".filters .chip").forEach(x => x.setAttribute("aria-pressed", x === b));
+  renderBoard();
+}));
+document.querySelectorAll("th button[data-sort]").forEach(b => b.addEventListener("click", () => {
+  const k = b.dataset.sort;
+  sort = { key: k, dir: sort.key === k ? -sort.dir : 1 };
+  renderBoard();
+}));
+document.getElementById("c-submit").addEventListener("click", () => {
+  const box = document.querySelector(".ackbox");
+  box.innerHTML = `<strong>Correction filed.</strong> Tracking ID <code>PML‑C‑2026‑0185</code>. It is now a public
+    issue in the repository. If it produces a draft, that draft appears on ops. before it appears here.`;
+});
+
+function renderCircuitLegend() {
+  const host = document.getElementById("circlegend");
+  host.querySelectorAll(".cchip").forEach(n => n.remove());
+  host.insertAdjacentHTML("beforeend", `<button class="cchip" data-circuit="" aria-pressed="${!sel.circuit}"
+      title="Show every circuit">All</button>` + CIRCUITS.map(c =>
+    `<button class="cchip" data-circuit="${c.id}" aria-pressed="${sel.circuit === c.id}" title="${c.name}">
+      <i style="border-top-color:${circStroke(c.id)};border-top-style:${CIRC_DASH[c.id] ? "dashed" : "solid"}"></i>${CIR_LABEL[c.id]}    </button>`).join(""));
+  host.querySelectorAll(".cchip").forEach(el =>
+    el.addEventListener("click", () => {
+      if (!el.dataset.circuit) { sel = { state: sel.state, circuit: null }; renderCircuits(); renderCircuitLegend(); paintMap(); }
+      else selectCircuit(el.dataset.circuit);
+    }));
+}
+
+function entityFootprint(e) {
+  const out = { go: [], restricted: [], banned: [] };
+  if (!e.key) return out;
+  STATES.forEach(s => { const v = s.platforms[e.key]; if (v) out[v].push(s.name); });
+  return out;
+}
+function renderEntities() {
+  document.getElementById("etabs").innerHTML = ENTITIES.map(e => {
+    const f = entityFootprint(e), m = metrics(e);
+    const bar = e.key
+      ? `<div class="bar"><div class="barcap">Footprint · ${f.go.length} go · ${f.restricted.length} restricted · ${f.banned.length} banned</div>
+          <span class="ec">${[["platform", f.go.length], ["pending", f.restricted.length], ["banned", f.banned.length]]
+            .map(([k, n]) => n ? `<span class="sw ${k}" style="width:${n * 9}px;border:0"></span>` : "").join("")}</span></div>`
+      : `<div class="bar"><div class="barcap">Nine states sued in the government's own name</div>
+          <span class="ec"><span class="sw state" style="width:81px;border:0"></span></span></div>`;
+    return `<button class="etab" data-entity="${e.id}" aria-selected="${selEntity === e.id}">
+      <span class="en">${e.name}</span><span class="et">${e.type}</span>
+      <div class="estats">
+        <div><b>${m.total}</b><span>Matters</span></div>
+        <div><b>${m.p}</b><span>Plaintiff</span></div>
+        <div><b>${m.d}</b><span>Defendant</span></div>
+        <div><b>${m.appellate}</b><span>On appeal</span></div>
+      </div>${bar}
+    </button>`;
+  }).join("");
+  document.querySelectorAll(".etab").forEach(el =>
+    el.addEventListener("click", () => { selEntity = el.dataset.entity; renderEntities(); }));
+
+  const e = ENTITIES.find(x => x.id === selEntity);
+  const f = entityFootprint(e);
+  const list = arr => arr.length
+    ? arr.map(n => `<button data-state-link="${n}">${n}</button>`).join(", ")
+    : `<span style="color:var(--color-neutral-600)">none</span>`;
+  const ledger = e.key ? `
+    <div class="kicker" style="margin-top:var(--space-6)">Operational footprint · 19 tracked states</div>
+    <table class="ledger"><tbody>
+      <tr><td><span class="badge go">Go</span></td><td class="sts">${list(f.go)}</td></tr>
+      <tr><td><span class="badge restricted">Restricted</span></td><td class="sts">${list(f.restricted)}</td></tr>
+      <tr><td><span class="badge banned">Banned</span></td><td class="sts">${list(f.banned)}</td></tr>
+    </tbody></table>
+    <p style="font-size:12px;color:var(--color-neutral-600);line-height:1.6;margin-top:var(--space-2)">
+      Status is per state and per platform, taken from the order or statute that controls there. It is not a
+      statement about the other thirty-one states, which are untracked.</p>`
+    : `
+    <div class="kicker" style="margin-top:var(--space-6)">States sued by the agency</div>
+    <table class="ledger"><tbody><tr><td><span class="badge">Nine</span></td>
+      <td class="sts">${list(e.states9)}</td></tr></tbody></table>`;
+
+  document.getElementById("entdetail").innerHTML = `
+    <div>
+      <div class="kicker">Entity</div>
+      <h3 style="font-size:29px;font-weight:400;line-height:1.15;margin:var(--space-2) 0 var(--space-2)">${e.name}</h3>
+      <div style="font-size:12.5px;color:var(--color-neutral-700)">${e.legal} · ${e.type}</div>
+      <p style="font-size:14.5px;line-height:1.72;text-wrap:pretty;margin:var(--space-4) 0 0;
+        border-left:1px solid var(--color-divider);padding-left:var(--space-4);color:var(--color-neutral-800)">${e.profile}</p>
+      ${ledger}
+    </div>
+    <div>
+      <div class="kicker">Matters · ${e.matters.length} · ${metrics(e).active} active</div>
+      <ul class="matters">
+        ${e.matters.map(([cid, note]) => {
+          const c = CASES.find(x => x.id === cid);
+          if (!c) return "";
+          const [r, a] = roleOf(e.id, cid);
+          return `<li>
+            <div class="mrow"><span class="mcap">${c.cap}</span>
+              <span class="mmeta num">${c.court} · ${c.no}</span>
+              <span class="rtag ${r}">${ROLE_LABEL[r]}</span>
+              <span class="rtag">${a ? "Active" : "Resolved"}</span>
+              <span class="ctag" style="margin-top:0"><span class="sw ${c.posture}"></span>${POSTURE_SHORT[c.posture]}</span></div>
+            <p>${note}</p>
+            <button class="link" data-case-link="${c.id}">Open case record</button>
+          </li>`;
+        }).join("")}
+      </ul>
+    </div>`;
+
+  document.querySelectorAll("#entdetail [data-state-link]").forEach(b =>
+    b.addEventListener("click", () => { selectState(b.dataset.stateLink); window.location.hash = "#states"; }));
+  document.querySelectorAll("#entdetail [data-case-link]").forEach(b =>
+    b.addEventListener("click", () => { selCase = b.dataset.caseLink; renderCases(); window.location.hash = "#cases"; }));
+}
+
+/* ---------- export ---------- */
+function download(name, text, mime) {
+  const url = URL.createObjectURL(new Blob([text], { type: mime }));
+  const a = document.createElement("a");
+  a.href = url; a.download = name; document.body.appendChild(a); a.click();
+  a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+const csvCell = v => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
+const toCSV = (cols, rows) => [cols.map(c => csvCell(c[0])).join(",")]
+  .concat(rows.map(r => cols.map(c => csvCell(c[1](r))).join(","))).join("\r\n");
+const STAMP = "2026-08-09";
+const STATE_COLS = [
+  ["state", s => s.name], ["circuit", s => CIR_LABEL[s.circuit] + " Cir."],
+  ["operational_status", s => STATUS[s.status]], ["posture", s => POSTURE[s.posture].label],
+  ["controlling_case", s => s.caseName], ["citation", s => s.caseCite],
+  ["last_updated", s => s.updated], ["summary", s => s.note],
+  ["platform_status", s => Object.entries(s.platforms).map(([p, v]) => p + ": " + STATUS[v]).join("; ")],
+  ["primary_sources", s => s.src.map(([l, u]) => l + " <" + u + ">").join(" | ")],
+  ["provenance", () => "human-approved"], ["retrieved", () => STAMP]
+];
+const CASE_COLS = [
+  ["case", c => c.cap], ["court", c => c.court], ["citation", c => c.cite], ["docket", c => c.no],
+  ["issue_tags", c => (c.issues || []).join("; ")], ["posture", c => POSTURE[c.posture].label],
+  ["states", c => c.states.join("; ")], ["circuit", c => CIR_LABEL[c.circuit] + " Cir."],
+  ["summary", c => SUMMARY[c.id] || ""],
+  ["last_docket_event", c => c.docket[0] ? c.docket[0][0] + " \u2014 " + c.docket[0][1] : ""],
+  ["docket_history", c => c.docket.map(d => d[0] + ": " + d[1] + " <" + (d[3] || "") + ">").join(" | ")],
+  ["provenance", () => "human-approved"], ["retrieved", () => STAMP]
+];
+const pick = (obj, cols) => Object.fromEntries(cols.map(c => [c[0], c[1](obj)]));
+document.querySelectorAll("[data-export]").forEach(b => b.addEventListener("click", () => {
+  const kind = b.dataset.export;
+  if (kind === "states-csv") download(`pml-states-${STAMP}.csv`, toCSV(STATE_COLS, boardRows()), "text/csv");
+  if (kind === "states-json") download(`pml-states-${STAMP}.json`, JSON.stringify(
+    { source: "PredictionMarketLitigation.com", retrieved: STAMP, approval_gate: "HITL",
+      provenance: "human-approved", filter: filter, rows: boardRows().map(s => pick(s, STATE_COLS)) }, null, 2), "application/json");
+  if (kind === "cases-csv") download(`pml-cases-${STAMP}.csv`, toCSV(CASE_COLS, CASES), "text/csv");
+  if (kind === "cases-json") download(`pml-cases-${STAMP}.json`, JSON.stringify(
+    { source: "PredictionMarketLitigation.com", retrieved: STAMP, approval_gate: "HITL",
+      provenance: "human-approved", rows: CASES.map(c => pick(c, CASE_COLS)) }, null, 2), "application/json");
+}));
+
+function renderKPIs() {
+  const n = k => STATES.filter(s => s.status === k).length;
+  const appeals = CASES.filter(c => /Cir\./.test(c.no)).length;
+  const activeCircuits = CIRCUITS.filter(c => c.posture !== "untracked").length;
+  const recent = STATES.filter(s => s.updated >= "2026-07-10").length;
+  document.getElementById("kpis").innerHTML = `
+    <div class="kpi"><b>${STATES.length}</b><span class="k">States tracked</span>
+      <span class="sub">Of fifty. The rest have no tracked activity.</span></div>
+    <div class="kpi"><div class="split">
+        <i class="go">${n("go")}<em>Go</em></i><i class="restricted">${n("restricted")}<em>Restricted</em></i><i class="banned">${n("banned")}<em>Banned</em></i>
+      </div><span class="k">Operational status</span>
+      <span class="sub">Can a platform take the order there today.</span></div>
+    <div class="kpi"><b>${CASES.length}</b><span class="k">Cases on record</span>
+      <span class="sub">Each with a primary source and docket history.</span></div>
+    <div class="kpi"><b>1<small> of ${CIRCUITS.length}</small></b><span class="k">Circuits decided</span>
+      <span class="sub">${activeCircuits} have tracked activity; only the 3d has ruled on the merits.</span></div>
+    <div class="kpi"><b>${appeals}</b><span class="k">Appeals pending</span>
+      <span class="sub">Argued or briefed across six courts of appeals.</span></div>
+    <div class="kpi"><b>${recent}</b><span class="k">Changed in 30 days</span>
+      <span class="sub">States whose status or posture moved since 10 July.</span></div>`;
+}
+
+function renderFeed() {
+  const MONTH = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+  const items = [];
+  CASES.forEach(c => c.docket.forEach(([d, t, src, url]) => {
+    const m = d.match(/(\d{2}) (\w{3}) (\d{4})/);
+    if (!m) return;
+    items.push({ ts: Date.UTC(+m[3], MONTH[m[2]], +m[1]), d, t, src, url, c });
+  }));
+  items.sort((a, b) => b.ts - a.ts);
+  document.getElementById("feed").innerHTML = items.slice(0, 7).map(i => `
+    <li><button data-case-link="${i.c.id}">
+      <span class="fd">${i.d} · ${i.c.court}</span>
+      <span class="ft">${i.t}</span>
+      <span class="fc">${i.c.cap}</span>
+    </button></li>`).join("");
+  document.querySelectorAll("#feed [data-case-link]").forEach(b =>
+    b.addEventListener("click", () => { selCase = b.dataset.caseLink; renderCases(); window.location.hash = "#cases"; }));
+}
+
+/* ---------- scroll spy ---------- */
+(function () {
+  const links = [...document.querySelectorAll('.topnav a[href^="#"]')]
+    .filter(a => a.getAttribute("href").length > 1 && document.querySelector(a.getAttribute("href")));
+  const sections = links.map(a => document.querySelector(a.getAttribute("href")));
+  if (!sections.length) return;
+  function spy() {
+    const line = window.scrollY + 140;
+    let active = -1;
+    sections.forEach((s, i) => { if (s.offsetTop <= line) active = i; });
+    if (window.innerHeight + window.scrollY >= document.body.scrollHeight - 4) active = sections.length - 1;
+    links.forEach((a, i) => {
+      if (i === active) a.setAttribute("aria-current", "true"); else a.removeAttribute("aria-current");
+    });
+  }
+  window.addEventListener("scroll", spy, { passive: true });
+  window.addEventListener("resize", spy);
+  spy();
+})();
+
+/* ---------- issue map ---------- */
+const ISSUE_FAMILY = {
+  "CEA preemption": "Federal preemption", "Field preemption": "Federal preemption",
+  "Conflict preemption": "Federal preemption", "Swap definition": "Federal preemption",
+  "CFTC enforcement": "Federal jurisdiction", "Removal / remand": "Federal jurisdiction",
+  "Standing": "Federal jurisdiction", "Commerce Clause": "Federal jurisdiction",
+  "Tribal / IGRA": "Indian gaming", "UIGEA": "Indian gaming",
+  "State gambling act": "State gaming law", "Sports wagering statute": "State gaming law",
+  "Sports event contracts": "State gaming law", "Cease-and-desist": "State gaming law",
+  "Criminal charges": "State gaming law",
+  "Consumer protection": "Consumer & fiscal", "Money lost at gambling": "Consumer & fiscal",
+  "State excise tax": "Consumer & fiscal"
+};
+const FAMILY_ORDER = ["Federal preemption", "Federal jurisdiction", "Indian gaming", "State gaming law", "Consumer & fiscal"];
+const POST_ORDER = ["platform", "pending", "state", "banned"].filter(p => CASES.some(c => c.posture === p));
+const POST_HEX = { platform: "#a8dcb9", pending: "#e9d59b", state: "#e0a583", banned: "#b05541", untracked: "#f6f5f3" };
+const MO = { Jan:0, Feb:1, Mar:2, Apr:3, May:4, Jun:5, Jul:6, Aug:7, Sep:8, Oct:9, Nov:10, Dec:11 };
+const parseDay = s => { const m = /^(\d{1,2}) (\w{3}) (\d{4})$/.exec(s.trim());
+  return m ? new Date(+m[3], MO[m[2]], +m[1]) : null; };
+const firstDay = c => c.docket.map(d => parseDay(d[0])).filter(Boolean).sort((a, b) => a - b)[0] || null;
+
+let issueSel = null;
+const ISSUE_INDEX = (() => {
+  const map = new Map();
+  CASES.forEach(c => (c.issues || []).forEach((t, i) => {
+    if (!map.has(t)) map.set(t, { tag: t, family: ISSUE_FAMILY[t] || "Other", cases: [], primary: 0 });
+    const e = map.get(t); e.cases.push(c); if (i === 0) e.primary++;
+  }));
+  return map;
+})();
+const ISSUE_TAGS = [...ISSUE_INDEX.values()].sort((a, b) =>
+  (FAMILY_ORDER.indexOf(a.family) - FAMILY_ORDER.indexOf(b.family)) || (b.cases.length - a.cases.length));
+/* ECharts category axes read bottom-up, so the y order is reversed once here. */
+const Y_TAGS = ISSUE_TAGS.map(t => t.tag).slice().reverse();
+
+const CH_FONT = { fontFamily: "Lora, Georgia, serif", fontSize: 11, color: "#605d5d" };
+const CH_TIP = { backgroundColor: "#f3f2f2", borderColor: "#605d5d", borderWidth: 1, padding: [8, 11],
+  extraCssText: "box-shadow:0 3px 10px rgba(45,43,43,.16);border-radius:0",
+  textStyle: { fontFamily: "Lora, Georgia, serif", fontSize: 12, color: "#201f1d" } };
+const chartHead = (t, s) => `<div style="font-family:'Cormorant Garamond',serif;font-size:16px;margin-bottom:2px">${t}</div>` +
+  (s ? `<div style="font-size:11px;color:#605d5d">${s}</div>` : "");
+const charts = {};
+
+function selectIssue(tag) {
+  issueSel = (issueSel === tag) ? null : tag;
+  caseTrack = issueSel || "all";
+  const dd = document.getElementById("case-track");
+  if (dd) dd.value = caseTrack;
+  renderCases(); renderIssueBar(); paintIssueSelection();
+}
+
+function renderIssueBar() {
+  const host = document.getElementById("issuebar");
+  if (!issueSel) {
+    host.innerHTML = `<span class="kicker">Nothing selected</span>
+      <span class="issuehint">${ISSUE_TAGS.length} issue tags across ${CASES.length} matters.
+      Select a cell, a mark, a bar or a branch to filter the record below.</span>`;
+    return;
+  }
+  const e = ISSUE_INDEX.get(issueSel);
+  const counts = POST_ORDER.map(p => [p, e.cases.filter(c => c.posture === p).length]).filter(x => x[1]);
+  host.innerHTML = `
+    <div style="flex:none">
+      <div class="fam">${e.family}</div>
+      <div class="lead">${e.tag}</div>
+    </div>
+    <div style="flex:none;font-size:12.5px;color:var(--color-neutral-700);line-height:1.5">
+      ${e.cases.length} matter${e.cases.length === 1 ? "" : "s"} · controlling in ${e.primary}<br>
+      ${counts.map(([p, n]) => `<span class="num">${n}</span> ${POSTURE_SHORT[p].toLowerCase()}`).join(" · ")}
+    </div>
+    <div class="issuematters" style="flex:1 1 320px">
+      ${e.cases.map(c => `<button type="button" data-issue-case="${c.id}">${c.cap}</button>`).join("")}
+    </div>
+    <button class="chip" type="button" id="issueclear" style="flex:none">Clear</button>`;
+  host.querySelectorAll("[data-issue-case]").forEach(b => b.addEventListener("click", () => {
+    selCase = b.dataset.issueCase; renderCases(); window.location.hash = "#cases"; }));
+  document.getElementById("issueclear").addEventListener("click", () => selectIssue(issueSel));
+}
+
+function paintIssueSelection() {
+  Object.values(charts).forEach(ch => { if (!ch) return;
+    ch.dispatchAction({ type: "downplay" });
+    if (issueSel) ch.dispatchAction({ type: "highlight", name: issueSel });
+  });
+}
+
+function drawMatrix() {
+  const data = [];
+  ISSUE_TAGS.forEach(t => POST_ORDER.forEach((p, xi) => {
+    const n = t.cases.filter(c => c.posture === p).length;
+    data.push([xi, Y_TAGS.indexOf(t.tag), n]);
+  }));
+  const max = Math.max(...data.map(d => d[2]));
+  charts.matrix = echarts.init(document.getElementById("ch-matrix"), null, { renderer: "svg" });
+  charts.matrix.setOption({
+    animation: false, backgroundColor: "transparent",
+    grid: { left: 190, right: 28, top: 34, bottom: 74 },
+    tooltip: Object.assign({}, CH_TIP, { formatter: p => {
+      const tag = Y_TAGS[p.value[1]], post = POST_ORDER[p.value[0]];
+      const list = ISSUE_INDEX.get(tag).cases.filter(c => c.posture === post);
+      return chartHead(tag, POSTURE[post].label) + (list.length
+        ? list.map(c => "· " + c.cap).join("<br>")
+        : "<span style='color:#7d7979'>No matter on this issue has come out this way.</span>"); } }),
+    xAxis: { type: "category", position: "top", data: POST_ORDER.map(p => POSTURE_SHORT[p]),
+      axisLine: { show: false }, axisTick: { show: false }, splitArea: { show: false },
+      axisLabel: Object.assign({}, CH_FONT, { fontSize: 11.5, color: "#201f1d" }) },
+    yAxis: { type: "category", data: Y_TAGS, axisLine: { show: false }, axisTick: { show: false },
+      axisLabel: Object.assign({}, CH_FONT, { fontSize: 11.5, width: 175, overflow: "truncate",
+        color: v => v === issueSel ? "#7d5411" : "#444141" }) },
+    visualMap: { min: 0, max: max, calculable: true, orient: "horizontal", left: "center", bottom: 8,
+      itemWidth: 11, itemHeight: 130, text: ["more", "none"], textStyle: CH_FONT,
+      inRange: { color: ["#f8f4f4", "#ffe3bf", "#e1ad66", "#a06f24"] } },
+    series: [{ type: "heatmap", data: data,
+      label: { show: true, formatter: p => p.value[2] || "", fontFamily: "Lora, Georgia, serif", fontSize: 11.5,
+        color: p => p.value[2] > max * 0.55 ? "#f8f4f4" : "#201f1d" },
+      itemStyle: { borderColor: "#f3f2f2", borderWidth: 2 },
+      emphasis: { itemStyle: { borderColor: "#b68235", borderWidth: 2 } } }]
+  });
+  charts.matrix.on("click", p => selectIssue(Y_TAGS[p.value[1]]));
+}
+
+function drawTimeline() {
+  const pts = [];
+  CASES.forEach(c => { const d = firstDay(c); if (!d) return;
+    (c.issues || []).forEach((t, i) => pts.push({
+      value: [d.getTime(), Y_TAGS.indexOf(t)], caseId: c.id, cap: c.cap, tag: t,
+      posture: c.posture, primary: i === 0, when: c.docket[c.docket.length - 1][0] })); });
+  charts.time = echarts.init(document.getElementById("ch-time"), null, { renderer: "svg" });
+  charts.time.setOption({
+    animation: false, backgroundColor: "transparent",
+    grid: { left: 190, right: 28, top: 22, bottom: 44 },
+    tooltip: Object.assign({}, CH_TIP, { formatter: p => chartHead(p.data.cap, p.data.tag) +
+      `<div style="font-size:11px;color:#605d5d">First on the docket ${p.data.when} · ${POSTURE[p.data.posture].label}` +
+      (p.data.primary ? " · controlling issue" : "") + "</div>" }),
+    xAxis: { type: "time", axisLine: { lineStyle: { color: "#d7d3d3" } }, axisTick: { show: false },
+      splitLine: { lineStyle: { color: "#eae7e7" } },
+      axisLabel: Object.assign({}, CH_FONT, { formatter: "{yyyy}-{MM}" }) },
+    yAxis: { type: "category", data: Y_TAGS, axisLine: { show: false }, axisTick: { show: false },
+      splitLine: { show: true, lineStyle: { color: "#eae7e7" } },
+      axisLabel: Object.assign({}, CH_FONT, { fontSize: 11.5, width: 175, overflow: "truncate",
+        color: v => v === issueSel ? "#7d5411" : "#444141" }) },
+    series: [{ type: "scatter", data: pts,
+      symbolSize: p => p ? 12 : 10,
+      itemStyle: { color: p => POST_HEX[p.data.posture], borderColor: "#605d5d", borderWidth: 0.8,
+        opacity: p => !issueSel || p.data.tag === issueSel ? 1 : 0.22 },
+      emphasis: { itemStyle: { borderColor: "#b68235", borderWidth: 2 } } }]
+  });
+  charts.time.on("click", p => selectIssue(p.data.tag));
+}
+
+function drawStrip() {
+  const tags = ISSUE_TAGS.slice().sort((a, b) => a.cases.length - b.cases.length);
+  charts.strip = echarts.init(document.getElementById("ch-strip"), null, { renderer: "svg" });
+  charts.strip.setOption({
+    animation: false, backgroundColor: "transparent",
+    grid: { left: 190, right: 28, top: 34, bottom: 30 },
+    legend: { top: 4, right: 8, itemWidth: 11, itemHeight: 11, itemGap: 14, textStyle: CH_FONT, icon: "rect" },
+    tooltip: Object.assign({}, CH_TIP, { trigger: "item", formatter: p =>
+      chartHead(p.name, p.seriesName) + `<span class="num">${p.value}</span> matter${p.value === 1 ? "" : "s"}` }),
+    xAxis: { type: "value", minInterval: 1, axisLine: { show: false }, axisTick: { show: false },
+      splitLine: { lineStyle: { color: "#eae7e7" } }, axisLabel: CH_FONT },
+    yAxis: { type: "category", data: tags.map(t => t.tag), axisLine: { show: false }, axisTick: { show: false },
+      axisLabel: Object.assign({}, CH_FONT, { fontSize: 11.5, width: 175, overflow: "truncate",
+        color: v => v === issueSel ? "#7d5411" : "#444141" }) },
+    series: POST_ORDER.map(p => ({
+      name: POSTURE_SHORT[p], type: "bar", stack: "n", barWidth: 13,
+      data: tags.map(t => t.cases.filter(c => c.posture === p).length),
+      itemStyle: { color: POST_HEX[p], borderColor: "#605d5d", borderWidth: 0.6 },
+      emphasis: { focus: "none", itemStyle: { borderColor: "#b68235", borderWidth: 1.6 } }
+    }))
+  });
+  charts.strip.on("click", p => selectIssue(p.name));
+}
+
+function drawTree() {
+  const FAM_TINT = ["#e1ad66", "#c9b48c", "#b8a08e", "#c2a26b", "#ad9c85"];
+  const data = FAMILY_ORDER.map((f, fi) => ({
+    name: f, itemStyle: { color: FAM_TINT[fi % FAM_TINT.length] },
+    label: { fontSize: 11, color: "#2d2b2b" },
+    children: ISSUE_TAGS.filter(t => t.family === f).map(t => ({
+      name: t.tag, tag: t.tag,
+      itemStyle: { color: "#f0e6d4",
+        borderColor: t.tag === issueSel ? "#b68235" : "#f3f2f2",
+        borderWidth: t.tag === issueSel ? 2.4 : 1.4 },
+      children: t.cases.map(c => ({
+        name: c.cap.replace(/^(KalshiEX LLC|Kalshi Inc\.?|United States|Commonwealth|State of Washington) v\. /, "v. "),
+        value: 1, tag: t.tag, leaf: true, posture: c.posture, caseId: c.id, cap: c.cap,
+        itemStyle: { color: POST_HEX[c.posture] }
+      }))
+    }))
+  }));
+  charts.tree = echarts.init(document.getElementById("ch-tree"), null, { renderer: "svg" });
+  charts.tree.setOption({
+    animation: false, backgroundColor: "transparent",
+    tooltip: Object.assign({}, CH_TIP, { trigger: "item", formatter: p => p.data.leaf
+      ? chartHead(p.data.cap, POSTURE[p.data.posture].label + " · " + p.data.tag)
+      : chartHead(p.name, p.data.tag
+          ? ISSUE_INDEX.get(p.data.tag).cases.length + " matters"
+          : p.value + " issue tags raised") }),
+    series: [{
+      type: "sunburst", data: data, radius: ["15%", "86%"], center: ["50%", "51%"],
+      sort: null, nodeClick: false,
+      itemStyle: { borderColor: "#f3f2f2", borderWidth: 1.4 },
+      label: Object.assign({}, CH_FONT, { fontSize: 10, color: "#444141", minAngle: 8,
+        rotate: "radial", overflow: "truncate", width: 96 }),
+      levels: [{},
+        { r0: "15%", r: "44%", label: { rotate: "tangential", fontSize: 11, width: 88 } },
+        { r0: "44%", r: "76%", label: { fontSize: 10, width: 104 } },
+        { r0: "76%", r: "86%", label: { show: false } }],
+      emphasis: { focus: "ancestor", itemStyle: { borderColor: "#b68235", borderWidth: 2 } }
+    }]
+  });
+  charts.tree.on("click", p => { if (p.data.leaf) { selCase = p.data.caseId; renderCases();
+    window.location.hash = "#cases"; } else if (p.data.tag) selectIssue(p.data.tag); });
+}
+
+function renderIssues() {
+  if (typeof echarts === "undefined") {
+    document.querySelectorAll(".chart").forEach(el => { el.style.height = "auto";
+      el.innerHTML = `<div class="empty" style="margin:var(--space-4)"><b>Chart library did not load</b>
+        The issue tags are still on every case in the record below, and in the CSV and JSON exports.</div>`; });
+    return;
+  }
+  drawMatrix(); drawTimeline(); drawStrip(); drawTree(); renderIssueBar();
+  let t; window.addEventListener("resize", () => { clearTimeout(t);
+    t = setTimeout(() => Object.values(charts).forEach(c => c && c.resize()), 160); });
+}
+
+function repaintIssueCharts() { ["matrix", "time", "strip", "tree"].forEach(k => charts[k] && charts[k].setOption({}, false, true)); }
+
+/* ---------- reader poll ---------- */
+const POLL_KEY = "pml.poll.v1";
+const POLL_TERMS = [["ot26", "OT 2026"], ["ot27", "OT 2027"], ["ot28", "OT 2028"], ["later", "Later / never"]];
+/* Baseline tallies stand in for a server. A real deployment reads these from the
+   corrections repo; the vote itself never leaves the browser. */
+const POLL_BASE = { yes: 1284, no: 611, ot26: 742, ot27: 812, ot28: 221, later: 120 };
+let poll = (() => { try { return JSON.parse(localStorage.getItem(POLL_KEY)) || {}; } catch (e) { return {}; } })();
+function savePoll() { try { localStorage.setItem(POLL_KEY, JSON.stringify(poll)); } catch (e) {} }
+
+function bars(rows, mine) {
+  const total = rows.reduce((n, r) => n + r[2], 0) || 1;
+  return rows.map(r => {
+    const pct = Math.round(r[2] / total * 100);
+    return `<div class="row ${r[0] === mine ? "me" : ""}">
+      <span class="lab">${r[1]}</span>
+      <span class="track"><span class="fill" style="width:${pct}%"></span></span>
+      <span class="pct">${pct}%</span></div>`;
+  }).join("");
+}
+function renderPoll() {
+  const tally = k => POLL_BASE[k] + (poll.cert === k || poll.term === k ? 1 : 0);
+  const voted = !!poll.cert;
+  document.querySelectorAll("[data-vote]").forEach(b =>
+    b.setAttribute("aria-pressed", String(poll.cert === b.dataset.vote)));
+  document.getElementById("poll-cert").innerHTML = voted
+    ? bars([["yes", "They grant", tally("yes")], ["no", "They deny", tally("no")]], poll.cert)
+    : `<div class="issuehint">${(POLL_BASE.yes + POLL_BASE.no).toLocaleString()} readers have called it.
+       Vote to see the split.</div>`;
+
+  const th = document.getElementById("poll-terms");
+  if (!th.dataset.built) {
+    th.dataset.built = "1";
+    th.innerHTML = POLL_TERMS.map(([k, l]) =>
+      `<button type="button" data-term="${k}" aria-pressed="false">${l}</button>`).join("");
+    th.querySelectorAll("[data-term]").forEach(b => b.addEventListener("click", () => {
+      poll.term = poll.term === b.dataset.term ? null : b.dataset.term; savePoll(); renderPoll(); }));
+  }
+  th.querySelectorAll("[data-term]").forEach(b =>
+    b.setAttribute("aria-pressed", String(poll.term === b.dataset.term)));
+  document.getElementById("poll-termres").innerHTML = poll.term
+    ? bars(POLL_TERMS.map(([k, l]) => [k, l, tally(k)]), poll.term)
+    : `<div class="issuehint">The petition was docketed 28 July 2026; a conference this autumn would put
+       argument in October Term 2026.</div>`;
+
+  const n = POLL_BASE.yes + POLL_BASE.no + (voted ? 1 : 0);
+  document.getElementById("poll-n").textContent = n.toLocaleString() + " votes since 19 June 2026";
+}
+document.querySelectorAll("[data-vote]").forEach(b => b.addEventListener("click", () => {
+  poll.cert = poll.cert === b.dataset.vote ? null : b.dataset.vote; savePoll(); renderPoll(); }));
+
+renderFeed(); renderKPIs(); renderPostureLegend(); renderEntityLayer(); renderCircuits(); renderCircuitLegend(); renderBoard(); renderDetail(); renderCases(); renderEntities(); renderIssues(); renderPoll();
+</script>
+</body>
+</html>

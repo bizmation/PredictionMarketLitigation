@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PML Admin — approval queue</title>
+<link rel="stylesheet" href="_ds/classical-85c77590-4a2f-41a0-92df-b00754b50bd3/styles.css">
+<link rel="stylesheet" href="pml.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Lora:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+  .adminbar { background: var(--color-neutral-900); color: var(--color-neutral-200); }
+  .adminbar .wrap { display: flex; align-items: center; gap: var(--space-4); padding: 6px var(--space-6);
+    font-size: 11.5px; flex-wrap: wrap; }
+  .adminbar strong { font-size: 10px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--color-accent-300); }
+  .adminbar .who { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+  .adminbar .who i { width: 6px; height: 6px; border-radius: 50%; background: var(--color-accent-400);
+    display: inline-block; }
+
+  .queue { display: grid; grid-template-columns: 300px 1fr; gap: var(--space-6); align-items: start; }
+  .qitem { display: block; width: 100%; text-align: left; font: inherit; color: inherit; background: none;
+    border: 0; border-bottom: 1px solid var(--color-divider); padding: var(--space-3); cursor: pointer; }
+  .qitem:hover { background: var(--color-accent-100); }
+  .qitem[aria-selected="true"] { background: var(--color-accent-100); box-shadow: inset 2px 0 0 var(--color-accent); }
+  .qitem:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+  .qitem .qt { display: block; font-family: var(--font-heading); font-size: 16px; line-height: 1.2; }
+  .qitem .qm { display: block; font-size: 11px; color: var(--color-neutral-600); margin-top: 4px;
+    font-feature-settings: "tnum"; }
+  .qitem .qf { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 7px; }
+
+  .work { border: 1px solid var(--color-neutral-700); }
+  .work .wh { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
+    padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--color-divider);
+    background: var(--color-neutral-100); }
+  .work .wb { padding: var(--space-4); }
+  .work h2 { font-size: 25px; font-weight: 400; line-height: 1.15; }
+  .work p { font-size: 14px; line-height: 1.7; text-wrap: pretty; }
+
+  .editor { width: 100%; font: inherit; font-size: 14px; line-height: 1.7; background: var(--color-bg);
+    border: 1px solid var(--color-neutral-400); padding: var(--space-3); color: inherit; box-sizing: border-box;
+    min-height: 132px; resize: vertical; }
+  .editor:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+
+  .actions { display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center;
+    border-top: 1px solid var(--color-divider); padding: var(--space-4); background: var(--color-neutral-100); }
+  .actions .kbd { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-neutral-600);
+    border: 1px solid var(--color-neutral-400); padding: 1px 5px; }
+  .actions .right { margin-left: auto; display: flex; gap: var(--space-3); align-items: center; }
+
+  .rejectbox { border: 1px solid var(--color-neutral-700); padding: var(--space-4); margin-top: var(--space-4); }
+  .rejectbox label { display: block; font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--color-neutral-600); margin-bottom: 5px; }
+  .privacy { display: flex; gap: var(--space-3); align-items: center; margin-top: var(--space-3); font-size: 12.5px; }
+
+  .modepanel { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6); }
+  .switchrow { display: flex; align-items: center; gap: var(--space-4); border: 1px solid var(--color-neutral-700);
+    padding: var(--space-4); }
+  .switchrow .lab { font-family: var(--font-heading); font-size: 21px; font-weight: 400; }
+  .toggle { position: relative; width: 66px; height: 28px; border: 1px solid var(--color-neutral-700);
+    background: var(--color-bg); cursor: pointer; flex: none; }
+  .toggle i { position: absolute; top: 2px; left: 2px; width: 30px; height: 22px; background: var(--color-neutral-400);
+    transition: left .15s, background .15s; }
+  .toggle[aria-pressed="true"] { border-color: var(--color-accent-600); background: var(--color-accent-100); }
+  .toggle[aria-pressed="true"] i { left: 32px; background: var(--color-accent); }
+  .toggle:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
+  .log { font-size: 12.5px; line-height: 1.6; }
+  .log li { border-bottom: 1px solid var(--color-divider); padding: var(--space-2) 0; list-style: none; }
+  .log ul { margin: 0; padding: 0; }
+
+  @media (max-width: 980px) { .queue, .modepanel { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<div class="adminbar"><div class="wrap">
+  <strong>Private · operator only</strong>
+  <span>Actions taken here are published on ops. within seconds, including rejections.</span>
+  <span class="who"><i></i> Patrick — operator identity · session 41m</span>
+</div></div>
+
+<div class="topbar"><div class="wrap">
+  <div class="brand">PML <span class="sub">/ admin</span></div>
+  <nav class="topnav" aria-label="Primary">
+    <a href="#queue" aria-current="page">Approval queue</a>
+    <a href="#mode">Mode controls</a>
+    <a href="PML Ops.html" class="ext">ops.</a>
+    <a href="PML Tracker.html" class="ext">Tracker</a>
+  </nav>
+</div></div>
+
+<div class="trustbar"><div class="wrap">
+  <span class="warn">⚠ Gate: HITL · autonomous OFF</span>
+  <span class="sep">·</span>
+  <span class="grow">2 drafts awaiting · oldest 2h 14m · next scheduled run 10 Aug, 06:00 ET</span>
+  <span class="sep">·</span>
+  <span class="num">Budget today $0.38 of $2.00</span>
+</div></div>
+
+<div class="wrap">
+<header style="padding:var(--space-8) 0 var(--space-6);display:grid;grid-template-columns:1.2fr 1fr;gap:var(--space-8);align-items:end">
+  <div>
+    <div class="kicker">C1 · Operator action queue</div>
+    <h1 style="font-size:clamp(30px,3.6vw,44px);font-weight:400;line-height:1.06;max-width:18ch">
+      Approve, edit, or reject. Every outcome is public.</h1>
+    <p style="font-size:15px;line-height:1.7;color:var(--color-neutral-800);max-width:58ch;margin-top:var(--space-4)">
+      This is the only surface that can change the tracker. Approving promotes the draft and freezes a
+      human-approved label onto it. Editing preserves the original draft alongside the published version and
+      publishes the diff. Rejecting leaves the tracker untouched and publishes the reason.</p>
+  </div>
+  <div class="panel strong">
+    <div class="ph"><span class="kicker">Today</span></div>
+    <div class="pb" style="display:flex;gap:var(--space-6)">
+      <div><b style="display:block;font-family:var(--font-heading);font-size:30px;font-weight:400;line-height:1" class="num">2</b>
+        <span class="kicker">Awaiting</span></div>
+      <div><b style="display:block;font-family:var(--font-heading);font-size:30px;font-weight:400;line-height:1" class="num">1</b>
+        <span class="kicker">Published</span></div>
+      <div><b style="display:block;font-family:var(--font-heading);font-size:30px;font-weight:400;line-height:1" class="num">1</b>
+        <span class="kicker">Rejected 7d</span></div>
+    </div>
+  </div>
+</header>
+</div>
+
+<section class="band" id="queue"><div class="wrap">
+  <div class="sec-head">
+    <div><div class="kicker">Queue</div><h2>Pending drafts</h2></div>
+    <p class="why">Keyboard: <span class="origin">J / K</span> move, <span class="origin">A</span> approve,
+      <span class="origin">E</span> edit, <span class="origin">R</span> reject.</p>
+  </div>
+
+  <div class="queue">
+    <div class="panel" id="qlist"></div>
+    <div>
+      <div class="work" id="work"></div>
+      <p class="lastupd" style="margin-top:var(--space-3);line-height:1.6">
+        Nothing here is reversible quietly. A publish, an edit or a rejection writes to the same evidence record
+        the public reads, under this operator identity, with the gate mode in force at that moment frozen onto
+        the item.</p>
+    </div>
+  </div>
+</div></section>
+
+<section class="band" id="mode"><div class="wrap">
+  <div class="sec-head">
+    <div><div class="kicker">C2</div><h2>Mode controls</h2></div>
+    <p class="why">Only this operator identity can move the gate. Every change is audited and appears on ops.
+      before the next run starts.</p>
+  </div>
+  <div class="modepanel">
+    <div>
+      <div class="switchrow">
+        <button class="toggle" id="modetoggle" aria-pressed="false" aria-label="Autonomous mode"><i></i></button>
+        <div>
+          <div class="lab" id="modelabel">Autonomous mode is OFF</div>
+          <div class="lastupd" id="modesub">Every draft waits for a human. This is the default and the
+            recommended state.</div>
+        </div>
+      </div>
+      <div class="panel" style="margin-top:var(--space-4)">
+        <div class="ph"><span class="kicker">Auto-approve threshold</span>
+          <span class="num" id="thval" style="margin-left:auto">0.92</span></div>
+        <div class="pb">
+          <input type="range" id="thresh" min="0.80" max="0.99" step="0.01" value="0.92" style="width:100%">
+          <p class="lastupd" style="line-height:1.6;margin-top:var(--space-2)">
+            Inert while the gate is HITL, and shown publicly regardless — so the number cannot be moved quietly
+            in advance of a mode change. The action policy still bars posture flips and Tier-2-only drafts from
+            self-approving at any threshold.</p>
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="ph"><span class="kicker">Audit trail</span>
+        <a href="PML Ops.html#mode" style="margin-left:auto;font-size:11.5px">Public view ↗</a></div>
+      <div class="pb log"><ul id="audit"></ul></div>
+    </div>
+  </div>
+</div></section>
+
+<footer class="foot"><div class="wrap">
+  <span>PML admin · private</span>
+  <a href="PML Ops.html">ops.</a>
+  <a href="PML Tracker.html">Tracker</a>
+  <a href="PML Design System.html">Design system</a>
+  <span style="margin-left:auto">Operator actions are published, not logged privately.</span>
+</div></div></footer>
+
+<script>
+const QUEUE = [
+  { id: "nj-posture", title: "New Jersey — timing note", run: "2026-08-09-0612", age: "2h 14m",
+    conf: 0.94, flags: ["Tier-1 source", "No posture change"], state: "New Jersey",
+    body: "New Jersey's deadline to petition for certiorari in KalshiEX LLC v. Flaherty is 3 September 2026, following two extensions granted by Justice Alito. No petition had been filed as of 9 August 2026. Posture unchanged; this adds a timing note to the state record.",
+    live: "No pending change to the New Jersey record.",
+    source: ["SCOTUS docket No. 25A1465", "https://www.supremecourt.gov/docket/docketfiles/html/public/25A1465.html"],
+    evals: [["Grounding", "0.94"], ["Tier-1 source", "pass"], ["Hallucination", "0 flags"]] },
+  { id: "ma-sjc", title: "Massachusetts — watch note", run: "2026-08-09-0612", age: "2h 14m",
+    conf: 0.61, flags: ["Tier-2 only", "Below threshold"], state: "Massachusetts",
+    body: "Trade press reported on 8 August that the Supreme Judicial Court is expected to hand down Commonwealth v. KalshiEX LLC before the end of the sitting. The court's new-opinions list does not carry the case and no scheduling order was located.",
+    live: "No watch note on the Massachusetts record.",
+    source: ["Massachusetts new opinions — case not listed", "https://www.mass.gov/info-details/new-opinions"],
+    evals: [["Grounding", "0.61"], ["Tier-1 source", "fail — Tier-2 only"], ["Hallucination", "0 flags"]] }
+];
+let selQ = 0, editing = false, rejecting = false;
+let resolved = {};
+
+function renderQueue() {
+  document.getElementById("qlist").innerHTML = QUEUE.map((d, i) => `
+    <button class="qitem" data-i="${i}" aria-selected="${selQ === i}">
+      <span class="qt">${d.title}</span>
+      <span class="qm">run ${d.run} · waiting ${d.age}</span>
+      <span class="qf">
+        ${resolved[d.id] ? `<span class="run ${resolved[d.id] === "rejected" ? "rejected" : "published"}">${resolved[d.id]}</span>`
+          : '<span class="run awaiting">Awaiting</span>'}
+        ${d.flags.map(f => `<span class="origin">${f}</span>`).join("")}
+      </span>
+    </button>`).join("");
+  document.querySelectorAll(".qitem").forEach(b => b.addEventListener("click", () => {
+    selQ = +b.dataset.i; editing = false; rejecting = false; renderQueue(); renderWork();
+  }));
+}
+
+function renderWork() {
+  const d = QUEUE[selQ];
+  const done = resolved[d.id];
+  document.getElementById("work").innerHTML = `
+    <div class="wh">
+      <span class="kicker">Draft</span>
+      <span class="origin">run ${d.run}</span>
+      <span class="prov agent"><span class="dot"></span> Drafted by agent</span>
+      ${d.conf < 0.92 ? '<span class="warn">⚠ below auto-approve threshold</span>' : ""}
+      <span class="lastupd" style="margin-left:auto">waiting ${d.age}</span>
+    </div>
+    <div class="wb">
+      <h2>${d.title}</h2>
+      <div style="display:flex;gap:var(--space-3);flex-wrap:wrap;margin-top:var(--space-3)">
+        ${d.evals.map(([k, v]) => `<span class="origin">${k}: ${v}</span>`).join("")}
+      </div>
+
+      <div class="kicker" style="margin:var(--space-4) 0 var(--space-2)">Proposed text${editing ? " — editing" : ""}</div>
+      ${editing
+        ? `<textarea class="editor" id="draftedit">${d.body}</textarea>
+           <p class="lastupd" style="margin-top:var(--space-2)">The original draft is preserved. Approving from
+             here publishes both versions and the diff on ops.</p>`
+        : `<p style="border-left:2px solid var(--color-accent);padding-left:var(--space-4);margin:0">${d.body}</p>`}
+
+      <div class="kicker" style="margin:var(--space-4) 0 var(--space-2)">Effect on the tracker</div>
+      <div class="diff">
+        <div class="col"><h4>Live now — ${d.state}</h4><p><del>${d.live}</del></p></div>
+        <div class="col"><h4>If approved</h4><p><ins>${d.body}</ins></p></div>
+      </div>
+
+      <p style="font-size:12.5px;color:var(--color-neutral-700);margin-top:var(--space-4)">
+        Source: <a href="${d.source[1]}" target="_blank" rel="noopener">${d.source[0]}</a> ·
+        <a href="PML Ops.html#runs">Evidence for run ${d.run} ↗</a></p>
+
+      ${rejecting ? `
+        <div class="rejectbox">
+          <label for="reason">Reject reason — published by default</label>
+          <textarea class="editor" id="reason" style="min-height:84px"
+            placeholder="Why this does not go on the record…">${d.conf < 0.92
+              ? "Trade-press expectation is not a docket event. The record carries what the court has done, not what reporters expect it to do."
+              : ""}</textarea>
+          <div class="privacy">
+            <input type="checkbox" id="private">
+            <label for="private" style="text-transform:none;letter-spacing:0;font-size:12.5px;color:inherit;margin:0">
+              Mark reason private — the rejection stays public, only this text is withheld</label>
+          </div>
+        </div>` : ""}
+
+      ${done ? `<div class="empty" style="margin-top:var(--space-4)"><b>${done === "rejected" ? "Rejected" : "Published"}</b>
+        ${done === "rejected"
+          ? "The tracker was not changed. The reason is now public on ops."
+          : "Promoted to the tracker with a frozen human-approved label. The evidence record is sealed."}
+        <span class="hint">Reversing this means a new draft and a new approval, both on the record.</span></div>` : ""}
+    </div>
+    <div class="actions">
+      ${done ? `<span class="lastupd">Resolved. Nothing further to do on this item.</span>`
+        : rejecting
+          ? `<button class="btn btn-primary" data-act="confirm-reject">Confirm rejection</button>
+             <button class="btn btn-ghost" data-act="cancel">Cancel</button>`
+          : `<button class="btn btn-primary" data-act="approve">${editing ? "Approve with edits" : "Approve"}</button>
+             <button class="btn btn-secondary" data-act="edit">${editing ? "Discard edits" : "Edit"}</button>
+             <button class="btn btn-ghost" data-act="reject">Reject</button>
+             <span class="kbd">A</span><span class="kbd">E</span><span class="kbd">R</span>`}
+      <span class="right">
+        <span class="prov"><span class="dot"></span> Publishes as human-approved</span>
+      </span>
+    </div>`;
+
+  document.querySelectorAll("[data-act]").forEach(b => b.addEventListener("click", () => act(b.dataset.act)));
+}
+
+function act(a) {
+  const d = QUEUE[selQ];
+  if (a === "edit") { editing = !editing; renderWork(); return; }
+  if (a === "reject") { rejecting = true; renderWork(); return; }
+  if (a === "cancel") { rejecting = false; renderWork(); return; }
+  if (a === "approve") { resolved[d.id] = "published"; editing = false; }
+  if (a === "confirm-reject") { resolved[d.id] = "rejected"; rejecting = false; }
+  pushAudit(resolved[d.id] === "rejected"
+    ? `Rejected “${d.title}” — reason published · P. (operator)`
+    : `Published “${d.title}”${editing ? " with operator edits" : ""} · P. (operator) · gate HITL`);
+  renderQueue(); renderWork();
+}
+
+/* ---- mode ---- */
+const AUDIT = [
+  ["09 Aug 2026, 06:12", "Run 2026-08-09-0612 produced 2 drafts — gate HITL"],
+  ["02 Aug 2026, 12:11", "Autonomous mode disabled after 41 min — P. (operator)"],
+  ["02 Aug 2026, 11:30", "Autonomous mode enabled — P. (operator)"],
+  ["19 Jul 2026, 09:02", "Auto-approve threshold 0.88 → 0.92 — P. (operator)"],
+  ["04 Jul 2026, 08:14", "Autonomous mode enabled for 6 h, then disabled — P. (operator)"]
+];
+function renderAudit() {
+  document.getElementById("audit").innerHTML = AUDIT.map(([t, x]) =>
+    `<li><span class="lastupd">${t}</span><br>${x}</li>`).join("");
+}
+function pushAudit(text) {
+  AUDIT.unshift(["09 Aug 2026, 08:26", text]);
+  renderAudit();
+}
+document.getElementById("modetoggle").addEventListener("click", (e) => {
+  const on = e.currentTarget.getAttribute("aria-pressed") !== "true";
+  e.currentTarget.setAttribute("aria-pressed", String(on));
+  document.getElementById("modelabel").textContent = on
+    ? "Autonomous mode is ON" : "Autonomous mode is OFF";
+  document.getElementById("modesub").textContent = on
+    ? "Drafts above the threshold self-approve and publish with an agent-approved label. The action policy still bars posture flips and Tier-2-only drafts."
+    : "Every draft waits for a human. This is the default and the recommended state.";
+  pushAudit(`Autonomous mode ${on ? "enabled" : "disabled"} — P. (operator)`);
+});
+document.getElementById("thresh").addEventListener("input", (e) => {
+  document.getElementById("thval").textContent = (+e.target.value).toFixed(2);
+});
+document.getElementById("thresh").addEventListener("change", (e) => {
+  pushAudit(`Auto-approve threshold set to ${(+e.target.value).toFixed(2)} — P. (operator)`);
+});
+
+document.addEventListener("keydown", (e) => {
+  if (/input|textarea/i.test(e.target.tagName)) return;
+  const k = e.key.toLowerCase();
+  if (k === "j" || k === "k") {
+    selQ = (selQ + (k === "j" ? 1 : QUEUE.length - 1)) % QUEUE.length;
+    editing = false; rejecting = false; renderQueue(); renderWork();
+  }
+  if (resolved[QUEUE[selQ].id]) return;
+  if (k === "a") act("approve");
+  if (k === "e") act("edit");
+  if (k === "r") act("reject");
+});
+
+renderQueue(); renderWork(); renderAudit();
+</script>
+</body>
+</html>

@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ops.predictionmarketlitigation.com — run log, evidence, drafts</title>
+<link rel="stylesheet" href="_ds/classical-85c77590-4a2f-41a0-92df-b00754b50bd3/styles.css">
+<link rel="stylesheet" href="pml.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Lora:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+  .mast { padding: var(--space-8) 0 var(--space-6); display: grid; grid-template-columns: 1.15fr 1fr;
+    gap: var(--space-8); align-items: start; }
+  .mast h1 { font-size: clamp(32px, 4vw, 50px); font-weight: 400; line-height: 1.05; max-width: 17ch; }
+  .mast .dek { margin-top: var(--space-4); font-size: 15.5px; line-height: 1.7; color: var(--color-neutral-800);
+    max-width: 60ch; text-wrap: pretty; }
+  .modebox { border: 1px solid var(--color-neutral-700); }
+  .modebox .mb { padding: var(--space-4); border-bottom: 1px solid var(--color-divider); }
+  .modebox .big { font-family: var(--font-heading); font-size: 30px; font-weight: 400; line-height: 1.1; }
+  .modebox dl { margin: 0; display: grid; grid-template-columns: 118px 1fr; gap: 6px var(--space-3);
+    font-size: 12.5px; }
+  .modebox dt { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--color-neutral-600);
+    padding-top: 2px; }
+  .modebox dd { margin: 0; line-height: 1.5; }
+
+  .logwrap { display: grid; grid-template-columns: 1.25fr 1fr; gap: var(--space-6); align-items: start; }
+  .runrow td:first-child { font-feature-settings: "tnum"; white-space: nowrap; }
+  .runrow .rid { font-family: var(--font-heading); font-size: 15px; }
+  .evidence { position: sticky; top: 78px; }
+  .kv { margin: 0; display: grid; grid-template-columns: 118px 1fr; gap: 7px var(--space-3); font-size: 12.5px; }
+  .kv dt { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--color-neutral-600);
+    padding-top: 2px; }
+  .kv dd { margin: 0; line-height: 1.5; }
+  .spend { display: flex; gap: var(--space-6); border-top: 1px solid var(--color-divider);
+    border-bottom: 1px solid var(--color-divider); padding: var(--space-3) 0; margin: var(--space-4) 0; }
+  .spend div b { display: block; font-family: var(--font-heading); font-size: 24px; font-weight: 400; line-height: 1;
+    font-feature-settings: "tnum"; }
+  .spend div span { font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--color-neutral-600); }
+
+  .drafts { display: grid; gap: var(--space-6); }
+  .draftbody { padding: var(--space-4); }
+  .draftbody h3 { font-size: 22px; font-weight: 400; margin-bottom: var(--space-2); }
+  .draftbody p { font-size: 14px; line-height: 1.7; margin: 0 0 var(--space-3); text-wrap: pretty; }
+  .flagrow { display: flex; gap: var(--space-2); flex-wrap: wrap; margin: var(--space-3) 0; }
+
+  .layers { display: grid; grid-template-columns: 300px 1fr; gap: var(--space-8); align-items: start; }
+  .earth { border: 1px solid var(--color-neutral-700); }
+  .zone { border-bottom: 1px solid var(--color-divider); }
+  .zone:last-child { border-bottom: 0; }
+  .zone .zh { padding: var(--space-2) var(--space-4); font-size: 10px; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--color-neutral-600); background: var(--color-neutral-100); }
+  .lbtn { display: grid; grid-template-columns: 26px 1fr; gap: var(--space-3); align-items: center; width: 100%;
+    text-align: left; font: inherit; color: inherit; background: none; border: 0; cursor: pointer;
+    padding: 9px var(--space-4); border-bottom: 1px solid var(--color-divider); }
+  .zone .lbtn:last-child { border-bottom: 0; }
+  .lbtn:hover { background: var(--color-accent-100); }
+  .lbtn[aria-selected="true"] { background: var(--color-accent-100); box-shadow: inset 2px 0 0 var(--color-accent); }
+  .lbtn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+  .lbtn i { font-style: normal; font-family: var(--font-heading); font-size: 19px; font-feature-settings: "tnum";
+    color: var(--color-neutral-600); }
+  .lbtn span { font-size: 13.5px; }
+  .lbtn small { display: block; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--color-neutral-600); }
+  .ldetail h3 { font-size: 27px; font-weight: 400; line-height: 1.15; }
+  .ldetail p { font-size: 14.5px; line-height: 1.72; text-wrap: pretty; }
+  .hooks { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); margin-top: var(--space-6); }
+  .hook { border: 1px solid var(--color-divider); padding: var(--space-3) var(--space-4); }
+  .hook b { display: block; font-family: var(--font-heading); font-size: 21px; font-weight: 400; }
+  .hook span { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--color-neutral-600); }
+
+  .journal { display: grid; grid-template-columns: 1fr 1.4fr; gap: var(--space-8); align-items: start; }
+  .post { border-bottom: 1px solid var(--color-divider); padding: var(--space-3) 0; width: 100%; text-align: left;
+    font: inherit; color: inherit; background: none; border-left: 0; border-right: 0; border-top: 0; cursor: pointer; }
+  .post:hover { background: var(--color-accent-100); }
+  .post[aria-selected="true"] { background: var(--color-accent-100); box-shadow: inset 2px 0 0 var(--color-accent);
+    padding-left: var(--space-3); }
+  .post .pt { display: block; font-family: var(--font-heading); font-size: 17px; line-height: 1.2; }
+  .post .pm { display: block; font-size: 11px; color: var(--color-neutral-600); margin-top: 4px;
+    font-feature-settings: "tnum"; }
+  .article h3 { font-size: 30px; font-weight: 400; line-height: 1.14; }
+  .article p { font-size: 15.5px; line-height: 1.78; text-wrap: pretty; }
+  .article .lede { font-family: var(--font-heading); font-size: 20px; line-height: 1.45; }
+  .serienav { display: flex; gap: var(--space-3); flex-wrap: wrap; margin-top: var(--space-4); }
+
+  @media (max-width: 980px) {
+    .mast, .logwrap, .layers, .journal { grid-template-columns: 1fr; }
+    .evidence { position: static; }
+    .hooks { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar"><div class="wrap">
+  <div class="brand">ops.<em>PredictionMarketLitigation</em></div>
+  <nav class="topnav" aria-label="Primary">
+    <a href="#runs">Run log</a>
+    <a href="#drafts">Pending drafts</a>
+    <a href="#mode">Mode</a>
+    <a href="#layers">Nine layers</a>
+    <a href="#journal">Journal</a>
+    <a href="PML Tracker.html" class="ext">Tracker</a>
+    <a href="#repo" class="ext">Repo</a>
+  </nav>
+</div></div>
+
+<div class="trustbar"><div class="wrap">
+  <span class="warn">⚠ Nothing here is live tracker content</span>
+  <span class="sep">·</span>
+  <span class="grow">Runs and drafts are AI-produced and gate-controlled. Corrections welcome.</span>
+  <span class="sep">·</span>
+  <span class="num">Next run 10 Aug 2026, 06:00 ET</span>
+  <span class="sep">·</span>
+  <span class="prov"><span class="dot"></span> Gate: HITL</span>
+</div></div>
+
+<div class="wrap">
+<header class="mast">
+  <div>
+    <div class="kicker">Public operations · the Crust</div>
+    <h1>Every run, every draft, every approval — in public.</h1>
+    <p class="dek">This is the working half of the system. The tracker publishes findings; this site publishes
+      how they were made. No login, no vendor console, no highlight reel: failed runs, empty runs and
+      budget-stopped runs are here alongside the ones that shipped, because a log that only shows successes is
+      not evidence of anything.</p>
+    <div style="display:flex;gap:var(--space-3);flex-wrap:wrap;margin-top:var(--space-6)">
+      <a class="btn btn-primary" href="#runs">Open the run log</a>
+      <a class="btn btn-secondary" href="#drafts">Read the pending drafts</a>
+      <a class="btn btn-ghost" href="#layers">The nine layers</a>
+    </div>
+  </div>
+  <div class="modebox" id="mode">
+    <div class="mb">
+      <div class="kicker">Approval gate</div>
+      <div class="big">HITL — human in the loop</div>
+      <div style="display:flex;gap:var(--space-3);flex-wrap:wrap;margin-top:var(--space-3)">
+        <span class="prov"><span class="dot"></span> Autonomous mode OFF</span>
+        <span class="origin">auto-approve threshold 0.92</span>
+      </div>
+      <p style="font-size:12.5px;line-height:1.6;color:var(--color-neutral-800);margin:var(--space-3) 0 0">
+        While the gate is HITL, no draft reaches the tracker without a named human clearing it. The threshold is
+        shown even though it is inert today, so the number cannot change quietly before the mode does.</p>
+    </div>
+    <div class="mb">
+      <div class="kicker" style="margin-bottom:var(--space-2)">Mode-change audit</div>
+      <dl>
+        <dt>02 Aug 2026</dt><dd>Autonomous enabled for 41 min, then disabled — P. (operator) · <a href="#runs">run 2026-08-02-1130</a></dd>
+        <dt>19 Jul 2026</dt><dd>Threshold raised 0.88 → 0.92 — P. (operator)</dd>
+        <dt>04 Jul 2026</dt><dd>Autonomous enabled for 6 h, then disabled — P. (operator)</dd>
+      </dl>
+    </div>
+    <div class="mb" style="border-bottom:0">
+      <div class="kicker" style="margin-bottom:var(--space-2)">Schedule</div>
+      <dl>
+        <dt>Cadence</dt><dd class="num">Daily 06:00 ET, plus manual triggers</dd>
+        <dt>Timezone</dt><dd>America/New_York — DST observed</dd>
+        <dt>Next run</dt><dd class="num">10 Aug 2026, 06:00 ET</dd>
+        <dt>Missed runs</dt><dd>Re-run as <span class="origin">catch-up</span>, flagged as such</dd>
+      </dl>
+    </div>
+  </div>
+</header>
+</div>
+
+<!-- ================= RUN LOG + EVIDENCE ================= -->
+<section class="band" id="runs"><div class="wrap">
+  <div class="sec-head">
+    <div><div class="kicker">B1 / B2</div><h2>Run log</h2></div>
+    <p class="why">Select a run to see its full evidence — steps, spend, evals, the draft it produced, who
+      approved it and under which mode.</p>
+  </div>
+
+  <div class="filters">
+    <span class="kicker">Outcome</span>
+    <button class="chip" data-f="all" aria-pressed="true">All</button>
+    <button class="chip" data-f="published" aria-pressed="false">Published</button>
+    <button class="chip" data-f="awaiting" aria-pressed="false">Awaiting</button>
+    <button class="chip" data-f="empty" aria-pressed="false">Empty</button>
+    <button class="chip" data-f="failed" aria-pressed="false">Failed</button>
+    <button class="chip" data-f="stopped" aria-pressed="false">Budget-stopped</button>
+    <span class="lastupd" id="runcount" style="margin-left:auto"></span>
+    <span class="export" style="margin-left:var(--space-3)">
+      <button type="button" id="exp-runs">CSV</button>
+    </span>
+  </div>
+
+  <div class="logwrap">
+    <div>
+      <table class="grid">
+        <thead><tr><th>Run</th><th>Outcome</th><th>Origin</th><th>Steps</th><th>Spend</th></tr></thead>
+        <tbody id="runbody"></tbody>
+      </table>
+      <p class="lastupd" style="margin-top:var(--space-3);line-height:1.6">
+        Every run ever executed appears here, including the ones that did nothing. Run IDs are stable and
+        citable. Secrets and credentials are scrubbed before publication; nothing else is.</p>
+    </div>
+    <aside class="panel strong evidence" id="evidence" aria-live="polite"></aside>
+  </div>
+</div></section>
+
+<!-- ================= PENDING DRAFTS ================= -->
+<section class="band" id="drafts"><div class="wrap">
+  <div class="sec-head">
+    <div><div class="kicker">B3</div><h2>Pending drafts</h2></div>
+    <p class="why">Full text, in public, before anyone approves it. The tracker still shows the previously
+      approved value for every state named below.</p>
+  </div>
+  <div class="drafts" id="draftlist"></div>
+</div></section>
+
+<!-- ================= NINE LAYERS ================= -->
+<section class="band" id="layers"><div class="wrap">
+  <div class="sec-head">
+    <div><div class="kicker">B5</div><h2>The nine layers</h2></div>
+    <p class="why">Core, mantle, crust. The deeper the layer, the less you can see it working — which is exactly
+      why the crust exists.</p>
+  </div>
+  <div class="layers">
+    <div class="earth" id="earth"></div>
+    <div class="ldetail" id="ldetail"></div>
+  </div>
+</div></section>
+
+<!-- ================= JOURNAL ================= -->
+<section class="band" id="journal"><div class="wrap">
+  <div class="sec-head">
+    <div><div class="kicker">B6</div><h2>Build journal</h2></div>
+    <p class="why">Written by Patrick, milestone-triggered, canonical here. Copies elsewhere are copies.</p>
+  </div>
+  <div class="serienav">
+    <span class="kicker">Series</span>
+    <button class="chip" data-series="all" aria-pressed="true">All</button>
+    <button class="chip" data-series="layer" aria-pressed="false">Layer L1–L9</button>
+    <button class="chip" data-series="fault" aria-pressed="false">Fault line</button>
+    <button class="chip" data-series="bookend" aria-pressed="false">Bookend</button>
+  </div>
+  <div class="journal" style="margin-top:var(--space-4)">
+    <div id="postlist"></div>
+    <article class="article" id="postbody"></article>
+  </div>
+</div></section>
+
+<!-- ================= TRUST ================= -->
+<section class="band" id="trust"><div class="wrap">
+  <div class="sec-head"><div><div class="kicker">B7</div><h2>Disclosure</h2></div></div>
+  <div style="display:grid;grid-template-columns:1.1fr 1fr;gap:var(--space-8)">
+    <div style="border-left:2px solid var(--color-accent);padding-left:var(--space-4);font-size:13.5px;line-height:1.7;color:var(--color-neutral-800)">
+      <p><strong>Everything on this site is AI-produced and gate-controlled.</strong> Runs are executed by an
+        autonomous pipeline. Drafts are written by it. Publication to the tracker happens only after the
+        Approval Gate clears, and the gate's mode at that moment is recorded on the item permanently.</p>
+      <p><strong>This is not the tracker.</strong> Nothing here is a statement of what the law is. For that,
+        read the <a href="PML Tracker.html">tracker</a>, where every published claim carries a primary source.</p>
+      <p><strong>Corrections change the record.</strong> A reported discrepancy becomes a public reviewable item
+        with a tracking ID; if it produces a draft, that draft appears above before it appears there.</p>
+    </div>
+    <div class="panel strong" style="padding:var(--space-6)">
+      <div class="kicker">Report a discrepancy</div>
+      <h3 style="font-size:23px;font-weight:400;margin:var(--space-2) 0 var(--space-3)">Corrections welcome</h3>
+      <p style="font-size:13.5px;line-height:1.65;color:var(--color-neutral-800);margin:0 0 var(--space-4)">
+        Corrections filed against ops. — a mis-stated run, a scrubbed field that should not have been, a draft
+        that misreads its source — get the same tracking ID as corrections against the tracker.</p>
+      <div style="display:flex;gap:var(--space-3);flex-wrap:wrap">
+        <a class="btn btn-primary" href="#repo">Open an issue</a>
+        <a class="btn btn-secondary" href="PML Tracker.html#correct">Correction form</a>
+      </div>
+    </div>
+  </div>
+</div></section>
+
+<footer class="foot"><div class="wrap">
+  <span>© 2026 PredictionMarketLitigation · ops.</span>
+  <a href="PML Tracker.html">Tracker</a>
+  <a href="PML Design System.html">Design system</a>
+  <a href="#repo">Repository</a>
+  <span style="margin-left:auto">Built by AI, governed and approved by a human.</span>
+</div></div></footer>
+
+<script>
+/* ---------------- runs ---------------- */
+const RUNS = [
+  { id: "2026-08-09-0612", ts: "9 Aug 2026, 06:12 ET", outcome: "awaiting", origin: "scheduled",
+    steps: "4 of 5", spend: 0.38, tokens: "118k", model: "claude-sonnet-4-6 · prompt v14",
+    summary: "Checked 14 dockets. Two moved. One posture change proposed for New Jersey on the certiorari deadline; held at the gate.",
+    evals: { grounding: "0.94", tier1: "pass", hallucination: "0 flags" }, approver: null, mode: "HITL",
+    draft: "nj-posture", disagreement: null,
+    timeline: [
+      ["06:12:04 · 1.2s", "Fetching — 14 dockets polled, 2 changed", "done"],
+      ["06:12:31 · 47s · $0.31", "Drafting — 1 posture change proposed", "done"],
+      ["06:13:18 · 3s", "Guardrails — passed; Tier-1 source present, no Tier-2-only claim", "done"],
+      ["06:13:21", "Awaiting approval — HITL, 2h 14m elapsed", "now"],
+      ["—", "Publish", "skip"]
+    ] },
+  { id: "2026-08-08-0600", ts: "8 Aug 2026, 06:00 ET", outcome: "empty", origin: "scheduled",
+    steps: "3 of 3", spend: 0.07, tokens: "22k", model: "claude-sonnet-4-6 · prompt v14",
+    summary: "No material change. All 14 dockets matched the published record; nothing proposed.",
+    evals: { grounding: "—", tier1: "n/a", hallucination: "no draft" }, approver: null, mode: "HITL",
+    draft: null, disagreement: null,
+    timeline: [
+      ["06:00:03 · 1.1s", "Fetching — 14 dockets polled, 0 changed", "done"],
+      ["06:00:09 · 4s · $0.07", "Comparing — no material difference", "done"],
+      ["06:00:13", "Completed — no draft produced", "done"]
+    ] },
+  { id: "2026-08-07-1442", ts: "7 Aug 2026, 14:42 ET", outcome: "published", origin: "manual",
+    steps: "6 of 6", spend: 0.71, tokens: "204k", model: "claude-sonnet-4-6 · prompt v14",
+    summary: "Wisconsin: CFTC appeal to the Seventh Circuit added. Operator edited the draft before approving — the diff is published in full.",
+    evals: { grounding: "0.97", tier1: "pass", hallucination: "0 flags" },
+    approver: "P. (operator)", mode: "HITL", draft: null, disagreement: null,
+    diff: ["The CFTC has appealed the loss.", "The CFTC appealed the preliminary-injunction denial to the Seventh Circuit on 7 August 2026."],
+    timeline: [
+      ["14:42:00", "Manual trigger — operator", "done"],
+      ["14:42:04 · 2s", "Fetching — tracker source flagged by watcher", "done"],
+      ["14:42:38 · 34s · $0.58", "Drafting — Wisconsin docket event", "done"],
+      ["14:43:15 · 3s", "Guardrails — passed", "done"],
+      ["14:51:02", "Approved with edits — P. (operator)", "done"],
+      ["14:51:03", "Published to tracker", "done"]
+    ] },
+  { id: "2026-08-06-0600", ts: "6 Aug 2026, 06:00 ET", outcome: "stopped", origin: "scheduled",
+    steps: "2 of 5", spend: 2.00, tokens: "612k", model: "claude-sonnet-4-6 · prompt v14",
+    summary: "Daily budget ceiling of $2.00 reached during drafting after a docket returned an unusually long opinion. Run halted before any draft was completed. Nothing was published, and nothing was silently truncated.",
+    evals: { grounding: "not run", tier1: "not run", hallucination: "not run" },
+    approver: null, mode: "HITL", draft: null, disagreement: null,
+    timeline: [
+      ["06:00:02 · 1.4s", "Fetching — 14 dockets, 1 changed (172-page opinion)", "done"],
+      ["06:00:44 · 3m 12s · $1.93", "Drafting — halted at budget ceiling", "done"],
+      ["06:03:56", "Budget-stopped — gateway refused further spend", "now"],
+      ["—", "Guardrails", "skip"],
+      ["—", "Publish", "skip"]
+    ] },
+  { id: "2026-08-05-0600", ts: "5 Aug 2026, 06:00 ET", outcome: "published", origin: "scheduled",
+    steps: "6 of 6", spend: 0.44, tokens: "141k", model: "claude-sonnet-4-6 · prompt v14",
+    summary: "Utah: notice of appeal to the Tenth Circuit recorded. Approved without edits.",
+    evals: { grounding: "0.96", tier1: "pass", hallucination: "0 flags" },
+    approver: "P. (operator)", mode: "HITL", draft: null, disagreement: null,
+    timeline: [
+      ["06:00:02 · 1.1s", "Fetching — 14 dockets, 1 changed", "done"],
+      ["06:00:29 · 27s · $0.38", "Drafting — Utah docket event", "done"],
+      ["06:00:58 · 3s", "Guardrails — passed", "done"],
+      ["07:14:20", "Approved — P. (operator)", "done"],
+      ["07:14:21", "Published to tracker", "done"],
+      ["07:14:22", "Evidence sealed", "done"]
+    ] },
+  { id: "2026-08-04-0921", ts: "4 Aug 2026, 09:21 ET", outcome: "failed", origin: "catch-up",
+    steps: "1 of 5", spend: 0.02, tokens: "6k", model: "claude-sonnet-4-6 · prompt v14",
+    summary: "CourtListener returned 503 on three consecutive attempts. The run failed rather than proceeding on partial data. A catch-up run followed at 11:04 and succeeded.",
+    evals: { grounding: "not run", tier1: "not run", hallucination: "not run" },
+    approver: null, mode: "HITL", draft: null, disagreement: null,
+    timeline: [
+      ["09:21:00", "Catch-up trigger — 06:00 run missed (host restart)", "done"],
+      ["09:21:11 · 11s", "Fetching — upstream 503 ×3, aborted", "now"],
+      ["—", "Drafting", "skip"], ["—", "Guardrails", "skip"], ["—", "Publish", "skip"]
+    ] },
+  { id: "2026-08-02-1130", ts: "2 Aug 2026, 11:30 ET", outcome: "published", origin: "scheduled",
+    steps: "6 of 6", spend: 0.51, tokens: "160k", model: "claude-sonnet-4-6 · prompt v13",
+    summary: "Cert-signal factor list refreshed. Published under Autonomous mode during the 41-minute window on 2 August; the agent approver and its validation log are recorded below.",
+    evals: { grounding: "0.95", tier1: "pass", hallucination: "0 flags" },
+    approver: "approval-agent gate-v2.1", mode: "Autonomous (YOLO)", draft: null,
+    disagreement: "Drafting agent and approval agent disagreed on whether the New Jersey deadline extension is a factor or a timing note. Resolved in favour of factor; flagged.",
+    timeline: [
+      ["11:30:02 · 1.2s", "Fetching", "done"],
+      ["11:30:40 · 38s · $0.44", "Drafting — cert factors", "done"],
+      ["11:31:19 · 4s", "Guardrails — passed", "done"],
+      ["11:31:24 · 2s", "Agent approval — confidence 0.95 ≥ threshold 0.92", "done"],
+      ["11:31:26", "Published to tracker", "done"],
+      ["11:31:27", "Evidence sealed · disagreement flag set", "done"]
+    ] },
+  { id: "2026-08-01-0600", ts: "1 Aug 2026, 06:00 ET", outcome: "rejected", origin: "scheduled",
+    steps: "5 of 6", spend: 0.33, tokens: "97k", model: "claude-sonnet-4-6 · prompt v13",
+    summary: "Proposed flipping Minnesota to restricted on the SF 4760 effective date. Rejected: the statute took effect but its enforcement is enjoined, so operational status does not change.",
+    evals: { grounding: "0.71", tier1: "pass", hallucination: "0 flags" },
+    approver: "P. (operator)", mode: "HITL", draft: null, disagreement: null,
+    reject: "The draft read the effective date as controlling. It is not — the injunction is. Rejected in full; the tracker was not changed. Reason published.",
+    timeline: [
+      ["06:00:02 · 1.1s", "Fetching", "done"],
+      ["06:00:31 · 29s · $0.29", "Drafting — Minnesota status flip", "done"],
+      ["06:01:02 · 3s", "Guardrails — passed with low grounding score", "done"],
+      ["08:40:11", "Rejected — P. (operator)", "now"],
+      ["—", "Publish", "skip"]
+    ] }
+];
+const OUTCOME_LABEL = { published: "Published", awaiting: "Awaiting approval", empty: "Empty — no change",
+  failed: "Failed", stopped: "Budget-stopped", rejected: "Rejected" };
+let selRun = "2026-08-09-0612", runFilter = "all";
+
+function runRows() { return RUNS.filter(r => runFilter === "all" || r.outcome === runFilter); }
+function renderRuns() {
+  const rows = runRows();
+  document.getElementById("runbody").innerHTML = rows.map(r => `
+    <tr class="pick runrow" data-run="${r.id}" aria-selected="${selRun === r.id}">
+      <td><span class="rid">${r.id}</span><br><span class="lastupd">${r.ts}</span></td>
+      <td><span class="run ${r.outcome === "empty" ? "noop" : r.outcome}">${OUTCOME_LABEL[r.outcome]}</span></td>
+      <td><span class="origin">${r.origin}</span></td>
+      <td class="num">${r.steps}</td>
+      <td class="num">$${r.spend.toFixed(2)}</td>
+    </tr>`).join("");
+  document.getElementById("runcount").textContent = rows.length + " of " + RUNS.length + " runs";
+  document.querySelectorAll("#runbody tr").forEach(tr =>
+    tr.addEventListener("click", () => { selRun = tr.dataset.run; renderRuns(); renderEvidence(); }));
+}
+function renderEvidence() {
+  const r = RUNS.find(x => x.id === selRun);
+  const evalRow = (k, v) => `<dt>${k}</dt><dd>${v === "not run"
+    ? '<span class="muted">not run</span>' : v === "—" ? '<span class="muted">— no draft</span>' : v}</dd>`;
+  document.getElementById("evidence").innerHTML = `
+    <div class="ph"><span class="kicker">Evidence · run</span>
+      <span class="run ${r.outcome === "empty" ? "noop" : r.outcome}" style="margin-left:auto">${OUTCOME_LABEL[r.outcome]}</span></div>
+    <div class="pb">
+      <h3 style="font-family:var(--font-heading);font-size:23px;font-weight:400;font-feature-settings:'tnum'">${r.id}</h3>
+      <div class="lastupd">${r.ts} · <span class="origin">${r.origin}</span></div>
+      <p style="font-size:13.5px;line-height:1.65;margin:var(--space-3) 0 0">${r.summary}</p>
+
+      <div class="spend">
+        <div><b>$${r.spend.toFixed(2)}</b><span>Spend</span></div>
+        <div><b class="num">${r.tokens}</b><span>Tokens</span></div>
+        <div><b class="num">${r.steps}</b><span>Steps</span></div>
+      </div>
+
+      <div class="kicker" style="margin-bottom:var(--space-2)">Steps</div>
+      <ul class="steps">
+        ${r.timeline.map(([t, txt, cls]) =>
+          `<li class="${cls}"><span class="sd">${t}</span><br>${txt}</li>`).join("")}
+      </ul>
+
+      <div class="kicker" style="margin:var(--space-4) 0 var(--space-2)">Provenance</div>
+      <dl class="kv">
+        <dt>Mode</dt><dd>${r.mode}</dd>
+        <dt>Approver</dt><dd>${r.approver
+          ? (r.mode.startsWith("Auto")
+            ? `<span class="prov agent"><span class="dot"></span> ${r.approver}</span>`
+            : `<span class="prov"><span class="dot"></span> ${r.approver}</span>`)
+          : '<span class="muted">none — not approved</span>'}</dd>
+        <dt>Model</dt><dd>${r.model}</dd>
+        <dt>Lineage</dt><dd>sources → draft → guardrails → gate → ${r.outcome}</dd>
+        <dt>Secrets</dt><dd>scrubbed at write time</dd>
+      </dl>
+
+      <div class="kicker" style="margin:var(--space-4) 0 var(--space-2)">Evals</div>
+      <dl class="kv">
+        ${evalRow("Grounding", r.evals.grounding)}
+        ${evalRow("Tier-1 source", r.evals.tier1)}
+        ${evalRow("Hallucination", r.evals.hallucination)}
+      </dl>
+
+      ${r.diff ? `<div class="kicker" style="margin:var(--space-4) 0 var(--space-2)">Operator edit — full diff</div>
+        <div class="diff">
+          <div class="col"><h4>Agent draft</h4><p><del>${r.diff[0]}</del></p></div>
+          <div class="col"><h4>Published</h4><p><ins>${r.diff[1]}</ins></p></div>
+        </div>` : ""}
+
+      ${r.reject ? `<div class="kicker" style="margin:var(--space-4) 0 var(--space-2)">Reject reason — public</div>
+        <p style="font-size:13px;line-height:1.65;border-left:2px solid var(--color-neutral-700);
+          padding-left:var(--space-3);margin:0">${r.reject}</p>` : ""}
+
+      ${r.disagreement ? `<div class="kicker" style="margin:var(--space-4) 0 var(--space-2)">Disagreement flag</div>
+        <div class="empty" style="text-align:left;padding:var(--space-3) var(--space-4)"><b>Flagged</b>${r.disagreement}
+          <span class="hint">v1 records the flag and a summary. The full inter-agent explorer is phase-in.</span></div>` : ""}
+
+      ${r.outcome === "empty" ? `<div class="empty" style="margin-top:var(--space-4)"><b>No draft produced</b>
+        The run did its work and found nothing to change. Eval fields are empty rather than zero.
+        <span class="hint">Empty runs are published deliberately — absence of drama is not absence of evidence.</span></div>` : ""}
+
+      ${r.draft ? `<div style="margin-top:var(--space-4)"><a class="btn btn-secondary" href="#drafts">Read the pending draft</a></div>` : ""}
+    </div>`;
+}
+
+/* ---------------- pending drafts ---------------- */
+const DRAFTS = [
+  { id: "nj-posture", run: "2026-08-09-0612", title: "New Jersey — posture change proposed",
+    flags: ["Tier-1 source present", "Confidence 0.94"], conf: "0.94",
+    body: `New Jersey's deadline to petition for certiorari in <em>KalshiEX LLC v. Flaherty</em> is 3 September 2026,
+      following two extensions granted by Justice Alito. No petition had been filed as of 9 August 2026. The
+      published posture for New Jersey — decided for platform — rests on the Third Circuit's merits holding and is
+      unaffected by the petition's absence. This draft proposes adding a timing note to the state record and
+      leaving the posture unchanged, on the view that a deadline that has not yet passed is not a development.`,
+    diff: ["No pending change to the New Jersey record.",
+      "Added: cert. deadline 3 Sep 2026; no petition on file as of 9 Aug 2026. Posture unchanged."],
+    source: ["SCOTUS docket No. 25A1465", "https://www.supremecourt.gov/docket/docketfiles/html/public/25A1465.html"] },
+  { id: "ma-sjc", run: "2026-08-09-0612", title: "Massachusetts — watch note proposed",
+    flags: ["Tier-2 source only", "Confidence 0.61"], conf: "0.61",
+    body: `Trade press reported on 8 August that the Supreme Judicial Court is expected to hand down
+      <em>Commonwealth v. KalshiEX LLC</em> before the end of the sitting. The court's own new-opinions list does not
+      carry the case, and no scheduling order was located. This draft proposes a watch note on the Massachusetts
+      record. It is flagged Tier-2-only: under the action policy it cannot be auto-approved at any threshold, and
+      a human must decide whether an expectation reported by the press belongs on a record of primary sources.`,
+    diff: ["No watch note on the Massachusetts record.",
+      "Added: decision expected before the end of the sitting (trade press; not confirmed by the court)."],
+    source: ["Massachusetts new opinions — case not listed", "https://www.mass.gov/info-details/new-opinions"] }
+];
+function renderDrafts() {
+  document.getElementById("draftlist").innerHTML = DRAFTS.map(d => `
+    <div class="draft">
+      <div class="draftbanner">
+        <strong>Not live · awaiting approval</strong>
+        <span>The tracker still shows the previously approved value.</span>
+        <span class="origin">from run ${d.run}</span>
+        <span class="prov agent" style="margin-left:auto"><span class="dot"></span> Drafted by agent</span>
+      </div>
+      <div class="draftbody">
+        <h3>${d.title}</h3>
+        <div class="flagrow">${d.flags.map(f => `<span class="origin">${f}</span>`).join("")}
+          ${+d.conf < 0.92 ? '<span class="warn">⚠ below auto-approve threshold</span>' : ""}</div>
+        <p>${d.body}</p>
+        <div class="kicker" style="margin:var(--space-4) 0 var(--space-2)">Proposed change to the tracker</div>
+        <div class="diff">
+          <div class="col"><h4>Live now</h4><p><del>${d.diff[0]}</del></p></div>
+          <div class="col"><h4>If approved</h4><p><ins>${d.diff[1]}</ins></p></div>
+        </div>
+        <p style="margin-top:var(--space-4);font-size:12.5px;color:var(--color-neutral-700)">
+          Source: <a href="${d.source[1]}" target="_blank" rel="noopener">${d.source[0]}</a> ·
+          <a href="#runs" data-run-link="${d.run}">Open the evidence for this run</a></p>
+      </div>
+    </div>`).join("");
+  document.querySelectorAll("[data-run-link]").forEach(a => a.addEventListener("click", () => {
+    selRun = a.dataset.runLink; runFilter = "all";
+    document.querySelectorAll("[data-f]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.f === "all")));
+    renderRuns(); renderEvidence();
+  }));
+}
+
+/* ---------------- nine layers ---------------- */
+const LAYERS = [
+  { n: 1, name: "Gateway", zone: "Core", status: "shipped", short: "Spend and rate ceiling",
+    body: "Every model call goes through one gateway that holds the budget. A run cannot spend past its ceiling, and when it hits one it stops mid-work rather than degrading quietly. The 6 August run in the log is what that looks like from outside.",
+    hooks: [["$2.00", "Daily ceiling"], ["$0.38", "Today's spend"], ["1", "Budget stops, 30d"]] },
+  { n: 2, name: "Guardrails", zone: "Core", status: "shipped", short: "What may be written",
+    body: "Content rules that run before the gate: a claim about a state's posture must carry a Tier-1 source, trade press may seed a lead but never stand as the citation of record, and no draft may assert a holding a court has not issued. Guardrail failures stop the run; guardrail flags travel with the draft.",
+    hooks: [["pass", "Latest result"], ["0", "Failures, 30d"], ["2", "Tier-2 flags, 30d"]] },
+  { n: 3, name: "Action policy", zone: "Core", status: "shipped", short: "What may be done unattended",
+    body: "The policy is narrower than the gate. Even with autonomous mode on, a Tier-2-only draft, a posture flip, or any change touching a state's operational status cannot self-approve. The Massachusetts draft above is a live example: it is under the threshold and outside the policy at once.",
+    hooks: [["0.92", "Auto-approve threshold"], ["3", "Classes never auto"], ["1", "Blocked, 30d"]] },
+  { n: 4, name: "Orchestration", zone: "Mantle", status: "shipped", short: "Runs, schedule, Approval Gate",
+    body: "The loop itself: fetch, draft, guardrails, gate, publish. It owns the schedule, catch-up behaviour when a run is missed, and the Approval Gate that decides whether a draft becomes a fact. The gate's current mode is at the top of this page and its history is auditable.",
+    hooks: [["HITL", "Gate mode"], ["06:00 ET", "Daily"], ["8", "Runs, 30d"]] },
+  { n: 5, name: "Identity &amp; scoped context", zone: "Mantle", status: "shipped", short: "Who acts, with what access",
+    body: "The pipeline holds read access to public sources and write access to nothing but drafts. Only the operator identity can enable autonomous mode or approve. Credentials never enter a draft, and evidence is scrubbed at write time rather than at render time.",
+    hooks: [["1", "Operator identity"], ["read", "Pipeline scope"], ["0", "Secret leaks"]] },
+  { n: 6, name: "Observability", zone: "Mantle", status: "shipped", short: "The run log you are reading",
+    body: "Step-level status, live and historical, for every run — successful, empty, failed, stopped. Publishing the boring runs is the point: a log filtered to successes tells you nothing about reliability.",
+    hooks: [["8 of 8", "Runs published"], ["100%", "Steps traced"], ["live", "Step status"]] },
+  { n: 7, name: "Evals", zone: "Crust", status: "partial", short: "Grounding and citation checks",
+    body: "Grounding score and Tier-1 citation checks run on every draft; the hallucination check is running but its suite is thin. Where evals did not run, the field is empty rather than zero — an unrun eval is not a passing eval, and the run log shows both cases.",
+    hooks: [["0.94", "Latest grounding"], ["3", "Checks live"], ["2", "Planned"]] },
+  { n: 8, name: "Lineage &amp; provenance", zone: "Crust", status: "shipped", short: "Where every claim came from",
+    body: "Each published item carries its source chain, the run that produced it, its approver and the mode in force at publication — frozen at that moment, so a later mode change cannot retroactively relabel old work. That label is what the tracker shows next to each claim.",
+    hooks: [["frozen", "At publish"], ["19", "States traced"], ["1", "Agent-approved item"]] },
+  { n: 9, name: "GRC", zone: "Crust", status: "partial", short: "Governance, risk, compliance",
+    body: "The written policies behind the machinery: what the system may claim, what it must disclose, how corrections are handled, and how long evidence is retained. The enforceable subset — gate, action policy, disclosure, corrections — is live. The full maturity model is phase-in and is not claimed as shipped.",
+    hooks: [["4 of 9", "Enforceable now"], ["public", "Reject reasons"], ["phase-in", "Maturity UI"]] }
+];
+let selLayer = 4;
+function renderLayers() {
+  const zones = ["Core", "Mantle", "Crust"];
+  const blurb = { Core: "Core — the constraints nothing runs without",
+    Mantle: "Mantle — the machinery that moves", Crust: "Crust — what surfaces, and is checkable" };
+  document.getElementById("earth").innerHTML = zones.map(z => `
+    <div class="zone"><div class="zh">${blurb[z]}</div>
+      ${LAYERS.filter(l => l.zone === z).map(l => `
+        <button class="lbtn" data-layer="${l.n}" aria-selected="${selLayer === l.n}">
+          <i>L${l.n}</i><span>${l.name}<small>${l.short}</small></span>
+        </button>`).join("")}
+    </div>`).join("");
+  document.querySelectorAll(".lbtn").forEach(b =>
+    b.addEventListener("click", () => { selLayer = +b.dataset.layer; renderLayers(); }));
+
+  const l = LAYERS.find(x => x.n === selLayer);
+  document.getElementById("ldetail").innerHTML = `
+    <div class="kicker">Layer ${l.n} · ${l.zone}</div>
+    <h3 style="margin:var(--space-2) 0 var(--space-3)">${l.name}</h3>
+    <div style="display:flex;gap:var(--space-3);flex-wrap:wrap;align-items:center">
+      ${l.status === "shipped"
+        ? '<span class="prov"><span class="dot"></span> Shipped — part of the governance spine</span>'
+        : '<span class="prov agent"><span class="dot"></span> Partial — enforceable subset live, rest phase-in</span>'}
+    </div>
+    <p style="margin-top:var(--space-4)">${l.body}</p>
+    <div class="hooks">
+      ${l.hooks.map(([v, k]) => `<div class="hook"><b class="num">${v}</b><span>${k}</span></div>`).join("")}
+    </div>
+    <p style="font-size:12.5px;color:var(--color-neutral-700);line-height:1.6;margin-top:var(--space-6)">
+      Live figures read from the same records as the run log — <a href="#runs">open the evidence</a> to check any of
+      them. Where a layer is partial, this page says so rather than showing a full maturity dial that would imply
+      more than is built.</p>`;
+}
+
+/* ---------------- journal ---------------- */
+const POSTS = [
+  { id: "p1", series: "fault", title: "The gopher and the fault line", date: "2 Aug 2026", read: "1,050 words",
+    lede: "I built a machine that publishes legal analysis without me, and then I spent six weeks making sure it can't.",
+    body: ["Caddyshack has a scene where the groundskeeper keeps escalating against a gopher that is, from the gopher's point of view, simply going about its day. The gopher is not malicious. It has no plan. It just keeps surfacing where you did not want a hole.",
+      "Autonomous agents are gophers. Not villains — the failure mode that actually happens is not a system that decides to deceive you, it is a system that keeps confidently surfacing in a place your model of it said it would not. On 1 August this one proposed flipping Minnesota to restricted because a statute took effect. The statute did take effect. It is also enjoined. The draft was not lying; it had a shallower model of the world than the world has.",
+      "The rejection is in the log, with the reason, because that is the only version of this that is worth anything. A governance story you cannot check is a marketing story.",
+      "So the fault line I care about is not between honest and dishonest systems. It is between systems whose mistakes surface where you can see them and systems whose mistakes surface where you cannot."],
+    run: "2026-08-01-0600" },
+  { id: "p2", series: "layer", title: "L1 · The gateway is the only honest budget", date: "24 Jul 2026", read: "980 words",
+    lede: "Every other spending control I tried was a promise. The gateway is a wall.",
+    body: ["You can tell an agent to be frugal. You can put the number in the prompt. It will agree with you, sincerely, and then spend whatever the task seems to need, because the task is the thing in front of it and the budget is a sentence it read once.",
+      "The gateway does not ask. It holds the ceiling and refuses the call. On 6 August a docket returned a 172-page opinion, the drafting step ate $1.93, and the run stopped where it stood — no draft, no partial publish, no quiet truncation of the source to fit.",
+      "That run is in the log as budget-stopped. It looks like a failure and it is the system working."],
+    run: "2026-08-06-0600" },
+  { id: "p3", series: "layer", title: "L3 · The action policy is narrower than the gate", date: "12 Jul 2026", read: "1,100 words",
+    lede: "Turning autonomy on is not the same as letting the machine do anything.",
+    body: ["The mode switch is loud and it gets the attention. The quieter control is the action policy, which says which classes of change can ever self-approve — and the answer for anything touching a state's operational status is never, at any confidence, in any mode.",
+      "It is the difference between trusting a system's judgment and trusting its judgment about which judgments are safe."],
+    run: null },
+  { id: "p4", series: "bookend", title: "Day one: what I am actually claiming", date: "17 Jun 2026", read: "1,020 words",
+    lede: "One person, one loop, one public record. Here is the bar I want to be held to.",
+    body: ["I am a practising attorney and a CTO, which mostly means I have watched both professions get told that this technology will replace them and neither one believe it.",
+      "So the claim is narrow. Not that an agent can practise law. That a single person can build an autonomous system, put its whole working life in public, and have that record survive a hostile read. If the record cannot survive one, I would rather find out here than in a deposition."],
+    run: null }
+];
+let selPost = "p1", postFilter = "all";
+function renderJournal() {
+  const posts = POSTS.filter(p => postFilter === "all" || p.series === postFilter);
+  document.getElementById("postlist").innerHTML = posts.length ? posts.map(p => `
+    <button class="post" data-post="${p.id}" aria-selected="${selPost === p.id}">
+      <span class="pt">${p.title}</span>
+      <span class="pm">${p.date} · ${p.read} · ${p.series === "layer" ? "Layer series"
+        : p.series === "fault" ? "Fault line" : "Bookend"}</span>
+    </button>`).join("")
+    : `<div class="empty"><b>No posts in this series yet</b>Layer posts are written when the layer ships.
+       <span class="hint">Missing posts are expected at launch and are not backfilled.</span></div>`;
+  document.querySelectorAll(".post").forEach(b =>
+    b.addEventListener("click", () => { selPost = b.dataset.post; renderJournal(); }));
+
+  const p = POSTS.find(x => x.id === selPost);
+  document.getElementById("postbody").innerHTML = `
+    <div class="kicker">${p.date} · ${p.read}</div>
+    <h3 style="margin:var(--space-2) 0 var(--space-3)">${p.title}</h3>
+    <div style="display:flex;gap:var(--space-3);flex-wrap:wrap;align-items:center">
+      <span class="prov"><span class="dot"></span> Written by Patrick — human byline</span>
+      ${p.run ? `<a class="origin" href="#runs" data-run-link="${p.run}">attached: run ${p.run}</a>` : ""}
+    </div>
+    <p class="lede" style="margin:var(--space-4) 0 var(--space-4)">${p.lede}</p>
+    ${p.body.map(t => `<p>${t}</p>`).join("")}
+    <p style="font-size:12.5px;color:var(--color-neutral-700);border-top:1px solid var(--color-divider);
+      padding-top:var(--space-3);margin-top:var(--space-6)">
+      Canonical here. Syndicated copies elsewhere are copies and are not the source of truth.</p>`;
+  document.querySelectorAll("#postbody [data-run-link]").forEach(a => a.addEventListener("click", () => {
+    selRun = a.dataset.runLink; renderRuns(); renderEvidence();
+  }));
+}
+
+/* ---------------- controls ---------------- */
+document.querySelectorAll("[data-f]").forEach(b => b.addEventListener("click", () => {
+  runFilter = b.dataset.f;
+  document.querySelectorAll("[data-f]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+  const rows = runRows();
+  if (rows.length && !rows.some(r => r.id === selRun)) { selRun = rows[0].id; renderEvidence(); }
+  renderRuns();
+}));
+document.querySelectorAll("[data-series]").forEach(b => b.addEventListener("click", () => {
+  postFilter = b.dataset.series;
+  document.querySelectorAll("[data-series]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+  const posts = POSTS.filter(p => postFilter === "all" || p.series === postFilter);
+  if (posts.length && !posts.some(p => p.id === selPost)) selPost = posts[0].id;
+  renderJournal();
+}));
+document.getElementById("exp-runs").addEventListener("click", () => {
+  const cell = v => `"${String(v).replace(/"/g, '""')}"`;
+  const csv = [["run_id", "timestamp", "outcome", "origin", "steps", "spend_usd", "mode", "approver", "summary"]
+    .map(cell).join(",")].concat(runRows().map(r => [r.id, r.ts, OUTCOME_LABEL[r.outcome], r.origin, r.steps,
+      r.spend.toFixed(2), r.mode, r.approver || "none", r.summary].map(cell).join(","))).join("\r\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  const a = document.createElement("a");
+  a.href = url; a.download = "pml-runs-2026-08-09.csv"; document.body.appendChild(a); a.click();
+  a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+});
+
+renderRuns(); renderEvidence(); renderDrafts(); renderLayers(); renderJournal();
+</script>
+</body>
+</html>
