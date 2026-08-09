@@ -15,7 +15,7 @@ placeholder subject — a refused render means fix the findings file
 and re-run, never hand-edit the HTML.
 
 Usage:
-  python3 render_report.py <findings.json> --shell <report-shell.html> \
+  uv run render_report.py <findings.json> --shell <report-shell.html> \
       -o <out.html> [--md <out.md>]
 
 On success prints one JSON line: output paths, grade, and severity

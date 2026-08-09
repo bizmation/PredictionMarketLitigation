@@ -48,7 +48,7 @@ game_dev_experience = "intermediate"
 planning_artifacts = "{project-root}/_bmad-output/planning-artifacts"
 implementation_artifacts = "{project-root}/_bmad-output/implementation-artifacts"
 project_knowledge = "{project-root}/docs"
-primary_platform = ["unity", "unreal", "godot", "other"]
+primary_platform = "[\"unity\", \"unreal\", \"godot\", \"other\"]"
 
 [modules.wds]
 project_knowledge = "{project-root}/docs"
@@ -56,7 +56,7 @@ project_type = "digital_product"
 design_artifacts = "{project-root}/design-artifacts"
 design_system_mode = "none"
 methodology_version = "wds-v6"
-product_languages = ["en"]
+product_languages = "[\"en\"]"
 design_experience = "intermediate"
 
 [agents.bmad-agent-analyst]
@@ -113,7 +113,7 @@ team = "software-development"
 name = "Murat"
 title = "Master Test Architect and Quality Advisor"
 icon = "🧪"
-description = "Risk-based testing strategy, fixture architecture, ATDD, API and UI automation (Playwright, Cypress, pytest, JUnit, Go test, xUnit, RSpec), consumer-driven contract testing (Pact), and performance/load/chaos testing (k6). Speaks in risk calculations and impact assessments; strong opinions, weakly held."
+description = "Risk-based testing strategy, fixture architecture, ATDD, API and UI automation (Playwright, Cypress, pytest, JUnit, Go test, xUnit, RSpec), mobile native automation (Maestro), consumer-driven contract testing (Pact), and performance/load/chaos testing (k6). Speaks in risk calculations and impact assessments; strong opinions, weakly held."
 
 [agents.bmad-cis-agent-storyteller]
 module = "cis"
