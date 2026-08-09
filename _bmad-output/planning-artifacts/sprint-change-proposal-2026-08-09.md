@@ -9,6 +9,8 @@ approvedAt: '2026-08-09'
 mode: 'batch'
 trigger: 'Operator↔agent steering capability absent from locked F2/F3'
 scopeClassification: 'Major (PRD amendment + new FRs) executed as Moderate (Direct Adjustment within Epic 3)'
+amendments:
+  - '2026-08-09 (post-approval): Steering publication timing resolved — turn-complete, immediate on submit, redaction at submit; as-you-type public streaming prohibited (FR-50, Story 3.14, UX C4/B8)'
 inputDocuments:
   - _bmad-output/planning-artifacts/prds/prd-PML-2026-06-18/prd.md
   - _bmad-output/planning-artifacts/epics.md
@@ -209,7 +211,8 @@ The steering channel is itself governed, bounded, and publicly projected.
 
 *Consequences (testable):*
 - Steering turns are public on `ops.` **by default**, attached to the Run and Draft they touched.
-- Mirroring FR-14's reject-reason precedent, the operator may mark a specific turn (or portion) **private** — but the *existence* of the private turn, its timestamp, and its effect on the Draft remain public. Redaction of content is permitted; concealment of causation is not.
+- **Publication timing (RESOLVED 2026-08-09):** turns publish at **turn completion, immediately** — on submit, with no operator publish step, no review queue, and no curation gap. Token-level / as-you-type streaming to the public surface is **prohibited**: the operator is a licensed attorney and mid-composition legal reasoning about named parties would publish unreviewed party characterizations, which FR-17 requires be escalated for review, not broadcast. Turn-complete publication preserves the unedited-transcript property the transparency thesis depends on while keeping the redaction decision (below) meaningful.
+- Mirroring FR-14's reject-reason precedent, the operator may mark a specific turn (or portion) **private** — the decision is made **at submit, before the turn is published**, since post-hoc redaction of an already-public turn is not achievable against scrapers and archives. The *existence* of the private turn, its timestamp, and its effect on the Draft remain public. Redaction of content is permitted; concealment of causation is not.
 - The steward agent operates under a scoped identity with **no live-F1 publish tool** (FR-21, FR-23).
 - Prompt-injected content in a Draft or source under discussion cannot escalate steward permissions — demonstrated by adversarial fixture test (parity with FR-20 / readiness note G1).
 - Steering is available only to the authenticated operator identity; the public observes, never steers.
@@ -247,7 +250,7 @@ Bodies unchanged; each gains one line. LOCKED status preserved.
 >
 > FR49: Standing corrections / durable guidance — promote corrections to versioned, revocable, publicly readable standing guidance; authorized context under FR23; advisory to drafting only; capped and reviewable. `[v1]`
 >
-> FR50: Steering transparency & containment — turns public by default with private-marking of content but never of causation; scoped steward identity with no publish tool; injection-resistant; operator-only; spend attributed to Run budget. `[v1]`
+> FR50: Steering transparency & containment — turns public by default, published at turn completion immediately (no as-you-type streaming, no publish step, no curation gap); redaction decided at submit; private-marking hides content but never causation; scoped steward identity with no publish tool; injection-resistant; operator-only; spend attributed to Run budget. `[v1]`
 
 **FR Coverage Map** — append:
 
@@ -279,6 +282,8 @@ So that steering exists without opening an ungoverned back door into the loop.
 **And** the steward agent holds **no live-F1 publish tool**, verified by an explicit test asserting the tool is absent from its resolved allowlist (FR-50 R1, FR-21)
 **And** governance controls — YOLO threshold, budget ceiling, Autonomous mode, guardrail rules, action-policy allowlist — are **not** mutable through the channel, enforced by a code-level allowlist rather than prompt instruction, verified by test (FR-50 R3, FR-48)
 **And** every steering turn writes a `steering_turns` row and emits Evidence events (`steering.turn`, `steering.applied`) bound to Run and Draft IDs (FR-50 R2)
+**And** turns publish to `ops.` at **turn completion, immediately on submit** — no operator publish step and no review queue; the public projection endpoint never exposes partial or in-composition turn content, asserted by test (FR-50 publication timing)
+**And** the private/redact decision is captured **at submit**, before publication; a turn cannot be retroactively privatized once published (the UI states this plainly rather than offering a control that cannot deliver)
 **And** an adversarial fixture test demonstrates that prompt-injected content inside a Draft or source under discussion cannot expand steward tool permissions (FR-50, parity with 3.6/G1)
 **And** unauthenticated identities cannot open or post to the channel; the public reads projections only
 **And** steering LLM spend is attributed to the Run and counts against the budget envelope (FR-19)
@@ -435,10 +440,12 @@ So that the loop improves rather than merely being supervised.
 **File:** `_bmad-output/planning-artifacts/ux-brief-pack.md`
 
 **New §6.C4 — Operator steering panel `[v1]` — FR-46–49**
-Authenticated conversational panel on the selected Draft inside the approval queue. Must preserve queue keyboard parity (J/K/A/E/R plus a steering binding). Shows the Draft revision chain with the instruction that caused each revision. Displays a persistent, unmistakable indicator that turns are public by default, with an explicit per-turn private-marking control. Refusals (governance controls out of reach) render as calm, explanatory states — not errors.
+Authenticated conversational panel on the selected Draft inside the approval queue. Must preserve queue keyboard parity (J/K/A/E/R plus a steering binding). Shows the Draft revision chain with the instruction that caused each revision. Refusals (governance controls out of reach) render as calm, explanatory states — not errors.
+
+**Publication model to design against (resolved 2026-08-09):** the composer is private; **submit is publication**. Each completed turn goes public on `ops.` immediately, with no publish step and no review queue. The design problem this creates is the *submit moment* — it is simultaneously "send to agent" and "publish to the world under my name," and the panel must make that unmistakable without making the operator hesitant to steer. The per-turn private/redact control belongs **in the composer, adjacent to submit** — not in a post-hoc turn menu, since redaction after publication is unachievable. Design the composer so a lawyer can think in it and the transcript can still be honest.
 
 **New §6.B8 — Public steering projection `[v1]` — FR-50**
-No-login view of steering turns attached to their Run and Draft. Renders the revision chain original → revisions → approved. Privately-marked content shows a redaction placeholder that still displays timestamp, actor, and the effect on the Draft. Needs a designed empty state: most Runs will have no steering at all, and "nobody had to intervene" must read as a healthy, first-class state rather than missing data.
+No-login view of steering turns attached to their Run and Draft. Renders the revision chain original → revisions → approved. Turns appear as they are submitted (turn-granular, not token-streamed); a live Run's steering view may poll. Privately-marked content shows a redaction placeholder that still displays timestamp, actor, and the effect on the Draft. Needs a designed empty state: most Runs will have no steering at all, and "nobody had to intervene" must read as a healthy, first-class state rather than missing data.
 
 **§7 Interaction principles** — add principle 9: *Steering is public. Any surface where the operator instructs the agent must make the public-by-default nature of that instruction visible at the moment of typing, not merely in a policy page.*
 
@@ -507,7 +514,7 @@ No-login view of steering turns attached to their Run and Draft. Renders the rev
 ### 5.6 Open decisions (non-blocking; resolve during implementation)
 
 1. **Standing-guidance cap** — item count and/or token ceiling, plus review cadence (Story 3.18).
-2. **Private-marking default** — proposal sets public-by-default with per-turn redaction, mirroring FR-14. Worth confirming: operator steering will contain half-formed legal reasoning, and you may want a *draft-then-publish* turn model instead of live-public. Recommend confirming before 3.14 design.
+2. ~~**Private-marking default**~~ — **RESOLVED 2026-08-09 (Patrick):** turn-complete, published immediately on submit, redaction decided at submit. No as-you-type public streaming; no draft-then-publish queue. Rationale recorded in FR-50 and §6.C4. UX design on the steering panel is unblocked.
 3. **Steward model pin** — likely the strongest available reasoning model; it argues with a lawyer about case law.
 4. **Revision chain depth** — whether to cap revisions per Draft to keep the public chain readable.
 
@@ -520,3 +527,5 @@ No-login view of steering turns attached to their Run and Draft. Renders the rev
 - [ ] **Revise** — feedback: ________________
 
 *Prepared 2026-08-09 under the Correct Course workflow. Checklist sections 1–6 complete. `sprint-status.yaml` updated with Stories 3.14–3.18 per checklist item 6.4.*
+
+**Post-approval amendment — 2026-08-09:** Open decision §5.6(2) resolved by Patrick. Steering turns publish at turn completion, immediately on submit; redaction decided at submit; as-you-type public streaming prohibited. Applied to FR-50, epics FR50 line, Story 3.14 ACs, and UX §6.C4 / §6.B8. No other section affected; approval stands.
