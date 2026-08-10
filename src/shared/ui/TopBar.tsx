@@ -32,15 +32,12 @@ export function TopBar({ brand, links }: TopBarProps) {
       <div className="wrap">
         <div className="brand">{brand}</div>
         <nav className="topnav" aria-label="Primary">
-          {links.map((link) => (
+          {links.map((link, i) => (
             <a
-              key={link.href + link.label}
+              key={`${link.href}-${i}`}
               href={link.href}
               className={link.external ? "ext" : undefined}
               aria-current={link.current ? "page" : undefined}
-              {...(link.external && link.href.startsWith("http")
-                ? { rel: "noopener" }
-                : {})}
             >
               {link.label}
             </a>

@@ -1,0 +1,42 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pml",
+  "main": "src/server.ts",
+  "compatibility_date": "2026-06-11",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Test-only config for the "workers" Vitest project (vitest.config.ts).
+  //
+  // Identical to wrangler.jsonc except the `ai` binding is omitted: Workers AI
+  // has no local simulation mode and always proxies to the real service even
+  // with `remote: false` (Cloudflare docs), so any binding boot here requires
+  // a live CLOUDFLARE_API_TOKEN — which unconditionally blocks every test in
+  // this project, including ones that never touch AI (server.test.ts is a
+  // fetch-handler smoke test; surface.test.ts is pure URL logic). Neither test
+  // file reaches the one call site that reads `env.AI` (src/server.ts:51,
+  // inside ChatAgent's message handling — never invoked by these tests).
+  //
+  // Keep this in sync with wrangler.jsonc for every OTHER field. Do not add
+  // `ai` here; if a future test genuinely needs to exercise Workers AI, run it
+  // against the real wrangler.jsonc in an environment with a live token
+  // instead of adding remote bindings back to this file.
+  "assets": {
+    "directory": "./public",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/agents/*", "/oauth/*"]
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "ChatAgent",
+        "name": "ChatAgent"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "new_sqlite_classes": ["ChatAgent"],
+      "tag": "v1"
+    }
+  ]
+}

@@ -58,10 +58,15 @@ describe("ApexShell", () => {
 
   // AC6 — the IA split. This is the assertion most likely to be broken by a
   // well-meaning future edit that "helpfully" surfaces governance on apex.
+  // Checks content, not just ids — a future band under a different id could
+  // still carry this content and violate AC6 while passing an id-only guard.
   it("does NOT host the nine-layer explainer or the canonical journal", () => {
     const html = apex();
     expect(html).not.toContain('id="layers"');
     expect(html).not.toContain('id="journal"');
+    expect(html).not.toContain("Nine layers of governance");
+    expect(html).not.toContain("Build journal");
+    expect(html).not.toContain("Gateway · Guardrails");
   });
 
   it("uses EmptyState for every unwired band", () => {

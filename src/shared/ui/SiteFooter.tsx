@@ -22,13 +22,11 @@ export function SiteFooter({ label, links = [], note }: SiteFooterProps) {
     <footer className="foot">
       <div className="wrap">
         <span>{label}</span>
-        {links.map((link) => (
+        {links.map((link, i) => (
           <a
-            key={link.href + link.label}
+            key={`${link.href}-${i}`}
             href={link.href}
-            {...(link.external && link.href.startsWith("http")
-              ? { rel: "noopener" }
-              : {})}
+            className={link.external ? "ext" : undefined}
           >
             {link.label}
           </a>

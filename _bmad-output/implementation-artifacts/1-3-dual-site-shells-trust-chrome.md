@@ -4,7 +4,7 @@ baseline_commit: ba7ce91d99bdef85632f48b06e9ad00d53f57323
 
 # Story 1.3: Dual-Site Shells & Trust Chrome
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -97,6 +97,28 @@ So that the litigation product and governance receipts are clearly separated but
   - [x] `npm run check` green (oxfmt + oxlint + tsc)
   - [x] Update Dev Agent Record + File List; set status `review`
   - [x] Commit `story 1.3: dual-site shells + trust chrome` (single commit; do not push)
+
+### Review Findings
+
+- [x] [Review][Decision] `workers` Vitest project (+ `npm run dev`) requires a live `CLOUDFLARE_API_TOKEN` and cannot start without one — `wrangler.jsonc`'s `ai` binding is `remote: true` with no local simulation mode for Workers AI (confirmed against Cloudflare's own docs). Confirmed by direct reproduction: `npx vitest run` originally threw "Failed to start the remote proxy session" for both `surface.test.ts` and `server.test.ts`; only 45 of the claimed 61 tests ran, and none of `surface.ts`'s admin-gating security tests executed. **Resolved, not deferred:** added `wrangler.test.jsonc` (identical to `wrangler.jsonc` minus the `ai` block — `wrangler.jsonc` itself untouched, respecting the story's scope boundary) and pointed the `workers` Vitest project at it. Neither `surface.test.ts` (pure URL logic) nor `server.test.ts` (fetch-handler smoke test) reaches the one call site that reads `env.AI` (`src/server.ts:51`, inside `ChatAgent` message handling). Re-verified: `npx vitest run` now passes 4 test files / 61 tests with zero `CLOUDFLARE_API_TOKEN` needed; `npm run check`'s oxlint + tsc steps stay clean. `npm run dev` still needs a live token (unaffected — it boots the real `wrangler.jsonc`, correctly) but that path was never blocking test coverage or CI, only the interactive live-browser verification step, so nothing further deferred here.
+- [x] [Review][Patch] ApexShell TrustBar shows a fixed "Updated 10 Aug 2026" + "Human-approved" though every section below is an EmptyState — nothing has been approved or published yet; no visible placeholder marking, unlike OpsShell's "Next run — not yet scheduled" [`src/surfaces/apex/ApexShell.tsx:67-68`]
+- [x] [Review][Patch] OpsShell's provenance slot renders "Human-approved · Gate: HITL" by reusing `ProvenanceLabel`'s fixed human/agent vocabulary for a gate-mode indicator; the handoff's own source (`PML Ops.html:115`) shows bare "Gate: HITL" with no "Human-approved" prefix [`src/surfaces/ops/OpsShell.tsx:61`]
+- [x] [Review][Patch] AdminShell TrustBar is missing the "budget placeholder" Task 7 calls for and checks off complete — only gate/mode + queue-summary are wired, no budget slot (handoff `PML Admin.html:99`: `Budget today $0.38 of $2.00`) [`src/surfaces/admin/AdminShell.tsx:50-54`]
+- [x] [Review][Patch] AdminShell `meta="No drafts awaiting"` reads as a checked fact rather than an honest not-yet-real placeholder, inconsistent with OpsShell's "not yet scheduled" phrasing [`src/surfaces/admin/AdminShell.tsx:53`]
+- [x] [Review][Patch] TopBar/SiteFooter external links never set `target="_blank"`, so the conditional `rel="noopener"` spread is dead code with no effect [`src/shared/ui/TopBar.tsx:41-43`]
+- [x] [Review][Patch] AdminShell hardcodes `current: true` on the "Approval queue" nav link with no routing/scroll basis for it — neither ApexShell nor OpsShell mark anything current [`src/surfaces/admin/AdminShell.tsx:33`]
+- [x] [Review][Patch] None of the three shells render a `<main>` landmark — SectionBands sit in a bare wrapping `<div>`, so screen-reader/keyboard users can't skip the repeated top/trust bars [`src/surfaces/apex/ApexShell.tsx:54`]
+- [x] [Review][Patch] No `color-scheme` declared anywhere after Task 9 removed the `data-mode` bootstrap script — page is exposed to forced/auto-dark-mode heuristics with no dark tokens to fall back on [`index.html`]
+- [x] [Review][Patch] In-page nav anchors scroll their target directly under the sticky 62px `.topbar` (`z-index: 30`) — no `scroll-margin-top`/`scroll-padding-top` anywhere in `pml.css`, so every anchor jump hides the destination heading [`src/shared/ui/pml.css:66-77`]
+- [x] [Review][Patch] AC6 regression guard only asserts the literal absence of `id="layers"`/`id="journal"` strings, not the underlying explainer/journal content — a future band under a different id would violate AC6 and still pass [`src/surfaces/shells.test.tsx:61-65`]
+- [x] [Review][Patch] Dev-only `/design-system` gallery gate is an exact pathname match — `/design-system/` or any sub-path falls through to the surface shells instead of the gallery [`src/app.tsx:28`]
+- [x] [Review][Patch] `surfaceHref` concatenates `path` with no leading-slash normalization and no query-string collision handling — a future caller passing `"runs"` or a path that already has `"?"` produces a malformed href [`src/shared/lib/surface.ts:90-100`]
+- [x] [Review][Patch] TrustBar's warn/message/meta/provenance slots use truthy checks, so a literal `0` would be dropped as if absent [`src/shared/ui/TrustBar.tsx:31-34`]
+- [x] [Review][Patch] TopBar nav link key is `href+label` with no index fallback — two links sharing both would collide [`src/shared/ui/TopBar.tsx:37`]
+- [x] [Review][Patch] SiteFooter link key has the same `href+label` collision risk as TopBar [`src/shared/ui/SiteFooter.tsx:27`]
+- [x] [Review][Patch] SiteFooter never applies the `.ext` ↗ class for external links, unlike TopBar — the same `external: true` flag renders inconsistently between header and footer [`src/shared/ui/SiteFooter.tsx:25-34`]
+- [x] [Review][Patch] ops. EmptyState hints never name the owning story (3.7/3.9/3.13/4.1/4.3) despite Task 6's explicit instruction to do so, though the task is checked complete [`src/surfaces/ops/OpsShell.tsx:72,88,104,119,134`]
+- [x] [Review][Defer] `oxfmt --check .` fails repo-wide (including files 1.3 never touched) on Windows because `core.autocrlf=true` checks files out as CRLF and there is no `.gitattributes` pinning LF — pre-existing since before 1.1, not caused by this diff — deferred, pre-existing
 
 ## Dev Notes
 
@@ -252,6 +274,7 @@ Claude Opus 5 (claude-opus-5) — Claude Code session
 ### Change Log
 
 - 2026-08-10: Story implemented end-to-end (surface resolution red/green → chrome primitives → three shells → app rewrite → dependency prune → live verification). Status → review.
+- 2026-08-10: Code review (Blind Hunter + Edge Case Hunter + Acceptance Auditor) — 1 decision-needed, 17 patch, 1 defer, 2 dismissed. Decision resolved (test-only `wrangler.test.jsonc`, no cloud token needed for `workers` Vitest project); all 17 patches applied and re-verified (`npm run check`'s oxlint+tsc, 61/61 tests, live static-build check of all three shells). Status → done.
 
 ### File List
 
@@ -279,3 +302,19 @@ Modified:
 - _bmad-output/implementation-artifacts/deferred-work.md (three 1.1 deferrals retired; one new 1.3 entry)
 - _bmad-output/implementation-artifacts/sprint-status.yaml (status transitions)
 - _bmad-output/implementation-artifacts/1-3-dual-site-shells-trust-chrome.md (this file)
+
+Modified/added by code review (2026-08-10) — resolving the decision-needed finding and applying all 17 patches:
+
+- wrangler.test.jsonc (new — `wrangler.jsonc` minus the `ai` binding, for the `workers` Vitest project)
+- vitest.config.ts (workers project now points at `wrangler.test.jsonc`)
+- src/surfaces/apex/ApexShell.tsx (dropped false `ProvenanceLabel`; added `<main>` landmark)
+- src/surfaces/ops/OpsShell.tsx (`ProvenanceLabel` misuse replaced with bare handoff-accurate mode indicator; `<main>` landmark; 5 EmptyState hints now name their owning story)
+- src/surfaces/admin/AdminShell.tsx (added budget placeholder; reworded queue placeholder; dropped arbitrary `current: true`; added `<main>` landmark)
+- src/shared/ui/TopBar.tsx (dropped dead `rel="noopener"`; link key collision fallback)
+- src/shared/ui/SiteFooter.tsx (dropped dead `rel="noopener"`; link key collision fallback; now applies `.ext` class like TopBar)
+- src/shared/ui/TrustBar.tsx (slot presence checks are now `!= null`, not truthy)
+- src/shared/lib/surface.ts (`surfaceHref` normalizes a missing leading slash and an existing query string)
+- src/app.tsx (`/design-system` gallery gate now matches sub-paths too)
+- src/shared/ui/pml.css (`section.band` gets `scroll-margin-top` so anchor jumps clear the sticky topbar)
+- index.html (added `color-scheme: light` meta)
+- src/surfaces/shells.test.tsx (AC6 guard also checks explainer/journal content, not just ids)

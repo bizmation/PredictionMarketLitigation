@@ -5,8 +5,12 @@ import { defineConfig } from "vitest/config";
 
 // Two projects, because the two kinds of code under test need different runtimes.
 //
-// "workers" — Worker/Agent/Workflow code, run inside workerd against the real
-//   wrangler.jsonc (architecture testing standard). agents() transforms the
+// "workers" — Worker/Agent/Workflow code, run inside workerd against
+//   wrangler.test.jsonc — wrangler.jsonc minus the `ai` binding, which is
+//   always-remote with no local simulation (Cloudflare docs) and would force
+//   every test in this project through a live CLOUDFLARE_API_TOKEN otherwise,
+//   including tests that never touch AI. Keep wrangler.test.jsonc's other
+//   fields in sync with wrangler.jsonc by hand. agents() transforms the
 //   @callable() decorators in agent classes, mirroring vite.config.ts.
 //
 // "ui" — presentational components from src/shared/ui. These cannot run in the
@@ -21,7 +25,7 @@ export default defineConfig({
         plugins: [
           agents(),
           cloudflareTest({
-            wrangler: { configPath: "./wrangler.jsonc" }
+            wrangler: { configPath: "./wrangler.test.jsonc" }
           })
         ],
         test: {

@@ -30,7 +30,7 @@ export function AdminShell({ dev = false }: AdminShellProps) {
   const opsHref = surfaceHref("ops", { dev });
 
   const links: TopBarLink[] = [
-    { href: "#queue", label: "Approval queue", current: true },
+    { href: "#queue", label: "Approval queue" },
     { href: "#mode", label: "Mode controls" },
     { href: opsHref, label: "ops.", external: true },
     { href: apexHref, label: "Tracker", external: true }
@@ -50,39 +50,45 @@ export function AdminShell({ dev = false }: AdminShellProps) {
       <TrustBar
         warn={<WarnChip>Not protected — Access lands in Story 1.4</WarnChip>}
         message="Gate: human-in-the-loop · autonomous mode off"
-        meta="No drafts awaiting"
+        meta="Queue not yet wired"
+        provenance={
+          // Handoff PML Admin.html:99 — static placeholder, no data until 3.x.
+          <span className="num">Budget today $0.38 of $2.00</span>
+        }
       />
 
-      <SectionBand
-        id="queue"
-        kicker="01"
-        title="Approval queue"
-        why="Approve, edit-then-approve, or reject each pending draft. Every outcome is published."
-      >
-        <EmptyState
-          title="Nothing awaiting approval"
-          hint="An empty queue means the pipeline proposed nothing, not that it failed."
+      <main>
+        <SectionBand
+          id="queue"
+          kicker="01"
+          title="Approval queue"
+          why="Approve, edit-then-approve, or reject each pending draft. Every outcome is published."
         >
-          Pending drafts appear here with their full text and proposed changes.
-          Editing before approving preserves both versions, so the public diff
-          shows exactly what the operator changed.
-        </EmptyState>
-      </SectionBand>
+          <EmptyState
+            title="Nothing awaiting approval"
+            hint="An empty queue means the pipeline proposed nothing, not that it failed."
+          >
+            Pending drafts appear here with their full text and proposed
+            changes. Editing before approving preserves both versions, so the
+            public diff shows exactly what the operator changed.
+          </EmptyState>
+        </SectionBand>
 
-      <SectionBand
-        id="mode"
-        kicker="02"
-        title="Mode controls"
-        why="Switching autonomous mode on or off — restricted to the operator, and audited publicly."
-      >
-        <EmptyState
-          title="Controls not yet wired"
-          hint="Default is human-in-the-loop and stays that way until deliberately changed."
+        <SectionBand
+          id="mode"
+          kicker="02"
+          title="Mode controls"
+          why="Switching autonomous mode on or off — restricted to the operator, and audited publicly."
         >
-          Enabling autonomous mode writes an audit event visible on ops., with
-          its timestamp and the threshold in force.
-        </EmptyState>
-      </SectionBand>
+          <EmptyState
+            title="Controls not yet wired"
+            hint="Default is human-in-the-loop and stays that way until deliberately changed."
+          >
+            Enabling autonomous mode writes an audit event visible on ops., with
+            its timestamp and the threshold in force.
+          </EmptyState>
+        </SectionBand>
+      </main>
 
       <SiteFooter
         label="PML / admin"

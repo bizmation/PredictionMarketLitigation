@@ -28,10 +28,11 @@ type TrustBarProps = {
 export function TrustBar({ warn, message, meta, provenance }: TrustBarProps) {
   const slots: Array<{ key: string; className?: string; node: ReactNode }> = [];
 
-  if (warn) slots.push({ key: "warn", node: warn });
-  if (message) slots.push({ key: "message", className: "grow", node: message });
-  if (meta) slots.push({ key: "meta", className: "num", node: meta });
-  if (provenance) slots.push({ key: "provenance", node: provenance });
+  if (warn != null) slots.push({ key: "warn", node: warn });
+  if (message != null)
+    slots.push({ key: "message", className: "grow", node: message });
+  if (meta != null) slots.push({ key: "meta", className: "num", node: meta });
+  if (provenance != null) slots.push({ key: "provenance", node: provenance });
 
   return (
     <div className="trustbar">

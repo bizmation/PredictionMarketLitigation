@@ -1,3 +1,7 @@
+## Deferred from: code review of 1-3-dual-site-shells-trust-chrome.md (2026-08-10)
+
+- `oxfmt --check .` fails repo-wide (including files this story never touched, e.g. `README.md`, `package.json`) because `core.autocrlf=true` checks the repo out as CRLF on Windows and there is no `.gitattributes` pinning LF — pre-existing since before Story 1.1; fix with a repo-root `.gitattributes` (`* text=auto eol=lf` or similar).
+
 ## Deferred from: code review of 1-2-design-tokens-core-trust-components.md (2026-08-10)
 
 - EmptyState does not guard empty/whitespace `title` — presentational primitive; callers own copy until a real empty-state surface lands.

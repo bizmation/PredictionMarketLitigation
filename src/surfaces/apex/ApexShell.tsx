@@ -2,7 +2,6 @@ import { surfaceHref } from "../../shared/lib/surface";
 import {
   EmptyState,
   LastUpdated,
-  ProvenanceLabel,
   SectionBand,
   SiteFooter,
   TopBar,
@@ -65,146 +64,147 @@ export function ApexShell({ dev = false }: ApexShellProps) {
         warn={<WarnChip />}
         message="Built by AI, governed and approved by a human; corrections welcome."
         meta={<LastUpdated at="2026-08-10T10:00:00.000Z" />}
-        provenance={<ProvenanceLabel kind="human" />}
       />
 
-      <SectionBand
-        id="brief"
-        kicker="01"
-        title="Where this stands"
-        why="A plain-language reading of U.S. prediction-market litigation, for people who are not lawyers."
-      >
-        <EmptyState
-          title="No summary published yet"
-          hint="The tracker publishes nothing it cannot source."
+      <main>
+        <SectionBand
+          id="brief"
+          kicker="01"
+          title="Where this stands"
+          why="A plain-language reading of U.S. prediction-market litigation, for people who are not lawyers."
         >
-          The executive summary is written from approved case data, which
-          arrives with the litigation data model.
-        </EmptyState>
-      </SectionBand>
+          <EmptyState
+            title="No summary published yet"
+            hint="The tracker publishes nothing it cannot source."
+          >
+            The executive summary is written from approved case data, which
+            arrives with the litigation data model.
+          </EmptyState>
+        </SectionBand>
 
-      <SectionBand
-        id="circuits"
-        kicker="02"
-        title="Circuit split"
-        why="Which federal circuits have ruled, which way, and where the split actually runs."
-      >
-        <EmptyState
-          title="Map not yet wired"
-          hint="Absence of a finding is not a finding of legality."
+        <SectionBand
+          id="circuits"
+          kicker="02"
+          title="Circuit split"
+          why="Which federal circuits have ruled, which way, and where the split actually runs."
         >
-          The circuit heat map renders real U.S. geography over approved posture
-          data. Neither is loaded yet.
-        </EmptyState>
-      </SectionBand>
+          <EmptyState
+            title="Map not yet wired"
+            hint="Absence of a finding is not a finding of legality."
+          >
+            The circuit heat map renders real U.S. geography over approved
+            posture data. Neither is loaded yet.
+          </EmptyState>
+        </SectionBand>
 
-      <SectionBand
-        id="states"
-        kicker="03"
-        title="State status board"
-        why="Is a given platform legal in a given state today, and what is the controlling authority?"
-      >
-        <EmptyState
-          title="No tracked states yet"
-          hint="An untracked state is not a permissive one."
+        <SectionBand
+          id="states"
+          kicker="03"
+          title="State status board"
+          why="Is a given platform legal in a given state today, and what is the controlling authority?"
         >
-          The status board lists operational status, posture and controlling
-          case per state, with a per-platform breakdown.
-        </EmptyState>
-      </SectionBand>
+          <EmptyState
+            title="No tracked states yet"
+            hint="An untracked state is not a permissive one."
+          >
+            The status board lists operational status, posture and controlling
+            case per state, with a per-platform breakdown.
+          </EmptyState>
+        </SectionBand>
 
-      <SectionBand
-        id="issues"
-        kicker="04"
-        title="Issue map"
-        why="Which legal questions are actually driving outcomes, across every tracked matter."
-      >
-        <EmptyState
-          title="No issues mapped yet"
-          hint="Issue tags come from the case record."
+        <SectionBand
+          id="issues"
+          kicker="04"
+          title="Issue map"
+          why="Which legal questions are actually driving outcomes, across every tracked matter."
         >
-          Four views over the issue taxonomy — matrix, emergence, frequency and
-          family breakdown — all reading the same approved matters.
-        </EmptyState>
-      </SectionBand>
+          <EmptyState
+            title="No issues mapped yet"
+            hint="Issue tags come from the case record."
+          >
+            Four views over the issue taxonomy — matrix, emergence, frequency
+            and family breakdown — all reading the same approved matters.
+          </EmptyState>
+        </SectionBand>
 
-      <SectionBand
-        id="cases"
-        kicker="05"
-        title="Case record"
-        why="Every tracked matter, its docket, and the primary source behind each event."
-      >
-        <EmptyState
-          title="No cases loaded"
-          hint="Every docket event will link to a Tier-1 source."
+        <SectionBand
+          id="cases"
+          kicker="05"
+          title="Case record"
+          why="Every tracked matter, its docket, and the primary source behind each event."
         >
-          The case list and detail view arrive with the litigation data model
-          and the case-law seed.
-        </EmptyState>
-      </SectionBand>
+          <EmptyState
+            title="No cases loaded"
+            hint="Every docket event will link to a Tier-1 source."
+          >
+            The case list and detail view arrive with the litigation data model
+            and the case-law seed.
+          </EmptyState>
+        </SectionBand>
 
-      <SectionBand
-        id="entities"
-        kicker="06"
-        title="Entity ledger"
-        why="Per-platform footprint: where each operator stands, and in which matters."
-      >
-        <EmptyState
-          title="No entities loaded"
-          hint="Platforms are tracked, not endorsed."
+        <SectionBand
+          id="entities"
+          kicker="06"
+          title="Entity ledger"
+          why="Per-platform footprint: where each operator stands, and in which matters."
         >
-          Each platform's operational footprint and its matter list.
-        </EmptyState>
-      </SectionBand>
+          <EmptyState
+            title="No entities loaded"
+            hint="Platforms are tracked, not endorsed."
+          >
+            Each platform's operational footprint and its matter list.
+          </EmptyState>
+        </SectionBand>
 
-      <SectionBand
-        id="cert"
-        kicker="07"
-        title="Cert signal"
-        why="A qualitative reading of Supreme Court review — named factors, no model, no score."
-      >
-        <EmptyState
-          title="No reading published"
-          hint="This is a reading, never a probability and never market-derived."
+        <SectionBand
+          id="cert"
+          kicker="07"
+          title="Cert signal"
+          why="A qualitative reading of Supreme Court review — named factors, no model, no score."
         >
-          The signal is a five-step qualitative scale with its factors named in
-          full.
-        </EmptyState>
-      </SectionBand>
+          <EmptyState
+            title="No reading published"
+            hint="This is a reading, never a probability and never market-derived."
+          >
+            The signal is a five-step qualitative scale with its factors named
+            in full.
+          </EmptyState>
+        </SectionBand>
 
-      <SectionBand
-        id="trust"
-        kicker="08"
-        title="Corrections"
-        why="Every published claim carries a primary source. Tell us where one is wrong."
-      >
-        <EmptyState
-          title="Correction form not yet open"
-          hint="Corrections queue for operator review before anything is filed publicly."
+        <SectionBand
+          id="trust"
+          kicker="08"
+          title="Corrections"
+          why="Every published claim carries a primary source. Tell us where one is wrong."
         >
-          Submissions become a tracked correction with a reference you can
-          follow.
-        </EmptyState>
-      </SectionBand>
+          <EmptyState
+            title="Correction form not yet open"
+            hint="Corrections queue for operator review before anything is filed publicly."
+          >
+            Submissions become a tracked correction with a reference you can
+            follow.
+          </EmptyState>
+        </SectionBand>
 
-      <SectionBand
-        id="ops"
-        kicker="09"
-        title="How this is governed"
-        why="The pipeline that maintains this tracker publishes its own record, in full, next door."
-      >
-        <EmptyState
-          title="The governance record lives on ops."
-          hint="No login required."
+        <SectionBand
+          id="ops"
+          kicker="09"
+          title="How this is governed"
+          why="The pipeline that maintains this tracker publishes its own record, in full, next door."
         >
-          Every run, every pending draft, every approval and every rejection —
-          including the ones that changed nothing — are published at{" "}
-          <a href={opsHref} rel="noopener">
-            ops.predictionmarketlitigation.com
-          </a>
-          , alongside the nine-layer explainer and the build journal.
-        </EmptyState>
-      </SectionBand>
+          <EmptyState
+            title="The governance record lives on ops."
+            hint="No login required."
+          >
+            Every run, every pending draft, every approval and every rejection —
+            including the ones that changed nothing — are published at{" "}
+            <a href={opsHref} rel="noopener">
+              ops.predictionmarketlitigation.com
+            </a>
+            , alongside the nine-layer explainer and the build journal.
+          </EmptyState>
+        </SectionBand>
+      </main>
 
       <SiteFooter
         label="PredictionMarketLitigation"

@@ -91,11 +91,14 @@ export function surfaceHref(
   target: Surface,
   { dev = false, path = "" }: HrefOptions = {}
 ): string {
-  if (target === "admin") return `${ADMIN_PATH}${path}`;
+  const normalizedPath = path && !path.startsWith("/") ? `/${path}` : path;
+
+  if (target === "admin") return `${ADMIN_PATH}${normalizedPath}`;
 
   if (dev) {
-    return `${path || "/"}?surface=${target}`;
+    const base = normalizedPath || "/";
+    return `${base}${base.includes("?") ? "&" : "?"}surface=${target}`;
   }
 
-  return `${target === "ops" ? OPS_ORIGIN : APEX_ORIGIN}${path}`;
+  return `${target === "ops" ? OPS_ORIGIN : APEX_ORIGIN}${normalizedPath}`;
 }

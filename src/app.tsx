@@ -25,7 +25,11 @@ export default function App() {
 
   // The design-system reference — the in-app recreation of the handoff's
   // component page (UX-DR24). Development only; never part of a public surface.
-  if (dev && url.pathname === GALLERY_PATH) {
+  if (
+    dev &&
+    (url.pathname === GALLERY_PATH ||
+      url.pathname.startsWith(`${GALLERY_PATH}/`))
+  ) {
     return <DesignSystemGallery />;
   }
 
