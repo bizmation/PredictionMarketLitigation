@@ -49,7 +49,7 @@ development_status:
   1-2-design-tokens-core-trust-components: done
   1-3-dual-site-shells-trust-chrome: done
   1-4-admin-access-protection: done
-  1-5-deploy-pipeline-environments: backlog
+  1-5-deploy-pipeline-environments: in-progress
   epic-1-retrospective: optional
 
   # Epic 2: Litigation Intelligence Tracker (Apex)
