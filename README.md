@@ -19,9 +19,9 @@ npm run types     # regenerate env.d.ts after wrangler.jsonc changes
 
 **Neither `npm run dev` nor `npm test` requires a `CLOUDFLARE_API_TOKEN.`** Workers AI has no local simulation, so the `ai` binding is dropped in serve mode (`vite.config.ts`) and omitted from the test config (`wrangler.test.jsonc`). `vite build` is unaffected — the deployed Worker keeps the binding, and a test pins that.
 
-If you need the real Workers AI path locally, put `CLOUDFLARE_API_TOKEN=...` in `.env` (gitignored) and remove the `command === "serve"` gate temporarily.
+If you need the real Workers AI path locally, put `CLOUDFLARE_API_TOKEN=...` in `.env` (gitignored) — `vite.config.ts` picks it up automatically and stops dropping the `ai` binding. No source edit needed.
 
-For the full check including the client-bundle secret scan:
+For the full check including the client-bundle secret scan — still no token needed, since neither `vite build` nor `vitest` (`wrangler.test.jsonc`) requires one:
 
 ```bash
 npm run build && npm test

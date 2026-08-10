@@ -55,6 +55,11 @@ export class ChatAgent extends AIChatAgent<Env> {
 
   async onChatMessage(_onFinish: unknown, options?: OnChatMessageOptions) {
     const mcpTools = this.mcp.getAITools();
+    // env.AI is undefined under `npm run dev` (vite.config.ts drops the
+    // binding so local dev needs no CLOUDFLARE_API_TOKEN — see there for why).
+    // This path is operator-gated (server.ts fetch handler), so reaching it
+    // without the real binding means: put CLOUDFLARE_API_TOKEN in .env and
+    // temporarily remove that gate, per the README.
     const workersai = createWorkersAI({ binding: this.env.AI });
 
     const result = streamText({
@@ -221,6 +226,23 @@ export default {
     // forgeable. requireOperator verifies the JWT signature and audience, so
     // those doors answer 403 rather than serving the operator's surface.
     const { pathname } = new URL(request.url);
+
+    // /oauth/* is deliberately NOT guarded here, unlike /agents/* below.
+    //
+    // It's the callback target for ChatAgent's MCP OAuth flow
+    // (onStart's this.mcp.configureOAuthCallback): reached only after an
+    // operator's own addServer call — itself behind the /agents/* guard
+    // below — initiates a connection to a third-party MCP server. An
+    // anonymous caller cannot reach this callback without first passing
+    // that guard, so the door addServer opens is the one that matters.
+    //
+    // Whether the callback request itself would also carry a valid Access
+    // JWT (letting requireOperator wrap this route too) is unconfirmed —
+    // this review had no live MCP server connection to exercise the real
+    // addServer -> OAuth -> callback round trip end to end, and gating it
+    // blind risked breaking a flow nobody could verify. Revisit once Part
+    // B's Access application exists and an operator can run that round trip
+    // for real.
 
     // Story 1.5 — the agent surface is operator-only too.
     //

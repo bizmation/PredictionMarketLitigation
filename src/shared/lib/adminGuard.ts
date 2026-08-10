@@ -20,8 +20,17 @@ const AGENTS_PREFIX = "/agents";
  * `/api//admin`) are the same class of bypass. Decode first, collapse slashes,
  * then match.
  *
- * decodeURIComponent throws on malformed escapes (`%zz`); treat that as
- * un-routable rather than letting it bubble.
+ * decodeURIComponent throws on malformed escapes (`%zz`). FAIL CLOSED here,
+ * not open: a decode failure does not mean the request is un-routable
+ * downstream. `routePartykitRequest` (agents/partyserver, behind
+ * `routeAgentRequest`) never decodes at all — it matches by splitting the raw
+ * pathname on literal `/`. A path like `/agents/chat-agent/%zz` used to
+ * normalize to a sentinel that matched nothing here, so the guard said "not
+ * an agents path" while the router still routed it straight to a live
+ * ChatAgent Durable Object, unauthenticated. Falling back to the raw,
+ * undecoded pathname on a decode failure means this guard matches whenever
+ * that router would, even when the rest of the path can't be meaningfully
+ * decoded.
  */
 function normalizePath(pathname: string): string {
   let decoded = pathname;
@@ -31,7 +40,7 @@ function normalizePath(pathname: string): string {
       if (next === decoded) break;
       decoded = next;
     } catch {
-      return "\0"; // matches nothing
+      return pathname.replace(/\/{2,}/g, "/");
     }
   }
   return decoded.replace(/\/{2,}/g, "/");

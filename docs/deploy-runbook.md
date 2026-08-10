@@ -40,6 +40,8 @@ Secrets are per-Worker-script, and `pml-staging` / `pml-production` do not exist
 
 Upload the secrets *with* the first deploy instead:
 
+> **Always rebuild with the correct `CLOUDFLARE_ENV` immediately before deploying or dry-running.** A stale `dist/` from a different (or no) environment makes `wrangler deploy --dry-run` silently omit missing-binding warnings instead of catching them — it reported only `ChatAgent` and `AI` for a stale build during this story's own implementation, with no D1, no vars, no routes, and no error. The commands below already rebuild first; if you ever run a dry-run on its own to sanity-check something, rebuild for that environment right before it too.
+
 ```bash
 # .env.staging / .env.production — gitignored (.env* is already in .gitignore).
 # NEVER commit these.
@@ -95,11 +97,13 @@ Workers Builds has **no environment concept**, so connect the repo once per envi
 | Setting | `pml-production` | `pml-staging` |
 |---|---|---|
 | Root directory | `/` | `/` |
-| Build command | `CLOUDFLARE_ENV=production npm run build` | `CLOUDFLARE_ENV=staging npm run build` |
+| Build command | `CLOUDFLARE_ENV=production npm run build && npm test` | `CLOUDFLARE_ENV=staging npm run build && npm test` |
 | Deploy command | `npx wrangler deploy --env production` | `npx wrangler deploy --env staging` |
 | Branch | `main` | your staging branch |
 
 **`CLOUDFLARE_ENV` at build time is not optional.** The Vite plugin resolves the environment during `vite build` and emits a flattened `dist/pml/wrangler.json`; `wrangler deploy --env` then validates the match. Setting `CLOUDFLARE_ENV` only on the deploy command has no effect, and the build would produce the wrong environment's config.
+
+**The Build command runs `npm test` too, not just `npm run build`.** AC6's client-bundle secret scan (`src/shared/lib/wranglerConfig.test.tsx`) only actually runs when `dist/client` exists — if the pipeline's Build command is ever trimmed back to a bare `npm run build`, that scan silently stops gating deploys and nothing will tell you. A failing test here should block the Deploy command from running (standard Workers Builds behavior for a non-zero exit).
 
 **Leave "Builds for non-production branches" OFF.** It mints preview URLs on every push — exactly the surface `workers_dev: false` / `preview_urls: false` exists to remove.
 
@@ -129,10 +133,11 @@ curl -s  https://predictionmarketlitigation.com/agents/x    # 403 {"code":"forbi
 
 Then in a browser, signed in as the operator: `/admin` loads, and the public surfaces still load in a private window with no login.
 
-Confirm the residual doors are shut:
+Confirm the residual doors are shut. Check the Workers that actually get deployed — `pml-staging` and `pml-production` — not the bare `pml` name, which is never deployed by `deploy:staging`/`deploy:production` and would fail regardless of whether `workers_dev` does anything:
 
 ```bash
-curl -sI https://pml.<your-subdomain>.workers.dev/          # expect failure — workers_dev is false
+curl -sI https://pml-staging.<your-subdomain>.workers.dev/     # expect failure — workers_dev is false
+curl -sI https://pml-production.<your-subdomain>.workers.dev/  # expect failure — workers_dev is false
 ```
 
 Tick AC7 in `_bmad-output/implementation-artifacts/1-5-deploy-pipeline-environments.md` once all of the above hold. Until then it stays open — that is the intended state, not an oversight.

@@ -44,5 +44,13 @@
       "new_sqlite_classes": ["ChatAgent"],
       "tag": "v1"
     }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "pml-dev",
+      "database_id": "PLACEHOLDER-see-docs/deploy-runbook.md",
+      "migrations_dir": "migrations"
+    }
   ]
 }

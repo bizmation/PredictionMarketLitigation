@@ -91,6 +91,24 @@
     }
   ],
 
+  // Local dev's D1, bound at the top level so `npm run dev` has one to run
+  // against with `--local` (Miniflare simulation — no real database_id is
+  // read in that mode, but the field still can't be absent: see the
+  // provisioning warning on the placeholders below). No code reads env.DB
+  // yet — Story 2.1 owns the schema — so this binds ahead of that story
+  // rather than blocking on it.
+  //
+  // PLACEHOLDER — replaced with the real id in part B of the deploy runbook,
+  // after `wrangler d1 create pml-dev`. See the staging/production note.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "pml-dev",
+      "database_id": "PLACEHOLDER-see-docs/deploy-runbook.md",
+      "migrations_dir": "migrations"
+    }
+  ],
+
   "env": {
     "staging": {
       // Redeclared, not inherited. See the note at the top of this file.

@@ -47,9 +47,22 @@ describe("isAdminApiPath", () => {
     expect(isAdminApiPath(path)).toBe(true);
   });
 
-  it("treats a malformed escape as un-routable rather than throwing", () => {
+  // A malformed escape must never let a request past the guard that a
+  // non-decoding downstream router (partyserver's routePartykitRequest) would
+  // still route. Falling back to the raw path on decode failure means the
+  // guard matches whenever that router's raw-split matching would.
+  it("does not throw on a malformed escape", () => {
     expect(() => isAdminApiPath("/api/%zz/admin")).not.toThrow();
+  });
+
+  it("does not guard a malformed escape that sits before the prefix ever appears", () => {
+    // "/api/%zz/admin" never becomes "/api/admin" under any decoding, and the
+    // raw string does not start with it either.
     expect(isAdminApiPath("/api/%zz/admin")).toBe(false);
+  });
+
+  it("guards a malformed escape AFTER an already-matching raw prefix (the bypass)", () => {
+    expect(isAdminApiPath("/api/admin/%zz")).toBe(true);
   });
 });
 
@@ -77,5 +90,21 @@ describe("isAgentsPath", () => {
     "/%61gents"
   ])("guards %s despite encoding or duplicate slashes", (path) => {
     expect(isAgentsPath(path)).toBe(true);
+  });
+
+  // The live bypass this review found: routePartykitRequest (agents/
+  // partyserver) never decodes the path — it matches on the raw string. A
+  // malformed escape anywhere used to make normalizePath return a sentinel
+  // that matched nothing, so the guard said "not an agents path" while the
+  // router still routed the request to a live ChatAgent DO, unauthenticated.
+  it.each(["/agents/chat-agent/%zz", "/agents/%zz"])(
+    "guards %s — a malformed escape must not bypass a raw-matching prefix",
+    (path) => {
+      expect(isAgentsPath(path)).toBe(true);
+    }
+  );
+
+  it("does not guard a malformed escape where the raw path never matches the prefix either", () => {
+    expect(isAgentsPath("/api/%zz/agents")).toBe(false);
   });
 });

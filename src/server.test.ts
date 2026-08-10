@@ -244,6 +244,20 @@ describe("/agents/* perimeter (story 1.5)", () => {
     }
   );
 
+  // The live bypass this review found and fixed: a malformed percent-escape
+  // used to make the guard say "not an agents path" while
+  // routeAgentRequest — which never decodes anything — still routed the
+  // request straight to a live ChatAgent Durable Object. Confirmed against
+  // the pre-fix code: this returned 404 "Not implemented" from the DO
+  // itself, not 403 from the guard.
+  it.each(["/agents/chat-agent/%zz", "/agents/%zz"])(
+    "rejects %s — a malformed escape must not reach a live agent unauthenticated",
+    async (path) => {
+      const res = await worker.fetch(get(path), anon);
+      expect(res.status).toBe(403);
+    }
+  );
+
   it("returns the same opaque envelope as the admin perimeter", async () => {
     const res = await worker.fetch(get("/agents/chat-agent/default"), anon);
     const body = (await res.json()) as Record<string, unknown>;
