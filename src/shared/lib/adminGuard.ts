@@ -1,4 +1,4 @@
-import { type Operator, verifyOperator } from "./access";
+import { type Operator, resolveOperator } from "./access";
 
 /**
  * The admin API perimeter (story 1.4).
@@ -75,12 +75,29 @@ export async function requireOperator(
   request: Request,
   env: Env
 ): Promise<{ operator: Operator } | Response> {
-  const operator = await verifyOperator(request, env);
-  if (!operator) {
+  const result = await resolveOperator(request, env);
+
+  if (!result.operator) {
+    // Private diagnostics. Workers Observability captures this; nothing here
+    // reaches the client, and the token and email are deliberately absent —
+    // a log that leaks the credential it is describing is worse than no log.
+    //
+    // Without this, "someone is probing", "the TEAM_DOMAIN secret has a typo"
+    // and "Cloudflare's certs endpoint is down" all look identical: silence.
+    console.warn(
+      JSON.stringify({
+        event: "admin.access_denied",
+        reason: result.reason,
+        method: request.method,
+        path: new URL(request.url).pathname
+      })
+    );
+
     return Response.json(
       { code: "forbidden", message: "Operator authorization required." },
       { status: 403, headers: ADMIN_CACHE_HEADERS }
     );
   }
-  return { operator };
+
+  return { operator: result.operator };
 }

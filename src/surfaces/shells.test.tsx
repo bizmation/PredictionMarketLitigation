@@ -144,12 +144,18 @@ describe("AdminShell", () => {
     expect(html).not.toContain("logout");
   });
 
-  it("states plainly that edge protection is still pending (story 1.5)", () => {
-    // Honest chrome: the API perimeter is live, but Cloudflare Access is not
-    // in front of the edge yet. Claim exactly that much and no more.
-    expect(admin().toLowerCase()).toContain(
-      "access binding lands in story 1.5"
-    );
+  it("warns unmissably that the page itself is not access-controlled", () => {
+    // The invariant this pins: a surface must never look better protected
+    // than it is. The API perimeter is live, but until story 1.5 binds Access
+    // at the edge this document is public, and the warn slot has to say so.
+    // Delete this test only when Access is actually in front of /admin.
+    const html = admin();
+    expect(html).toContain('class="warn"');
+    expect(html.toLowerCase()).toContain("not access-controlled");
+  });
+
+  it("still shows the gate state alongside the warning", () => {
+    expect(admin()).toContain("Gate: HITL · autonomous OFF");
   });
 });
 

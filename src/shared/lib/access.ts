@@ -38,6 +38,30 @@ export type Operator = {
   displayName: string;
 };
 
+/**
+ * Why a request was refused. Private diagnostics only.
+ *
+ * These never reach a client — the 403 body is uniform by design, because
+ * telling a caller which half they got right is free reconnaissance. They exist
+ * so that a real lockout is debuggable: without them, "someone is probing",
+ * "the TEAM_DOMAIN secret has a typo" and "Cloudflare's certs endpoint is
+ * down" are the same silence.
+ */
+export type RejectionReason =
+  | "not-configured"
+  | "no-token"
+  | "expired"
+  | "claim-mismatch"
+  | "bad-signature"
+  | "unknown-key"
+  | "jwks-unreachable"
+  | "invalid-token"
+  | "wrong-identity";
+
+export type AccessResult =
+  | { operator: Operator }
+  | { operator: null; reason: RejectionReason };
+
 const DEFAULT_DISPLAY_NAME = "Patrick";
 
 /** Access signs with RS256. Pinning it stops the token header choosing. */
@@ -121,17 +145,37 @@ function readTokens(request: Request): string[] {
   return tokens;
 }
 
+/** Map a jose failure to a diagnostic reason. Never surfaced to a client. */
+function reasonFor(error: unknown): RejectionReason {
+  switch ((error as { code?: string } | undefined)?.code) {
+    case "ERR_JWT_EXPIRED":
+      return "expired";
+    case "ERR_JWT_CLAIM_VALIDATION_FAILED":
+      return "claim-mismatch";
+    case "ERR_JWS_SIGNATURE_VERIFICATION_FAILED":
+      return "bad-signature";
+    case "ERR_JWKS_NO_MATCHING_KEY":
+      return "unknown-key";
+    case "ERR_JWKS_TIMEOUT":
+    case "ERR_JWKS_MULTIPLE_MATCHING_KEYS":
+      return "jwks-unreachable";
+    default:
+      // A failure reaching the certs endpoint arrives with no jose code.
+      return error instanceof TypeError ? "jwks-unreachable" : "invalid-token";
+  }
+}
+
 /**
- * Resolve the request's operator, or null.
+ * Resolve the request's operator, with the reason when there isn't one.
  *
- * Null is the only failure signal — callers must not be able to distinguish
- * "no token" from "wrong identity", and neither may reach a client.
- * Every error path returns null; nothing here throws.
+ * The reason is for logs only. Callers must not vary their response by it —
+ * "no token" and "wrong identity" have to be indistinguishable from outside.
+ * Nothing here throws.
  */
-export async function verifyOperator(
+export async function resolveOperator(
   request: Request,
   env: Env
-): Promise<Operator | null> {
+): Promise<AccessResult> {
   const displayName =
     normalizeText(env.OPERATOR_DISPLAY_NAME) ?? DEFAULT_DISPLAY_NAME;
   const operatorEmail = normalizeText(env.OPERATOR_EMAIL);
@@ -146,7 +190,9 @@ export async function verifyOperator(
   if (env.ACCESS_DEV_BYPASS === "true") {
     const { hostname } = new URL(request.url);
     if (LOCAL_HOSTS.has(hostname)) {
-      return { email: operatorEmail ?? "dev@localhost", displayName };
+      return {
+        operator: { email: operatorEmail ?? "dev@localhost", displayName }
+      };
     }
   }
 
@@ -154,11 +200,17 @@ export async function verifyOperator(
   // undefined and letting jose decide what that means.
   const teamDomain = normalizeDomain(env.TEAM_DOMAIN);
   const policyAud = normalizeText(env.POLICY_AUD);
-  if (!teamDomain || !policyAud || !operatorEmail) return null;
+  if (!teamDomain || !policyAud || !operatorEmail) {
+    return { operator: null, reason: "not-configured" };
+  }
+
+  const tokens = readTokens(request);
+  if (tokens.length === 0) return { operator: null, reason: "no-token" };
 
   const jwks = jwksFor(teamDomain);
+  let reason: RejectionReason = "invalid-token";
 
-  for (const token of readTokens(request)) {
+  for (const token of tokens) {
     try {
       const { payload } = await jwtVerify(token, jwks, {
         issuer: teamDomain,
@@ -172,15 +224,32 @@ export async function verifyOperator(
       });
 
       const email = payload.email;
-      if (typeof email !== "string" || email.length === 0) continue;
-      if (email.toLowerCase() !== operatorEmail.toLowerCase()) continue;
+      if (typeof email !== "string" || email.length === 0) {
+        reason = "wrong-identity";
+        continue;
+      }
+      if (email.toLowerCase() !== operatorEmail.toLowerCase()) {
+        reason = "wrong-identity";
+        continue;
+      }
 
-      return { email, displayName };
-    } catch {
-      // Expired, wrong aud/iss, bad signature, unknown kid, malformed token,
-      // JWKS unreachable — try the next candidate, then give up.
+      return { operator: { email, displayName } };
+    } catch (error) {
+      reason = reasonFor(error);
     }
   }
 
-  return null;
+  return { operator: null, reason };
+}
+
+/**
+ * Operator or null, for callers that do not need the reason.
+ *
+ * Kept as the simple shape because most call sites only branch on presence.
+ */
+export async function verifyOperator(
+  request: Request,
+  env: Env
+): Promise<Operator | null> {
+  return (await resolveOperator(request, env)).operator;
 }

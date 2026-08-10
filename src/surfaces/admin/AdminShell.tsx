@@ -64,8 +64,17 @@ export function AdminShell({ dev = false, operator }: AdminShellProps) {
       />
 
       <TrustBar
-        warn={<WarnChip>Gate: HITL · autonomous OFF</WarnChip>}
-        message="Admin APIs are verified; edge Access binding lands in Story 1.5"
+        // The handoff's warn slot carries the gate state. Until Access is
+        // bound at the edge (Story 1.5) this page is reachable by anyone with
+        // the URL, and that outranks the gate state for the warn slot: a
+        // surface must never look better protected than it is. The gate state
+        // moves to the message, where it is still visible.
+        warn={
+          <WarnChip>
+            Not access-controlled — anyone with this URL sees it
+          </WarnChip>
+        }
+        message="Gate: HITL · autonomous OFF · admin APIs require a verified operator"
         meta="Queue not yet wired"
         provenance={
           // Handoff PML Admin.html:99 — static placeholder, no data until 3.x.

@@ -9,7 +9,7 @@ import {
   vi
 } from "vitest";
 
-import { verifyOperator } from "./access";
+import { resolveOperator, verifyOperator } from "./access";
 
 /**
  * Access verification tests — no network, no CLOUDFLARE_API_TOKEN.
@@ -476,5 +476,65 @@ describe("verifyOperator — dev bypass gating (AC7)", () => {
   it("does not bypass when ACCESS_DEV_BYPASS is absent", async () => {
     const bare = new Request("https://localhost/api/admin/ping");
     expect(await verifyOperator(bare, envFor(TEAM))).toBeNull();
+  });
+});
+
+describe("resolveOperator — diagnostic reasons (private logs only)", () => {
+  const TEAM = "https://reasons.cloudflareaccess.com";
+  let keys: Keys;
+
+  beforeAll(async () => {
+    keys = await makeKeys("reason-1");
+  });
+  beforeEach(() => stubJwks([keys.jwk]));
+
+  it("reports no-token when nothing is presented", async () => {
+    const res = await resolveOperator(
+      new Request("https://pml.example.com/api/admin/ping"),
+      envFor(TEAM)
+    );
+    expect(res).toEqual({ operator: null, reason: "no-token" });
+  });
+
+  it("reports not-configured when a secret is missing", async () => {
+    const token = await mintToken(keys, TEAM);
+    const res = await resolveOperator(
+      requestWithHeader(token),
+      envFor(TEAM, { POLICY_AUD: undefined } as Partial<Env>)
+    );
+    expect(res).toEqual({ operator: null, reason: "not-configured" });
+  });
+
+  it("reports expired distinctly from a bad signature", async () => {
+    const expired = await mintToken(keys, TEAM, { expiresIn: "-1h" });
+    const res = await resolveOperator(requestWithHeader(expired), envFor(TEAM));
+    expect(res).toEqual({ operator: null, reason: "expired" });
+  });
+
+  it("reports claim-mismatch for a wrong audience", async () => {
+    const token = await mintToken(keys, TEAM, { audience: "other-app" });
+    const res = await resolveOperator(requestWithHeader(token), envFor(TEAM));
+    expect(res).toEqual({ operator: null, reason: "claim-mismatch" });
+  });
+
+  it("reports unknown-key for a token signed by a stranger", async () => {
+    const attacker = await makeKeys("attacker-2");
+    const token = await mintToken(attacker, TEAM);
+    const res = await resolveOperator(requestWithHeader(token), envFor(TEAM));
+    expect(res).toEqual({ operator: null, reason: "unknown-key" });
+  });
+
+  it("reports wrong-identity for a valid token that is not the operator", async () => {
+    const token = await mintToken(keys, TEAM, { email: "other@example.com" });
+    const res = await resolveOperator(requestWithHeader(token), envFor(TEAM));
+    expect(res).toEqual({ operator: null, reason: "wrong-identity" });
+  });
+
+  it("never carries the token or the email in the result", async () => {
+    const token = await mintToken(keys, TEAM, { email: "other@example.com" });
+    const res = await resolveOperator(requestWithHeader(token), envFor(TEAM));
+    const serialized = JSON.stringify(res);
+    expect(serialized).not.toContain(token);
+    expect(serialized).not.toContain("other@example.com");
   });
 });

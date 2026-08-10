@@ -25,6 +25,13 @@
   // Story 1.4 — Cloudflare Access protects /admin + /api/admin/* (zero-trust config, not wrangler)
   // Story 3.2 — AI Gateway binding/credentials via Worker secrets (never committed)
 
+  // Private operator logs (story 1.4 review decision). The admin guard emits a
+  // structured admin.access_denied event with a reason code on every refusal;
+  // without somewhere to land it, a real lockout is indistinguishable from
+  // "nobody tried". Private only — the public Evidence projection on ops. is a
+  // separate concern owned by Epic 3.
+  "observability": { "enabled": true },
+
   "ai": { "binding": "AI", "remote": true },
   "assets": {
     "directory": "./public",

@@ -1,5 +1,7 @@
 ## Deferred from: code review of 1-4-admin-access-protection.md (2026-08-10)
 
+- **AC4, display-name half (decided 2026-08-10):** the admin session strip renders "Not signed in" rather than the operator's name. `app.tsx` passes no `operator` prop and there is no verified session to draw one from until Access is bound in Story 1.5. `AdminShell` and `AdminBar` already accept the prop, so 1.5 only needs to supply it — via a guarded `GET /api/admin/session` or server-rendered chrome once `/admin` runs through the Worker.
+
 - `/agents/*` and `ChatAgent`'s `@callable() addServer` remain fully unauthenticated — an anonymous caller can attach an attacker-controlled MCP server and drive `env.AI`. Already ledgered under 1.1; 1.4 deliberately did not touch `server.ts`'s agent routing. Owned by Story 1.5 deploy hardening.
 - `workers_dev` and `preview_urls` are not disabled in `wrangler.jsonc`, so every deploy mints the exact public hostnames that `access.ts`'s own comments name as the reason JWT verification exists. Story 1.5 should set both false or cover them with Access.
 - AC6 (no Access config in the client bundle) rests on a one-time manual `grep` of `dist/` recorded in the Completion Notes — no committed test or CI step pins it. Needs the pipeline from Story 1.5.
