@@ -9,6 +9,7 @@ import { type Operator, resolveOperator } from "./access";
  */
 
 const ADMIN_API_PREFIX = "/api/admin";
+const AGENTS_PREFIX = "/agents";
 
 /**
  * Normalize before matching, or the guard is trivially sidestepped.
@@ -50,6 +51,22 @@ function normalizePath(pathname: string): string {
 export function isAdminApiPath(pathname: string): boolean {
   const path = normalizePath(pathname);
   return path === ADMIN_API_PREFIX || path.startsWith(`${ADMIN_API_PREFIX}/`);
+}
+
+/**
+ * `/agents` and `/agents/...`, but never `/agentsomething`.
+ *
+ * The Agents SDK routes every ChatAgent request under this prefix, including
+ * the `@callable()` methods — `addServer(name, url)` among them, which attaches
+ * an arbitrary MCP server whose tools the agent then executes against `env.AI`.
+ * Left open, an anonymous caller drives Workers AI on Patrick's account.
+ *
+ * Ledgered since Story 1.1 and closed here. The ChatAgent Durable Object and
+ * its wiring stay — Epic 3's pipeline builds on them. Only the door is locked.
+ */
+export function isAgentsPath(pathname: string): boolean {
+  const path = normalizePath(pathname);
+  return path === AGENTS_PREFIX || path.startsWith(`${AGENTS_PREFIX}/`);
 }
 
 /**

@@ -218,3 +218,49 @@ describe("public routes stay public (AC5)", () => {
     expect(res.headers.get("cache-control")).not.toBe("private, no-store");
   });
 });
+
+/**
+ * Story 1.5 — the agent surface.
+ *
+ * ChatAgent's @callable() addServer attaches an arbitrary MCP server whose
+ * tools run against env.AI. This was reachable by anyone since Story 1.1.
+ */
+describe("/agents/* perimeter (story 1.5)", () => {
+  it("rejects an unauthenticated agent request with 403", async () => {
+    const res = await worker.fetch(get("/agents/chat-agent/default"), anon);
+    expect(res.status).toBe(403);
+  });
+
+  it("rejects the bare /agents path", async () => {
+    const res = await worker.fetch(get("/agents"), anon);
+    expect(res.status).toBe(403);
+  });
+
+  it.each(["/%61gents/chat-agent/x", "//agents/chat-agent/x"])(
+    "rejects %s — normalization bypasses do not work here either",
+    async (path) => {
+      const res = await worker.fetch(get(path), anon);
+      expect(res.status).toBe(403);
+    }
+  );
+
+  it("returns the same opaque envelope as the admin perimeter", async () => {
+    const res = await worker.fetch(get("/agents/chat-agent/default"), anon);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toEqual({ code: "forbidden", message: expect.any(String) });
+    expect(body.details).toBeUndefined();
+  });
+
+  it("does not guard a lookalike path", async () => {
+    const res = await worker.fetch(get("/agentsomething"), anon);
+    expect(res.status).not.toBe(403);
+  });
+
+  it("lets the operator through via the loopback dev bypass", async () => {
+    const res = await worker.fetch(
+      new Request("http://localhost:5173/agents/chat-agent/default"),
+      authed
+    );
+    expect(res.status).not.toBe(403);
+  });
+});

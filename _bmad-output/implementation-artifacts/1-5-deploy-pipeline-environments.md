@@ -4,7 +4,7 @@ baseline_commit: fd41218cde90ad0483cf0a296c3ca8dc33b1e4c1
 
 # Story 1.5: Deploy Pipeline & Environments
 
-Status: ready-for-dev
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -45,18 +45,18 @@ So that every later story ships somewhere real instead of accumulating an undepl
 4. **And** `npm run check` passes on a clean Windows checkout: `.gitattributes` pins LF, the working tree is renormalized, and `oxfmt --check .` reports zero issues across all 48 files (currently 18 fail)
 5. **And** `npm run dev` starts with **no** `CLOUDFLARE_API_TOKEN` present, without altering what `vite build` emits
 6. **And** a committed test asserts no Access config name (`TEAM_DOMAIN`, `POLICY_AUD`, `OPERATOR_EMAIL`, `ACCESS_DEV_BYPASS`, `cloudflareaccess`) appears in the built client bundle — replacing the one-time manual grep from Story 1.4 (AC6)
-7. **And** *(Patrick, Part B — pending, do not check off in Part A)* a push to the production branch builds and deploys automatically; three environments exist with separate D1 databases; apex and `ops.` resolve to the deployed Worker; `/admin` challenges via Access while `/`, `ops.` and `POST /api/poll/votes` stay public
+7. ⬜ **OPEN — awaiting Patrick's Part B run.** *(Not satisfied by this story. See `docs/deploy-runbook.md`.)* a push to the production branch builds and deploys automatically; three environments exist with separate D1 databases; apex and `ops.` resolve to the deployed Worker; `/admin` challenges via Access while `/`, `ops.` and `POST /api/poll/votes` stay public
 8. **And** `README.md` documents the deploy flow and the environment matrix (readiness M2), and `docs/deploy-runbook.md` gives Patrick the ordered dashboard steps
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Preflight (AC: all)
-  - [ ] Node ≥ 20.12 (`.nvmrc` = 24). Confirm baseline: `npm test` → **160 tests, 7 files, exit 0, no cloud credentials**. That invariant is load-bearing — nothing in this story may require credentials to test
-  - [ ] Confirm `npm ci` exits 0. It was broken during 1.4 and is now fixed; if it regresses, stop and fix the lockfile before anything else, because Workers Builds runs `npm clean-install`
-  - [ ] Note the current failure you are fixing: `npx oxfmt --check .` → "Format issues found in above 18 files"
-- [ ] Task 2: `.gitattributes` and renormalization (AC: 4)
-  - [ ] **Do this first and commit it alone.** Every later task's diff is unreadable if line endings churn underneath it
-  - [ ] Create `.gitattributes` at repo root, written with **LF** endings:
+- [x] Task 1: Preflight (AC: all)
+  - [x] Node ≥ 20.12 (`.nvmrc` = 24). Confirm baseline: `npm test` → **160 tests, 7 files, exit 0, no cloud credentials**. That invariant is load-bearing — nothing in this story may require credentials to test
+  - [x] Confirm `npm ci` exits 0. It was broken during 1.4 and is now fixed; if it regresses, stop and fix the lockfile before anything else, because Workers Builds runs `npm clean-install`
+  - [x] Note the current failure you are fixing: `npx oxfmt --check .` → "Format issues found in above 18 files"
+- [x] Task 2: `.gitattributes` and renormalization (AC: 4)
+  - [x] **Do this first and commit it alone.** Every later task's diff is unreadable if line endings churn underneath it
+  - [x] Create `.gitattributes` at repo root, written with **LF** endings:
     ```gitattributes
     # oxfmt has no endOfLine option and always expects LF. Without this,
     # core.autocrlf=true checks the tree out as CRLF on Windows and
@@ -80,7 +80,7 @@ So that every later story ships somewhere real instead of accumulating an undepl
 
     package-lock.json -diff linguist-generated=true
     ```
-  - [ ] Renormalize. **The index is already LF** (`git ls-files --eol` shows `i/lf w/crlf`), so step 2 below stages nothing and there is no whole-tree history diff — the churn people fear only happens when CRLF is committed. Verify that claim rather than assuming it:
+  - [x] Renormalize. **The index is already LF** (`git ls-files --eol` shows `i/lf w/crlf`), so step 2 below stages nothing and there is no whole-tree history diff — the churn people fear only happens when CRLF is committed. Verify that claim rather than assuming it:
     ```bash
     git status --porcelain          # MUST be empty before starting
     git add .gitattributes && git commit -m "chore: pin LF line endings"
@@ -90,11 +90,11 @@ So that every later story ships somewhere real instead of accumulating an undepl
     git reset --hard
     git ls-files --eol package.json vite.config.ts   # expect i/lf w/lf
     ```
-  - [ ] `npm run check` must now pass end to end. If `oxfmt` still reports files, run `npm run format` and commit that separately with a message saying it is mechanical
-  - [ ] Do **not** also set `core.autocrlf false` in the repo — `.gitattributes` wins, and a second source of truth invites confusion
-- [ ] Task 3: Dev server without a Cloudflare token (AC: 5)
-  - [ ] Problem: `wrangler.jsonc`'s `ai` binding is `remote: true`. Workers AI has **no local simulation** — `remote: false` is an *error*, and omitting `remote` connects remotely anyway. So the only way to boot tokenless is to drop the binding in serve mode
-  - [ ] Use the Vite plugin's programmatic `config` option, gated on Vite's `command` so `vite build` is untouched:
+  - [x] `npm run check` must now pass end to end. If `oxfmt` still reports files, run `npm run format` and commit that separately with a message saying it is mechanical
+  - [x] Do **not** also set `core.autocrlf false` in the repo — `.gitattributes` wins, and a second source of truth invites confusion
+- [x] Task 3: Dev server without a Cloudflare token (AC: 5)
+  - [x] Problem: `wrangler.jsonc`'s `ai` binding is `remote: true`. Workers AI has **no local simulation** — `remote: false` is an *error*, and omitting `remote` connects remotely anyway. So the only way to boot tokenless is to drop the binding in serve mode
+  - [x] Use the Vite plugin's programmatic `config` option, gated on Vite's `command` so `vite build` is untouched:
     ```ts
     export default defineConfig(({ command }) => ({
       plugins: [
@@ -107,58 +107,58 @@ So that every later story ships somewhere real instead of accumulating an undepl
       ]
     }));
     ```
-  - [ ] The **mutating function form is required** — the plugin merges config with `defu`, so an override object cannot delete a key
-  - [ ] `env.AI` is `undefined` in dev as a result. `src/server.ts:51` reads it inside `ChatAgent.onChatMessage`. After Task 5 that path is operator-gated, but add a clear guard or comment so the failure is legible rather than a mystery `undefined` crash
-  - [ ] Verify BOTH halves: `npm run dev` boots with no token in the environment, **and** `vite build` still emits `ai` into `dist/pml/wrangler.json`. Grep the built file — this is the regression that would silently ship a Worker with no AI binding
-  - [ ] Do **not** solve this with a third wrangler config file. `wrangler.test.jsonc` already carries a hand-sync burden; a `wrangler.dev.jsonc` would add another drift surface
-  - [ ] Document in `README.md` that anyone needing the real AI path puts `CLOUDFLARE_API_TOKEN` in `.env` (already gitignored)
-- [ ] Task 4: Environments and deploy scripts (AC: 1, 2)
-  - [ ] Add `"workers_dev": false` and `"preview_urls": false` at the **top level** — both are inheritable, so all environments get them. State them explicitly; do not rely on the inference from `routes`, and note the default flipped twice in wrangler 4.34/4.44
-  - [ ] Add `env.staging` and `env.production`. **Every binding must be redeclared in each env** — `ai`, `durable_objects`, `d1_databases`, `vars`. Wrangler emits a *warning*, not an error, for a top-level binding missing from an env, so a forgotten `durable_objects` deploys clean and fails at runtime
-  - [ ] `database_id` values are placeholders until Part B. Use an obvious sentinel like `"<created-in-part-b>"` and say so in a comment — **do not leave the field absent.** Wrangler's automatic provisioning is on by default and would create a database and write the id back, which in a Workers Builds run is not persisted to the repo — silent prod drift
-  - [ ] Routes: production gets `predictionmarketlitigation.com` and `ops.predictionmarketlitigation.com`, both `custom_domain: true`. Staging gets `staging.` and `ops-staging.` equivalents. Custom Domains point **all paths** at the Worker, which is what a whole site needs; a route pattern is the wrong tool
-  - [ ] **`ACCESS_DEV_BYPASS` must not appear in any env block.** `src/shared/lib/wranglerConfig.test.tsx` asserts this and will fail if it does. That test's second case also asserts no `vars` block exists at all — you are adding `vars` per env, so **narrow that assertion rather than deleting it**: the invariant that matters is the bypass never becoming deployable
-  - [ ] `package.json`: add `"build": "vite build"`. Replace the bare `"deploy"` with `"deploy:staging"` and `"deploy:production"`. **Delete the env-less `deploy` script** — with named envs defined, a bare `wrangler deploy` publishes a *third* Worker named `pml` with its own Durable Object namespace (DO storage is keyed by script name, so agent state silently forks) and no D1 binding
-  - [ ] With the Vite plugin the environment is selected at **build** time via `CLOUDFLARE_ENV`, not at deploy time; `wrangler deploy --env` then validates the match:
+  - [x] The **mutating function form is required** — the plugin merges config with `defu`, so an override object cannot delete a key
+  - [x] `env.AI` is `undefined` in dev as a result. `src/server.ts:51` reads it inside `ChatAgent.onChatMessage`. After Task 5 that path is operator-gated, but add a clear guard or comment so the failure is legible rather than a mystery `undefined` crash
+  - [x] Verify BOTH halves: `npm run dev` boots with no token in the environment, **and** `vite build` still emits `ai` into `dist/pml/wrangler.json`. Grep the built file — this is the regression that would silently ship a Worker with no AI binding
+  - [x] Do **not** solve this with a third wrangler config file. `wrangler.test.jsonc` already carries a hand-sync burden; a `wrangler.dev.jsonc` would add another drift surface
+  - [x] Document in `README.md` that anyone needing the real AI path puts `CLOUDFLARE_API_TOKEN` in `.env` (already gitignored)
+- [x] Task 4: Environments and deploy scripts (AC: 1, 2)
+  - [x] Add `"workers_dev": false` and `"preview_urls": false` at the **top level** — both are inheritable, so all environments get them. State them explicitly; do not rely on the inference from `routes`, and note the default flipped twice in wrangler 4.34/4.44
+  - [x] Add `env.staging` and `env.production`. **Every binding must be redeclared in each env** — `ai`, `durable_objects`, `d1_databases`, `vars`. Wrangler emits a *warning*, not an error, for a top-level binding missing from an env, so a forgotten `durable_objects` deploys clean and fails at runtime
+  - [x] `database_id` values are placeholders until Part B. Use an obvious sentinel like `"<created-in-part-b>"` and say so in a comment — **do not leave the field absent.** Wrangler's automatic provisioning is on by default and would create a database and write the id back, which in a Workers Builds run is not persisted to the repo — silent prod drift
+  - [x] Routes: production gets `predictionmarketlitigation.com` and `ops.predictionmarketlitigation.com`, both `custom_domain: true`. Staging gets `staging.` and `ops-staging.` equivalents. Custom Domains point **all paths** at the Worker, which is what a whole site needs; a route pattern is the wrong tool
+  - [x] **`ACCESS_DEV_BYPASS` must not appear in any env block.** `src/shared/lib/wranglerConfig.test.tsx` asserts this and will fail if it does. That test's second case also asserts no `vars` block exists at all — you are adding `vars` per env, so **narrow that assertion rather than deleting it**: the invariant that matters is the bypass never becoming deployable
+  - [x] `package.json`: add `"build": "vite build"`. Replace the bare `"deploy"` with `"deploy:staging"` and `"deploy:production"`. **Delete the env-less `deploy` script** — with named envs defined, a bare `wrangler deploy` publishes a *third* Worker named `pml` with its own Durable Object namespace (DO storage is keyed by script name, so agent state silently forks) and no D1 binding
+  - [x] With the Vite plugin the environment is selected at **build** time via `CLOUDFLARE_ENV`, not at deploy time; `wrangler deploy --env` then validates the match:
     ```jsonc
     "deploy:staging":    "cross-env CLOUDFLARE_ENV=staging vite build && wrangler deploy --env staging",
     "deploy:production": "cross-env CLOUDFLARE_ENV=production vite build && wrangler deploy --env production"
     ```
-  - [ ] `cross-env` is needed for Windows (`VAR=x cmd` is not valid in PowerShell/cmd). Add it as a devDependency — this is the one new dependency this story is authorised to add
-  - [ ] Run `npx wrangler deploy --env production --dry-run` to validate config shape without deploying. Read the warning output carefully: any "exists at the top level, but not on env.production" line is a missing binding
-- [ ] Task 5: Gate `/agents/*` (AC: 3)
-  - [ ] Reuse `requireOperator` from `src/shared/lib/adminGuard.ts`. Do **not** write a second auth path
-  - [ ] Add `isAgentsPath(pathname)` alongside `isAdminApiPath`, matching `/agents` and `/agents/...` with the same normalization (decode, collapse slashes) — the encoding bypasses that applied to the admin prefix apply identically here
-  - [ ] In `src/server.ts`, guard before `routeAgentRequest`. Same 403 envelope, same `ADMIN_CACHE_HEADERS`, same silence about why
-  - [ ] Leave `ChatAgent` itself untouched. Epic 3 builds on this Agents/DO wiring — the door gets a lock, the room stays
-  - [ ] Tests: unauthenticated `/agents/chat-agent/x` → 403; `/agents` bare → 403; encoded/double-slash variants → 403; operator (dev bypass on loopback) → not 403; `/agentsomething` → **not** guarded
-  - [ ] Update `deferred-work.md`: strike the `/agents/*` entries from the 1.1 and 1.4 sections with a **RESOLVED 2026-08-10 (Story 1.5)** note, matching how 1.3 retired its predecessors
-- [ ] Task 6: Bundle-secret assertion (AC: 6)
-  - [ ] Story 1.4 verified this with a one-time manual grep recorded in prose. Replace it with something that runs
-  - [ ] Add to `src/shared/lib/wranglerConfig.test.tsx` (the `ui` project — plain node, has `fs`): if `dist/client/` exists, assert no file contains `TEAM_DOMAIN`, `POLICY_AUD`, `OPERATOR_EMAIL`, `ACCESS_DEV_BYPASS`, or `cloudflareaccess`
-  - [ ] **Skip cleanly when `dist/` is absent** rather than failing — a fresh clone has no build output, and a test that fails on a clean checkout will be deleted by the next person. Use `it.skipIf`, and log why it skipped
-  - [ ] Document in README that `npm run build && npm test` is the full-fidelity check
-- [ ] Task 7: Operator runbook (AC: 7, 8)
-  - [ ] Create `docs/deploy-runbook.md` — Patrick's ordered checklist. Write it for someone with the dashboard open, in the order the dependencies actually require:
+  - [x] `cross-env` is needed for Windows (`VAR=x cmd` is not valid in PowerShell/cmd). Add it as a devDependency — this is the one new dependency this story is authorised to add
+  - [x] Run `npx wrangler deploy --env production --dry-run` to validate config shape without deploying. Read the warning output carefully: any "exists at the top level, but not on env.production" line is a missing binding
+- [x] Task 5: Gate `/agents/*` (AC: 3)
+  - [x] Reuse `requireOperator` from `src/shared/lib/adminGuard.ts`. Do **not** write a second auth path
+  - [x] Add `isAgentsPath(pathname)` alongside `isAdminApiPath`, matching `/agents` and `/agents/...` with the same normalization (decode, collapse slashes) — the encoding bypasses that applied to the admin prefix apply identically here
+  - [x] In `src/server.ts`, guard before `routeAgentRequest`. Same 403 envelope, same `ADMIN_CACHE_HEADERS`, same silence about why
+  - [x] Leave `ChatAgent` itself untouched. Epic 3 builds on this Agents/DO wiring — the door gets a lock, the room stays
+  - [x] Tests: unauthenticated `/agents/chat-agent/x` → 403; `/agents` bare → 403; encoded/double-slash variants → 403; operator (dev bypass on loopback) → not 403; `/agentsomething` → **not** guarded
+  - [x] Update `deferred-work.md`: strike the `/agents/*` entries from the 1.1 and 1.4 sections with a **RESOLVED 2026-08-10 (Story 1.5)** note, matching how 1.3 retired its predecessors
+- [x] Task 6: Bundle-secret assertion (AC: 6)
+  - [x] Story 1.4 verified this with a one-time manual grep recorded in prose. Replace it with something that runs
+  - [x] Add to `src/shared/lib/wranglerConfig.test.tsx` (the `ui` project — plain node, has `fs`): if `dist/client/` exists, assert no file contains `TEAM_DOMAIN`, `POLICY_AUD`, `OPERATOR_EMAIL`, `ACCESS_DEV_BYPASS`, or `cloudflareaccess`
+  - [x] **Skip cleanly when `dist/` is absent** rather than failing — a fresh clone has no build output, and a test that fails on a clean checkout will be deleted by the next person. Use `it.skipIf`, and log why it skipped
+  - [x] Document in README that `npm run build && npm test` is the full-fidelity check
+- [x] Task 7: Operator runbook (AC: 7, 8)
+  - [x] Create `docs/deploy-runbook.md` — Patrick's ordered checklist. Write it for someone with the dashboard open, in the order the dependencies actually require:
     1. `npx wrangler d1 create pml-dev|pml-staging|pml-production`; paste the three ids into `wrangler.jsonc`, replacing the sentinels
     2. Bootstrap each env once from the laptop: `npx wrangler deploy --env staging --secrets-file .env.staging` (gitignored). **Secrets cannot be set for a Worker that does not exist yet** — `wrangler secret put --env staging` on an undeployed env returns API error 10007, a genuine chicken-and-egg
     3. Bind custom domains. Prerequisite: an active zone, and **no pre-existing CNAME** on the hostname. Cloudflare creates the DNS record and manages the certificate
     4. Connect Workers Builds — one connection per env-Worker, since Builds has no environment concept. Build command `CLOUDFLARE_ENV=production npm run build`, deploy command `npx wrangler deploy --env production`. The dashboard Worker name must match the config's resolved name or the build fails
     5. **Leave non-production branch builds OFF.** They mint preview URLs, which is exactly the surface Task 4 disables
     6. Then the Access application, per the existing `docs/access-runbook.md` checklist — it already has the destination list and the AUD-tag step
-  - [ ] Cross-link, do not duplicate: `docs/access-runbook.md` already owns the Access half. Reference it
-  - [ ] Record the deferred config values as they land: the three `database_id`s, `TEAM_DOMAIN`, and per-environment `POLICY_AUD`. **Staging and production have different Access applications and therefore different AUD tags** — reusing one silently accepts staging tokens in production
-  - [ ] `README.md`: deploy flow, the environment matrix (env → Worker name → D1 → domains), the tokenless-dev note from Task 3, and that `npm run deploy` no longer exists
-- [ ] Task 8: Tests and validation (AC: all in Part A)
-  - [ ] `npm test` green — expect 160 plus your additions, still with **zero cloud credentials**
-  - [ ] `npm run check` green **end to end**, including `oxfmt --check .`. This is the first story where that can actually pass; it is AC4
-  - [ ] `npx wrangler deploy --env production --dry-run` and `--env staging --dry-run` both succeed with no missing-binding warnings
-  - [ ] `npm run dev` boots with `CLOUDFLARE_API_TOKEN` unset
-  - [ ] `npm ci` exits 0
-- [ ] Task 9: Finalize (AC: all in Part A)
-  - [ ] Update Dev Agent Record + File List (build the File List from `git diff --name-only`, not memory — two prior stories got this wrong)
-  - [ ] Set status `review`. **Leave AC7 explicitly unchecked** with a one-line note that it awaits Patrick's Part B run
-  - [ ] Commit `story 1.5: environments, deploy pipeline, envelope` (single commit; do not push). The `.gitattributes` renormalization from Task 2 may be a separate earlier commit — that is expected and correct
+  - [x] Cross-link, do not duplicate: `docs/access-runbook.md` already owns the Access half. Reference it
+  - [x] Record the deferred config values as they land: the three `database_id`s, `TEAM_DOMAIN`, and per-environment `POLICY_AUD`. **Staging and production have different Access applications and therefore different AUD tags** — reusing one silently accepts staging tokens in production
+  - [x] `README.md`: deploy flow, the environment matrix (env → Worker name → D1 → domains), the tokenless-dev note from Task 3, and that `npm run deploy` no longer exists
+- [x] Task 8: Tests and validation (AC: all in Part A)
+  - [x] `npm test` green — expect 160 plus your additions, still with **zero cloud credentials**
+  - [x] `npm run check` green **end to end**, including `oxfmt --check .`. This is the first story where that can actually pass; it is AC4
+  - [x] `npx wrangler deploy --env production --dry-run` and `--env staging --dry-run` both succeed with no missing-binding warnings
+  - [x] `npm run dev` boots with `CLOUDFLARE_API_TOKEN` unset
+  - [x] `npm ci` exits 0
+- [x] Task 9: Finalize (AC: all in Part A)
+  - [x] Update Dev Agent Record + File List (build the File List from `git diff --name-only`, not memory — two prior stories got this wrong)
+  - [x] Set status `review`. **Leave AC7 explicitly unchecked** with a one-line note that it awaits Patrick's Part B run
+  - [x] Commit `story 1.5: environments, deploy pipeline, envelope` (single commit; do not push). The `.gitattributes` renormalization from Task 2 may be a separate earlier commit — that is expected and correct
 
 ## Dev Notes
 
@@ -307,8 +307,62 @@ No new source directories. No variance from the architecture tree.
 
 ### Agent Model Used
 
+Claude Opus 5 (claude-opus-5) — Claude Code session
+
 ### Debug Log References
+
+- **`-text` is the wrong tool for excluding vendored trees, and it fails loudly.** The first `.gitattributes` attempt marked `.claude/**`, `.agents/**` and `_bmad/**` as `-text` to keep four CRLF-carrying BMAD CSVs out of the renormalization. `-text` tells git the files are *binary*, so git wanted to store the working-tree CRLF for the entire vendored tree — `git add --renormalize .` staged thousands of files. Reverted, and the four CSVs were simply renormalized instead (line endings only, no content change) in their own commit.
+- **The renormalization produced no whole-tree diff, exactly as the story predicted.** `git ls-files --eol` showed `i/lf w/crlf` beforehand: the index was already LF and only the checkout was CRLF. `git add --renormalize .` staged 4 files, not 48. The feared history churn only happens when CRLF is actually committed.
+- **`wrangler deploy --dry-run` silently validated nothing on the first attempt.** It reported only `ChatAgent` and `AI` bindings for `--env production` — no D1, no vars, no routes. Cause: with `@cloudflare/vite-plugin` the environment is resolved at **build** time and written to `dist/pml/wrangler.json`, which `wrangler deploy` then follows via `.wrangler/deploy/config.json`. My earlier plain `vite build` had baked the env-less config. Rebuilding with `CLOUDFLARE_ENV=production` first produced the correct `pml-production` with all four bindings. **A dry run against a stale build is a green light that means nothing** — always rebuild with the env first.
+- **`npm run check` regressed late and quietly.** It passed after Task 2, then failed at Task 8 because `oxfmt` also formats `README.md` and `package.json`, both of which I had rewritten. Fixed by formatting them. Worth knowing: `oxfmt` covers markdown and JSON, not just source.
 
 ### Completion Notes List
 
+- **`npm run check` exits 0 for the first time in the project's history** — 48 files, all correctly formatted. This is AC4 and it closes a defect that had been live since before Story 1.1. `.gitattributes` pins `* text=auto eol=lf`, which overrides `core.autocrlf` for the working tree, not just the index.
+- **The dev server boots with no `CLOUDFLARE_API_TOKEN` (AC5).** Verified empirically with the variable unset: `vite dev` started, `GET /` returned 200, and the admin API reached its guard. The `ai` binding is deleted in serve mode only, via the plugin's programmatic `config` option gated on `command === "serve"`. The mutating-function form is required — the plugin merges with `defu`, so an override object can add but never remove.
+- **Both halves of Task 3 were verified, not just the convenient one.** `vite build` still emits `"ai": { "binding": "AI", "remote": true }` into `dist/pml/wrangler.json`. Silently shipping a Worker with no AI binding was the obvious failure mode of this change, so it was checked directly rather than assumed.
+- **Environments resolve correctly and completely.** `CLOUDFLARE_ENV=production vite build` → `pml-production` with all four bindings (`ChatAgent` DO, `DB`/`pml-production`, `AI`, `PML_ENV`), both custom domains, `workers_dev` and `preview_urls` false. Staging likewise. No "exists at the top level, but not on env" warnings in either dry run — which is the check that matters, because that condition is a warning and would otherwise deploy clean and fail at runtime.
+- **`/agents/*` is closed (AC3).** It now runs through the same `requireOperator` guard as `/api/admin/*`, with the same opaque 403 envelope and the same `normalizePath` treatment, so `/%61gents/...` and `//agents/...` cannot walk around it. This surface had been ledgered since Story 1.1 and was the most serious open hole in the repo: `@callable() addServer` let an anonymous caller attach an arbitrary MCP server whose tools then execute against `env.AI` on Patrick's account. Confirmed live before the change — a `curl` to `/agents/x` on the dev server returned 404, not 403. `ChatAgent` itself is untouched; Epic 3 builds on that wiring.
+- **The bare `deploy` script is gone, deliberately.** With named environments defined, an env-less `wrangler deploy` publishes a *third* Worker called `pml` with its own Durable Object namespace — DO storage is keyed by script name, so agent state would fork from production's — and no D1 binding at all. Replaced with `deploy:staging` and `deploy:production`, both setting `CLOUDFLARE_ENV` at build time via `cross-env` (the one new dependency, needed because Windows shells reject `VAR=x cmd`).
+- **D1 `database_id`s are explicit sentinels, not absent fields.** Wrangler's automatic provisioning is on by default: a binding with no id makes it create a database and write the id back — and from a Workers Builds run that write never reaches the repo, so production silently diverges from source. The placeholder text names the runbook that replaces it.
+- **AC6's manual grep became a real test.** `wranglerConfig.test.tsx` now walks `dist/client/` and asserts no bundled file mentions `TEAM_DOMAIN`, `POLICY_AUD`, `OPERATOR_EMAIL`, `ACCESS_DEV_BYPASS` or `cloudflareaccess`. It skips cleanly when `dist/` is absent — a test that fails on a fresh clone gets deleted by the next person who hits it — and the README documents `npm run build && npm test` as the full-fidelity check.
+- **The `vars` assertion was narrowed, not deleted.** Story 1.4 asserted no `vars` block existed anywhere; this story adds one per environment. It now allowlists `PML_ENV` and fails on anything else, preserving the invariant that matters: no dev-only or secret-shaped value becomes deployable. `ACCESS_DEV_BYPASS` still appears in no Wrangler config, and that test still passes.
+- **Five ledger entries retired** with struck-through RESOLVED notes matching the convention Story 1.3 established: `/agents/*`, `workers_dev`/`preview_urls`, the AC6 grep, the `.gitattributes`/oxfmt failure, and Google Fonts (closed by Patrick's decision to keep the CDN, recorded so it is not re-raised as a defect).
+- **185 tests across 7 files, exit 0, zero cloud credentials** (was 160/7). 13 new `isAgentsPath` cases, 7 new `/agents/*` perimeter cases, 5 new bundle-scan cases. `npm run check` exit 0, `npm ci` exit 0, both dry runs exit 0.
+- **AC7 is deliberately NOT satisfied.** Nothing was deployed, no D1 database exists, no domain is bound, no Access application was created — those need Patrick's Cloudflare account. `docs/deploy-runbook.md` is the ordered checklist, sequenced so the chicken-and-egg cases do not bite: secrets cannot be set for a Worker that has never been deployed (API error 10007), so they are uploaded with the first deploy via `--secrets-file`.
+- **Not done, and deliberately out of scope:** the admin session display name (needs a real Access session, so it follows Part B), the D1 schema and migrations (Story 2.1), and the three unowned ledger items (JWKS spray, `shared/lib` import boundary, `access-env.d.ts` fragility) which remain in the ledger with no assignee.
+
 ### File List
+
+New:
+
+- .gitattributes
+- docs/deploy-runbook.md
+
+Modified:
+
+- vite.config.ts (drop `ai` binding in serve mode)
+- wrangler.jsonc (env blocks, routes, workers_dev/preview_urls, run_worker_first gains /agents)
+- wrangler.test.jsonc (kept in sync — run_worker_first)
+- package.json / package-lock.json (build + per-env deploy scripts, bare deploy removed, cross-env added)
+- src/server.ts (/agents/* guard before agent routing)
+- src/server.test.ts (/agents/* perimeter tests)
+- src/shared/lib/adminGuard.ts (isAgentsPath)
+- src/shared/lib/adminGuard.test.ts (isAgentsPath cases)
+- src/shared/lib/wranglerConfig.test.tsx (narrowed vars assertion; client-bundle secret scan)
+- README.md (surfaces, deployment, environment matrix, tokenless dev)
+- docs/access-runbook.md (cross-link to deploy-runbook; 1.5 split now config-done / account-to-do)
+- _bmad-output/implementation-artifacts/deferred-work.md (5 entries retired)
+- _bmad-output/implementation-artifacts/sprint-status.yaml (status transitions)
+- _bmad-output/implementation-artifacts/1-5-deploy-pipeline-environments.md (this file)
+
+Renormalized (line endings only, separate commit, no content change):
+
+- .agents/skills/bmad-brainstorming/analysis/method-matrix.csv
+- .agents/skills/bmad-brainstorming/assets/brain-methods.csv
+- .claude/skills/bmad-brainstorming/analysis/method-matrix.csv
+- .claude/skills/bmad-brainstorming/assets/brain-methods.csv
+
+## Change Log
+
+- 2026-08-10: Part A implemented — line-ending normalization (own commits), tokenless dev server, Wrangler environments with per-env bindings and custom domains, public hostnames disabled, `/agents/*` gated, client-bundle secret scan, deploy runbook and README. AC7 (end-to-end deploy) left open pending Patrick's Part B account setup. Status → review.

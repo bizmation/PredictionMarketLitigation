@@ -34,7 +34,8 @@ The one-click Access toggle that *does* work on `workers.dev` (Workers & Pages â
 Custom domains are bound in Story 1.5. So:
 
 - **Story 1.4 (done):** Worker-side JWT verification, operator allowlist, `/api/admin/*` guard, session chrome, dev bypass, offline tests.
-- **Story 1.5 (to do):** everything in [The 1.5 checklist](#the-15-checklist).
+- **Story 1.5 (config, done):** Wrangler environments, `workers_dev`/`preview_urls` disabled, `/agents/*` gated behind the same operator guard.
+- **Story 1.5 (account setup, to do):** everything in [The 1.5 checklist](#the-15-checklist) â€” sequenced with the D1/domain/Builds steps in [`deploy-runbook.md`](deploy-runbook.md).
 
 ---
 

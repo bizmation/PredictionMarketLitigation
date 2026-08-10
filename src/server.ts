@@ -14,6 +14,7 @@ import { z } from "zod";
 import {
   ADMIN_CACHE_HEADERS,
   isAdminApiPath,
+  isAgentsPath,
   requireOperator
 } from "./shared/lib/adminGuard";
 
@@ -219,7 +220,29 @@ export default {
     // workers.dev hostname and at preview URLs, where the Access header is
     // forgeable. requireOperator verifies the JWT signature and audience, so
     // those doors answer 403 rather than serving the operator's surface.
-    if (isAdminApiPath(new URL(request.url).pathname)) {
+    const { pathname } = new URL(request.url);
+
+    // Story 1.5 — the agent surface is operator-only too.
+    //
+    // ChatAgent's `@callable()` addServer attaches an arbitrary MCP server
+    // whose tools then run against env.AI. Unauthenticated, that is an open
+    // invitation to drive Workers AI on this account. Ledgered since 1.1;
+    // closed here by reusing the same guard the admin API uses rather than
+    // inventing a second auth path.
+    //
+    // The Durable Object itself is untouched — Epic 3's pipeline builds on
+    // this Agents/DO wiring. Only the door is locked.
+    if (isAgentsPath(pathname)) {
+      const gate = await requireOperator(request, env);
+      if (gate instanceof Response) return gate;
+
+      return (
+        (await routeAgentRequest(request, env)) ||
+        new Response("Not found", { status: 404, headers: ADMIN_CACHE_HEADERS })
+      );
+    }
+
+    if (isAdminApiPath(pathname)) {
       const gate = await requireOperator(request, env);
       if (gate instanceof Response) return gate;
 

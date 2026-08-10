@@ -5,25 +5,40 @@
   "compatibility_date": "2026-06-11",
   "compatibility_flags": ["nodejs_compat"],
 
-  // ── Future bindings land here (stubs only — see architecture.md) ──
-  // Wrangler env semantics: bindings (d1_databases, vars, …) are NON-INHERITABLE
-  // and must be re-declared inside each env block; name/main/compatibility_date inherit.
+  // ── ENVIRONMENTS (story 1.5) ────────────────────────────────────────────
   //
-  // Story 2.1 — D1 canonical store:
-  //   "d1_databases": [{ "binding": "DB", "database_name": "pml", "database_id": "<created-in-2.1>" }]
-  // Story 1.5 — environments + custom domains (separate D1 per env):
-  //   "env": {
-  //     "staging":    { "routes": [...], "d1_databases": [...] },
-  //     "production": {
-  //       "routes": [
-  //         { "pattern": "predictionmarketlitigation.com", "custom_domain": true },
-  //         { "pattern": "ops.predictionmarketlitigation.com", "custom_domain": true }
-  //       ],
-  //       "d1_databases": [...]
-  //     }
-  //   }
-  // Story 1.4 — Cloudflare Access protects /admin + /api/admin/* (zero-trust config, not wrangler)
-  // Story 3.2 — AI Gateway binding/credentials via Worker secrets (never committed)
+  // Named environments deploy as `<name>-<env>`: pml-staging, pml-production.
+  //
+  // EVERY BINDING IS NON-INHERITABLE and must be redeclared inside each env
+  // block. The published docs list is incomplete — it omits `ai`, `d1_databases`
+  // and others — so treat all of them as non-inheritable. Worse, a binding
+  // present at the top level but missing from an env is only a WARNING:
+  //
+  //   "<field>" exists at the top level, but not on "env.<name>". This is not
+  //   what you probably want, since "<field>" is not inherited by environments.
+  //
+  // So a forgotten `durable_objects` deploys clean and fails at runtime. Read
+  // the output of `wrangler deploy --env <env> --dry-run` before every deploy.
+  //
+  // Inheritable, hence declared once at the top: name, main, compatibility_*,
+  // workers_dev, preview_urls, assets, observability, migrations.
+  //
+  // The unnamed top-level environment is STILL independently deployable as a
+  // separate Worker called `pml`, with its own Durable Object namespace (DO
+  // storage is keyed by script name, so its agent state would fork from
+  // production's) and no D1. That is why package.json has no bare `deploy`
+  // script — only deploy:staging and deploy:production.
+
+  // Never mint a public hostname we did not ask for. `access.ts` verifies the
+  // Access JWT precisely because workers.dev and preview URLs are doors Access
+  // at the edge does not cover; the cheapest fix is for those doors not to
+  // exist. Both are inheritable, so all environments get them.
+  //
+  // State them explicitly rather than relying on inference from `routes`: the
+  // preview_urls default changed twice (wrangler 4.34, 4.44) and now tracks
+  // workers_dev, which is exactly the kind of default worth not depending on.
+  "workers_dev": false,
+  "preview_urls": false,
 
   // Private operator logs (story 1.4 review decision). The admin guard emits a
   // structured admin.access_denied event with a reason code on every refusal;
@@ -36,23 +51,30 @@
   "assets": {
     "directory": "./public",
     "not_found_handling": "single-page-application",
-    // `/api/admin/*` MUST run the Worker first (story 1.4). The compat flag
+    // `/api/admin/*` and `/agents/*` MUST run the Worker first. The compat flag
     // assets_navigation_prefers_asset_serving is default-on for compatibility
     // dates >= 2025-04-01, so asset-eligible requests can otherwise skip the
     // Worker entirely — and a skipped Worker is a skipped auth check.
     // Cloudflare documents run_worker_first as required when "performing any
     // authentication checks ... before serving static assets".
     //
-    // Both `/api/admin` and `/api/admin/*` are listed: a trailing-slash glob
-    // is not documented to match its bare parent, and isAdminApiPath
-    // deliberately guards the bare path. One missing entry would mean the
-    // asset server answers it with index.html and the guard never runs.
+    // Bare paths are listed alongside their globs (`/api/admin` as well as
+    // `/api/admin/*`): a trailing-slash glob is not documented to match its
+    // bare parent, and the guards deliberately match the bare path. One
+    // missing entry would mean the asset server answers it with index.html and
+    // the guard never runs.
     //
     // `/admin` is deliberately NOT listed: it is the SPA document, it leaks
     // nothing (every band is an empty placeholder), and routing it through the
-    // Worker before Access exists at the edge would buy nothing. Story 1.5
-    // revisits this when the Zero Trust application is bound.
-    "run_worker_first": ["/agents/*", "/oauth/*", "/api/admin", "/api/admin/*"]
+    // Worker buys nothing until Access is bound at the edge. Revisit when the
+    // Zero Trust application exists (deploy runbook, part B).
+    "run_worker_first": [
+      "/agents",
+      "/agents/*",
+      "/oauth/*",
+      "/api/admin",
+      "/api/admin/*"
+    ]
   },
   "durable_objects": {
     "bindings": [
@@ -67,5 +89,77 @@
       "new_sqlite_classes": ["ChatAgent"],
       "tag": "v1"
     }
-  ]
+  ],
+
+  "env": {
+    "staging": {
+      // Redeclared, not inherited. See the note at the top of this file.
+      "ai": { "binding": "AI", "remote": true },
+      "durable_objects": {
+        "bindings": [{ "class_name": "ChatAgent", "name": "ChatAgent" }]
+      },
+      // PLACEHOLDER — replaced with the real id in part B of the deploy
+      // runbook, after `wrangler d1 create pml-staging`.
+      //
+      // Do NOT delete this block to "fix" a deploy error. Wrangler's automatic
+      // provisioning is on by default: a d1 binding with no database_id makes
+      // it create a database and write the id back into this file — and when
+      // the deploy runs from Workers Builds that write is not persisted to the
+      // repo, so the deployed config silently diverges from source.
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "pml-staging",
+          "database_id": "PLACEHOLDER-see-docs/deploy-runbook.md",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "vars": { "PML_ENV": "staging" },
+      "routes": [
+        {
+          "pattern": "staging.predictionmarketlitigation.com",
+          "custom_domain": true
+        },
+        {
+          "pattern": "ops-staging.predictionmarketlitigation.com",
+          "custom_domain": true
+        }
+      ]
+    },
+    "production": {
+      "ai": { "binding": "AI", "remote": true },
+      "durable_objects": {
+        "bindings": [{ "class_name": "ChatAgent", "name": "ChatAgent" }]
+      },
+      // PLACEHOLDER — see the staging note above.
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "pml-production",
+          "database_id": "PLACEHOLDER-see-docs/deploy-runbook.md",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "vars": { "PML_ENV": "production" },
+      // Custom Domains, not route patterns: Custom Domains point ALL paths of
+      // a hostname at the Worker and treat it as the origin, which is what
+      // serving a whole site needs. Cloudflare creates the DNS record and
+      // manages the certificate. Requires an active zone and no pre-existing
+      // CNAME on the hostname.
+      "routes": [
+        {
+          "pattern": "predictionmarketlitigation.com",
+          "custom_domain": true
+        },
+        {
+          "pattern": "ops.predictionmarketlitigation.com",
+          "custom_domain": true
+        }
+      ]
+    }
+  }
+
+  // Story 2.1 adds the D1 schema and migrations. This story only binds the
+  // databases; it creates no tables.
+  // Story 3.2 — AI Gateway binding/credentials via Worker secrets (never committed)
 }

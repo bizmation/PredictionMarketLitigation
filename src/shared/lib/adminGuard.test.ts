@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isAdminApiPath } from "./adminGuard";
+import { isAdminApiPath, isAgentsPath } from "./adminGuard";
 
 /**
  * The prefix matcher is the whole perimeter: everything it returns false for
@@ -50,5 +50,32 @@ describe("isAdminApiPath", () => {
   it("treats a malformed escape as un-routable rather than throwing", () => {
     expect(() => isAdminApiPath("/api/%zz/admin")).not.toThrow();
     expect(isAdminApiPath("/api/%zz/admin")).toBe(false);
+  });
+});
+
+describe("isAgentsPath", () => {
+  it.each(["/agents", "/agents/", "/agents/chat-agent/abc", "/agents/x/y/z"])(
+    "guards %s",
+    (path) => {
+      expect(isAgentsPath(path)).toBe(true);
+    }
+  );
+
+  it.each(["/agentsomething", "/agent", "/api/agents", "/", "/oauth/callback"])(
+    "does not guard %s",
+    (path) => {
+      expect(isAgentsPath(path)).toBe(false);
+    }
+  );
+
+  // Same normalization as the admin prefix — the encoding and slash bypasses
+  // that applied there apply identically here.
+  it.each([
+    "/%61gents/chat-agent/x",
+    "//agents/chat-agent/x",
+    "/agents//chat-agent",
+    "/%61gents"
+  ])("guards %s despite encoding or duplicate slashes", (path) => {
+    expect(isAgentsPath(path)).toBe(true);
   });
 });
