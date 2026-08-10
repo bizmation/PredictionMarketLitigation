@@ -1,8 +1,17 @@
+import { lazy, Suspense } from "react";
+
 import { resolveSurface } from "./shared/lib/surface";
-import { DesignSystemGallery } from "./shared/ui/DesignSystemGallery";
 import { AdminShell } from "./surfaces/admin/AdminShell";
 import { ApexShell } from "./surfaces/apex/ApexShell";
 import { OpsShell } from "./surfaces/ops/OpsShell";
+
+// Dynamic import — dev-only and rarely visited, so it should not bloat the
+// production bundle every reader downloads just to sit unreachable.
+const DesignSystemGallery = lazy(() =>
+  import("./shared/ui/DesignSystemGallery").then((m) => ({
+    default: m.DesignSystemGallery
+  }))
+);
 
 /**
  * Root — resolve which surface this URL belongs to, render its shell.
@@ -30,7 +39,11 @@ export default function App() {
     (url.pathname === GALLERY_PATH ||
       url.pathname.startsWith(`${GALLERY_PATH}/`))
   ) {
-    return <DesignSystemGallery />;
+    return (
+      <Suspense fallback={null}>
+        <DesignSystemGallery />
+      </Suspense>
+    );
   }
 
   switch (resolveSurface(url, { allowQueryOverride: dev })) {

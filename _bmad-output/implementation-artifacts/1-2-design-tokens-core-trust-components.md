@@ -4,7 +4,7 @@ baseline_commit: 4ca747446e8176a1822b498789a98fa62ca66b1a
 
 # Story 1.2: Design Tokens & Core Trust Components
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -85,16 +85,16 @@ So that every surface shares the editorial look and load-bearing trust UI (prove
 
 ### Review Findings
 
-- [ ] [Review][Decision] PostureSwatch `showLabel={false}` vs UX-DR2 — Escape hatch renders fill-only (`aria-hidden`) with no paired label, conflicting with Task 5 / UX-DR2 “never fill alone.” Documented for future map regions, but no call site yet and nothing requires a parent accessible name. Choose: remove the prop, or keep it only with an explicit accessible-name contract.
-- [ ] [Review][Decision] `.badge.restricted` hatch missing vs UX-DR3 — README / Design System / StatusBadge comment promise a fine diagonal hatch; handoff `pml.css` (ported verbatim) only sets flat amber fills. Choose: add hatch (deviate from verbatim CSS), or keep the port and treat hatch as a handoff defect to fix later.
-- [ ] [Review][Decision] Classical `.input:focus-visible` uses `outline-offset: 0` — Conflicts with AC4 / NFR5’s required 2px accent offset. The override is in the Classical sheet Task 2 said to copy verbatim. Choose: override to 2px, or keep Classical fidelity and narrow NFR5’s scope for `.input`.
-- [ ] [Review][Patch] `formatEtDate*` accepts invalid / non-UTC ISO and can throw or show the wrong ET [`src/shared/lib/dates.ts:33`]
-- [ ] [Review][Patch] WarnChip allows explicit `null`/empty `children` to blank the legal disclaimer [`src/shared/ui/WarnChip.tsx:18`]
-- [ ] [Review][Patch] DesignSystemGallery is a static top-level import in `app.tsx` (prefer DEV-only dynamic import) [`src/app.tsx:7`]
-- [ ] [Review][Patch] StatusBadge comment claims restricted hatch that CSS does not implement [`src/shared/ui/StatusBadge.tsx:4`]
-- [ ] [Review][Patch] LastUpdated should use `<time datetime={at}>` for the ISO instant [`src/shared/ui/LastUpdated.tsx:20`]
-- [ ] [Review][Patch] Add EST + `formatEtDate` coverage; completion notes claimed both halves of the year [`src/shared/ui/trustComponents.test.tsx:170`]
-- [ ] [Review][Patch] Story File List claims `package.json` and `sprint-status.yaml` were in this commit; they are not in `edeaf16` [`_bmad-output/implementation-artifacts/1-2-design-tokens-core-trust-components.md:285`]
+- [x] [Review][Decision] PostureSwatch `showLabel={false}` vs UX-DR2 — **Resolved 2026-08-10: keep the prop, document the contract.** Tightened the JSDoc into an explicit accessible-name requirement (caller MUST supply an ancestor `aria-label` when using `showLabel={false}`), rather than removing the escape hatch Epic 2's map work will need. No behavior change [`src/shared/ui/PostureSwatch.tsx`]
+- [x] [Review][Decision] `.badge.restricted` hatch missing vs UX-DR3 — **Resolved 2026-08-10: added the hatch.** `.badge.restricted` now layers a fine `repeating-linear-gradient` hatch (same hue as the border, 35% alpha) over the existing flat fill, closing the gap between UX-DR3/the docs and the rendered UI. Verified in the served CSS bundle [`src/shared/ui/pml.css`]
+- [x] [Review][Decision] Classical `.input:focus-visible` uses `outline-offset: 0` — **Resolved 2026-08-10: overridden to 2px.** `.input:focus-visible` now matches AC4/NFR5 like every other interactive element. Verified in the served CSS bundle [`src/shared/ui/tokens.css`]
+- [x] [Review][Patch] `formatEtDate*` accepts invalid / non-UTC ISO and can throw or show the wrong ET — both functions now check `Number.isNaN(date.getTime())` and return `"Unknown date"` instead of throwing; covered by a new test [`src/shared/lib/dates.ts`]
+- [x] [Review][Patch] WarnChip allows explicit `null`/empty `children` to blank the legal disclaimer — replaced the default-parameter (which only catches `undefined`) with an explicit `== null || === ""` check; covered by a new test [`src/shared/ui/WarnChip.tsx`]
+- [x] [Review][Patch] DesignSystemGallery is a static top-level import in `app.tsx` (prefer DEV-only dynamic import) — now `React.lazy` + `Suspense`; confirmed it now ships as its own code-split chunk rather than in the main bundle. Note: this finding's file/line moved when Story 1.3 rewrote `app.tsx`; the underlying issue was unchanged [`src/app.tsx`]
+- [x] [Review][Patch] StatusBadge comment claims restricted hatch that CSS does not implement — resolved by the Decision above (hatch added); the comment is now accurate as written, no text change needed [`src/shared/ui/StatusBadge.tsx`]
+- [x] [Review][Patch] LastUpdated should use `<time datetime={at}>` for the ISO instant — now renders `<time className="lastupd" dateTime={at}>`; covered by a new test [`src/shared/ui/LastUpdated.tsx`]
+- [x] [Review][Patch] Add EST + `formatEtDate` coverage; completion notes claimed both halves of the year — added an EST case to the `LastUpdated` tests plus a new direct test block for `formatEtDate`/`formatEtDateTime` (EDT, EST, and the invalid-input fallback) [`src/shared/ui/trustComponents.test.tsx`]
+- [x] [Review][Patch] Story File List claims `package.json` and `sprint-status.yaml` were in this commit; they are not in `edeaf16` — corrected in the File List below with the actual commits [`_bmad-output/implementation-artifacts/1-2-design-tokens-core-trust-components.md`]
 - [x] [Review][Defer] EmptyState does not guard empty/whitespace `title` [`src/shared/ui/EmptyState.tsx:30`] — deferred, pre-existing
 - [x] [Review][Defer] NotLiveDraftBanner has no `role="status"` / live-region semantics [`src/shared/ui/NotLiveDraftBanner.tsx:30`] — deferred, pre-existing
 - [x] [Review][Defer] Google Fonts third-party load with no self-hosted fallback [`index.html`] — deferred, pre-existing
@@ -271,6 +271,8 @@ Claude Opus 5 (claude-opus-5) — Claude Code session
 ### Change Log
 
 - 2026-08-09: Story implemented end-to-end (baseline repair → token sheet → component layer → cascade wiring → red/green component tests → ten trust components → document-shell branding → gallery → live verification). Status → review.
+- 2026-08-10: Code review findings recorded (3 decision-needed, 7 patch, 4 deferred) — findings only, not yet resolved.
+- 2026-08-10: All 3 decisions resolved and all 7 patches applied. Re-verified: `npm run check`'s oxlint+tsc, 67/67 tests (6 new), and a live-served-CSS check of the hatch + focus-offset fixes (the browser pane could not composite frames in this environment for a real keyboard-focus check, so the CSS rule text was verified directly in the built bundle instead — deterministic for a static property value). Status → done.
 
 ### File List
 
@@ -299,6 +301,17 @@ Modified:
 - src/app.tsx (dev-only `?ds=1` gallery gate + import)
 - index.html (PML title/description, Google Fonts preconnect + stylesheet)
 - vitest.config.ts (split into `workers` and `ui` projects)
-- package.json (oxfmt key ordering — pre-existing baseline failure, no value changes)
-- _bmad-output/implementation-artifacts/sprint-status.yaml (status transitions)
 - _bmad-output/implementation-artifacts/1-2-design-tokens-core-trust-components.md (this file)
+
+**Correction (code review, 2026-08-10):** the two bullets previously listed here — `package.json` (oxfmt key ordering) and `sprint-status.yaml` (status transitions) — do not actually appear in this story's commit (`edeaf16`). The `package.json` fix landed a minute earlier in `123c995` ("story 1.1: apply code-review follow-ups"), and this story's own status transition to `review` was never committed by this story at all — sprint-status.yaml shows no change until Story 1.3's commit (`ab6d5df`). Recorded here for an accurate history; no code changed as a result.
+
+Modified/added by code review (2026-08-10) — resolving all 3 decisions and applying all 7 patches:
+
+- src/shared/ui/PostureSwatch.tsx (tightened `showLabel` JSDoc into an explicit accessible-name contract; no behavior change)
+- src/shared/ui/pml.css (added the UX-DR3 hatch to `.badge.restricted`)
+- src/shared/ui/tokens.css (`.input:focus-visible` `outline-offset` 0 → 2px, matching AC4/NFR5)
+- src/shared/lib/dates.ts (`formatEtDate*` return `"Unknown date"` instead of throwing on invalid input)
+- src/shared/ui/WarnChip.tsx (explicit `null`/`""` guard, not just a default parameter)
+- src/app.tsx (`DesignSystemGallery` is now `React.lazy` + `Suspense`, confirmed code-split)
+- src/shared/ui/LastUpdated.tsx (`<span>` → `<time dateTime={at}>`)
+- src/shared/ui/trustComponents.test.tsx (EST coverage, direct `formatEtDate`/`formatEtDateTime` tests, invalid-input fallback test, `WarnChip` null/empty test, `<time>` element test)

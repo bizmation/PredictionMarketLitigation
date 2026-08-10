@@ -29,12 +29,18 @@ const DATE_ONLY = new Intl.DateTimeFormat("en-GB", {
   year: "numeric"
 });
 
+const INVALID_DATE_LABEL = "Unknown date";
+
 /** `2026-08-09T10:12:00.000Z` → `9 Aug 2026, 06:12 ET` */
 export function formatEtDateTime(iso: string): string {
-  return `${DATE_TIME.format(new Date(iso))} ET`;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return INVALID_DATE_LABEL;
+  return `${DATE_TIME.format(date)} ET`;
 }
 
 /** `2026-08-09T10:12:00.000Z` → `9 Aug 2026` */
 export function formatEtDate(iso: string): string {
-  return DATE_ONLY.format(new Date(iso));
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return INVALID_DATE_LABEL;
+  return DATE_ONLY.format(date);
 }

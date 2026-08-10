@@ -18,8 +18,8 @@ type LastUpdatedProps = {
 export function LastUpdated({ at, prefix = true }: LastUpdatedProps) {
   const formatted = formatEtDateTime(at);
   return (
-    <span className="lastupd">
+    <time className="lastupd" dateTime={at}>
       {prefix ? `Updated ${formatted}` : formatted}
-    </span>
+    </time>
   );
 }

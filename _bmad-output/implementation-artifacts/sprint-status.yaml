@@ -46,7 +46,7 @@ development_status:
   # Epic 1: Dual-Site Platform & Design System
   epic-1: in-progress
   1-1-scaffold-cloudflare-agents-starter: done
-  1-2-design-tokens-core-trust-components: review
+  1-2-design-tokens-core-trust-components: done
   1-3-dual-site-shells-trust-chrome: done
   1-4-admin-access-protection: backlog
   1-5-deploy-pipeline-environments: backlog

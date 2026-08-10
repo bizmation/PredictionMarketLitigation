@@ -15,13 +15,18 @@ type WarnChipProps = {
   children?: ReactNode;
 };
 
-export function WarnChip({
-  children = "General legal information — not legal advice"
-}: WarnChipProps) {
+const DEFAULT_DISCLAIMER = "General legal information — not legal advice";
+
+export function WarnChip({ children }: WarnChipProps) {
+  // A default parameter only catches `undefined` — explicit `null` or `""`
+  // would otherwise blank the mandatory legal disclaimer.
+  const content =
+    children == null || children === "" ? DEFAULT_DISCLAIMER : children;
+
   return (
     <span className="warn">
       <span aria-hidden="true">⚠</span>
-      {children}
+      {content}
     </span>
   );
 }

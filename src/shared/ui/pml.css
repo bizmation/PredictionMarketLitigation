@@ -244,7 +244,15 @@ footer.foot a {
 .badge.restricted {
   border-color: oklch(0.6 0.1 78);
   color: oklch(0.44 0.09 70);
-  background: oklch(0.95 0.045 85);
+  background-color: oklch(0.95 0.045 85);
+  /* UX-DR3: restricted carries a fine hatch — distinguishable without hue */
+  background-image: repeating-linear-gradient(
+    45deg,
+    oklch(0.6 0.1 78 / 35%) 0,
+    oklch(0.6 0.1 78 / 35%) 1px,
+    transparent 1px,
+    transparent 6px
+  );
 }
 .badge.banned {
   border-color: oklch(0.5 0.13 25);

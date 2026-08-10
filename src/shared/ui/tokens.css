@@ -276,7 +276,7 @@ figcaption {
 }
 .input:focus-visible {
   border-color: var(--color-accent);
-  outline-offset: 0;
+  outline-offset: 2px;
 }
 textarea.input {
   min-height: 90px;

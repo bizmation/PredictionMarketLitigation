@@ -23,11 +23,17 @@ export const POSTURE_LABELS: Record<Posture, string> = {
 
 type PostureSwatchProps = {
   /**
-   * Drop the visible label ONLY where the surrounding element already names the
-   * posture to assistive technology — a map region whose aria-label reads
-   * "New Jersey, pending — skeptical", say. The swatch is then purely
-   * decorative and is hidden, so the posture is never announced twice and never
-   * left as an unlabelled colour. Anywhere else, keep the label.
+   * Escape hatch — drop the visible label ONLY when the calling context
+   * already gives the posture an accessible name elsewhere (e.g. a map
+   * region whose own `aria-label` already reads "New Jersey, pending —
+   * skeptical"). The swatch then renders `aria-hidden` and is purely
+   * decorative.
+   *
+   * Contract: the caller MUST supply that accessible name on an ancestor
+   * element. If nothing does, the posture becomes an unlabelled colour —
+   * exactly what UX-DR2 forbids ("the fill NEVER travels alone"). There is
+   * no call site yet; this exists for Epic 2's map/circuit-split work.
+   * Anywhere else, leave `showLabel` at its default.
    */
   showLabel?: boolean;
   posture: Posture;

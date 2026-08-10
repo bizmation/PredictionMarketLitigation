@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
+import { formatEtDate, formatEtDateTime } from "../lib/dates";
 import {
   EmptyState,
   LastUpdated,
@@ -165,15 +166,62 @@ describe("WarnChip", () => {
     expect(html).toContain("General legal information — not legal advice");
     expect(html).toContain('aria-hidden="true"');
   });
+
+  it("falls back to the disclaimer when children is explicitly null or empty, not just omitted", () => {
+    expect(renderToStaticMarkup(<WarnChip>{null}</WarnChip>)).toContain(
+      "General legal information — not legal advice"
+    );
+    expect(renderToStaticMarkup(<WarnChip>{""}</WarnChip>)).toContain(
+      "General legal information — not legal advice"
+    );
+  });
 });
 
 describe("LastUpdated", () => {
-  it("formats an ISO-8601 UTC instant in reader-facing ET", () => {
+  it("formats an ISO-8601 UTC instant in reader-facing ET (EDT)", () => {
     // 2026-08-09T10:12:00Z === 06:12 EDT
     const html = renderToStaticMarkup(
       <LastUpdated at="2026-08-09T10:12:00.000Z" />
     );
     expect(html).toContain('class="lastupd"');
     expect(html).toContain("Updated 9 Aug 2026, 06:12 ET");
+  });
+
+  it("formats correctly in EST, the other half of the year", () => {
+    // 2026-01-15T15:30:00Z === 10:30 EST
+    const html = renderToStaticMarkup(
+      <LastUpdated at="2026-01-15T15:30:00.000Z" />
+    );
+    expect(html).toContain("Updated 15 Jan 2026, 10:30 ET");
+  });
+
+  it("renders a <time> element carrying the ISO instant in datetime", () => {
+    const html = renderToStaticMarkup(
+      <LastUpdated at="2026-08-09T10:12:00.000Z" />
+    );
+    expect(html).toContain(
+      '<time class="lastupd" dateTime="2026-08-09T10:12:00.000Z"'
+    );
+  });
+});
+
+describe("date formatting (src/shared/lib/dates.ts)", () => {
+  it("formatEtDateTime covers both EDT and EST", () => {
+    expect(formatEtDateTime("2026-08-09T10:12:00.000Z")).toBe(
+      "9 Aug 2026, 06:12 ET"
+    );
+    expect(formatEtDateTime("2026-01-15T15:30:00.000Z")).toBe(
+      "15 Jan 2026, 10:30 ET"
+    );
+  });
+
+  it("formatEtDate (date-only) covers both EDT and EST", () => {
+    expect(formatEtDate("2026-08-09T10:12:00.000Z")).toBe("9 Aug 2026");
+    expect(formatEtDate("2026-01-15T15:30:00.000Z")).toBe("15 Jan 2026");
+  });
+
+  it("falls back to a safe label instead of throwing on an invalid ISO string", () => {
+    expect(formatEtDateTime("not-a-date")).toBe("Unknown date");
+    expect(formatEtDate("not-a-date")).toBe("Unknown date");
   });
 });
