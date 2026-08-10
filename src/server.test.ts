@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
-import { describe, expect, it } from "vitest";
+import { SignJWT, exportJWK, generateKeyPair } from "jose";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import worker from "./server";
 
@@ -88,10 +89,28 @@ describe("/api/admin/* perimeter (story 1.4)", () => {
     expect(res.status).not.toBe(403);
   });
 
-  it("reaches the placeholder handler once authenticated", async () => {
-    const res = await worker.fetch(get("/api/admin/ping"), authed);
+  it("reaches the placeholder handler via the dev bypass on loopback", async () => {
+    const res = await worker.fetch(
+      new Request("http://localhost:5173/api/admin/ping"),
+      authed
+    );
     expect(res.status).not.toBe(403);
     expect(res.status).toBe(404); // no real admin handlers until story 3.10
+  });
+
+  it("refuses the dev bypass on a non-loopback host", async () => {
+    // A tunnelled `wrangler dev` loads .dev.vars and is publicly reachable.
+    const res = await worker.fetch(get("/api/admin/ping"), authed);
+    expect(res.status).toBe(403);
+  });
+
+  it("marks admin responses uncacheable", async () => {
+    // Story 3.10 returns pending draft text through this prefix. On a custom
+    // domain an edge-cached authenticated response would be served to the next
+    // anonymous caller of the same URL.
+    const res = await worker.fetch(get("/api/admin/ping"), anon);
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+    expect(res.headers.get("vary")).toContain("Cf-Access-Jwt-Assertion");
   });
 
   it("guards admin GETs too, not only mutations", async () => {
@@ -103,10 +122,75 @@ describe("/api/admin/* perimeter (story 1.4)", () => {
   });
 });
 
+/**
+ * The guard must be reachable by a genuine signed token, not only by the dev
+ * bypass — otherwise requireOperator could be gutted and every test above
+ * would still pass.
+ */
+describe("a real Access JWT passes the guard end-to-end", () => {
+  const TEAM = "https://e2e.cloudflareaccess.com";
+  const AUD = "e2e-aud";
+  const EMAIL = "operator@example.com";
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  async function setup() {
+    const { publicKey, privateKey } = await generateKeyPair("RS256", {
+      extractable: true
+    });
+    const jwk = (await exportJWK(publicKey)) as Record<string, unknown>;
+    jwk.kid = "e2e-1";
+    jwk.alg = "RS256";
+    jwk.use = "sig";
+    vi.stubGlobal("fetch", async () => Response.json({ keys: [jwk] }));
+
+    const realEnv = {
+      ...env,
+      ACCESS_DEV_BYPASS: undefined,
+      TEAM_DOMAIN: TEAM,
+      POLICY_AUD: AUD,
+      OPERATOR_EMAIL: EMAIL
+    } as Env;
+
+    const sign = (email: string) =>
+      new SignJWT({ email })
+        .setProtectedHeader({ alg: "RS256", kid: "e2e-1" })
+        .setIssuer(TEAM)
+        .setAudience(AUD)
+        .setIssuedAt()
+        .setExpirationTime("1h")
+        .sign(privateKey);
+
+    return { realEnv, sign };
+  }
+
+  it("lets the operator through to the handler", async () => {
+    const { realEnv, sign } = await setup();
+    const token = await sign(EMAIL);
+    const res = await worker.fetch(
+      get("/api/admin/ping", { headers: { "cf-access-jwt-assertion": token } }),
+      realEnv
+    );
+    expect(res.status).toBe(404); // past the guard, no handler yet
+  });
+
+  it("still rejects a valid token for a non-operator identity", async () => {
+    const { realEnv, sign } = await setup();
+    const token = await sign("someone.else@example.com");
+    const res = await worker.fetch(
+      get("/api/admin/ping", { headers: { "cf-access-jwt-assertion": token } }),
+      realEnv
+    );
+    expect(res.status).toBe(403);
+  });
+});
+
 describe("public routes stay public (AC5)", () => {
+  // Asserting a specific status, not merely "not 403": a 500 would satisfy
+  // `not.toBe(403)` and this is the guard most likely to be broken later.
   it("leaves the SPA document route untouched", async () => {
     const res = await worker.fetch(get("/"), anon);
-    expect(res.status).not.toBe(403);
+    expect(res.status).toBe(404); // no asset layer in the test pool
   });
 
   it("leaves a public mutating endpoint untouched (story 2.9 poll votes)", async () => {
@@ -118,7 +202,7 @@ describe("public routes stay public (AC5)", () => {
       }),
       anon
     );
-    expect(res.status).not.toBe(403);
+    expect(res.status).toBe(404);
   });
 
   it("leaves the ops. surface untouched", async () => {
@@ -126,6 +210,11 @@ describe("public routes stay public (AC5)", () => {
       new Request("https://ops.pml.example.com/", { method: "GET" }),
       anon
     );
-    expect(res.status).not.toBe(403);
+    expect(res.status).toBe(404);
+  });
+
+  it("sets no admin cache headers on public responses", async () => {
+    const res = await worker.fetch(get("/"), anon);
+    expect(res.headers.get("cache-control")).not.toBe("private, no-store");
   });
 });

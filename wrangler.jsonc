@@ -36,11 +36,16 @@
     // Cloudflare documents run_worker_first as required when "performing any
     // authentication checks ... before serving static assets".
     //
+    // Both `/api/admin` and `/api/admin/*` are listed: a trailing-slash glob
+    // is not documented to match its bare parent, and isAdminApiPath
+    // deliberately guards the bare path. One missing entry would mean the
+    // asset server answers it with index.html and the guard never runs.
+    //
     // `/admin` is deliberately NOT listed: it is the SPA document, it leaks
     // nothing (every band is an empty placeholder), and routing it through the
     // Worker before Access exists at the edge would buy nothing. Story 1.5
     // revisits this when the Zero Trust application is bound.
-    "run_worker_first": ["/agents/*", "/oauth/*", "/api/admin/*"]
+    "run_worker_first": ["/agents/*", "/oauth/*", "/api/admin", "/api/admin/*"]
   },
   "durable_objects": {
     "bindings": [

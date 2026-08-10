@@ -51,11 +51,23 @@ async function makeKeys(kid: string): Promise<Keys> {
   return { privateKey, jwk, kid };
 }
 
-/** Serve `keys` at any URL — verifyOperator only ever fetches its JWKS. */
+/** URLs the stubbed fetch was asked for — asserted in "JWKS endpoint". */
+const fetchedUrls: string[] = [];
+
 function stubJwks(keys: Array<Record<string, unknown>>) {
-  vi.stubGlobal("fetch", async () =>
-    Response.json({ keys }, { headers: { "content-type": "application/json" } })
-  );
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
+    fetchedUrls.push(
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url
+    );
+    return Response.json(
+      { keys },
+      { headers: { "content-type": "application/json" } }
+    );
+  });
 }
 
 function stubJwksFailure() {
@@ -310,6 +322,117 @@ describe("verifyOperator — fails closed on misconfiguration", () => {
   });
 });
 
+describe("verifyOperator — JWKS endpoint", () => {
+  const TEAM = "https://jwks-url.cloudflareaccess.com";
+
+  it("fetches the Access certs path, not some other URL", async () => {
+    const keys = await makeKeys("url-1");
+    fetchedUrls.length = 0;
+    stubJwks([keys.jwk]);
+    const token = await mintToken(keys, TEAM);
+    await verifyOperator(requestWithHeader(token), envFor(TEAM));
+
+    expect(fetchedUrls.length).toBeGreaterThan(0);
+    expect(fetchedUrls[0]).toBe(`${TEAM}/cdn-cgi/access/certs`);
+  });
+
+  it("strips a trailing slash from TEAM_DOMAIN rather than locking the operator out", async () => {
+    const sloppy = "https://trailing.cloudflareaccess.com";
+    const keys = await makeKeys("url-2");
+    fetchedUrls.length = 0;
+    stubJwks([keys.jwk]);
+    // The token's iss has no trailing slash — the secret does.
+    const token = await mintToken(keys, sloppy);
+    const operator = await verifyOperator(
+      requestWithHeader(token),
+      envFor(sloppy, { TEAM_DOMAIN: `${sloppy}/` } as Partial<Env>)
+    );
+
+    expect(operator).not.toBeNull();
+    expect(fetchedUrls[0]).toBe(`${sloppy}/cdn-cgi/access/certs`);
+  });
+
+  it("tolerates whitespace around OPERATOR_EMAIL", async () => {
+    const team = "https://ws.cloudflareaccess.com";
+    const keys = await makeKeys("url-3");
+    stubJwks([keys.jwk]);
+    const token = await mintToken(keys, team);
+    const operator = await verifyOperator(
+      requestWithHeader(token),
+      envFor(team, { OPERATOR_EMAIL: `  ${OPERATOR}\n` } as Partial<Env>)
+    );
+    expect(operator).not.toBeNull();
+  });
+});
+
+describe("verifyOperator — CSRF: cookies never authorize a mutation", () => {
+  const TEAM = "https://csrf.cloudflareaccess.com";
+  let keys: Keys;
+
+  beforeAll(async () => {
+    keys = await makeKeys("csrf-1");
+  });
+  beforeEach(() => stubJwks([keys.jwk]));
+
+  it.each(["POST", "PUT", "PATCH", "DELETE"])(
+    "rejects a cookie-only %s — the browser attaches it cross-site",
+    async (method) => {
+      const token = await mintToken(keys, TEAM);
+      const req = new Request("https://pml.example.com/api/admin/approve", {
+        method,
+        headers: { cookie: `CF_Authorization=${token}` }
+      });
+      expect(await verifyOperator(req, envFor(TEAM))).toBeNull();
+    }
+  );
+
+  it("accepts the same mutation when the token arrives as a header", async () => {
+    const token = await mintToken(keys, TEAM);
+    const req = new Request("https://pml.example.com/api/admin/approve", {
+      method: "POST",
+      headers: { "cf-access-jwt-assertion": token }
+    });
+    expect(await verifyOperator(req, envFor(TEAM))).not.toBeNull();
+  });
+
+  it("still accepts a cookie for a safe GET", async () => {
+    const token = await mintToken(keys, TEAM);
+    expect(
+      await verifyOperator(requestWithCookie(token), envFor(TEAM))
+    ).not.toBeNull();
+  });
+});
+
+describe("verifyOperator — cookie shadowing", () => {
+  const TEAM = "https://shadow.cloudflareaccess.com";
+  let keys: Keys;
+
+  beforeAll(async () => {
+    keys = await makeKeys("shadow-1");
+  });
+  beforeEach(() => stubJwks([keys.jwk]));
+
+  it("finds a valid cookie sitting behind an empty shadowing one", async () => {
+    // Anything able to set a cookie on a parent domain could otherwise lock
+    // the sole operator out permanently.
+    const token = await mintToken(keys, TEAM);
+    const req = new Request("https://pml.example.com/api/admin/ping", {
+      headers: { cookie: `CF_Authorization=; CF_Authorization=${token}` }
+    });
+    expect(await verifyOperator(req, envFor(TEAM))).not.toBeNull();
+  });
+
+  it("finds a valid cookie behind a garbage shadowing one", async () => {
+    const token = await mintToken(keys, TEAM);
+    const req = new Request("https://pml.example.com/api/admin/ping", {
+      headers: {
+        cookie: `CF_Authorization=not-a-jwt; CF_Authorization=${token}`
+      }
+    });
+    expect(await verifyOperator(req, envFor(TEAM))).not.toBeNull();
+  });
+});
+
 describe("verifyOperator — dev bypass gating (AC7)", () => {
   const TEAM = "https://bypass.cloudflareaccess.com";
 
@@ -319,6 +442,27 @@ describe("verifyOperator — dev bypass gating (AC7)", () => {
     const operator = await verifyOperator(bare, env);
     expect(operator).toEqual({ email: OPERATOR, displayName: "Patrick" });
   });
+
+  it.each([
+    "https://pml.example.com/api/admin/ping",
+    "https://abc.trycloudflare.com/api/admin/ping",
+    "https://pml.someone.workers.dev/api/admin/ping"
+  ])("does not bypass for the non-loopback host %s", async (url) => {
+    // `wrangler dev --tunnel-name=...` loads .dev.vars AND publishes the dev
+    // server publicly. Without this gate that combination hands full operator
+    // rights to any caller.
+    const env = envFor(TEAM, { ACCESS_DEV_BYPASS: "true" } as Partial<Env>);
+    expect(await verifyOperator(new Request(url), env)).toBeNull();
+  });
+
+  it.each(["127.0.0.1", "[::1]"])(
+    "bypasses on loopback host %s",
+    async (host) => {
+      const env = envFor(TEAM, { ACCESS_DEV_BYPASS: "true" } as Partial<Env>);
+      const req = new Request(`http://${host}:5173/api/admin/ping`);
+      expect(await verifyOperator(req, env)).not.toBeNull();
+    }
+  );
 
   it.each(["false", "1", "TRUE", "yes", ""])(
     "does not bypass when ACCESS_DEV_BYPASS is %o",

@@ -1,3 +1,13 @@
+## Deferred from: code review of 1-4-admin-access-protection.md (2026-08-10)
+
+- `/agents/*` and `ChatAgent`'s `@callable() addServer` remain fully unauthenticated — an anonymous caller can attach an attacker-controlled MCP server and drive `env.AI`. Already ledgered under 1.1; 1.4 deliberately did not touch `server.ts`'s agent routing. Owned by Story 1.5 deploy hardening.
+- `workers_dev` and `preview_urls` are not disabled in `wrangler.jsonc`, so every deploy mints the exact public hostnames that `access.ts`'s own comments name as the reason JWT verification exists. Story 1.5 should set both false or cover them with Access.
+- AC6 (no Access config in the client bundle) rests on a one-time manual `grep` of `dist/` recorded in the Completion Notes — no committed test or CI step pins it. Needs the pipeline from Story 1.5.
+- No revocation awareness: a leaked Access JWT stays valid until `exp` even after the identity is removed in Zero Trust. Inherent to stateless verification; the runbook should document rotating `OPERATOR_EMAIL` as the break-glass step.
+- Unauthenticated callers can trigger outbound JWKS fetches by spraying tokens with unknown `kid` values. Mitigated by jose's built-in fetch cooldown; revisit if a rate-limiting binding lands.
+- `access.ts` sits in `src/shared/lib/`, which client surfaces already import from (`surface.ts`). Nothing structurally prevents a future surface importing `verifyOperator` and pulling `jose` plus the auth logic into the browser bundle. Wants a lint boundary rule.
+- `src/access-env.d.ts` relies on being a global script for its `interface Env` declaration merge; one stray `import` turns it into a module and silently breaks the merge.
+
 ## Deferred from: code review of 1-3-dual-site-shells-trust-chrome.md (2026-08-10)
 
 - `oxfmt --check .` fails repo-wide (including files this story never touched, e.g. `README.md`, `package.json`) because `core.autocrlf=true` checks the repo out as CRLF on Windows and there is no `.gitattributes` pinning LF — pre-existing since before Story 1.1; fix with a repo-root `.gitattributes` (`* text=auto eol=lf` or similar).

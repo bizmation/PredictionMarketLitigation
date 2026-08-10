@@ -11,7 +11,11 @@ import {
 } from "ai";
 import { z } from "zod";
 
-import { isAdminApiPath, requireOperator } from "./shared/lib/adminGuard";
+import {
+  ADMIN_CACHE_HEADERS,
+  isAdminApiPath,
+  requireOperator
+} from "./shared/lib/adminGuard";
 
 export class ChatAgent extends AIChatAgent<Env> {
   maxPersistedMessages = 100;
@@ -223,7 +227,10 @@ export default {
       // 3.12 the loop controls, 4.6 feedback moderation. Reaching here means
       // the caller IS the operator and simply asked for something that does
       // not exist. The guard above is what this placeholder exists to prove.
-      return new Response("Not found", { status: 404 });
+      return new Response("Not found", {
+        status: 404,
+        headers: ADMIN_CACHE_HEADERS
+      });
     }
 
     return (

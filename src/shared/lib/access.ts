@@ -40,6 +40,12 @@ export type Operator = {
 
 const DEFAULT_DISPLAY_NAME = "Patrick";
 
+/** Access signs with RS256. Pinning it stops the token header choosing. */
+const ALLOWED_ALGORITHMS = ["RS256"];
+
+/** The only hosts where the dev bypass may fire. See verifyOperator. */
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+
 /**
  * One remote key set per team domain, cached for the isolate's lifetime.
  *
@@ -62,23 +68,57 @@ function jwksFor(teamDomain: string) {
 }
 
 /**
- * Header first, cookie second. The header is present for every client type;
- * the cookie only for browsers.
+ * Secrets arrive as free text from `wrangler secret put`, where a trailing
+ * slash or a stray newline is invisible and permanent. `TEAM_DOMAIN` is used
+ * both to build the JWKS URL and as the expected `iss`, so one trailing slash
+ * would produce a double-slashed URL AND an issuer that can never match —
+ * locking the operator out with a 403 that deliberately explains nothing.
  */
-function readToken(request: Request): string | null {
+function normalizeDomain(value: string | undefined): string | undefined {
+  const trimmed = value?.trim().replace(/\/+$/, "");
+  return trimmed || undefined;
+}
+
+function normalizeText(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed || undefined;
+}
+
+/**
+ * Every candidate token on the request, most authoritative first.
+ *
+ * The header is present for all client types and cannot be set cross-site by a
+ * browser, so it is the only source accepted for state-changing methods. The
+ * `CF_Authorization` cookie IS attached automatically by the browser, which
+ * makes it a CSRF vector: without this restriction a third-party page could
+ * auto-submit a form to /api/admin/... and ride the operator's live session to
+ * approve a draft they never saw. Cookies are therefore read for safe methods
+ * only — enough to render admin chrome, never enough to act.
+ *
+ * All matching cookies are returned rather than just the first, because
+ * anything able to set a cookie on a parent domain could otherwise shadow the
+ * real one with an empty value and lock the operator out permanently.
+ */
+function readTokens(request: Request): string[] {
   const header = request.headers.get("cf-access-jwt-assertion");
-  if (header) return header;
+  if (header) return [header];
+
+  const method = request.method.toUpperCase();
+  if (method !== "GET" && method !== "HEAD") return [];
 
   const cookie = request.headers.get("cookie");
-  if (!cookie) return null;
+  if (!cookie) return [];
 
+  const tokens: string[] = [];
   for (const part of cookie.split(";")) {
-    const [name, ...rest] = part.trim().split("=");
-    if (name === "CF_Authorization" && rest.length > 0) {
-      return rest.join("=") || null;
-    }
+    const trimmed = part.trim();
+    const eq = trimmed.indexOf("=");
+    if (eq < 0) continue;
+    if (trimmed.slice(0, eq) !== "CF_Authorization") continue;
+    const value = trimmed.slice(eq + 1).trim();
+    if (value) tokens.push(value);
   }
-  return null;
+  return tokens;
 }
 
 /**
@@ -92,43 +132,55 @@ export async function verifyOperator(
   request: Request,
   env: Env
 ): Promise<Operator | null> {
-  const displayName = env.OPERATOR_DISPLAY_NAME || DEFAULT_DISPLAY_NAME;
+  const displayName =
+    normalizeText(env.OPERATOR_DISPLAY_NAME) ?? DEFAULT_DISPLAY_NAME;
+  const operatorEmail = normalizeText(env.OPERATOR_EMAIL);
 
-  // Local development escape hatch. Gated on an exact string match against a
-  // var that lives in .dev.vars (gitignored, read only by `wrangler dev`) and
-  // is therefore absent from every deployed environment by construction.
-  // If this ever evaluates true in production, /api/admin/* is wide open.
+  // Local development escape hatch, doubly gated.
+  //
+  // The var lives in .dev.vars (gitignored, read only by `wrangler dev`), so
+  // it is absent from deployed environments. That alone is not enough: a
+  // `wrangler dev --tunnel-name=...` session loads .dev.vars AND publishes the
+  // dev server on a public hostname, which would hand full operator rights to
+  // any caller. So the request must ALSO arrive on a loopback host.
   if (env.ACCESS_DEV_BYPASS === "true") {
-    return { email: env.OPERATOR_EMAIL || "dev@localhost", displayName };
+    const { hostname } = new URL(request.url);
+    if (LOCAL_HOSTS.has(hostname)) {
+      return { email: operatorEmail ?? "dev@localhost", displayName };
+    }
   }
 
   // Fail closed on missing configuration rather than verifying against
   // undefined and letting jose decide what that means.
-  const teamDomain = env.TEAM_DOMAIN;
-  const policyAud = env.POLICY_AUD;
-  const operatorEmail = env.OPERATOR_EMAIL;
+  const teamDomain = normalizeDomain(env.TEAM_DOMAIN);
+  const policyAud = normalizeText(env.POLICY_AUD);
   if (!teamDomain || !policyAud || !operatorEmail) return null;
 
-  const token = readToken(request);
-  if (!token) return null;
+  const jwks = jwksFor(teamDomain);
 
-  try {
-    const { payload } = await jwtVerify(token, jwksFor(teamDomain), {
-      issuer: teamDomain,
-      // Mandatory. The AUD tag is per-application, so without it a token
-      // minted for any other Access app on this account would pass on
-      // signature and issuer alone.
-      audience: policyAud
-    });
+  for (const token of readTokens(request)) {
+    try {
+      const { payload } = await jwtVerify(token, jwks, {
+        issuer: teamDomain,
+        // Mandatory. The AUD tag is per-application, so without it a token
+        // minted for any other Access app on this account would pass on
+        // signature and issuer alone.
+        audience: policyAud,
+        // Without this the token's own header picks the algorithm from
+        // whatever the JWK permits.
+        algorithms: ALLOWED_ALGORITHMS
+      });
 
-    const email = payload.email;
-    if (typeof email !== "string" || email.length === 0) return null;
-    if (email.toLowerCase() !== operatorEmail.toLowerCase()) return null;
+      const email = payload.email;
+      if (typeof email !== "string" || email.length === 0) continue;
+      if (email.toLowerCase() !== operatorEmail.toLowerCase()) continue;
 
-    return { email, displayName };
-  } catch {
-    // Expired, wrong aud/iss, bad signature, unknown kid, malformed token,
-    // JWKS unreachable — all the same answer to the caller.
-    return null;
+      return { email, displayName };
+    } catch {
+      // Expired, wrong aud/iss, bad signature, unknown kid, malformed token,
+      // JWKS unreachable — try the next candidate, then give up.
+    }
   }
+
+  return null;
 }

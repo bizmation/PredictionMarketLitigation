@@ -22,10 +22,10 @@ type AdminBarProps = {
    */
   operator?: { displayName: string };
   /** Status note, e.g. that edge protection is still pending. */
-  note?: ReactNode;
+  sessionNote?: ReactNode;
 };
 
-export function AdminBar({ operator, note }: AdminBarProps) {
+export function AdminBar({ operator, sessionNote }: AdminBarProps) {
   return (
     <div className="adminbar">
       <div className="wrap">
@@ -34,7 +34,7 @@ export function AdminBar({ operator, note }: AdminBarProps) {
           Actions taken here are published on ops. within seconds, including
           rejections.
         </span>
-        {note}
+        {sessionNote}
         <span className="who">
           {/* 6px status dot — decorative, per the handoff's bare <i>. */}
           <i aria-hidden="true" />
