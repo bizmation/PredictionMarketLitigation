@@ -83,6 +83,23 @@ So that every surface shares the editorial look and load-bearing trust UI (prove
   - [x] Update Dev Agent Record + File List; set status `review`
   - [x] Commit `story 1.2: classical tokens + PML trust component layer` (single commit; do not push)
 
+### Review Findings
+
+- [ ] [Review][Decision] PostureSwatch `showLabel={false}` vs UX-DR2 — Escape hatch renders fill-only (`aria-hidden`) with no paired label, conflicting with Task 5 / UX-DR2 “never fill alone.” Documented for future map regions, but no call site yet and nothing requires a parent accessible name. Choose: remove the prop, or keep it only with an explicit accessible-name contract.
+- [ ] [Review][Decision] `.badge.restricted` hatch missing vs UX-DR3 — README / Design System / StatusBadge comment promise a fine diagonal hatch; handoff `pml.css` (ported verbatim) only sets flat amber fills. Choose: add hatch (deviate from verbatim CSS), or keep the port and treat hatch as a handoff defect to fix later.
+- [ ] [Review][Decision] Classical `.input:focus-visible` uses `outline-offset: 0` — Conflicts with AC4 / NFR5’s required 2px accent offset. The override is in the Classical sheet Task 2 said to copy verbatim. Choose: override to 2px, or keep Classical fidelity and narrow NFR5’s scope for `.input`.
+- [ ] [Review][Patch] `formatEtDate*` accepts invalid / non-UTC ISO and can throw or show the wrong ET [`src/shared/lib/dates.ts:33`]
+- [ ] [Review][Patch] WarnChip allows explicit `null`/empty `children` to blank the legal disclaimer [`src/shared/ui/WarnChip.tsx:18`]
+- [ ] [Review][Patch] DesignSystemGallery is a static top-level import in `app.tsx` (prefer DEV-only dynamic import) [`src/app.tsx:7`]
+- [ ] [Review][Patch] StatusBadge comment claims restricted hatch that CSS does not implement [`src/shared/ui/StatusBadge.tsx:4`]
+- [ ] [Review][Patch] LastUpdated should use `<time datetime={at}>` for the ISO instant [`src/shared/ui/LastUpdated.tsx:20`]
+- [ ] [Review][Patch] Add EST + `formatEtDate` coverage; completion notes claimed both halves of the year [`src/shared/ui/trustComponents.test.tsx:170`]
+- [ ] [Review][Patch] Story File List claims `package.json` and `sprint-status.yaml` were in this commit; they are not in `edeaf16` [`_bmad-output/implementation-artifacts/1-2-design-tokens-core-trust-components.md:285`]
+- [x] [Review][Defer] EmptyState does not guard empty/whitespace `title` [`src/shared/ui/EmptyState.tsx:30`] — deferred, pre-existing
+- [x] [Review][Defer] NotLiveDraftBanner has no `role="status"` / live-region semantics [`src/shared/ui/NotLiveDraftBanner.tsx:30`] — deferred, pre-existing
+- [x] [Review][Defer] Google Fonts third-party load with no self-hosted fallback [`index.html`] — deferred, pre-existing
+- [x] [Review][Defer] RunStatusChip reader labels mostly untested beyond empty → “no material change” [`src/shared/ui/trustComponents.test.tsx:104`] — deferred, pre-existing
+
 ## Dev Notes
 
 ### Read these files before writing code (they ARE the spec)

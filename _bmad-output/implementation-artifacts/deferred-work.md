@@ -1,3 +1,10 @@
+## Deferred from: code review of 1-2-design-tokens-core-trust-components.md (2026-08-10)
+
+- EmptyState does not guard empty/whitespace `title` — presentational primitive; callers own copy until a real empty-state surface lands.
+- NotLiveDraftBanner has no `role="status"` / live-region semantics — a11y enhancement beyond Story 1.2 ACs; revisit with admin/ops draft surfaces.
+- Google Fonts third-party load with no self-hosted fallback — already an Open Question for Patrick; decide before Story 1.5 custom domain.
+- RunStatusChip reader labels mostly untested beyond empty → “no material change” — Task 8 only required class/enum contract; deepen when Run log UI ships.
+
 ## Deferred from: code review of 1-1-scaffold-cloudflare-agents-starter.md (2026-08-09)
 
 - ~~Unauthenticated starter agent surface (chat + Workers AI + `@callable` MCP add/remove with no auth/allowlist)~~ — **partially retired 2026-08-10 (Story 1.3):** the client chat UI is gone, so the surface is no longer reachable from the app. The `ChatAgent` Durable Object and its `/agents/*` route still exist in `src/server.ts` and remain **unauthenticated** — still owned by Stories 1.4 (Access) and 1.5 (deploy hardening). Do not treat the scaffold demo agent as production-safe.
