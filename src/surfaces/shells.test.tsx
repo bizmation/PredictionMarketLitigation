@@ -108,10 +108,48 @@ describe("AdminShell", () => {
     expect(html).toContain('id="mode"');
   });
 
-  it("states plainly that Access is not yet wired (Story 1.4)", () => {
-    // Honest chrome: an unprotected admin surface must say so, not imply
-    // protection it does not have.
-    expect(admin().toLowerCase()).toContain("not protected");
+  it("renders the operator session strip (story 1.4)", () => {
+    const html = admin();
+    expect(html).toContain('class="adminbar"');
+    expect(html).toContain("Private · operator only");
+    expect(html).toContain(
+      "Actions taken here are published on ops. within seconds, including rejections."
+    );
+    expect(html).toContain('class="who"');
+  });
+
+  it("shows the public-safe display name, never an email", () => {
+    const html = renderToStaticMarkup(
+      <AdminShell operator={{ displayName: "Patrick" }} />
+    );
+    expect(html).toContain("Patrick — operator identity");
+    // Story 3.13 renders mode-change audits publicly on ops. using this same
+    // name. An email must never be the thing that gets published.
+    expect(html).not.toContain("@");
+  });
+
+  it("invents no session duration when there is no session to measure", () => {
+    // The handoff shows "· session 41m". There is no source for that number
+    // until Access issues real sessions (story 1.5), and a fabricated receipt
+    // on a provenance project is worse than an absent one.
+    expect(admin()).not.toMatch(/session \d/);
+  });
+
+  it("offers no sign-out control", () => {
+    // Not in the handoff, and Access owns session lifecycle — a button that
+    // did nothing would be a lie about who controls the session.
+    const html = admin().toLowerCase();
+    expect(html).not.toContain("sign out");
+    expect(html).not.toContain("log out");
+    expect(html).not.toContain("logout");
+  });
+
+  it("states plainly that edge protection is still pending (story 1.5)", () => {
+    // Honest chrome: the API perimeter is live, but Cloudflare Access is not
+    // in front of the edge yet. Claim exactly that much and no more.
+    expect(admin().toLowerCase()).toContain(
+      "access binding lands in story 1.5"
+    );
   });
 });
 

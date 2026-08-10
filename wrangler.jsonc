@@ -29,7 +29,18 @@
   "assets": {
     "directory": "./public",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/agents/*", "/oauth/*"]
+    // `/api/admin/*` MUST run the Worker first (story 1.4). The compat flag
+    // assets_navigation_prefers_asset_serving is default-on for compatibility
+    // dates >= 2025-04-01, so asset-eligible requests can otherwise skip the
+    // Worker entirely — and a skipped Worker is a skipped auth check.
+    // Cloudflare documents run_worker_first as required when "performing any
+    // authentication checks ... before serving static assets".
+    //
+    // `/admin` is deliberately NOT listed: it is the SPA document, it leaks
+    // nothing (every band is an empty placeholder), and routing it through the
+    // Worker before Access exists at the edge would buy nothing. Story 1.5
+    // revisits this when the Zero Trust application is bound.
+    "run_worker_first": ["/agents/*", "/oauth/*", "/api/admin/*"]
   },
   "durable_objects": {
     "bindings": [

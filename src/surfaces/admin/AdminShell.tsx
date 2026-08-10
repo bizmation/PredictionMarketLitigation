@@ -1,5 +1,6 @@
 import { surfaceHref } from "../../shared/lib/surface";
 import {
+  AdminBar,
   EmptyState,
   SectionBand,
   SiteFooter,
@@ -13,19 +14,32 @@ import {
  * Admin — the operator's approval gate. Deliberately lighter than the public
  * surfaces: the public observes outcomes, only the operator acts.
  *
- * NOT PROTECTED YET. Cloudflare Access lands in Story 1.4. Until then this
- * route is reachable by anyone who knows the path, and the chrome says so out
- * loud — an unprotected surface that looks protected is worse than one that
- * admits it. There is nothing sensitive to leak yet: every band below is an
- * empty placeholder, and no mutating API exists.
+ * PARTIALLY PROTECTED. Story 1.4 put a verified perimeter around
+ * `/api/admin/*`: every request there must carry a Cloudflare Access JWT whose
+ * signature and audience check out AND whose email matches the configured
+ * operator, or it gets a 403.
+ *
+ * This document is NOT behind Access yet. A path-scoped Access application
+ * needs an active zone, and no custom domain is bound until Story 1.5 — so
+ * this route still renders for anyone who knows the path. That is tolerable
+ * precisely because it leaks nothing: every band below is an empty
+ * placeholder and no admin API exists to call. The chrome says exactly this
+ * much, because a surface that overstates its own protection is worse than
+ * one that admits the gap.
  */
 
 type AdminShellProps = {
   /** True in local development — routes cross-surface links via ?surface=. */
   dev?: boolean;
+  /**
+   * The authenticated operator, once a real Access session exists (Story 1.5).
+   * Until then the shell renders client-side with nothing to verify against,
+   * so the session strip honestly reads "Not signed in".
+   */
+  operator?: { displayName: string };
 };
 
-export function AdminShell({ dev = false }: AdminShellProps) {
+export function AdminShell({ dev = false, operator }: AdminShellProps) {
   const apexHref = surfaceHref("apex", { dev });
   const opsHref = surfaceHref("ops", { dev });
 
@@ -38,6 +52,8 @@ export function AdminShell({ dev = false }: AdminShellProps) {
 
   return (
     <div>
+      <AdminBar operator={operator} />
+
       <TopBar
         brand={
           <>
@@ -48,8 +64,8 @@ export function AdminShell({ dev = false }: AdminShellProps) {
       />
 
       <TrustBar
-        warn={<WarnChip>Not protected — Access lands in Story 1.4</WarnChip>}
-        message="Gate: human-in-the-loop · autonomous mode off"
+        warn={<WarnChip>Gate: HITL · autonomous OFF</WarnChip>}
+        message="Admin APIs are verified; edge Access binding lands in Story 1.5"
         meta="Queue not yet wired"
         provenance={
           // Handoff PML Admin.html:99 — static placeholder, no data until 3.x.

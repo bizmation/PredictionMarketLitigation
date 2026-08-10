@@ -1,0 +1,134 @@
+# Cloudflare Access runbook
+
+How operator authentication works in PML, and what Story 1.5 must do to finish binding it.
+
+Story 1.4 shipped the Worker-side half. The Zero Trust half is deliberately not done yet — see [Why this is split](#why-this-is-split).
+
+---
+
+## Decision: the identity provider is Cloudflare's own IdP
+
+**Chosen 2026-08-10.** Cloudflare shipped a first-party identity provider and made it the default for new Zero Trust organizations on 2026-06-18. For a single solo operator it wins on every axis that matters here:
+
+| | Cloudflare IdP | One-time PIN | GitHub | Google |
+|---|---|---|---|---|
+| Setup steps | 0 — present by default | ~3 | ~8 (OAuth App) | ~14 (GCP project) |
+| External account needed | none | none | GitHub | Google Cloud |
+| Secret to rotate | none | none | client secret | client secret |
+| MFA | inherited from the Cloudflare account | none (email possession only) | via GitHub | via Google |
+
+Policy is a single selector: **Cloudflare Account Member → this account**.
+
+> `architecture.md:627` lists the options as "Google vs GitHub vs one-time PIN". That list predates Cloudflare's own IdP and is **stale** — it is not a constraint, and no artifact had recorded a decision until this one.
+
+One-time PIN is worth adding later as a **break-glass** second method in case of Cloudflare account lockout (~3 clicks). It is no longer added automatically to new organizations. Not done in 1.4.
+
+---
+
+## Why this is split
+
+A path-scoped Access application requires **an active zone in your Cloudflare account**. The Zero Trust UI's Domain field is a dropdown limited to zones you own; an arbitrary `*.workers.dev` hostname cannot be entered.
+
+The one-click Access toggle that *does* work on `workers.dev` (Workers & Pages → your Worker → Settings → Domains & Routes → Enable Cloudflare Access) protects the **entire hostname**, with no path scoping. Turning it on today would gate apex and `ops.` too — violating the requirement that public routes stay reachable without login.
+
+Custom domains are bound in Story 1.5. So:
+
+- **Story 1.4 (done):** Worker-side JWT verification, operator allowlist, `/api/admin/*` guard, session chrome, dev bypass, offline tests.
+- **Story 1.5 (to do):** everything in [The 1.5 checklist](#the-15-checklist).
+
+---
+
+## How verification works today
+
+`src/shared/lib/access.ts` → `verifyOperator(request, env)` returns an `Operator` or `null`.
+
+1. If `env.ACCESS_DEV_BYPASS === "true"` → stub operator (local only; see [Local development](#local-development)).
+2. Read the token: header `Cf-Access-Jwt-Assertion`, falling back to the `CF_Authorization` cookie. The header covers non-browser clients too.
+3. `jwtVerify` against `${TEAM_DOMAIN}/cdn-cgi/access/certs`, pinned to `issuer: TEAM_DOMAIN` **and** `audience: POLICY_AUD`.
+4. Compare the `email` claim to `OPERATOR_EMAIL`, case-insensitively.
+5. Any failure → `null`. Nothing throws.
+
+`src/shared/lib/adminGuard.ts` → `requireOperator` turns `null` into `403 { code: "forbidden", message }`. No `details`, no reason. "No token" and "wrong identity" are indistinguishable from outside on purpose.
+
+### Why the Worker verifies at all, when Access is an edge product
+
+**Access only covers hostnames an Access application names.** After 1.5 binds `predictionmarketlitigation.com`, this Worker is *still* reachable at its `workers.dev` hostname and at every preview URL. A request arriving there can set `Cf-Access-Jwt-Assertion` to any value it likes. Cloudflare documents this failure mode directly for the analogous case: a hostname that does not pass through the zone "keeps answering unauthenticated requests and defeats the policy."
+
+Signature + audience verification is what turns that from a breach into a 403. **Do not simplify this module into a header read.**
+
+`audience` in particular is not optional — the AUD tag is per-application, so without it a token minted for *any other* Access app on the same Cloudflare account would pass on signature and issuer alone.
+
+### Two questions, deliberately separate
+
+- *Is this token real?* → cryptographic verification
+- *Is this token Patrick's?* → the `OPERATOR_EMAIL` allowlist
+
+Story 3.13 requires that non-operator identities cannot change gate mode, so "authenticated" alone is insufficient. Both must pass.
+
+---
+
+## Configuration
+
+| Name | Kind | Where | Notes |
+|---|---|---|---|
+| `TEAM_DOMAIN` | secret | Wrangler secret | `https://<team-name>.cloudflareaccess.com` |
+| `POLICY_AUD` | secret | Wrangler secret | Access application AUD tag — **different per environment** |
+| `OPERATOR_EMAIL` | secret | Wrangler secret | the single authorized identity |
+| `OPERATOR_DISPLAY_NAME` | config | `.dev.vars` / secret | public-safe name; defaults to `Patrick` |
+| `ACCESS_DEV_BYPASS` | dev only | `.dev.vars` **only** | exactly `"true"` enables the bypass |
+
+Types are declared in `src/access-env.d.ts` — hand-authored, because `env.d.ts` is generated by `wrangler types` and overwritten wholesale.
+
+**`ACCESS_DEV_BYPASS` is deliberately absent from `wrangler.jsonc`.** `.dev.vars` is gitignored (`.dev.vars*`) and read only by `wrangler dev` — never bundled, never deployed. Keeping it out of Wrangler config is what makes it *structurally impossible* to ship enabled, rather than merely unlikely. Do not "tidy" it into `wrangler.jsonc` vars: with no `env` blocks defined yet, a plain `wrangler deploy` would carry it straight to production.
+
+---
+
+## Local development
+
+`npm run dev` picks up `.dev.vars` automatically. With the bypass on, `/api/admin/*` is open and `verifyOperator` returns a stub operator.
+
+To exercise the **real** verification path locally, either set `ACCESS_DEV_BYPASS` to anything other than `"true"`, or use a named tunnel:
+
+- Press `t + Enter` in `vite dev` (built-in tunnel support landed 2026-05-18), or `wrangler dev --tunnel-name=<name>`.
+- Use a **named** tunnel, not a quick one: quick tunnels are public, and Cloudflare's docs warn specifically about exposing "ungated preview or admin endpoints".
+- A named tunnel needs a zone — so this option only becomes available after 1.5.
+
+Service tokens (`CF-Access-Client-Id` / `CF-Access-Client-Secret`) are for **CI against a deployed environment**, not localhost — they are validated at the edge, and localhost has no edge in front of it. They do not consume Zero Trust seats.
+
+---
+
+## The 1.5 checklist
+
+1. **Bind the custom domains first** — `predictionmarketlitigation.com` and `ops.` — so a zone exists.
+2. **Create a self-hosted Access application** with destinations:
+   - `predictionmarketlitigation.com/admin`
+   - `predictionmarketlitigation.com/admin/*`
+   - `predictionmarketlitigation.com/api/admin/*`
+   > A wildcard `/admin/*` does **not** match the bare `/admin` path. Both entries are required or the bare route falls through unprotected.
+3. **Add the policy:** Allow → Cloudflare Account Member → this account. An application with **no** policy denies everything.
+4. **Copy the AUD tag** (Application → Configure → Additional settings → *Application Audience (AUD) Tag*) into `POLICY_AUD` for that environment.
+5. **Set the secrets** per environment via `wrangler secret put`. Staging and production have **different Access applications and therefore different AUD tags** — do not reuse one value.
+6. **Cover the residual doors.** Enable Access on the `workers.dev` hostname and on preview URLs too, or `/api/admin/*` stays reachable there. The Worker-side verification is the backstop; belt and braces is the point.
+7. **Verify the public surfaces are untouched** — `/`, `ops.`, and `POST /api/poll/votes` must all answer without login. There are tests for this (`src/server.test.ts`, "public routes stay public"), but confirm in a browser too.
+8. **Reconsider `/admin` in `run_worker_first`.** It is currently omitted on purpose (the document leaks nothing and there was no Access to enforce). Once Access is bound, decide whether the Worker should render server-side session chrome for that route.
+
+### Gotchas worth knowing before you start
+
+- **A payment method is required at Zero Trust onboarding even on the Free plan.** You will not be charged. Easy to trip over mid-setup.
+- **Choose the team name before configuring anything** — every callback URL embeds `<team-name>.cloudflareaccess.com`.
+- **Free tier covers 50 users**; one operator is 1 of 50. Service tokens and Bypass policies do not consume seats.
+- **`path_cookie_attribute`** scopes the JWT cookie to the app path rather than the whole hostname — worth setting so the admin cookie is not sent on public apex requests.
+- **Expired sessions return a 302 to the login page, not a 401**, for XHR. If that becomes a problem for admin fetches, Access's **Managed OAuth** option returns `401` + `WWW-Authenticate` for non-browser clients instead.
+- **`self_hosted_domains` is deprecated** in the API in favour of `destinations`. Use `destinations` in any scripted setup.
+
+---
+
+## References
+
+- [Validating the Access JWT](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/)
+- [Application token claims](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/application-token/)
+- [Application paths](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/app-paths/)
+- [Self-hosted application prerequisites](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/self-hosted-public-app/)
+- [Cloudflare identity provider](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/cloudflare/)
+- [Local dev tunnels](https://developers.cloudflare.com/workers/local-development/local-dev-tunnels/)
+- [Static assets: SPA routing](https://developers.cloudflare.com/workers/static-assets/routing/single-page-application/)

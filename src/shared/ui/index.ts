@@ -8,6 +8,7 @@
  * once from src/styles.css.
  */
 
+export { AdminBar } from "./AdminBar";
 export { EmptyState } from "./EmptyState";
 export { LastUpdated } from "./LastUpdated";
 export { SectionBand } from "./SectionBand";

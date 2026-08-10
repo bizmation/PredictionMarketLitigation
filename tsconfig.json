@@ -3,6 +3,11 @@
   "compilerOptions": {
     // Runtime types come from `wrangler types` (env.d.ts), not the
     // @cloudflare/workers-types package.
-    "types": ["node", "vite/client"]
+    // @cloudflare/vitest-pool-workers/types declares the test-only modules
+    // used by the workers Vitest project. Note the `/types` subpath: the
+    // package root resolves to the pool's own API, not these declarations.
+    // It must be listed explicitly because a "types" array opts out of
+    // automatic @types discovery entirely.
+    "types": ["node", "vite/client", "@cloudflare/vitest-pool-workers/types"]
   }
 }

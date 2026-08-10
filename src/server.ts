@@ -11,6 +11,8 @@ import {
 } from "ai";
 import { z } from "zod";
 
+import { isAdminApiPath, requireOperator } from "./shared/lib/adminGuard";
+
 export class ChatAgent extends AIChatAgent<Env> {
   maxPersistedMessages = 100;
   chatRecovery = true;
@@ -206,6 +208,24 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
 
 export default {
   async fetch(request: Request, env: Env) {
+    // Story 1.4 — the admin perimeter runs before anything else routes.
+    //
+    // Cloudflare Access will sit in front of this at the edge from story 1.5,
+    // but the edge is not the only door: this Worker stays reachable at its
+    // workers.dev hostname and at preview URLs, where the Access header is
+    // forgeable. requireOperator verifies the JWT signature and audience, so
+    // those doors answer 403 rather than serving the operator's surface.
+    if (isAdminApiPath(new URL(request.url).pathname)) {
+      const gate = await requireOperator(request, env);
+      if (gate instanceof Response) return gate;
+
+      // No admin handlers exist yet — story 3.10 brings the approval queue,
+      // 3.12 the loop controls, 4.6 feedback moderation. Reaching here means
+      // the caller IS the operator and simply asked for something that does
+      // not exist. The guard above is what this placeholder exists to prove.
+      return new Response("Not found", { status: 404 });
+    }
+
     return (
       (await routeAgentRequest(request, env)) ||
       new Response("Not found", { status: 404 })

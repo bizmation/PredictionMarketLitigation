@@ -63,6 +63,41 @@ h4 {
 }
 
 /* ---- chrome ---------------------------------------------- */
+/* Admin-only operator strip. Ported verbatim from the handoff's inline
+   <style> block (PML Admin.html:13-20) — it was never in the handoff's shared
+   pml.css, which is why story 1.2's port did not pick it up. Dark ground on
+   purpose: the operator surface should not be mistakable for a public one. */
+.adminbar {
+  background: var(--color-neutral-900);
+  color: var(--color-neutral-200);
+}
+.adminbar .wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 6px var(--space-6);
+  font-size: 11.5px;
+  flex-wrap: wrap;
+}
+.adminbar strong {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-accent-300);
+}
+.adminbar .who {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.adminbar .who i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-accent-400);
+  display: inline-block;
+}
 .topbar {
   border-bottom: 1px solid var(--color-divider);
   background: var(--color-bg);

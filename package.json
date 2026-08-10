@@ -24,6 +24,7 @@
     "@cloudflare/ai-chat": "^0.9.3",
     "agents": "^0.17.4",
     "ai": "^6.0.197",
+    "jose": "^6.2.8",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "workers-ai-provider": "^3.2.1",
