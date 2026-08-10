@@ -43,6 +43,20 @@ work around this; add the credentials instead. The chat model is
 `npx vite build` all succeed offline. Use these for verification when no Cloudflare
 token is present.
 
+### Toolchain availability (BMAD / GitHub / Cloudflare)
+
+- **BMAD** — works out of the box, no install. All BMAD content is committed in-repo
+  (`.claude/skills/`, `.agents/skills/`, `_bmad/` config + modules). The BMAD helper
+  scripts under `_bmad/scripts/` (e.g. `resolve_config.py`, `resolve_customization.py`)
+  run on the system Python and use only stdlib. They require Python ≥ 3.11 for `tomllib`;
+  the VM has Python 3.12.3. Example: `python3 _bmad/scripts/resolve_config.py --project-root /workspace`
+  resolves the merged config (`core.project_name` → `PML`).
+- **GitHub** — `gh` (v2.91.0) is preinstalled in the VM and authenticated; git over HTTPS
+  works. Note: in this cloud context `gh` is read-only — use the PR tooling for PR writes.
+- **Cloudflare** — `wrangler` (v4.120.0) is a project devDependency installed by
+  `npm install`; run it via `npx wrangler`. It is **not authenticated** by default — see the
+  credentials note above (`CLOUDFLARE_API_TOKEN`) before `npm run dev` / `npm test` / deploy.
+
 ### Node version note
 
 The VM's Node is v22.14.0. Some transitive `@babel/*` dev deps print
