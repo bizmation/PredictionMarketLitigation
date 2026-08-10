@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@import "@cloudflare/kumo/styles/tailwind";
 /* PML design system: Classical tokens first, then the PML component layer
    that resolves them. Deliberately NOT wrapped in @layer and NOT restated
    via Tailwind's @theme — Tailwind emits everything inside @layer, so this
@@ -7,9 +6,6 @@
    we do not use. tokens.css stays the single source of truth. */
 @import "./shared/ui/tokens.css";
 @import "./shared/ui/pml.css";
-@source "../node_modules/@cloudflare/kumo/dist/**/*.{js,jsx,ts,tsx}";
-@source "../node_modules/streamdown/dist/*.js";
-@source "../node_modules/@streamdown/code/dist/*.js";
 
 html,
 body,

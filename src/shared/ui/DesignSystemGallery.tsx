@@ -1,7 +1,6 @@
-import type { ReactNode } from "react";
-
 import { formatEtDateTime } from "../lib/dates";
 import { EmptyState } from "./EmptyState";
+import { SectionBand } from "./SectionBand";
 import { LastUpdated } from "./LastUpdated";
 import { NotLiveDraftBanner } from "./NotLiveDraftBanner";
 import { OriginFlag, type RunOrigin } from "./OriginFlag";
@@ -36,35 +35,6 @@ const ORIGINS: RunOrigin[] = ["scheduled", "catch-up", "manual"];
 
 const SAMPLE_AT = "2026-08-09T10:12:00.000Z";
 
-function Band({
-  id,
-  index,
-  title,
-  why,
-  children
-}: {
-  id?: string;
-  index: string;
-  title: string;
-  why: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className="band" id={id}>
-      <div className="wrap">
-        <div className="sec-head">
-          <div>
-            <div className="kicker">{index}</div>
-            <h2>{title}</h2>
-          </div>
-          <p className="why">{why}</p>
-        </div>
-        {children}
-      </div>
-    </section>
-  );
-}
-
 export function DesignSystemGallery() {
   return (
     <div>
@@ -98,9 +68,9 @@ export function DesignSystemGallery() {
         </div>
       </div>
 
-      <Band
+      <SectionBand
         id="posture"
-        index="01"
+        kicker="01"
         title="Posture ramp"
         why="One axis, five steps — the darker the fill, the worse for platforms. Never carried by fill alone."
       >
@@ -122,11 +92,11 @@ export function DesignSystemGallery() {
             ))}
           </tbody>
         </table>
-      </Band>
+      </SectionBand>
 
-      <Band
+      <SectionBand
         id="status"
-        index="02"
+        kicker="02"
         title="Operational status"
         why="Outlined and muted, never a traffic light. Answers “is this platform legal here today?”"
       >
@@ -136,11 +106,11 @@ export function DesignSystemGallery() {
           ))}
           <UpdatedBadge />
         </div>
-      </Band>
+      </SectionBand>
 
-      <Band
+      <SectionBand
         id="provenance"
-        index="03"
+        kicker="03"
         title="Provenance"
         why="Who approved this claim, frozen at publish time. Agent approval reads provisional by design."
       >
@@ -150,11 +120,11 @@ export function DesignSystemGallery() {
           <ProvenanceLabel kind="agent" />
           <ProvenanceLabel kind="agent" detail="gate-v2.1" />
         </div>
-      </Band>
+      </SectionBand>
 
-      <Band
+      <SectionBand
         id="draft"
-        index="04"
+        kicker="04"
         title="Not live · awaiting approval"
         why="The load-bearing state: a pending draft must be impossible to mistake for published tracker content."
       >
@@ -177,11 +147,11 @@ export function DesignSystemGallery() {
             </p>
           </div>
         </NotLiveDraftBanner>
-      </Band>
+      </SectionBand>
 
-      <Band
+      <SectionBand
         id="runs"
-        index="05"
+        kicker="05"
         title="Run status + origin"
         why="All six outcomes are designed states. An empty or budget-stopped run is evidence, not a gap."
       >
@@ -209,11 +179,11 @@ export function DesignSystemGallery() {
             ))}
           </tbody>
         </table>
-      </Band>
+      </SectionBand>
 
-      <Band
+      <SectionBand
         id="empty"
-        index="06"
+        kicker="06"
         title="Empty states"
         why="A dashed frame, the reason, and what it means for the reader. Never an apology."
       >
@@ -241,11 +211,11 @@ export function DesignSystemGallery() {
             Nothing in this state has been reviewed.
           </EmptyState>
         </div>
-      </Band>
+      </SectionBand>
 
-      <Band
+      <SectionBand
         id="surfaces"
-        index="07"
+        kicker="07"
         title="Surfaces and controls"
         why="Stroke, not fill: cards are bordered and unfilled, buttons outlined. Tab through to check the focus ring."
       >
@@ -280,7 +250,7 @@ export function DesignSystemGallery() {
             <span className="num">1,204 · 38 · 06:12</span>
           </div>
         </div>
-      </Band>
+      </SectionBand>
 
       <footer className="foot">
         <div className="wrap">

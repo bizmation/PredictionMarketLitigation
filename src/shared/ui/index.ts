@@ -10,6 +10,10 @@
 
 export { EmptyState } from "./EmptyState";
 export { LastUpdated } from "./LastUpdated";
+export { SectionBand } from "./SectionBand";
+export { SiteFooter } from "./SiteFooter";
+export { TopBar, type TopBarLink } from "./TopBar";
+export { TrustBar } from "./TrustBar";
 export { NOT_LIVE_LABEL, NotLiveDraftBanner } from "./NotLiveDraftBanner";
 export { OriginFlag, type RunOrigin } from "./OriginFlag";
 export { POSTURE_LABELS, PostureSwatch, type Posture } from "./PostureSwatch";
