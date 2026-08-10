@@ -1,0 +1,38 @@
+# Line endings.
+#
+# oxfmt has no endOfLine option and always expects LF. Without this file,
+# core.autocrlf=true checks the tree out as CRLF on Windows and
+# `oxfmt --check .` fails on every file it reads — which is why `npm run check`
+# could not pass on Patrick's machine for the whole of Epic 1.
+#
+# `eol=lf` overrides core.autocrlf, so a Windows checkout gets LF in the
+# working tree, not just in the index.
+* text=auto eol=lf
+
+# Genuinely need CRLF to run on Windows.
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+
+# Never touched, never diffed.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.ico  binary
+*.woff binary
+*.woff2 binary
+*.zip  binary
+*.pdf  binary
+
+# Text, but generated — keep it out of diffs and review noise.
+package-lock.json -diff linguist-generated=true
+
+# Note on the vendored BMAD trees (.claude/, .agents/, _bmad/): they are
+# tracked verbatim and are covered by the `* text=auto eol=lf` rule above.
+# Four CSVs in them carried CRLF in the index and were renormalized to LF by
+# this change. That is a line-ending change only — no content was edited.
+# Marking these paths `-text` was tried and rejected: it tells git the files
+# are binary, which makes it want to store the working-tree CRLF for the whole
+# tree and stages thousands of files.
