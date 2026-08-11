@@ -10,10 +10,9 @@ import { describe, expect, it } from "vitest";
  *
  * The point: ACCESS_DEV_BYPASS must exist ONLY in .dev.vars, which is
  * gitignored and read only by `wrangler dev`. The moment it appears in a
- * Wrangler config it becomes deployable — and since Story 1.5 removed the
- * env-less `deploy` script, the risk is a bare `wrangler deploy`/`npx
- * wrangler deploy` run with no `--env`, which would ship it straight to the
- * unnamed top-level Worker with the admin API wide open.
+ * Wrangler config it becomes deployable — and this is a single-environment
+ * config with a plain `deploy` script, so there is exactly one Worker for it
+ * to reach: production, with the admin API wide open.
  */
 
 const configs = ["wrangler.jsonc", "wrangler.test.jsonc"];
@@ -24,38 +23,16 @@ describe("dev bypass cannot be deployed", () => {
     expect(source).not.toContain("ACCESS_DEV_BYPASS");
   });
 
-  it.each(configs)(
-    "%s declares only allowlisted vars, with the expected values",
-    (file) => {
-      // Story 1.5 added per-environment `vars` blocks, so the original "no vars
-      // at all" assertion was narrowed rather than deleted — the invariant that
-      // matters is that no dev-only or secret-shaped value becomes deployable.
-      // Adding a var means deciding, deliberately, that it is safe in production.
-      //
-      // Checks values too, not just keys: a copy-paste of "production" into
-      // env.staging's PML_ENV would satisfy a keys-only check and still be wrong.
-      const allowed: Record<string, RegExp> = {
-        PML_ENV: /^(staging|production)$/
-      };
-      const source = readFileSync(file, "utf8");
-
-      const varsBlocks = source.matchAll(/"vars"\s*:\s*\{([^}]*)\}/g);
-      for (const [, body] of varsBlocks) {
-        for (const [, key, value] of body.matchAll(
-          /"([^"]+)"\s*:\s*"([^"]*)"/g
-        )) {
-          expect(
-            allowed,
-            `${file} declares unexpected var "${key}"`
-          ).toHaveProperty(key);
-          expect(
-            value,
-            `${file}'s "${key}" is "${value}", which doesn't match the expected shape`
-          ).toMatch(allowed[key]);
-        }
-      }
-    }
-  );
+  it.each(configs)("%s declares no vars block at all", (file) => {
+    // No code currently reads a Wrangler `vars` value (the single-environment
+    // config has nothing left to distinguish via one). The invariant that
+    // matters: nothing dev-only or secret-shaped can become deployable, and
+    // the simplest version of that is "there is no vars block to smuggle
+    // anything into" — narrow this again, deliberately, the day something
+    // legitimately needs one.
+    const source = readFileSync(file, "utf8");
+    expect(source).not.toMatch(/"vars"\s*:/);
+  });
 
   it(".dev.vars is gitignored", () => {
     const gitignore = readFileSync(".gitignore", "utf8");

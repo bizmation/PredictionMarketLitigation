@@ -48,7 +48,7 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "pml-dev",
+      "database_name": "pml",
       "database_id": "PLACEHOLDER-see-docs/deploy-runbook.md",
       "migrations_dir": "migrations"
     }

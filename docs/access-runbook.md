@@ -34,7 +34,7 @@ The one-click Access toggle that *does* work on `workers.dev` (Workers & Pages �
 Custom domains are bound in Story 1.5. So:
 
 - **Story 1.4 (done):** Worker-side JWT verification, operator allowlist, `/api/admin/*` guard, session chrome, dev bypass, offline tests.
-- **Story 1.5 (config, done):** Wrangler environments, `workers_dev`/`preview_urls` disabled, `/agents/*` gated behind the same operator guard.
+- **Story 1.5 (config, done):** single-environment Wrangler config, `workers_dev`/`preview_urls` disabled, `/agents/*` gated behind the same operator guard.
 - **Story 1.5 (account setup, to do):** everything in [The 1.5 checklist](#the-15-checklist) — sequenced with the D1/domain/Builds steps in [`deploy-runbook.md`](deploy-runbook.md).
 
 ---
@@ -73,7 +73,7 @@ Story 3.13 requires that non-operator identities cannot change gate mode, so "au
 | Name | Kind | Where | Notes |
 |---|---|---|---|
 | `TEAM_DOMAIN` | secret | Wrangler secret | `https://<team-name>.cloudflareaccess.com` |
-| `POLICY_AUD` | secret | Wrangler secret | Access application AUD tag — **different per environment** |
+| `POLICY_AUD` | secret | Wrangler secret | Access application AUD tag |
 | `OPERATOR_EMAIL` | secret | Wrangler secret | the single authorized identity |
 | `OPERATOR_DISPLAY_NAME` | config | `.dev.vars` / secret | public-safe name; defaults to `Patrick` |
 | `ACCESS_DEV_BYPASS` | dev only | `.dev.vars` **only** | exactly `"true"` enables the bypass |
@@ -103,6 +103,10 @@ Service tokens (`CF-Access-Client-Id` / `CF-Access-Client-Secret`) are for **CI 
 
 ## The 1.5 checklist
 
+> **DONE 2026-08-10.** Created via the Cloudflare API, not the dashboard. Application `PML admin`, id `b13e527e-4441-4940-b6dd-34e1809fd33d`, AUD `0170fec17ba3f12af09260df14ffc4af237f7b85ae99577be57bd7bf637779bb`, team domain `https://bizmation.cloudflareaccess.com`. Verified live: `/admin` returns a 302 to the Access login whose `kid` is that AUD. **Two steps below were deliberately not followed as written — see [Deviations](#deviations-from-this-checklist-2026-08-10) immediately after.**
+
+**Single environment** (revised 2026-08-10 — staging was cut; see `deploy-runbook.md`). One Access application, one AUD tag, one set of secrets.
+
 1. **Bind the custom domains first** — `predictionmarketlitigation.com` and `ops.` — so a zone exists.
 2. **Create a self-hosted Access application** with destinations:
    - `predictionmarketlitigation.com/admin`
@@ -110,11 +114,60 @@ Service tokens (`CF-Access-Client-Id` / `CF-Access-Client-Secret`) are for **CI 
    - `predictionmarketlitigation.com/api/admin/*`
    > A wildcard `/admin/*` does **not** match the bare `/admin` path. Both entries are required or the bare route falls through unprotected.
 3. **Add the policy:** Allow → Cloudflare Account Member → this account. An application with **no** policy denies everything.
-4. **Copy the AUD tag** (Application → Configure → Additional settings → *Application Audience (AUD) Tag*) into `POLICY_AUD` for that environment.
-5. **Set the secrets** per environment via `wrangler secret put`. Staging and production have **different Access applications and therefore different AUD tags** — do not reuse one value.
+4. **Copy the AUD tag** (Application → Configure → Additional settings → *Application Audience (AUD) Tag*) into `POLICY_AUD`.
+5. **Set the secrets** via `wrangler secret put` (or `--secrets-file` on the first deploy — see `deploy-runbook.md`).
 6. **Cover the residual doors.** Enable Access on the `workers.dev` hostname and on preview URLs too, or `/api/admin/*` stays reachable there. The Worker-side verification is the backstop; belt and braces is the point.
 7. **Verify the public surfaces are untouched** — `/`, `ops.`, and `POST /api/poll/votes` must all answer without login. There are tests for this (`src/server.test.ts`, "public routes stay public"), but confirm in a browser too.
 8. **Reconsider `/admin` in `run_worker_first`.** It is currently omitted on purpose (the document leaks nothing and there was no Access to enforce). Once Access is bound, decide whether the Worker should render server-side session chrome for that route.
+
+### Deviations from this checklist (2026-08-10)
+
+Both were judgement calls made while executing it. Recorded rather than silently applied, because each contradicts an instruction above.
+
+**1. The policy is an explicit email include, not "Cloudflare Account Member."**
+
+Step 3 says *Allow → Cloudflare Account Member → this account*. An `email` include admits any login method for the same identity, where the account-member selector admits only one.
+
+> **Superseded rationale, kept honest.** This deviation was originally justified by the break-glass path — a one-time PIN login is not a Cloudflare account member, so the account-member selector would have denied it. Deviation 3 below then removed one-time PIN from this application entirely, which makes that specific argument moot. The deviation still stands on the reason below, but it no longer rests on break-glass, and this note exists so nobody re-derives a rationale that has quietly expired.
+
+It is also strictly tighter. "Account member" is a set that grows silently whenever a member is added; `patrick@bizmation.com` is the one address `access.ts` will accept anyway, so pinning it here makes the edge policy and the Worker allowlist agree by construction instead of by coincidence. Both IdPs are in `allowed_idps`, so the login page offers Cloudflare IdP *and* one-time PIN.
+
+> The account currently has exactly one member, so the two selectors are equivalent **today**. They stop being equivalent the moment a second member is added — which is the case worth being correct about in advance.
+
+**2. `path_cookie_attribute` is left OFF.**
+
+The gotcha below recommends it, to keep the admin cookie off public apex requests. It was not set, because this application spans two disjoint path prefixes — `/admin*` and `/api/admin/*` — and a cookie scoped to the app path would not be sent to the other one. The admin SPA calling its own API would break. The gotcha appears to have been written assuming a single prefix; it is sound advice for that shape and wrong for this one.
+
+**Also set, beyond the checklist:** `http_only_cookie_attribute: true`. Verified safe first — nothing under `src/` reads `document.cookie` or `CF_Authorization` client-side; `access.ts` reads the token server-side from the `Cookie` header, which HttpOnly does not affect. XSS can no longer exfiltrate a live session token.
+
+**3. Cloudflare IdP only, with Instant Auth — one-time PIN removed from this application.**
+
+Changed 2026-08-11, after Patrick loaded `/admin` and got a login page branded **King of the Floor**: its logo, its colours, "Private preview — enter with your invited email", and the footer "Long live the floor. · kingofthefloor.com". The heading did read *Log in to PML admin*, so the right application was always being used — the branding around it was the problem.
+
+**The constraint that forces the workaround: `login_design` is organization-level.** Logo, header text, footer text and colours live on `/accounts/{id}/access/organizations` and nowhere else — confirmed against the OpenAPI spec, where no application endpoint accepts any of those fields. Every Access application in the Bizmation account therefore shares one login page, and that page is dressed for a different product. There is no per-application override to reach for.
+
+So the page is skipped rather than restyled: `allowed_idps` narrowed to the Cloudflare IdP alone, plus `auto_redirect_to_identity: true`. With a single allowed IdP, Instant Auth sends the browser straight to Cloudflare sign-in and the shared chooser never renders. This touches only the PML application — King of the Floor's own login page is unchanged, which is why it was preferred over editing the org design.
+
+> Instant Auth is a **client-side** redirect. `curl -L` still lands on the login page with a `200`, because the hop is JavaScript, not an HTTP `302`. Verify this one in a real browser; curl cannot tell you whether it works.
+
+**The cost, stated plainly: PML admin no longer has a break-glass login.** Section "Decision: the identity provider" above still recommends one-time PIN as a second method against Cloudflare account lockout. That recommendation now applies to the account in general but **not** to this application. If the Cloudflare account login breaks, `/admin` is unreachable, and restoring it requires Cloudflare account access — the same credential that just failed. There is no Worker-side bypass in production: `ACCESS_DEV_BYPASS` is `.dev.vars`-only and additionally gated on a loopback hostname.
+
+To restore break-glass, put the one-time PIN IdP back and drop Instant Auth (which is what makes the chooser reappear — the two go together):
+
+```jsonc
+// PUT /accounts/{account_id}/access/apps/b13e527e-4441-4940-b6dd-34e1809fd33d
+"allowed_idps": [
+  "77fd9a44-3b18-4fe2-8a9b-1167db2e3066",  // Cloudflare IdP
+  "b26ffcb9-ddc5-48bb-a986-fb4efdb3e933"   // one-time PIN
+],
+"auto_redirect_to_identity": false
+```
+
+**The AUD is unchanged** by any of this (`0170fec1…79bb`), so the deployed `POLICY_AUD` secret stays valid and no redeploy is needed. Confirm that before and after any future edit to this application — a changed AUD locks the operator out until the secret is updated, with a 403 that deliberately explains nothing.
+
+**Known asymmetry, not a deviation:** destinations name the apex hostname only, so `ops.predictionmarketlitigation.com/api/admin/*` is **not** edge-gated. Verified: it returns the Worker's own 403 rather than an Access redirect. That is the documented backstop working as designed, but if `ops.` should be edge-gated too, add its `/api/admin/*` to `destinations`.
+
+---
 
 ### Gotchas worth knowing before you start
 

@@ -5,38 +5,21 @@
   "compatibility_date": "2026-06-11",
   "compatibility_flags": ["nodejs_compat"],
 
-  // ── ENVIRONMENTS (story 1.5) ────────────────────────────────────────────
+  // ── SINGLE ENVIRONMENT (story 1.5, revised 2026-08-10) ──────────────────
   //
-  // Named environments deploy as `<name>-<env>`: pml-staging, pml-production.
+  // Originally built with env.staging/env.production per architecture.md's
+  // early "dev/staging/prod" line. Patrick reconsidered: for a solo operator,
+  // the real safety net is the human-in-the-loop approval queue (Epic 3), not
+  // environment isolation — and two environments doubled every account-setup
+  // step left in the deploy runbook (D1, domains, Access, secrets, Builds).
+  // Cut back to one. Nothing here stops a later story from reintroducing
+  // env.staging the same way it was built the first time, if it's ever
+  // actually needed.
   //
-  // EVERY BINDING IS NON-INHERITABLE and must be redeclared inside each env
-  // block. The published docs list is incomplete — it omits `ai`, `d1_databases`
-  // and others — so treat all of them as non-inheritable. Worse, a binding
-  // present at the top level but missing from an env is only a WARNING:
-  //
-  //   "<field>" exists at the top level, but not on "env.<name>". This is not
-  //   what you probably want, since "<field>" is not inherited by environments.
-  //
-  // So a forgotten `durable_objects` deploys clean and fails at runtime. Read
-  // the output of `wrangler deploy --env <env> --dry-run` before every deploy.
-  //
-  // Inheritable, hence declared once at the top: name, main, compatibility_*,
-  // workers_dev, preview_urls, assets, observability, migrations.
-  //
-  // The unnamed top-level environment is STILL independently deployable as a
-  // separate Worker called `pml`, with its own Durable Object namespace (DO
-  // storage is keyed by script name, so its agent state would fork from
-  // production's) and no D1. That is why package.json has no bare `deploy`
-  // script — only deploy:staging and deploy:production.
-
   // Never mint a public hostname we did not ask for. `access.ts` verifies the
-  // Access JWT precisely because workers.dev and preview URLs are doors Access
-  // at the edge does not cover; the cheapest fix is for those doors not to
-  // exist. Both are inheritable, so all environments get them.
-  //
-  // State them explicitly rather than relying on inference from `routes`: the
-  // preview_urls default changed twice (wrangler 4.34, 4.44) and now tracks
-  // workers_dev, which is exactly the kind of default worth not depending on.
+  // Access JWT precisely because workers_dev and preview URLs are doors
+  // Access at the edge does not cover; the cheapest fix is for those doors
+  // not to exist.
   "workers_dev": false,
   "preview_urls": false,
 
@@ -91,93 +74,44 @@
     }
   ],
 
-  // Local dev's D1, bound at the top level so `npm run dev` has one to run
-  // against with `--local` (Miniflare simulation — no real database_id is
-  // read in that mode, but the field still can't be absent: see the
-  // provisioning warning on the placeholders below). No code reads env.DB
-  // yet — Story 2.1 owns the schema — so this binds ahead of that story
-  // rather than blocking on it.
+  // No code reads env.DB yet — Story 2.1 owns the schema — so this binds
+  // ahead of that story rather than blocking on it. `--local` (Miniflare
+  // simulation) is what `npm run dev` runs against; the real database below
+  // is what a real deploy writes to.
   //
-  // PLACEHOLDER — replaced with the real id in part B of the deploy runbook,
-  // after `wrangler d1 create pml-dev`. See the staging/production note.
+  // Created 2026-08-10 via the Cloudflare D1 API (name: pml, region: ENAM).
+  //
+  // Do NOT delete this block to "fix" a deploy error. Wrangler's automatic
+  // provisioning is on by default: a binding with no database_id makes it
+  // create a SECOND database and write the id back into this file — and when
+  // the deploy runs from Workers Builds, that write is not persisted to the
+  // repo. Production would silently drift from source.
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "pml-dev",
-      "database_id": "PLACEHOLDER-see-docs/deploy-runbook.md",
+      "database_name": "pml",
+      "database_id": "d07713fe-d0f1-4708-a174-394b04fc01b9",
       "migrations_dir": "migrations"
     }
   ],
 
-  "env": {
-    "staging": {
-      // Redeclared, not inherited. See the note at the top of this file.
-      "ai": { "binding": "AI", "remote": true },
-      "durable_objects": {
-        "bindings": [{ "class_name": "ChatAgent", "name": "ChatAgent" }]
-      },
-      // PLACEHOLDER — replaced with the real id in part B of the deploy
-      // runbook, after `wrangler d1 create pml-staging`.
-      //
-      // Do NOT delete this block to "fix" a deploy error. Wrangler's automatic
-      // provisioning is on by default: a d1 binding with no database_id makes
-      // it create a database and write the id back into this file — and when
-      // the deploy runs from Workers Builds that write is not persisted to the
-      // repo, so the deployed config silently diverges from source.
-      "d1_databases": [
-        {
-          "binding": "DB",
-          "database_name": "pml-staging",
-          "database_id": "PLACEHOLDER-see-docs/deploy-runbook.md",
-          "migrations_dir": "migrations"
-        }
-      ],
-      "vars": { "PML_ENV": "staging" },
-      "routes": [
-        {
-          "pattern": "staging.predictionmarketlitigation.com",
-          "custom_domain": true
-        },
-        {
-          "pattern": "ops-staging.predictionmarketlitigation.com",
-          "custom_domain": true
-        }
-      ]
+  // Custom Domains, not route patterns: Custom Domains point ALL paths of a
+  // hostname at the Worker and treat it as the origin, which is what serving
+  // a whole site needs. Cloudflare creates the DNS record and manages the
+  // certificate. Requires an active zone and no pre-existing CNAME on the
+  // hostname.
+  "routes": [
+    {
+      "pattern": "predictionmarketlitigation.com",
+      "custom_domain": true
     },
-    "production": {
-      "ai": { "binding": "AI", "remote": true },
-      "durable_objects": {
-        "bindings": [{ "class_name": "ChatAgent", "name": "ChatAgent" }]
-      },
-      // PLACEHOLDER — see the staging note above.
-      "d1_databases": [
-        {
-          "binding": "DB",
-          "database_name": "pml-production",
-          "database_id": "PLACEHOLDER-see-docs/deploy-runbook.md",
-          "migrations_dir": "migrations"
-        }
-      ],
-      "vars": { "PML_ENV": "production" },
-      // Custom Domains, not route patterns: Custom Domains point ALL paths of
-      // a hostname at the Worker and treat it as the origin, which is what
-      // serving a whole site needs. Cloudflare creates the DNS record and
-      // manages the certificate. Requires an active zone and no pre-existing
-      // CNAME on the hostname.
-      "routes": [
-        {
-          "pattern": "predictionmarketlitigation.com",
-          "custom_domain": true
-        },
-        {
-          "pattern": "ops.predictionmarketlitigation.com",
-          "custom_domain": true
-        }
-      ]
+    {
+      "pattern": "ops.predictionmarketlitigation.com",
+      "custom_domain": true
     }
-  }
+  ]
 
   // Story 2.1 adds the D1 schema and migrations. This story only binds the
-  // databases; it creates no tables.
+  // database; it creates no tables.
   // Story 3.2 — AI Gateway binding/credentials via Worker secrets (never committed)
 }
