@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isAdminApiPath, isAgentsPath } from "./adminGuard";
+import { isAdminApiPath, isAdminSessionPath, isAgentsPath } from "./adminGuard";
 
 /**
  * The prefix matcher is the whole perimeter: everything it returns false for
@@ -63,6 +63,57 @@ describe("isAdminApiPath", () => {
 
   it("guards a malformed escape AFTER an already-matching raw prefix (the bypass)", () => {
     expect(isAdminApiPath("/api/admin/%zz")).toBe(true);
+  });
+});
+
+/**
+ * The session route matcher (story 1.4 AC4).
+ *
+ * Its failure mode is quieter than the guards': a path isAdminApiPath admits
+ * but this misses does not become insecure, it falls through to the 404
+ * placeholder — the operator sees "Not signed in" with no clue why. So the two
+ * must agree on normalization, which is why this shares normalizePath rather
+ * than comparing the raw pathname.
+ */
+describe("isAdminSessionPath", () => {
+  it("matches the exact path", () => {
+    expect(isAdminSessionPath("/api/admin/session")).toBe(true);
+  });
+
+  it.each([
+    ["/api//admin/session", "duplicate slash before admin"],
+    ["/api/admin//session", "duplicate slash before session"],
+    ["/api/%61dmin/session", "percent-encoded 'a'"],
+    ["/api/admin/%73ession", "percent-encoded 's'"],
+    ["//api/admin/session", "leading duplicate slash"]
+  ])("matches %s (%s), agreeing with the guard", (path) => {
+    expect(isAdminSessionPath(path)).toBe(true);
+    // The invariant that matters: anything this answers for is also guarded.
+    expect(isAdminApiPath(path)).toBe(true);
+  });
+
+  it.each([
+    "/api/admin/session/extra",
+    "/api/admin/sessions",
+    "/api/admin/session-token",
+    "/api/admin",
+    "/api/admin/ping",
+    "/session",
+    "/"
+  ])("does not match %s", (path) => {
+    expect(isAdminSessionPath(path)).toBe(false);
+  });
+
+  it("does not throw on a malformed escape", () => {
+    expect(() => isAdminSessionPath("/api/admin/%zz")).not.toThrow();
+    expect(isAdminSessionPath("/api/admin/%zz")).toBe(false);
+  });
+
+  it("never matches something the guard would let through unguarded", () => {
+    // If this ever held, an unauthenticated caller would reach the handler.
+    for (const path of ["/api/admin/session", "/api//admin/session"]) {
+      expect(isAdminSessionPath(path) && !isAdminApiPath(path)).toBe(false);
+    }
   });
 });
 

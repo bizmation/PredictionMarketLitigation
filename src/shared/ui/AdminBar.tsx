@@ -16,9 +16,15 @@ type AdminBarProps = {
   /**
    * The authenticated operator, when known.
    *
-   * Optional because the shell renders client-side with no server data until
-   * story 1.5 wires a real Access session — and a name shown while unverified
-   * would be a claim the app cannot back. Absent means absent.
+   * Optional, and it stays optional now that story 1.5 has wired a real Access
+   * session: the shell resolves it asynchronously, so undefined is the normal
+   * state for the first paint and the permanent state when signed out. A name
+   * rendered here is a claim that the server verified an identity, so absent
+   * must keep meaning absent rather than "probably Patrick".
+   *
+   * Only ever the display name. access.ts types the operator's email as never
+   * safe to render, and story 3.13 publishes this same name in mode-change
+   * audit entries on the public ops. surface.
    */
   operator?: { displayName: string };
   /** Status note, e.g. that edge protection is still pending. */

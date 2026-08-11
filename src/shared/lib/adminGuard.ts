@@ -78,6 +78,25 @@ export function isAgentsPath(pathname: string): boolean {
   return path === AGENTS_PREFIX || path.startsWith(`${AGENTS_PREFIX}/`);
 }
 
+const ADMIN_SESSION_PATH = "/api/admin/session";
+
+/**
+ * The one admin route that has a handler: who am I?
+ *
+ * Lives here rather than as an inline string compare in server.ts because
+ * `normalizePath` is this module's private business and every other prefix
+ * test already goes through it. A handler matching on the raw `pathname`
+ * would disagree with `isAdminApiPath` at exactly the edges normalizePath
+ * exists to cover — `/api/admin//session`, `/api/%61dmin/session` — and a
+ * route that the guard admits but the handler misses just falls through to
+ * the 404 placeholder, which is a confusing way to fail.
+ *
+ * Matched exactly: no sub-paths, because there are none.
+ */
+export function isAdminSessionPath(pathname: string): boolean {
+  return normalizePath(pathname) === ADMIN_SESSION_PATH;
+}
+
 /**
  * Resolve the operator for an admin request, or the response to return instead.
  *

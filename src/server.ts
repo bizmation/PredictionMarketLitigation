@@ -14,6 +14,7 @@ import { z } from "zod";
 import {
   ADMIN_CACHE_HEADERS,
   isAdminApiPath,
+  isAdminSessionPath,
   isAgentsPath,
   requireOperator
 } from "./shared/lib/adminGuard";
@@ -268,10 +269,39 @@ export default {
       const gate = await requireOperator(request, env);
       if (gate instanceof Response) return gate;
 
-      // No admin handlers exist yet — story 3.10 brings the approval queue,
-      // 3.12 the loop controls, 4.6 feedback moderation. Reaching here means
-      // the caller IS the operator and simply asked for something that does
-      // not exist. The guard above is what this placeholder exists to prove.
+      // Story 1.4's AC4, display-name half — closed 2026-08-10, once Part B
+      // gave the admin surface a real Access session to read.
+      //
+      // The admin shell renders client-side from a static document, so it has
+      // no server-injected identity: without this it showed "Not signed in" to
+      // an operator who had just passed an Access challenge. That is the
+      // inverse of the honesty rule the chrome is built around — a surface
+      // must not understate its protection any more than overstate it.
+      //
+      // ONLY displayName crosses the wire. access.ts types the operator's
+      // `email` as "never render this publicly", and story 3.13 puts this same
+      // name into mode-change audit entries on the PUBLIC ops. surface, so the
+      // field that leaves here has to be the one that is safe to publish.
+      // Sending the whole operator object would quietly make the email
+      // publishable by a later caller that just spreads what it was given.
+      if (isAdminSessionPath(pathname)) {
+        if (request.method !== "GET" && request.method !== "HEAD") {
+          return new Response("Method not allowed", {
+            status: 405,
+            headers: { ...ADMIN_CACHE_HEADERS, allow: "GET, HEAD" }
+          });
+        }
+        return Response.json(
+          { displayName: gate.operator.displayName },
+          { headers: ADMIN_CACHE_HEADERS }
+        );
+      }
+
+      // No other admin handlers exist yet — story 3.10 brings the approval
+      // queue, 3.12 the loop controls, 4.6 feedback moderation. Reaching here
+      // means the caller IS the operator and simply asked for something that
+      // does not exist. The guard above is what this placeholder exists to
+      // prove.
       return new Response("Not found", {
         status: 404,
         headers: ADMIN_CACHE_HEADERS

@@ -9,39 +9,52 @@ import {
   WarnChip,
   type TopBarLink
 } from "../../shared/ui";
+import { useAdminSession } from "./useAdminSession";
 
 /**
  * Admin — the operator's approval gate. Deliberately lighter than the public
  * surfaces: the public observes outcomes, only the operator acts.
  *
- * PARTIALLY PROTECTED. Story 1.4 put a verified perimeter around
- * `/api/admin/*`: every request there must carry a Cloudflare Access JWT whose
- * signature and audience check out AND whose email matches the configured
- * operator, or it gets a 403.
+ * PROTECTED, as of 2026-08-10 (Story 1.5 Part B). Two independent layers:
  *
- * This document is NOT behind Access yet. A path-scoped Access application
- * needs an active zone, and no custom domain is bound until Story 1.5 — so
- * this route still renders for anyone who knows the path. That is tolerable
- * precisely because it leaks nothing: every band below is an empty
- * placeholder and no admin API exists to call. The chrome says exactly this
- * much, because a surface that overstates its own protection is worse than
- * one that admits the gap.
+ *   1. Cloudflare Access at the edge. The `PML admin` application covers
+ *      `/admin`, `/admin/*` and `/api/admin/*` on the apex hostname, so an
+ *      unauthenticated request is redirected to a login challenge and never
+ *      reaches this document.
+ *   2. `requireOperator` in the Worker, on every `/api/admin/*` request. This
+ *      is the layer that matters on any hostname the Access application does
+ *      NOT name — `ops.`, and historically workers.dev and preview URLs, where
+ *      the Access header is forgeable. See src/shared/lib/access.ts.
+ *
+ * The bands below are still empty placeholders and the approval queue is
+ * Story 3.10's, so there is not yet anything here worth protecting — but the
+ * protection is real now, and the chrome says so rather than continuing to
+ * warn about a gap that closed.
  */
 
 type AdminShellProps = {
-  /** True in local development — routes cross-surface links via ?surface=. */
-  dev?: boolean;
   /**
-   * The authenticated operator, once a real Access session exists (Story 1.5).
-   * Until then the shell renders client-side with nothing to verify against,
-   * so the session strip honestly reads "Not signed in".
+   * The authenticated operator.
+   *
+   * Optional, and normally omitted: the shell resolves the live session itself
+   * via useAdminSession. Passing it explicitly overrides that fetch, which is
+   * what the static-render tests do — `renderToStaticMarkup` never runs
+   * effects, so without the prop those tests would only ever see the
+   * signed-out state.
    */
   operator?: { displayName: string };
+  /** True in local development — routes cross-surface links via ?surface=. */
+  dev?: boolean;
 };
 
 export function AdminShell({ dev = false, operator }: AdminShellProps) {
   const apexHref = surfaceHref("apex", { dev });
   const opsHref = surfaceHref("ops", { dev });
+
+  // An explicit prop wins; otherwise ask the Worker. Undefined from both means
+  // signed out, and the strip says so — a name here is only ever server-backed.
+  const session = useAdminSession();
+  const resolvedOperator = operator ?? session;
 
   const links: TopBarLink[] = [
     { href: "#queue", label: "Approval queue" },
@@ -52,7 +65,7 @@ export function AdminShell({ dev = false, operator }: AdminShellProps) {
 
   return (
     <div>
-      <AdminBar operator={operator} />
+      <AdminBar operator={resolvedOperator} />
 
       <TopBar
         brand={
@@ -64,17 +77,17 @@ export function AdminShell({ dev = false, operator }: AdminShellProps) {
       />
 
       <TrustBar
-        // The handoff's warn slot carries the gate state. Until Access is
-        // bound at the edge (Story 1.5) this page is reachable by anyone with
-        // the URL, and that outranks the gate state for the warn slot: a
-        // surface must never look better protected than it is. The gate state
-        // moves to the message, where it is still visible.
-        warn={
-          <WarnChip>
-            Not access-controlled — anyone with this URL sees it
-          </WarnChip>
-        }
-        message="Gate: HITL · autonomous OFF · admin APIs require a verified operator"
+        // The handoff's warn slot carries the gate state, and now does again.
+        //
+        // It was displaced from 1.3 until 2026-08-10 by "Not access-controlled
+        // — anyone with this URL sees it", because that outranked the gate
+        // state while it was true: a surface must never look better protected
+        // than it is. Story 1.5 Part B bound the Access application, so that
+        // warning became the opposite failure — a surface looking *worse*
+        // protected than it is, which erodes the same trust by teaching the
+        // operator to discount its own chrome. Retired, not softened.
+        warn={<WarnChip>Autonomous OFF — human-in-the-loop</WarnChip>}
+        message="Gate: HITL · this surface and the admin APIs both require a verified operator"
         meta="Queue not yet wired"
         provenance={
           // Handoff PML Admin.html:99 — static placeholder, no data until 3.x.

@@ -1,6 +1,14 @@
 import { env } from "cloudflare:workers";
 import { SignJWT, exportJWK, generateKeyPair } from "jose";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi
+} from "vitest";
 
 import worker from "./server";
 
@@ -132,56 +140,230 @@ describe("a real Access JWT passes the guard end-to-end", () => {
   const AUD = "e2e-aud";
   const EMAIL = "operator@example.com";
 
-  afterEach(() => vi.unstubAllGlobals());
+  /**
+   * ONE keypair for the block. This was a per-test `setup()` until 2026-08-10,
+   * and the non-operator case below was passing for the wrong reason.
+   *
+   * access.ts caches its JWKS per team domain in a module-level Map for the
+   * isolate's lifetime. A second keypair minted under the same team domain is
+   * therefore checked against the FIRST one's cached public key and fails on
+   * signature — so the old second test got its 403 from a bad signature, never
+   * reaching the email comparison it existed to prove. Verified directly: a
+   * token carrying the CORRECT operator email, signed by a second keypair,
+   * also returned 403.
+   *
+   * Sharing the key is what makes the 403 below attributable to identity.
+   */
+  let privateKey: CryptoKey;
+  let jwk: Record<string, unknown>;
 
-  async function setup() {
-    const { publicKey, privateKey } = await generateKeyPair("RS256", {
-      extractable: true
-    });
-    const jwk = (await exportJWK(publicKey)) as Record<string, unknown>;
+  beforeAll(async () => {
+    const pair = await generateKeyPair("RS256", { extractable: true });
+    privateKey = pair.privateKey;
+    jwk = (await exportJWK(pair.publicKey)) as Record<string, unknown>;
     jwk.kid = "e2e-1";
     jwk.alg = "RS256";
     jwk.use = "sig";
-    vi.stubGlobal("fetch", async () => Response.json({ keys: [jwk] }));
+  });
 
-    const realEnv = {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", async () => Response.json({ keys: [jwk] }));
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  const realEnv = () =>
+    ({
       ...env,
       ACCESS_DEV_BYPASS: undefined,
       TEAM_DOMAIN: TEAM,
       POLICY_AUD: AUD,
       OPERATOR_EMAIL: EMAIL
-    } as Env;
+    }) as Env;
 
-    const sign = (email: string) =>
-      new SignJWT({ email })
-        .setProtectedHeader({ alg: "RS256", kid: "e2e-1" })
-        .setIssuer(TEAM)
-        .setAudience(AUD)
-        .setIssuedAt()
-        .setExpirationTime("1h")
-        .sign(privateKey);
+  const sign = (email: string) =>
+    new SignJWT({ email })
+      .setProtectedHeader({ alg: "RS256", kid: "e2e-1" })
+      .setIssuer(TEAM)
+      .setAudience(AUD)
+      .setIssuedAt()
+      .setExpirationTime("1h")
+      .sign(privateKey);
 
-    return { realEnv, sign };
-  }
+  const call = (token: string) =>
+    worker.fetch(
+      get("/api/admin/ping", { headers: { "cf-access-jwt-assertion": token } }),
+      realEnv()
+    );
 
   it("lets the operator through to the handler", async () => {
-    const { realEnv, sign } = await setup();
-    const token = await sign(EMAIL);
-    const res = await worker.fetch(
-      get("/api/admin/ping", { headers: { "cf-access-jwt-assertion": token } }),
-      realEnv
-    );
+    const res = await call(await sign(EMAIL));
     expect(res.status).toBe(404); // past the guard, no handler yet
   });
 
   it("still rejects a valid token for a non-operator identity", async () => {
-    const { realEnv, sign } = await setup();
-    const token = await sign("someone.else@example.com");
-    const res = await worker.fetch(
-      get("/api/admin/ping", { headers: { "cf-access-jwt-assertion": token } }),
-      realEnv
-    );
+    const res = await call(await sign("someone.else@example.com"));
     expect(res.status).toBe(403);
+  });
+
+  it("the two cases differ only by identity", async () => {
+    // Pins the fix above. Same key, same issuer, same audience, same everything
+    // except the email claim — so if these two ever return the same status, the
+    // email comparison has stopped working (or stopped being reached).
+    const ok = await call(await sign(EMAIL));
+    const notOk = await call(await sign("someone.else@example.com"));
+    expect(ok.status).toBe(404);
+    expect(notOk.status).toBe(403);
+  });
+});
+
+/**
+ * GET /api/admin/session — story 1.4's AC4 display-name half, closed 2026-08-10.
+ *
+ * The admin shell renders from a static document, so the operator's name can
+ * only come from asking the Worker. This is the first admin route with an
+ * actual handler, which makes it the first chance to get the response shape
+ * wrong in a way that matters: the operator's EMAIL must never be in it.
+ * access.ts types that field as never safe to render, and story 3.13 publishes
+ * the display name in mode-change audit entries on the PUBLIC ops. surface.
+ */
+describe("GET /api/admin/session (story 1.4 AC4)", () => {
+  const TEAM = "https://session.cloudflareaccess.com";
+  const AUD = "session-aud";
+  const EMAIL = "operator@example.com";
+  // Deliberately NOT "Patrick". That is both .dev.vars' value and access.ts's
+  // built-in DEFAULT_DISPLAY_NAME, so asserting on it would pass even if the
+  // handler ignored config entirely or the ambient env leaked in.
+  const DISPLAY_NAME = "Distinctive Operator Name";
+
+  /**
+   * ONE keypair for the whole block, deliberately.
+   *
+   * access.ts caches its JWKS per team domain in a module-level Map that lives
+   * as long as the isolate (see jwksByTeamDomain — constructing one per request
+   * would refetch the key set every call). A per-test keypair under the same
+   * team domain therefore gets verified against the FIRST test's cached public
+   * key and fails on signature, no matter what the token actually claims.
+   *
+   * That failure mode is quiet and dangerous in a test file: every assertion
+   * expecting 403 keeps passing, for the wrong reason. Sharing the keypair is
+   * what makes the non-operator case below prove identity checking rather than
+   * re-prove signature checking.
+   */
+  let privateKey: CryptoKey;
+  let jwk: Record<string, unknown>;
+
+  beforeAll(async () => {
+    const pair = await generateKeyPair("RS256", { extractable: true });
+    privateKey = pair.privateKey;
+    jwk = (await exportJWK(pair.publicKey)) as Record<string, unknown>;
+    jwk.kid = "session-1";
+    jwk.alg = "RS256";
+    jwk.use = "sig";
+  });
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", async () => Response.json({ keys: [jwk] }));
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  const realEnv = () =>
+    ({
+      ...env,
+      ACCESS_DEV_BYPASS: undefined,
+      TEAM_DOMAIN: TEAM,
+      POLICY_AUD: AUD,
+      OPERATOR_EMAIL: EMAIL,
+      OPERATOR_DISPLAY_NAME: DISPLAY_NAME
+    }) as Env;
+
+  const sign = (email: string) =>
+    new SignJWT({ email })
+      .setProtectedHeader({ alg: "RS256", kid: "session-1" })
+      .setIssuer(TEAM)
+      .setAudience(AUD)
+      .setIssuedAt()
+      .setExpirationTime("1h")
+      .sign(privateKey);
+
+  const signedRequest = (
+    token: string,
+    path = "/api/admin/session",
+    init?: RequestInit
+  ) =>
+    new Request(`https://pml.example.com${path}`, {
+      ...init,
+      headers: { "cf-access-jwt-assertion": token, ...init?.headers }
+    });
+
+  it("returns the operator's display name", async () => {
+    const res = await worker.fetch(signedRequest(await sign(EMAIL)), realEnv());
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ displayName: DISPLAY_NAME });
+  });
+
+  it("never returns the operator's email, under any key", async () => {
+    const res = await worker.fetch(signedRequest(await sign(EMAIL)), realEnv());
+    expect(res.status).toBe(200);
+
+    // Whole-body scan, not a key check: the point is that the address cannot
+    // appear at all, including nested or as part of some future field.
+    const raw = await res.text();
+    expect(raw).not.toContain(EMAIL);
+    expect(raw.toLowerCase()).not.toContain("email");
+  });
+
+  it("is guarded — anonymous callers get the same opaque 403", async () => {
+    const res = await worker.fetch(get("/api/admin/session"), anon);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      code: "forbidden",
+      message: expect.any(String)
+    });
+  });
+
+  it("rejects a valid token for a non-operator identity", async () => {
+    // Signed by the SAME key as the passing case above, so this can only fail
+    // on the email comparison — which is the thing being tested.
+    const token = await sign("someone.else@example.com");
+    const res = await worker.fetch(signedRequest(token), realEnv());
+    expect(res.status).toBe(403);
+  });
+
+  it("is read-only — a POST past the guard is 405, not a silent 200", async () => {
+    const token = await sign(EMAIL);
+    const res = await worker.fetch(
+      signedRequest(token, "/api/admin/session", { method: "POST" }),
+      realEnv()
+    );
+
+    expect(res.status).toBe(405);
+    expect(res.headers.get("allow")).toBe("GET, HEAD");
+  });
+
+  it("marks the response uncacheable", async () => {
+    // An authenticated response cached at the edge would be served to the next
+    // caller of the same URL. Assert the 200 as well: ADMIN_CACHE_HEADERS ride
+    // the 403 too, so a header-only check would pass on a failed auth.
+    const res = await worker.fetch(signedRequest(await sign(EMAIL)), realEnv());
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+    expect(res.headers.get("vary")).toContain("Cf-Access-Jwt-Assertion");
+  });
+
+  it("still matches when the path is encoded or double-slashed", async () => {
+    // The guard normalizes, so the handler must too — otherwise a path the
+    // guard admits falls through to the 404 placeholder instead of answering.
+    const token = await sign(EMAIL);
+    for (const path of [
+      "/api//admin/session",
+      "/api/%61dmin/session",
+      "/api/admin//session"
+    ]) {
+      const res = await worker.fetch(signedRequest(token, path), realEnv());
+      expect(res.status, `${path} should reach the handler`).toBe(200);
+    }
   });
 });
 

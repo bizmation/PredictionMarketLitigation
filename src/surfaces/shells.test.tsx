@@ -144,18 +144,36 @@ describe("AdminShell", () => {
     expect(html).not.toContain("logout");
   });
 
-  it("warns unmissably that the page itself is not access-controlled", () => {
-    // The invariant this pins: a surface must never look better protected
-    // than it is. The API perimeter is live, but until story 1.5 binds Access
-    // at the edge this document is public, and the warn slot has to say so.
-    // Delete this test only when Access is actually in front of /admin.
-    const html = admin();
-    expect(html).toContain('class="warn"');
-    expect(html.toLowerCase()).toContain("not access-controlled");
+  it("no longer claims the page is unprotected (Access bound 2026-08-10)", () => {
+    // The predecessor of this test asserted the warn slot said "not
+    // access-controlled", and carried an explicit instruction: delete it only
+    // when Access is actually in front of /admin. Story 1.5 Part B did that —
+    // application `PML admin` covers /admin, /admin/* and /api/admin/* — so
+    // the claim became false and the test retired with it.
+    //
+    // The invariant did NOT change: a surface must never look better protected
+    // than it is. Its mirror now applies too — looking worse protected than it
+    // is teaches the operator to discount the chrome, which costs the same
+    // trust by a different route.
+    const html = admin().toLowerCase();
+    expect(html).not.toContain("not access-controlled");
+    expect(html).not.toContain("anyone with this url");
   });
 
-  it("still shows the gate state alongside the warning", () => {
-    expect(admin()).toContain("Gate: HITL · autonomous OFF");
+  it("keeps the gate state in the warn slot", () => {
+    const html = admin();
+    expect(html).toContain('class="warn"');
+    expect(html).toContain("Autonomous OFF");
+    expect(html).toContain("Gate: HITL");
+  });
+
+  it("says nobody is signed in until the server says otherwise", () => {
+    // renderToStaticMarkup runs no effects, so useAdminSession never resolves
+    // here — which is exactly the first-paint and signed-out state. A name in
+    // this strip is a claim that the server verified an identity; absent has
+    // to keep meaning absent rather than defaulting to the configured operator.
+    expect(admin()).toContain("Not signed in");
+    expect(admin()).not.toContain("operator identity");
   });
 });
 
