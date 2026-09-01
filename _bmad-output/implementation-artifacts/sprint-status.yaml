@@ -1,5 +1,5 @@
 # generated: 2026-08-09
-# last_updated: 2026-08-31
+# last_updated: 2026-09-01
 # project: PML
 # project_key: NOKEY
 # tracking_system: file-system
@@ -36,7 +36,7 @@
 # - Source epics: _bmad-output/planning-artifacts/epics.md (35 stories, readiness punch list applied 2026-08-09)
 
 generated: 2026-08-09
-last_updated: 2026-08-31
+last_updated: 2026-09-01
 project: PML
 project_key: NOKEY
 tracking_system: file-system
@@ -55,8 +55,8 @@ development_status:
   # Epic 2: Litigation Intelligence Tracker (Apex)
   epic-2: in-progress
   2-1-f1-data-model-apis-case-law-seed: done
-  2-2-apex-orientation-chrome: ready-for-dev
-  2-3-circuit-split-heat-map: backlog
+  2-2-apex-orientation-chrome: done
+  2-3-circuit-split-heat-map: ready-for-dev
   2-4-state-status-board-synced-with-map: backlog
   2-5-case-list-detail-rich-filters: backlog
   2-6-issue-map-synced-to-cases: backlog

@@ -2,6 +2,7 @@ import { surfaceHref } from "../../shared/lib/surface";
 import {
   EmptyState,
   LastUpdated,
+  ProvenanceLabel,
   SectionBand,
   SiteFooter,
   TopBar,
@@ -9,7 +10,11 @@ import {
   WarnChip,
   type TopBarLink
 } from "../../shared/ui";
-import { LaunchNote } from "./LaunchNote";
+import { CredibilityStrip } from "./orientation/CredibilityStrip";
+import { ExecutiveBrief } from "./orientation/ExecutiveBrief";
+import { KpiRow } from "./orientation/KpiRow";
+import { Masthead } from "./orientation/Masthead";
+import { useOrientation } from "./orientation/useOrientation";
 
 /**
  * Apex — the litigation intelligence tracker.
@@ -23,9 +28,9 @@ import { LaunchNote } from "./LaunchNote";
  * the product and the governance record is the receipt — collapsing them would
  * dissolve the separation the whole two-site split exists to make.
  *
- * Every band is an EmptyState until its story wires it. That is deliberate:
- * an honest empty state naming its owning story beats a plausible-looking mock
- * that a reader could mistake for a finding.
+ * Remaining tracker bands are EmptyState until their stories wire them. That
+ * is deliberate: an honest empty state naming its owning story beats a
+ * plausible-looking mock that a reader could mistake for a finding.
  */
 
 const REPO_URL = "https://github.com/bizmation/PredictionMarketLitigation";
@@ -37,6 +42,7 @@ type ApexShellProps = {
 
 export function ApexShell({ dev = false }: ApexShellProps) {
   const opsHref = surfaceHref("ops", { dev });
+  const { kpis, developments } = useOrientation();
 
   const links: TopBarLink[] = [
     { href: "#brief", label: "Overview" },
@@ -64,27 +70,24 @@ export function ApexShell({ dev = false }: ApexShellProps) {
       <TrustBar
         warn={<WarnChip />}
         message="Built by AI, governed and approved by a human; corrections welcome."
-        meta={<LastUpdated at="2026-08-09T16:00:00.000Z" />}
+        meta={kpis ? <LastUpdated at={kpis.freshness} /> : undefined}
+        provenance={<ProvenanceLabel kind="human" />}
       />
 
       <main>
-        {/* Launch-state only. Story 2.2 replaces this with the real masthead,
-            credibility strip and KPI row. See LaunchNote's own header. */}
-        <LaunchNote dev={dev} />
+        <CredibilityStrip opsHref={opsHref} />
+        <Masthead opsHref={opsHref} kpis={kpis} developments={developments}>
+          <KpiRow kpis={kpis} />
+          {/* Story 2.9 inserts #poll here, between KPI and #brief */}
+        </Masthead>
 
         <SectionBand
           id="brief"
-          kicker="01"
-          title="Where this stands"
-          why="A plain-language reading of U.S. prediction-market litigation, for people who are not lawyers."
+          kicker="The situation"
+          title="What this fight is about"
+          why="Written for readers who are not lawyers. Every claim below is carried in the case records further down, each with a primary source."
         >
-          <EmptyState
-            title="No summary published yet"
-            hint="The tracker publishes nothing it cannot source."
-          >
-            The approved case seed is available through the API; Story 2.2 turns
-            it into the reader-facing summary.
-          </EmptyState>
+          <ExecutiveBrief kpis={kpis} />
         </SectionBand>
 
         <SectionBand
@@ -202,8 +205,8 @@ export function ApexShell({ dev = false }: ApexShellProps) {
             title="The governance record lives on ops."
             hint="No login required."
           >
-            Every run, every pending draft, every approval and every rejection —
-            including the ones that changed nothing — are published at{" "}
+            The daily pipeline is not live yet. When it is, every run, draft,
+            approval and rejection will be published at{" "}
             <a href={opsHref} rel="noopener">
               ops.predictionmarketlitigation.com
             </a>

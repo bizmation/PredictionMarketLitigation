@@ -1,6 +1,10 @@
+---
+baseline_commit: d4ea9f9
+---
+
 # Story 2.2: Apex Orientation Chrome
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -31,22 +35,22 @@ so that I understand what PML is and the scale of the docket before diving into 
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Preflight** (AC: all)
-  - [ ] Confirm `npm test` is green on the current tree (2.1 included) and record the count. Zero cloud credentials
-  - [ ] Confirm `npm run check` exits 0
-  - [ ] Confirm 2.1 public routes respond: `GET /api/cases`, `/api/states`, `/api/circuits` return list envelopes. If they 404, you are not on top of 2.1 — stop
-  - [ ] Read the handoff markup, not a memory of it: `_bmad-output/planning-artifacts/ux-designs/design_handoff_pml/PML Tracker.html` lines ~120–143 (`.about` CSS), ~435–484 (masthead/KPI CSS), ~548–750 (markup + brief). Recreate in React; do not ship the HTML file (UX-DR24)
-  - [ ] Read `src/surfaces/apex/LaunchNote.tsx` (delete target), `ApexShell.tsx`, `src/surfaces/admin/useAdminSession.ts` (the fetch pattern to copy), `src/shared/api/publicRouter.ts`
+- [x] **Task 1: Preflight** (AC: all)
+  - [x] Confirm `npm test` is green on the current tree (2.1 included) and record the count. Zero cloud credentials
+  - [x] Confirm `npm run check` exits 0
+  - [x] Confirm 2.1 public routes respond: `GET /api/cases`, `/api/states`, `/api/circuits` return list envelopes. If they 404, you are not on top of 2.1 — stop
+  - [x] Read the handoff markup, not a memory of it: `_bmad-output/planning-artifacts/ux-designs/design_handoff_pml/PML Tracker.html` lines ~120–143 (`.about` CSS), ~435–484 (masthead/KPI CSS), ~548–750 (markup + brief). Recreate in React; do not ship the HTML file (UX-DR24)
+  - [x] Read `src/surfaces/apex/LaunchNote.tsx` (delete target), `ApexShell.tsx`, `src/surfaces/admin/useAdminSession.ts` (the fetch pattern to copy), `src/shared/api/publicRouter.ts`
 
-- [ ] **Task 2: KPI + developments contracts (server)** (AC: 2, 6)
-  - [ ] Add Zod schemas (canonical in `src/shared/schemas/`):
+- [x] **Task 2: KPI + developments contracts (server)** (AC: 2, 6)
+  - [x] Add Zod schemas (canonical in `src/shared/schemas/`):
     - `ApexKpisSchema` — camelCase numbers + `freshness` (ISO-UTC-Z) + `changedWindowStart` (ISO date) + `provenanceKind`
     - `DevelopmentSchema` — `id`, `occurredAt`, `description`, `caseId`, `caption`, `court`
-  - [ ] Add `src/shared/db/repos/kpisRepo.ts` with **SQL aggregate queries** (architecture: "KPI figures derive from aggregate queries, not hard-coded values"). Do not `SELECT *` and count in JS inside the repo
-  - [ ] Add `listRecentDevelopments(db, limit = 7)` on `casesRepo` (JOIN `docket_events` → `cases`, `ORDER BY occurred_at DESC, id ASC`, LIMIT). Do not N+1 `getCaseById` from the client
-  - [ ] Wire `GET /api/kpis` as a **single resource** (`jsonOk`, bare JSON) and `GET /api/developments` as a **list** (`jsonList`). Plural path, no trailing slash. GET/HEAD only
-  - [ ] Do **not** claim `/api/poll/*`. Do not add tables. Do not add KV. `run_worker_first` already includes `/api` + `/api/*` — do not regress it
-  - [ ] **KPI definitions (authoritative — pin in workers tests):**
+  - [x] Add `src/shared/db/repos/kpisRepo.ts` with **SQL aggregate queries** (architecture: "KPI figures derive from aggregate queries, not hard-coded values"). Do not `SELECT *` and count in JS inside the repo
+  - [x] Add `listRecentDevelopments(db, limit = 7)` on `casesRepo` (JOIN `docket_events` → `cases`, `ORDER BY occurred_at DESC, id ASC`, LIMIT). Do not N+1 `getCaseById` from the client
+  - [x] Wire `GET /api/kpis` as a **single resource** (`jsonOk`, bare JSON) and `GET /api/developments` as a **list** (`jsonList`). Plural path, no trailing slash. GET/HEAD only
+  - [x] Do **not** claim `/api/poll/*`. Do not add tables. Do not add KV. `run_worker_first` already includes `/api` + `/api/*` — do not regress it
+  - [x] **KPI definitions (authoritative — pin in workers tests):**
 
     | Field | Query |
     |---|---|
@@ -61,39 +65,39 @@ so that I understand what PML is and the scale of the docket before diving into 
     | `changedIn30Days` | `COUNT(*)` from `states` where `posture != 'untracked'` AND `updated_at >=` (freshness − 30 days) |
     | `freshness` | `MAX(updated_at)` across published F1 claim tables (`cases`, `states`, `circuits`, `cert_signals`) |
 
-  - [ ] **30-day window is relative to `freshness`, not `Date.now()`.** The seed stamp is `2026-08-09T16:00:00.000Z` (a few rows `2026-08-31T19:07:00.000Z`). Wall-clock "today" would make "changed in 30 days" either light up everything or nothing depending on when the story ships, which is a fake freshness signal. Return `changedWindowStart` so the subtitle can say the actual date
+  - [x] **30-day window is relative to `freshness`, not `Date.now()`.** The seed stamp is `2026-08-09T16:00:00.000Z` (a few rows `2026-08-31T19:07:00.000Z`). Wall-clock "today" would make "changed in 30 days" either light up everything or nothing depending on when the story ships, which is a fake freshness signal. Return `changedWindowStart` so the subtitle can say the actual date
 
-- [ ] **Task 3: Port orientation CSS into `pml.css`** (AC: 1, 2)
-  - [ ] Port `.about`, `.goal`, `.founder`, `.gh`, `.masthead`, `.mast-grid`, `.bottomline`, `.cta`, `.mast-meta`, `.latest`, `.feed`, `.kpis`, `.kpi`, `.split`, `.explain`, `.q`, `.blist`, `.tl` from Tracker.html into `src/shared/ui/pml.css`
-  - [ ] Use tokens (`var(--color-*)`, `--space-*`, `--font-heading`) — no rogue hexes a token already carries
-  - [ ] Collapse at **940px** (UX-DR22): `.about` 1 col; `.mast-grid` 1 col; `.kpis` 2 col
-  - [ ] KPI figures: heading font, ~40px, `font-feature-settings: "tnum"` (or `.num`). Focus ring already global
-  - [ ] **Reuse** `.plate` from `tokens.css` (already shipped). Do not redeclare a second plate
-  - [ ] **Reuse** `.btn` / `.btn-primary` / `.btn-secondary` / `.btn-ghost` from `tokens.css`. Do not invent a new button system
-  - [ ] Do **not** add `lucide-react`. The live dot is CSS (`::before` on `.live`). HALT if you think you need a new dependency
+- [x] **Task 3: Port orientation CSS into `pml.css`** (AC: 1, 2)
+  - [x] Port `.about`, `.goal`, `.founder`, `.gh`, `.masthead`, `.mast-grid`, `.bottomline`, `.cta`, `.mast-meta`, `.latest`, `.feed`, `.kpis`, `.kpi`, `.split`, `.explain`, `.q`, `.blist`, `.tl` from Tracker.html into `src/shared/ui/pml.css`
+  - [x] Use tokens (`var(--color-*)`, `--space-*`, `--font-heading`) — no rogue hexes a token already carries
+  - [x] Collapse at **940px** (UX-DR22): `.about` 1 col; `.mast-grid` 1 col; `.kpis` 2 col
+  - [x] KPI figures: heading font, ~40px, `font-feature-settings: "tnum"` (or `.num`). Focus ring already global
+  - [x] **Reuse** `.plate` from `tokens.css` (already shipped). Do not redeclare a second plate
+  - [x] **Reuse** `.btn` / `.btn-primary` / `.btn-secondary` / `.btn-ghost` from `tokens.css`. Do not invent a new button system
+  - [x] Do **not** add `lucide-react`. The live dot is CSS (`::before` on `.live`). HALT if you think you need a new dependency
 
-- [ ] **Task 4: Apex orientation UI** (AC: 1, 3, 4, 5, 7)
-  - [ ] New files under `src/surfaces/apex/orientation/` (surface-local — **not** `src/shared/ui/`, which is leaf primitives only):
+- [x] **Task 4: Apex orientation UI** (AC: 1, 3, 4, 5, 7)
+  - [x] New files under `src/surfaces/apex/orientation/` (surface-local — **not** `src/shared/ui/`, which is leaf primitives only):
     - `CredibilityStrip.tsx`
     - `Masthead.tsx` (kicker, H1, bottom line, CTAs, meta, Latest developments)
     - `KpiRow.tsx`
     - `ExecutiveBrief.tsx`
     - `useOrientation.ts`
-  - [ ] **`useOrientation` copies `useAdminSession`:** `useEffect` + `AbortController` + `fetch('/api/kpis')` and `fetch('/api/developments')`. Fail closed to an empty/unavailable state. **Do not** add TanStack Query / SWR. **Do not** use React 19 `use()` — this app has no SSR, no cached promise, and no Suspense/ErrorBoundary tree; `use()` in render with a new Promise loops. `import type` from schemas so zod does not enter the client bundle
-  - [ ] Rewrite `ApexShell.tsx`:
+  - [x] **`useOrientation` copies `useAdminSession`:** `useEffect` + `AbortController` + `fetch('/api/kpis')` and `fetch('/api/developments')`. Fail closed to an empty/unavailable state. **Do not** add TanStack Query / SWR. **Do not** use React 19 `use()` — this app has no SSR, no cached promise, and no Suspense/ErrorBoundary tree; `use()` in render with a new Promise loops. `import type` from schemas so zod does not enter the client bundle
+  - [x] Rewrite `ApexShell.tsx`:
     - Keep TopBar + TrustBar + remaining EmptyState bands + SiteFooter
     - Replace `<LaunchNote />` with credibility → masthead → KPI
     - Fill `#brief` with `ExecutiveBrief` (change SectionBand kicker/title/why to the handoff: kicker `The situation`, title `What this fight is about`, why "Written for readers who are not lawyers…")
     - **Delete** `src/surfaces/apex/LaunchNote.tsx` and every import
     - Insert `{/* Story 2.9 inserts #poll here, between KPI and #brief */}` — no poll markup
     - TrustBar: pass `provenance={<ProvenanceLabel kind="human" />}` (seed is human-approved). Pass `LastUpdated` only once `freshness` is known — **no hardcoded fallback date**
-  - [ ] **Credibility copy (honest verbs):**
+  - [x] **Credibility copy (honest verbs):**
     - Claim 1 title may stay structurally numbered. Body: this is a sourced record of posture, operational status, and a primary source for every tracked state — **not** "checked daily" / "always current" / "live record" in the pipeline sense
     - Claim 2: open-source, mapped to the nine-layer framework, governance record on **ops.** — **not** "every run, draft and approval is public" (Epic 3). Link "The nine layers" to `opsHref + "#layers"` (apex must not *host* `#layers`; linking across hosts is the IA). Do not use the handoff's dummy `https://www.linkedin.com/` for the framework
     - Founder: `Patrick Bland` · `Practising attorney & CTO`. LinkedIn: omit the link unless a real profile URL is in repo docs (handoff URL is a placeholder homepage — do not ship it)
     - Portrait: `<span className="plate">`. If `public/assets/patrick-bland.jpg` exists, use it with `alt="Patrick Bland"`. If not, lettermark `PB` inside the plate — **no stock photo, no broken img**. Creating `public/` is expected (2.3 will add `public/geo/`)
     - Repo CTA: existing `https://github.com/bizmation/PredictionMarketLitigation`
-  - [ ] **Masthead copy:**
+  - [x] **Masthead copy:**
     - Kicker: `U.S. Federal & State Litigation · Tracker F1`
     - H1: `Where prediction-market litigation actually stands.`
     - Bottom line: qualitative legal sentences from the handoff are OK **only where they match the seed** (Flaherty is the only appellate merits holding; NJ cert deadline extended to 3 September 2026; no petition as of the seed stamp — see `st-nj.why_note` and `de-flaherty-ext`). **Integers** ("six district courts") must be interpolated from orientation data or dropped
@@ -102,7 +106,7 @@ so that I understand what PML is and the scale of the docket before diving into 
     - Meta **Pending drafts**: honest. There is no drafts table. Copy like "No pending drafts yet — the daily pipeline is not live" linking to ops. **Do not** ship "2 awaiting approval"
     - Meta **Approval gate**: `HITL (human in the loop) · Autonomous mode off` is the documented product default (FR14/FR16), not a live count — allowed as policy chrome until Epic 3 exposes a status endpoint
     - Latest developments: render `items` from `/api/developments`. Each row: date · court / event text / caption. Link to `#cases` (2.5 owns selection; do not invent `?case=` here). Empty feed: EmptyState, not mock rows. "as of {date}" from `freshness` via `formatEtDate` / `formatEtDateTime`
-  - [ ] **KPI row (six cells, FR43 four required):**
+  - [x] **KPI row (six cells, FR43 four required):**
 
     | Cell | Figure | Subcopy pattern |
     |---|---|---|
@@ -114,21 +118,21 @@ so that I understand what PML is and the scale of the docket before diving into 
     | Changed in 30 days | `changedIn30Days` | "States whose status or posture moved since {changedWindowStart}." |
 
     While fetch is in flight: structure is visible, figures are an em dash or equivalent — **never a guessed number**
-  - [ ] **Executive brief:** port `.explain` + `.tl` from the handoff into `#brief`. Information-not-advice. Any docket statistic inside the prose ("nineteen states", "four of the nineteen", "six circuits") must be interpolated from the KPI payload or rewritten without the number so it cannot contradict the row above
-  - [ ] One document `<h1>` (masthead). SectionBand titles stay `<h2>`. Credibility numerals are visual markers, not headings
-  - [ ] Accessibility: founder `img` has meaningful alt (or lettermark is text, not an empty box); Latest feed controls are focusable (`:focus-visible` already tokens); KPI row is a list or has an accessible name (`aria-label="Docket snapshot"` or similar); best-effort WCAG 2.2 AA, no new focus-ring invention (NFR5 already global)
+  - [x] **Executive brief:** port `.explain` + `.tl` from the handoff into `#brief`. Information-not-advice. Any docket statistic inside the prose ("nineteen states", "four of the nineteen", "six circuits") must be interpolated from the KPI payload or rewritten without the number so it cannot contradict the row above
+  - [x] One document `<h1>` (masthead). SectionBand titles stay `<h2>`. Credibility numerals are visual markers, not headings
+  - [x] Accessibility: founder `img` has meaningful alt (or lettermark is text, not an empty box); Latest feed controls are focusable (`:focus-visible` already tokens); KPI row is a list or has an accessible name (`aria-label="Docket snapshot"` or similar); best-effort WCAG 2.2 AA, no new focus-ring invention (NFR5 already global)
 
-- [ ] **Task 5: Tests** (AC: all)
-  - [ ] Workers (`publicApi.test.ts` or a sibling `*.test.ts`): `GET /api/kpis` shape, camelCase only, definitions above, `appealsPending` excludes resolved Flaherty, `statesTracked < 51`, `unknown` not in the operational split, `/api/developments` list envelope length ≤ 7, newest `occurredAt` first, `/api/poll/votes` still unmatched
-  - [ ] UI (`shells.test.tsx` + `orientation.test.tsx`): LaunchNote gone; exactly one `h1`; credibility + masthead + `.kpis` present; CTA hrefs; `#brief` title is the handoff's; EmptyState count drops (LaunchNote's empty + filled brief — was 10, now 8 remaining bands); IA split still holds (no `#layers` / `#journal` hosted on apex); **no test asserts a hardcoded seed count in ApexShell source**
-  - [ ] Mock `fetch` in UI tests if you assert figures — the figure must equal the mock, not `25`
-  - [ ] `npm test` green, zero cloud credentials
+- [x] **Task 5: Tests** (AC: all)
+  - [x] Workers (`publicApi.test.ts` or a sibling `*.test.ts`): `GET /api/kpis` shape, camelCase only, definitions above, `appealsPending` excludes resolved Flaherty, `statesTracked < 51`, `unknown` not in the operational split, `/api/developments` list envelope length ≤ 7, newest `occurredAt` first, `/api/poll/votes` still unmatched
+  - [x] UI (`shells.test.tsx` + `orientation.test.tsx`): LaunchNote gone; exactly one `h1`; credibility + masthead + `.kpis` present; CTA hrefs; `#brief` title is the handoff's; EmptyState count drops (LaunchNote's empty + filled brief — was 10, now 8 remaining bands); IA split still holds (no `#layers` / `#journal` hosted on apex); **no test asserts a hardcoded seed count in ApexShell source**
+  - [x] Mock `fetch` in UI tests if you assert figures — the figure must equal the mock, not `25`
+  - [x] `npm test` green, zero cloud credentials
 
-- [ ] **Task 6: Finalize** (AC: all)
-  - [ ] `npm run check` exit 0
-  - [ ] Retire the LaunchNote line in `_bmad-output/implementation-artifacts/deferred-work.md`
-  - [ ] **Do not live-deploy.** Production landing overwrite is still open in deferred-work. `npx wrangler deploy --dry-run` is enough
-  - [ ] File List from `git status` / diff. Single commit only if Patrick asks
+- [x] **Task 6: Finalize** (AC: all)
+  - [x] `npm run check` exit 0
+  - [x] Retire the LaunchNote line in `_bmad-output/implementation-artifacts/deferred-work.md`
+  - [x] **Do not live-deploy.** Production landing overwrite is still open in deferred-work. `npx wrangler deploy --dry-run` is enough
+  - [x] File List from `git status` / diff. Single commit only if Patrick asks
 
 ## Dev Notes
 
@@ -272,16 +276,62 @@ Do not create architecture-sketch `pages/HomePage.tsx`.
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Cursor Grok 4.6
 
 ### Debug Log References
 
+- `npm test` — 297 passed / 10 files, exit 0, zero cloud credentials (local `.dev.vars` only)
+- `npm run check` — oxfmt + oxlint + tsc exit 0
+- `npx wrangler deploy --dry-run` — exit 0; no live publish
+- Browser on `http://localhost:5173/`: KPIs and developments loaded from `/api/kpis` and `/api/developments`; `#states`, `#brief`, `#cases` anchors work; LaunchNote gone
+
 ### Completion Notes List
 
-Ultimate context engine analysis completed - comprehensive developer guide created.
+Apex orientation chrome is live: SQL-derived KPIs and a seven-row developments feed, honest credibility copy (no present-tense pipeline), masthead H1, six-cell KPI row, and the handoff executive brief. LaunchNote is deleted. TrustBar last-updated comes from `MAX(updated_at)` after fetch, not a hardcoded stamp. Reader poll is a comment only (Story 2.9). Founder portrait is a `PB` lettermark until a photo lands.
 
 ### File List
+
+- `_bmad-output/implementation-artifacts/2-2-apex-orientation-chrome.md`
+- `_bmad-output/implementation-artifacts/deferred-work.md`
+- `_bmad-output/implementation-artifacts/sprint-status.yaml`
+- `src/shared/api/publicApi.test.ts`
+- `src/shared/api/publicRouter.ts`
+- `src/shared/db/repos/casesRepo.ts`
+- `src/shared/db/repos/kpisRepo.ts`
+- `src/shared/schemas/development.ts`
+- `src/shared/schemas/kpi.ts`
+- `src/shared/ui/pml.css`
+- `src/surfaces/apex/ApexShell.tsx`
+- `src/surfaces/apex/LaunchNote.tsx` (deleted)
+- `src/surfaces/apex/orientation/CredibilityStrip.tsx`
+- `src/surfaces/apex/orientation/ExecutiveBrief.tsx`
+- `src/surfaces/apex/orientation/KpiRow.tsx`
+- `src/surfaces/apex/orientation/Masthead.tsx`
+- `src/surfaces/apex/orientation/orientation.test.tsx`
+- `src/surfaces/apex/orientation/useOrientation.ts`
+- `src/surfaces/shells.test.tsx`
+
+### Review Findings — 2026-09-01
+
+Layers: Blind Hunter, Edge Case Hunter, and Acceptance Auditor were interrupted on the first launch. This pass reviewed the Story 2.2 source directly against AC 1–7 and the task constraints.
+
+- [x] [Review][Decision] Handoff integers in the executive brief that are not KPI fields — dismissed 2026-09-01 (Patrick: keep “Forty-eight states,” “twenty misdemeanor counts,” and “14.25%” as legal framing from the handoff, not docket KPIs).
+
+- [x] [Review][Patch] `#ops` EmptyState still ships the present-tense pipeline claim this story forbade [src/surfaces/apex/ApexShell.tsx:208]
+- [x] [Review][Patch] Brief claims every status on this page links to a ruling while `#states` is still EmptyState [src/surfaces/apex/orientation/ExecutiveBrief.tsx:125]
+- [x] [Review][Patch] Hardcoded “CFTC has sued nine states” is a docket statistic that is not interpolated and does not match the seven seeded `United States v. …` captions [src/surfaces/apex/orientation/ExecutiveBrief.tsx:110]
+- [x] [Review][Patch] Brief loading fallback asserts movement and pending appeals before KPIs arrive [src/surfaces/apex/orientation/ExecutiveBrief.tsx:12]
+- [x] [Review][Patch] “It changes most weeks” is present-tense pipeline language on a frozen seed [src/surfaces/apex/orientation/ExecutiveBrief.tsx:121]
+- [x] [Review][Patch] Credibility heading “Sourced, not a snapshot” contradicts the honest “sourced seed” sentence in claim 2 [src/surfaces/apex/orientation/CredibilityStrip.tsx:23]
+- [x] [Review][Patch] “Changed in 30 days” subtitle claims posture/status moved; the SQL counts any `updated_at` bump, including 0003 source-fit restamps [src/surfaces/apex/orientation/KpiRow.tsx:79]
+- [x] [Review][Patch] KPI split restates a second status ramp; `.banned` is a light cell here and a filled inverted badge in `StatusBadge` [src/shared/ui/pml.css:990]
+- [x] [Review][Patch] `useOrientation` accepts a partial KPI object and drops a successful payload if the sibling fetch fails [src/surfaces/apex/orientation/useOrientation.ts:17]
+
+- [x] [Review][Defer] Founder portrait is a `PB` lettermark and LinkedIn is omitted — deferred, pre-existing open questions in this story; not defects until a photo or real profile URL is supplied
 
 ## Change Log
 
 - 2026-08-31: Story context created from Epic 2 / FR43 / UX handoff / Story 2.1 implementation (ready-for-dev)
+- 2026-08-31: Implemented apex orientation chrome (KPIs, developments, LaunchNote deleted); status → review
+- 2026-09-01: Adversarial code review findings recorded; status remains review pending patch/decision resolution
+- 2026-09-01: Review patches applied (honest pipeline copy, brief/KPI wording, shared status ramp, independent orientation fetches); status → done
