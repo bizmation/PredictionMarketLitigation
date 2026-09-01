@@ -8,6 +8,7 @@
     ".claude/**",
     ".agents/**",
     "docs/**",
-    "env.d.ts"
+    "env.d.ts",
+    "public/geo/states-10m.json"
   ]
 }

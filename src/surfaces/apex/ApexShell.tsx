@@ -10,6 +10,7 @@ import {
   WarnChip,
   type TopBarLink
 } from "../../shared/ui";
+import { CircuitSplit } from "./circuits/CircuitSplit";
 import { CredibilityStrip } from "./orientation/CredibilityStrip";
 import { ExecutiveBrief } from "./orientation/ExecutiveBrief";
 import { KpiRow } from "./orientation/KpiRow";
@@ -92,17 +93,11 @@ export function ApexShell({ dev = false }: ApexShellProps) {
 
         <SectionBand
           id="circuits"
-          kicker="02"
-          title="Circuit split"
-          why="Which federal circuits have ruled, which way, and where the split actually runs."
+          kicker="Heat map"
+          title="The circuit split"
+          why="Geography and doctrine disagree. The map colors states by the posture that controls them; the index colors the courts of appeals. Select either — the other follows."
         >
-          <EmptyState
-            title="Map not yet wired"
-            hint="Absence of a finding is not a finding of legality."
-          >
-            Approved circuit posture data is available through the API; Story
-            2.3 renders it over real U.S. geography.
-          </EmptyState>
+          <CircuitSplit />
         </SectionBand>
 
         <SectionBand

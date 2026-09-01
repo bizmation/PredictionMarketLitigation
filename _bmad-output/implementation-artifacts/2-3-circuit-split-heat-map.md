@@ -1,6 +1,10 @@
+---
+baseline_commit: 6350b88913f73132ec2c4dde7d08433ca266bcdf
+---
+
 # Story 2.3: Circuit-Split Heat Map
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -33,66 +37,66 @@ so that I can see regional posture at a glance and drill to controlling cases.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Preflight** (AC: all)
-  - [ ] Confirm `npm test` is green on the **2.2 tree** (orientation chrome present, `LaunchNote.tsx` gone). Record the count. Zero cloud credentials
-  - [ ] Confirm `npm run check` exits 0
-  - [ ] Confirm `GET /api/circuits`, `/api/states`, `/api/cases` return list envelopes. If they 404, you are not on top of 2.1
-  - [ ] Confirm `src/surfaces/apex/LaunchNote.tsx` does not exist. If it does, stop — 2.2 did not land
-  - [ ] Read, do not remember: Tracker.html `#circuits` markup (~752–809), map CSS (~216–268), `drawMap` / `paintMap` / `selectState` / `selectCircuit` (~1778–1971). Recreate in React; do not ship the HTML file (UX-DR24)
-  - [ ] Read `ApexShell.tsx` `#circuits` EmptyState, `useOrientation.ts` (fetch pattern), `PostureSwatch.tsx` (`showLabel={false}` escape hatch is for this story), `circuitsRepo.ts`, `state.ts`, `vocabulary.ts`, `wrangler.jsonc` `assets.directory` + `run_worker_first`
-  - [ ] Branch: `story/2-3-circuit-split-heat-map` from the 2.2 implementation, not from `main`
+- [x] **Task 1: Preflight** (AC: all)
+  - [x] Confirm `npm test` is green on the **2.2 tree** (orientation chrome present, `LaunchNote.tsx` gone). Record the count. Zero cloud credentials
+  - [x] Confirm `npm run check` exits 0
+  - [x] Confirm `GET /api/circuits`, `/api/states`, `/api/cases` return list envelopes. If they 404, you are not on top of 2.1
+  - [x] Confirm `src/surfaces/apex/LaunchNote.tsx` does not exist. If it does, stop — 2.2 did not land
+  - [x] Read, do not remember: Tracker.html `#circuits` markup (~752–809), map CSS (~216–268), `drawMap` / `paintMap` / `selectState` / `selectCircuit` (~1778–1971). Recreate in React; do not ship the HTML file (UX-DR24)
+  - [x] Read `ApexShell.tsx` `#circuits` EmptyState, `useOrientation.ts` (fetch pattern), `PostureSwatch.tsx` (`showLabel={false}` escape hatch is for this story), `circuitsRepo.ts`, `state.ts`, `vocabulary.ts`, `wrangler.jsonc` `assets.directory` + `run_worker_first`
+  - [x] Branch: `story/2-3-circuit-split-heat-map` from the 2.2 implementation, not from `main`
 
-- [ ] **Task 2: Geography + allowed libraries** (AC: 1, 6)
-  - [ ] `npm install d3-geo d3-selection topojson-client` and `npm install -D @types/d3-geo @types/d3-selection @types/topojson-client`
-  - [ ] Pin **topojson-client@3.1.0** (handoff). `d3-geo` / `d3-selection` major 3 (the d3 7 line). Do not install the `d3` umbrella package. Do not add script tags to `index.html`
-  - [ ] Create `public/geo/states-10m.json` by copying **us-atlas 3.0.1** `states-10m.json` (Census 2017 cartographic states; quantized, **not** the pre-projected `states-albers-10m.json`). Add `public/geo/README.md` with version, source URL, and that fills join on `properties.name`
-  - [ ] Fetch `/geo/states-10m.json` with `fetch` + `AbortController`. `/geo/*` is **not** in `run_worker_first`, so Cloudflare serves it as a static asset; do not add it to that list (it would bill Worker invocations for a ~100KB JSON)
-  - [ ] Convert with `topojson.feature(topo, topo.objects.states)`; project `geoAlbersUsa().fitSize([w-24, h-24], fc)`; draw with `geoPath`. Atlas fields: `feature.id` = two-digit FIPS (`"34"`), `feature.properties.name` = `"New Jersey"`. Join to seed on **name** (seed has no FIPS column)
-  - [ ] Circuit overlay: for each circuit with member states, `topojson.merge(topo, memberGeometries)`. Label centroid skips Alaska/Hawaii (handoff). `cir-fed` has no members — index row only, no overlay path
-  - [ ] HALT if you think you need Mapbox, Leaflet, ECharts, lucide, or a second geography file
+- [x] **Task 2: Geography + allowed libraries** (AC: 1, 6)
+  - [x] `npm install d3-geo d3-selection topojson-client` and `npm install -D @types/d3-geo @types/d3-selection @types/topojson-client`
+  - [x] Pin **topojson-client@3.1.0** (handoff). `d3-geo` / `d3-selection` major 3 (the d3 7 line). Do not install the `d3` umbrella package. Do not add script tags to `index.html`
+  - [x] Create `public/geo/states-10m.json` by copying **us-atlas 3.0.1** `states-10m.json` (Census 2017 cartographic states; quantized, **not** the pre-projected `states-albers-10m.json`). Add `public/geo/README.md` with version, source URL, and that fills join on `properties.name`
+  - [x] Fetch `/geo/states-10m.json` with `fetch` + `AbortController`. `/geo/*` is **not** in `run_worker_first`, so Cloudflare serves it as a static asset; do not add it to that list (it would bill Worker invocations for a ~100KB JSON)
+  - [x] Convert with `topojson.feature(topo, topo.objects.states)`; project `geoAlbersUsa().fitSize([w-24, h-24], fc)`; draw with `geoPath`. Atlas fields: `feature.id` = two-digit FIPS (`"34"`), `feature.properties.name` = `"New Jersey"`. Join to seed on **name** (seed has no FIPS column)
+  - [x] Circuit overlay: for each circuit with member states, `topojson.merge(topo, memberGeometries)`. Label centroid skips Alaska/Hawaii (handoff). `cir-fed` has no members — index row only, no overlay path
+  - [x] HALT if you think you need Mapbox, Leaflet, ECharts, lucide, or a second geography file
 
-- [ ] **Task 3: Selection model** (AC: 3, 4, 8)
-  - [ ] New `src/surfaces/apex/selection.ts` (pure parse/serialize) + `useApexSelection.ts` (`history.replaceState`, no router library). Shape: `{ state: string | null, circuit: string | null }` where `state` is the 2-letter **code** (`NJ`) and `circuit` is the seed **id** (`cir-3`)
-  - [ ] Selecting a state sets `state` and that row's `circuitId`. Selecting a circuit sets `circuit` and, if it has members, a representative member `state` (handoff: first member in the states list). "All" clears `circuit` and keeps `state`
-  - [ ] Invalid `?state=` / `?circuit=` values are ignored, not 404'd
-  - [ ] This module is how 2.4 syncs. Do not put it inside the map file. Do not read `window.location` in render without an effect
+- [x] **Task 3: Selection model** (AC: 3, 4, 8)
+  - [x] New `src/surfaces/apex/selection.ts` (pure parse/serialize) + `useApexSelection.ts` (`history.replaceState`, no router library). Shape: `{ state: string | null, circuit: string | null }` where `state` is the 2-letter **code** (`NJ`) and `circuit` is the seed **id** (`cir-3`)
+  - [x] Selecting a state sets `state` and that row's `circuitId`. Selecting a circuit sets `circuit` and, if it has members, a representative member `state` (handoff: first member in the states list). "All" clears `circuit` and keeps `state`
+  - [x] Invalid `?state=` / `?circuit=` values are ignored, not 404'd
+  - [x] This module is how 2.4 syncs. Do not put it inside the map file. Do not read `window.location` in render without an effect
 
-- [ ] **Task 4: `#circuits` UI** (AC: 1–7)
-  - [ ] New files under `src/surfaces/apex/circuits/` (surface-local — **not** `src/shared/ui/`):
+- [x] **Task 4: `#circuits` UI** (AC: 1–7)
+  - [x] New files under `src/surfaces/apex/circuits/` (surface-local — **not** `src/shared/ui/`):
     - `CircuitSplit.tsx` — legend + map card + index; composed inside existing `SectionBand id="circuits"`
     - `CircuitMap.tsx` — SVG + d3 in `useEffect` on a ref; cleanup on unmount
     - `CircuitIndex.tsx` — 13 rows, keyboardable `<button class="crow">`
     - `CircuitLegend.tsx` — posture chips + optional circuit chips
     - `useCircuitData.ts` — parallel fetch `/api/circuits`, `/api/states`, `/api/cases` copying `useOrientation` (AbortController, fail closed, `import type` from schemas)
-  - [ ] Rewrite `ApexShell.tsx` `#circuits` only: keep SectionBand; replace EmptyState with `<CircuitSplit />`. Update kicker/title/why to the handoff's reader language (`The circuit split` / geography-vs-doctrine why). Leave `#states` EmptyState
-  - [ ] **Posture legend** before the map. Counts from the fetched payload, never literals. Chips may filter map opacity (handoff `mapPostures`); they must not claim to filter the unwired board
-  - [ ] **Circuit index:** label from `number` (`1st`/`2d`/`3d`/…/`D.C.`/`Fed.` — not seed ids). Body = `summary` when tracked, "No tracked activity" when `untracked`. Swatch = `PostureSwatch`. Header count: interpolate `circuits.filter(c => c.posture !== "untracked").length` of `circuits.length` — seed is **9 of 13**, not the handoff's "7 of 13"
-  - [ ] **Map card:** caption "Controlling posture by state"; circuit-overlay toggle (`.chip`, `aria-pressed`); freshness from max `updatedAt` of loaded states/circuits via `formatEtDate`, not hardcoded `9 Aug 2026`
-  - [ ] **Tooltip:** posture label; `<em>caption</em>` joined via `states.controllingCaseId` → `/api/cases` list (one fetch, no N+1 `/api/cases/:id` or `/api/states/:code`); `formatEtDate(updatedAt)`. Untracked / unknown atlas name: "No tracked activity. Absence of a finding is not a finding of legality."
-  - [ ] **Fills:** same oklch as `.sw.platform|pending|state|banned|untracked` in `pml.css`. Selected state: accent stroke ~2.6px. Unseeded atlas features: dashed hairline + untracked fill
-  - [ ] **Circuit strokes:** identity hues (port `CIRC_HUE` keyed to `cir-1`…`cir-fed`), `pointer-events: none` on `.circ`; labels clickable. Dim non-selected circuits when a circuit is selected
-  - [ ] **Do not ship** the handoff "Layer / Entity activity" bar. That paints operational status onto the posture ramp and belongs with Story 2.7 (entity ledger) if at all
-  - [ ] One document `<h1>` remains the masthead. SectionBand title stays `<h2>`
-  - [ ] Accessibility: map `role="img"` + group label; each state path is a named button; `PostureSwatch showLabel={false}` only when the path/`crow` aria-label already names the posture; focus ring is the global accent outline (NFR5)
+  - [x] Rewrite `ApexShell.tsx` `#circuits` only: keep SectionBand; replace EmptyState with `<CircuitSplit />`. Update kicker/title/why to the handoff's reader language (`The circuit split` / geography-vs-doctrine why). Leave `#states` EmptyState
+  - [x] **Posture legend** before the map. Counts from the fetched payload, never literals. Chips may filter map opacity (handoff `mapPostures`); they must not claim to filter the unwired board
+  - [x] **Circuit index:** label from `number` (`1st`/`2d`/`3d`/…/`D.C.`/`Fed.` — not seed ids). Body = `summary` when tracked, "No tracked activity" when `untracked`. Swatch = `PostureSwatch`. Header count: interpolate `circuits.filter(c => c.posture !== "untracked").length` of `circuits.length` — seed is **9 of 13**, not the handoff's "7 of 13"
+  - [x] **Map card:** caption "Controlling posture by state"; circuit-overlay toggle (`.chip`, `aria-pressed`); freshness from max `updatedAt` of loaded states/circuits via `formatEtDate`, not hardcoded `9 Aug 2026`
+  - [x] **Tooltip:** posture label; `<em>caption</em>` joined via `states.controllingCaseId` → `/api/cases` list (one fetch, no N+1 `/api/cases/:id` or `/api/states/:code`); `formatEtDate(updatedAt)`. Untracked / unknown atlas name: "No tracked activity. Absence of a finding is not a finding of legality."
+  - [x] **Fills:** same oklch as `.sw.platform|pending|state|banned|untracked` in `pml.css`. Selected state: accent stroke ~2.6px. Unseeded atlas features: dashed hairline + untracked fill
+  - [x] **Circuit strokes:** identity hues (port `CIRC_HUE` keyed to `cir-1`…`cir-fed`), `pointer-events: none` on `.circ`; labels clickable. Dim non-selected circuits when a circuit is selected
+  - [x] **Do not ship** the handoff "Layer / Entity activity" bar. That paints operational status onto the posture ramp and belongs with Story 2.7 (entity ledger) if at all
+  - [x] One document `<h1>` remains the masthead. SectionBand title stays `<h2>`
+  - [x] Accessibility: map `role="img"` + group label; each state path is a named button; `PostureSwatch showLabel={false}` only when the path/`crow` aria-label already names the posture; focus ring is the global accent outline (NFR5)
 
-- [ ] **Task 5: CSS** (AC: 5)
-  - [ ] Port `.legend`, `.legrow`, `.pchip`, `.cchip`, `.f1`, `.mapcard`, `#map`/`[data-map]`, `.st`, `.circ`, `.clabel`, `.tooltip`, `.circuits`, `.crow`, `.cnum`, `.cbody` from Tracker.html into `src/shared/ui/pml.css` using tokens
-  - [ ] Desktop `.f1 { grid-template-columns: 1.5fr 1fr; gap: var(--space-6); }`; `@media (max-width: 940px) { .f1 { grid-template-columns: 1fr; } }`
-  - [ ] Index is a single column of rows when beside the map (do not keep `#circuitlist { minmax(390px) }` — that was compensating for the prototype's accidental 1-col desktop grid)
-  - [ ] Reuse `.chip`, `.sw`, `.kicker`, `.num`. Do not redeclare posture fills
+- [x] **Task 5: CSS** (AC: 5)
+  - [x] Port `.legend`, `.legrow`, `.pchip`, `.cchip`, `.f1`, `.mapcard`, `#map`/`[data-map]`, `.st`, `.circ`, `.clabel`, `.tooltip`, `.circuits`, `.crow`, `.cnum`, `.cbody` from Tracker.html into `src/shared/ui/pml.css` using tokens
+  - [x] Desktop `.f1 { grid-template-columns: 1.5fr 1fr; gap: var(--space-6); }`; `@media (max-width: 940px) { .f1 { grid-template-columns: 1fr; } }`
+  - [x] Index is a single column of rows when beside the map (do not keep `#circuitlist { minmax(390px) }` — that was compensating for the prototype's accidental 1-col desktop grid)
+  - [x] Reuse `.chip`, `.sw`, `.kicker`, `.num`. Do not redeclare posture fills
 
-- [ ] **Task 6: Tests** (AC: all)
-  - [ ] `src/surfaces/apex/circuits/*.test.tsx`: CircuitIndex + legend with **mock** circuits (`cir-3` / `cir-fed`, mixed postures) — figures equal the mock, not seed `7`. Fallback message when topology failed. `selection.ts` round-trips `NJ`/`cir-3` and ignores garbage
-  - [ ] `shells.test.tsx`: `#circuits` no longer contains "Map not yet wired"; `.f1` / circuit index present; remaining EmptyState bands are `states`, `issues`, `cases`, `entities`, `cert`, `trust`, `ops` (7). IA split still holds (no `#layers` / `#journal` hosted on apex). Exactly one `h1`
-  - [ ] Optional workers assertion: every seeded `states.name` is in a small fixture of us-atlas `properties.name` values (51 incl. "District of Columbia") so a rename cannot silently un-paint the map
-  - [ ] `renderToStaticMarkup` will not run map `useEffect` — first paint without paths is expected. Do not assert path `d` attributes in static markup
-  - [ ] `npm test` green, zero cloud credentials
+- [x] **Task 6: Tests** (AC: all)
+  - [x] `src/surfaces/apex/circuits/*.test.tsx`: CircuitIndex + legend with **mock** circuits (`cir-3` / `cir-fed`, mixed postures) — figures equal the mock, not seed `7`. Fallback message when topology failed. `selection.ts` round-trips `NJ`/`cir-3` and ignores garbage
+  - [x] `shells.test.tsx`: `#circuits` no longer contains "Map not yet wired"; `.f1` / circuit index present; remaining EmptyState bands are `states`, `issues`, `cases`, `entities`, `cert`, `trust`, `ops` (7). IA split still holds (no `#layers` / `#journal` hosted on apex). Exactly one `h1`
+  - [x] Optional workers assertion: every seeded `states.name` is in a small fixture of us-atlas `properties.name` values (51 incl. "District of Columbia") so a rename cannot silently un-paint the map
+  - [x] `renderToStaticMarkup` will not run map `useEffect` — first paint without paths is expected. Do not assert path `d` attributes in static markup
+  - [x] `npm test` green, zero cloud credentials
 
-- [ ] **Task 7: Finalize** (AC: all)
-  - [ ] `npm run check` exit 0
-  - [ ] **Do not live-deploy.** `npx wrangler deploy --dry-run` is enough
-  - [ ] File List from `git status` / diff. Single commit only if Patrick asks
-  - [ ] Browser-verify `#circuits`: topology paints, tooltip, click + keyboard, circuit overlay, URL params, 940px collapse, fallback (block `/geo/states-10m.json` in DevTools)
+- [x] **Task 7: Finalize** (AC: all)
+  - [x] `npm run check` exit 0
+  - [x] **Do not live-deploy.** `npx wrangler deploy --dry-run` is enough
+  - [x] File List from `git status` / diff. Single commit only if Patrick asks
+  - [x] Browser-verify `#circuits`: topology paints, tooltip, click + keyboard, circuit overlay, URL params, 940px collapse, fallback (block `/geo/states-10m.json` in DevTools)
 
 ## Dev Notes
 
@@ -226,16 +230,70 @@ Do not create architecture-sketch `pages/`. Do not add `GET /api/circuits/:id`.
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Cursor Grok 4.6
 
 ### Debug Log References
 
+- Story git note was stale: 2.2 is already on `main` (`6350b88`, PR #2). Branched `story/2-3-circuit-split-heat-map` from that commit, not from `d4ea9f9`.
+- Preflight `npm test`: 298 passed. After implementation: 309 passed. `npm run check` exit 0. `wrangler deploy --dry-run` exit 0. No live deploy.
+- oxfmt wanted to pretty-print vendored `states-10m.json`; ignored it in `.oxfmtrc.json` so the quantized atlas stays byte-stable.
+- jsx-a11y `prefer-tag-over-role` fires on choropleth `role="img"` (no `<img>` equivalent). File-level oxlint disable on `CircuitMap.tsx`. Index rows use `aria-pressed` instead of invalid `aria-selected` on `<button>`.
+- Browser: `#circuits` paints us-atlas geography, 9 of 13 tracked, posture counts from payload (51/33/4/7/6/1). Circuit index click → `?state=DE&circuit=cir-3`. Overlay toggle hides `.circ`. 900px width collapses `.f1` to one column. `?state=ZZ` fail-closed to empty search. `?state=NJ` persists.
+
+### Implementation Plan
+
+- Vendor us-atlas 3.0.1 `states-10m.json` under `public/geo/`; fetch locally; draw in `useEffect` with `geoAlbersUsa` + `topojson.feature` / `merge`.
+- Pure `selection.ts` is the 2.4 URL contract; `useApexSelection` writes `history.replaceState` after mount.
+- `#circuits` only: `CircuitSplit` composes legend + map card + index. Fills from `.sw.*` oklch. No entity-activity layer.
+
 ### Completion Notes List
 
-Ultimate context engine analysis completed - comprehensive developer guide created.
+- Wired the `#circuits` band to a real US choropleth (posture ramp, not operational status) plus a 13-row circuit index. Selection is URL-shareable for Story 2.4. `#states` remains EmptyState. No live deploy.
 
 ### File List
+
+- .oxfmtrc.json
+- _bmad-output/implementation-artifacts/2-3-circuit-split-heat-map.md
+- _bmad-output/implementation-artifacts/sprint-status.yaml
+- package.json
+- package-lock.json
+- public/geo/README.md
+- public/geo/states-10m.json
+- src/shared/api/publicApi.test.ts
+- src/shared/lib/wranglerConfig.test.tsx
+- src/shared/ui/pml.css
+- src/surfaces/apex/ApexShell.tsx
+- src/surfaces/apex/circuits/atlasStateNames.ts
+- src/surfaces/apex/circuits/CircuitIndex.tsx
+- src/surfaces/apex/circuits/CircuitLegend.tsx
+- src/surfaces/apex/circuits/CircuitMap.tsx
+- src/surfaces/apex/circuits/CircuitSplit.tsx
+- src/surfaces/apex/circuits/circuitView.ts
+- src/surfaces/apex/circuits/circuits.test.tsx
+- src/surfaces/apex/circuits/useCircuitData.ts
+- src/surfaces/apex/selection.ts
+- src/surfaces/apex/useApexSelection.ts
+- src/surfaces/shells.test.tsx
 
 ## Change Log
 
 - 2026-09-01: Story context created from Epic 2 / FR1 / UX-DR9 / handoff A1 / Stories 2.1–2.2 (ready-for-dev)
+- 2026-09-01: Implemented circuit-split heat map on us-atlas 3.0.1 + URL selection; status → review
+- 2026-09-01: Adversarial code review findings recorded; status remains review pending patch resolution
+- 2026-09-01: Review patches applied (untracked dash, overlay dim, shared posture tokens, resize refit, atlas file test, fail-closed URL constraint); status → done
+- 2026-09-01: Late review-layer follow-up — wait for both F1 lists before rewriting `?state=`/`?circuit=`; keep unrelated query keys; do not dim the choropleth when the selected circuit has no members
+
+### Review Findings — 2026-09-01
+
+Parallel Blind Hunter / Edge Case Hunter / Acceptance Auditor were launched; this pass also reviewed the Story 2.3 source directly against AC 1–8.
+
+- [x] [Review][Patch] Seeded `untracked` states get the near-white fill but not the dashed hairline AC1 requires for untracked [src/surfaces/apex/circuits/CircuitMap.tsx:298]
+- [x] [Review][Patch] Selected-circuit dimming on overlay paths/labels is 0.4/0.45, not the handoff 0.18–0.28 band [src/surfaces/apex/circuits/CircuitMap.tsx:322]
+- [x] [Review][Patch] `POSTURE_FILL` redeclares the `.sw.*` oklch ramp in JS after CSS said not to [src/surfaces/apex/circuits/circuitView.ts:21]
+- [x] [Review][Patch] Map projection is fitted once; a 940px collapse or later resize never refits `geoAlbersUsa` [src/surfaces/apex/circuits/CircuitMap.tsx:128]
+- [x] [Review][Patch] Atlas name-join test uses a handwritten 51-name set instead of reading `public/geo/states-10m.json` [src/shared/api/publicApi.test.ts:574]
+- [x] [Review][Patch] `constrainApexSelection` skips membership checks while both code sets are empty, so a failed F1 fetch leaves well-formed junk `?state=` / `?circuit=` live [src/surfaces/apex/selection.ts:51]
+- [x] [Review][Patch] Staggered `/api/states` vs `/api/circuits` arrival can rewrite a pasted `?state=`/`?circuit=` pair before the other list lands [src/surfaces/apex/useApexSelection.ts]
+- [x] [Review][Patch] Selecting `cir-fed` (no member states) dims the entire choropleth [src/surfaces/apex/circuits/CircuitMap.tsx]
+
+- [x] [Review][Defer] `history.replaceState` does not listen for `popstate` — deferred, Story 2.4 owns board sync and can attach history traversal if the URL contract needs Back/Forward

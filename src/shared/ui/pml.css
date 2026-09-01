@@ -234,7 +234,16 @@ footer.foot a {
 
 /* ---- posture + status ------------------------------------
    One axis, five steps: the darker the fill, the worse for
-   platforms. Never carried by fill alone — always with a label. */
+   platforms. Never carried by fill alone — always with a label.
+   Map path fills use the same tokens; do not redeclare the ramp in JS. */
+.sw,
+[data-map] {
+  --posture-untracked: oklch(0.96 0.004 80);
+  --posture-platform: oklch(0.88 0.012 80);
+  --posture-pending: oklch(0.78 0.012 80);
+  --posture-state: oklch(0.63 0.012 80);
+  --posture-banned: oklch(0.42 0.012 80);
+}
 .sw {
   width: 22px;
   height: 14px;
@@ -243,21 +252,21 @@ footer.foot a {
 }
 .sw.untracked,
 .sw.none {
-  background: oklch(0.96 0.004 80);
+  background: var(--posture-untracked);
   border-style: dashed;
   border-color: var(--color-neutral-400);
 }
 .sw.platform {
-  background: oklch(0.88 0.012 80);
+  background: var(--posture-platform);
 }
 .sw.pending {
-  background: oklch(0.78 0.012 80);
+  background: var(--posture-pending);
 }
 .sw.state {
-  background: oklch(0.63 0.012 80);
+  background: var(--posture-state);
 }
 .sw.banned {
-  background: oklch(0.42 0.012 80);
+  background: var(--posture-banned);
 }
 
 .badge {
@@ -1094,6 +1103,279 @@ header.masthead h1 {
   }
   .tl {
     grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* ---- circuit split (story 2.3) ---------------------------
+   Ported from Tracker.html #circuits. Desktop split is UX-DR9
+   (1.5fr + 1fr), not the prototype's accidental 1-col `.f1`.
+   Posture fills stay on `.sw.*` — do not redeclare them here. */
+.legend {
+  border: 1px solid var(--color-divider);
+  border-left: 2px solid var(--color-accent);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-4);
+  background: var(--color-neutral-100);
+  display: grid;
+  gap: var(--space-3);
+}
+.legrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-6);
+  align-items: center;
+}
+.legend .lg-label {
+  font-size: 10.5px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-neutral-600);
+  width: 74px;
+  flex: none;
+}
+.pchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  background: none;
+  border: 1px solid transparent;
+  padding: 2px 8px 2px 4px;
+  color: var(--color-neutral-800);
+}
+.pchip:hover {
+  border-color: var(--color-neutral-400);
+}
+.pchip[aria-pressed="true"] {
+  border-color: var(--color-accent-600);
+  background: var(--color-accent-100);
+}
+.pchip:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.pchip b {
+  font-family: var(--font-heading);
+  font-size: 15px;
+  font-weight: 400;
+  font-feature-settings: "tnum";
+  color: var(--color-neutral-700);
+}
+.cchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  background: none;
+  border: 1px solid transparent;
+  padding: 1px 5px;
+  color: var(--color-neutral-800);
+  white-space: nowrap;
+  flex: none;
+}
+.cchip:hover {
+  border-color: var(--color-neutral-400);
+}
+.cchip[aria-pressed="true"] {
+  border-color: var(--color-accent-600);
+  color: var(--color-accent-700);
+}
+.cchip:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.cchip i {
+  display: inline-block;
+  width: 18px;
+  height: 0;
+  border-top-width: 3px;
+  border-top-style: solid;
+}
+.f1 {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  gap: var(--space-6);
+  align-items: start;
+}
+.mapcard {
+  border: 1px solid var(--color-divider);
+  background: var(--color-neutral-100);
+  position: relative;
+}
+.mapcard .caphead,
+.circuits .caphead {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-divider);
+}
+.circuits .caphead {
+  background: var(--color-neutral-100);
+}
+.mapcard .caphead .chip {
+  margin-left: auto;
+}
+.mapcard .map-fresh,
+.circuits .index-count {
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+}
+.circuits .index-count {
+  margin-left: auto;
+}
+#map,
+[data-map] {
+  display: block;
+  width: 100%;
+  height: 560px;
+}
+[data-map][hidden] {
+  display: none;
+}
+.mapfallback {
+  display: none;
+  padding: var(--space-6);
+  font-size: 13px;
+  color: var(--color-neutral-700);
+}
+.mapfallback:not([hidden]) {
+  display: block;
+}
+.st {
+  cursor: pointer;
+}
+[data-map] path.st.untracked {
+  fill: var(--posture-untracked);
+  stroke-dasharray: 2 2;
+}
+[data-map] path.st.platform {
+  fill: var(--posture-platform);
+}
+[data-map] path.st.pending {
+  fill: var(--posture-pending);
+}
+[data-map] path.st.state {
+  fill: var(--posture-state);
+}
+[data-map] path.st.banned {
+  fill: var(--posture-banned);
+}
+.st:focus-visible,
+.clabel:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.circ {
+  fill: none;
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.circ.sel {
+  stroke-width: 3.6;
+}
+.clabel {
+  font-family: var(--font-heading);
+  font-size: 14px;
+  font-feature-settings: "tnum";
+  paint-order: stroke;
+  stroke: var(--color-bg);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+  cursor: pointer;
+}
+.clabel.sel {
+  fill: var(--color-accent-700);
+}
+.tooltip {
+  position: fixed;
+  pointer-events: none;
+  z-index: 60;
+  opacity: 0;
+  transition: opacity 0.12s;
+  background: var(--color-bg);
+  border: 1px solid var(--color-neutral-700);
+  box-shadow: var(--shadow-md);
+  padding: var(--space-2) var(--space-3);
+  max-width: 280px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.tooltip h4 {
+  font-size: 16px;
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+.tooltip .tt-row {
+  color: var(--color-neutral-800);
+}
+.circuits {
+  border: 1px solid var(--color-divider);
+}
+.crow {
+  display: grid;
+  grid-template-columns: 44px 1fr auto;
+  gap: var(--space-3);
+  align-items: center;
+  padding: 9px var(--space-4);
+  border-bottom: 1px solid var(--color-divider);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  background: none;
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
+  font: inherit;
+  color: inherit;
+}
+.crow:last-child {
+  border-bottom: 0;
+}
+.crow:hover {
+  background: var(--color-accent-100);
+}
+.crow[aria-pressed="true"] {
+  background: var(--color-accent-100);
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+.crow:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+.cnum {
+  font-family: var(--font-heading);
+  font-size: 26px;
+  font-weight: 400;
+  font-feature-settings: "tnum";
+  line-height: 1;
+  color: var(--color-neutral-700);
+}
+.crow[data-posture="untracked"] .cnum {
+  color: var(--color-neutral-400);
+}
+.cbody {
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.cbody .cname {
+  font-size: 13.5px;
+}
+.cbody .ccase {
+  color: var(--color-neutral-700);
+  font-style: italic;
+}
+.cbody .cnone {
+  color: var(--color-neutral-500);
+}
+@media (max-width: 940px) {
+  .f1 {
+    grid-template-columns: 1fr;
   }
 }
 

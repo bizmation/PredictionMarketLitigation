@@ -67,6 +67,13 @@ describe("worker-first route parity", () => {
       expect(rules.some((rule) => ruleMatches(rule, pathname))).toBe(true);
     }
   );
+
+  it("does not route /geo static assets through the Worker", () => {
+    const rules = readRunWorkerFirst("wrangler.jsonc");
+    expect(
+      rules.some((rule) => ruleMatches(rule, "/geo/states-10m.json"))
+    ).toBe(false);
+  });
 });
 
 /**

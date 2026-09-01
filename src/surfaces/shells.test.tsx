@@ -75,7 +75,6 @@ describe("ApexShell", () => {
   it("uses EmptyState for every unwired tracker band", () => {
     const html = apex();
     const remaining = [
-      "circuits",
       "states",
       "issues",
       "cases",
@@ -94,6 +93,13 @@ describe("ApexShell", () => {
       /<section class="band" id="brief"[\s\S]*?<\/section>/
     )?.[0];
     expect(brief).not.toContain('class="empty"');
+    const circuits = html.match(
+      /<section class="band" id="circuits"[\s\S]*?<\/section>/
+    )?.[0];
+    expect(circuits).not.toContain("Map not yet wired");
+    expect(circuits).not.toContain('class="empty"');
+    expect(circuits).toContain('class="f1"');
+    expect(circuits).toContain('class="circuits"');
   });
 });
 

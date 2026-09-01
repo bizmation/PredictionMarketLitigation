@@ -44,3 +44,8 @@
 ## Deferred from: code review of 2-2-apex-orientation-chrome.md (2026-09-01)
 
 - Founder portrait remains a `.plate` lettermark (`PB`) and the founder LinkedIn link is omitted. Both are the story's documented fallbacks until a real `public/assets/patrick-bland.jpg` and a real profile URL are supplied.
+
+## Deferred from: code review of 2-3-circuit-split-heat-map.md (2026-09-01)
+
+- `history.replaceState` writes `?state=` / `?circuit=` but does not listen for `popstate`. Story 2.4 owns board sync and can attach Back/Forward traversal if the shareable URL contract needs it.
+

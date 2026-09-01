@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
 import worker from "../../server";
+import { US_ATLAS_STATE_NAMES } from "../../surfaces/apex/circuits/atlasStateNames";
 
 /**
  * Story 2.1 — public F1 REST. Runs against Miniflare D1 with migrations
@@ -562,5 +563,22 @@ describe("F1 seed integrity", () => {
            '2026-08-09T16:00:00.000Z', '2026-08-09T16:00:00.000Z')`
       ).run()
     ).rejects.toThrow(/Tier-1/);
+  });
+});
+
+/**
+ * Story 2.3 — map fills join atlas features on `properties.name`.
+ * Names are pinned in atlasStateNames.ts; the UI test reads the vendored file.
+ */
+describe("us-atlas name join (story 2.3)", () => {
+  it("every seeded state name is an atlas properties.name", async () => {
+    const res = await worker.fetch!(get("/api/states"), testEnv);
+    const body = (await res.json()) as { items: Array<{ name: string }> };
+    expect(US_ATLAS_STATE_NAMES).toHaveLength(51);
+    expect(body.items).toHaveLength(51);
+    const atlas = new Set<string>(US_ATLAS_STATE_NAMES);
+    for (const row of body.items) {
+      expect(atlas.has(row.name)).toBe(true);
+    }
   });
 });
