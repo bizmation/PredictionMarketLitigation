@@ -3,11 +3,9 @@ import { describe, expect, it } from "vitest";
 
 import { AdminShell } from "./admin/AdminShell";
 import { ApexShell } from "./apex/ApexShell";
-import { LaunchNote } from "./apex/LaunchNote";
 import { OpsShell } from "./ops/OpsShell";
 
 const apex = () => renderToStaticMarkup(<ApexShell />);
-const launchNote = () => renderToStaticMarkup(<LaunchNote />);
 const ops = () => renderToStaticMarkup(<OpsShell />);
 const admin = () => renderToStaticMarkup(<AdminShell />);
 
@@ -30,11 +28,14 @@ describe("ApexShell", () => {
     );
   });
 
-  it("carries the not-legal-advice warn and a last-updated placeholder", () => {
+  it("carries the not-legal-advice warn and human provenance", () => {
     const html = apex();
     expect(html).toContain('class="warn"');
     expect(html).toContain("not legal advice");
-    expect(html).toContain('class="lastupd"');
+    expect(html).toContain("Human-approved");
+    // LastUpdated is data-derived after /api/kpis resolves; static markup
+    // has no effect, so the stamp is absent on first paint rather than faked.
+    expect(html).not.toContain("2026-08-09T16:00:00.000Z");
   });
 
   it("links to ops. and to the public repo", () => {
@@ -71,8 +72,28 @@ describe("ApexShell", () => {
     expect(html).not.toContain("Gateway · Guardrails");
   });
 
-  it("uses EmptyState for every unwired band", () => {
-    expect(apex().match(/class="empty"/g)).toHaveLength(10);
+  it("uses EmptyState for every unwired tracker band", () => {
+    const html = apex();
+    const remaining = [
+      "circuits",
+      "states",
+      "issues",
+      "cases",
+      "entities",
+      "cert",
+      "trust",
+      "ops"
+    ];
+    for (const id of remaining) {
+      const section = html.match(
+        new RegExp(`<section class="band" id="${id}"[\\s\\S]*?</section>`)
+      )?.[0];
+      expect(section).toContain('class="empty"');
+    }
+    const brief = html.match(
+      /<section class="band" id="brief"[\s\S]*?<\/section>/
+    )?.[0];
+    expect(brief).not.toContain('class="empty"');
   });
 });
 
@@ -97,40 +118,38 @@ describe("OpsShell", () => {
   });
 });
 
-describe("ApexShell launch note (temporary, Story 2.2 removes it)", () => {
-  it("gives the document exactly one h1", () => {
-    // Before this band the page had none: SectionBand titles are h2 and the
-    // TopBar brand is a div. An outline gap that mattered the moment the site
-    // got linked to from anywhere.
+describe("ApexShell orientation chrome (story 2.2)", () => {
+  it("gives the document exactly one h1 — the masthead", () => {
     const html = apex();
     expect(html.match(/<h1[\s>]/g)).toHaveLength(1);
+    expect(html).toContain(
+      "Where prediction-market litigation actually stands."
+    );
   });
 
-  it("explains that empty is deliberate, not broken", () => {
-    // The whole reason this band exists: nine honest EmptyStates with nothing
-    // above them read as abandoned rather than early.
-    const html = launchNote().toLowerCase();
-    expect(html).toContain("deliberately");
-    expect(html).toContain("open source");
+  it("renders credibility, masthead, KPI row and the handoff brief title", () => {
+    const html = apex();
+    expect(html).toContain('class="about"');
+    expect(html).toContain('class="masthead"');
+    expect(html).toContain('class="kpis"');
+    expect(html).toContain("What this fight is about");
+    expect(html).toContain('href="#states"');
+    expect(html).toContain('href="#brief"');
   });
 
-  it("keeps the absence-is-not-a-finding rule on the landing view", () => {
-    expect(launchNote()).toContain("Absence of a finding is never a finding.");
-  });
-
-  it("does not claim the pipeline is running yet", () => {
-    // It is not built — Epic 3 owns it. A landing page that implies a live
-    // pipeline would be the exact overstatement the trust chrome forbids.
-    const html = launchNote().toLowerCase();
-    expect(html).toContain("what comes next");
+  it("does not ship LaunchNote or fake pipeline claims", () => {
+    const html = apex().toLowerCase();
+    expect(html).not.toContain('id="what-this-is"');
+    expect(html).not.toContain("checked daily");
+    expect(html).not.toContain("always current");
+    expect(html).not.toContain("2 awaiting approval");
     expect(html).not.toContain("updated daily");
-    expect(html).not.toContain("live pipeline");
+    expect(html).not.toContain("are published at");
   });
 
-  it("links out to the repo and to ops.", () => {
-    const html = launchNote();
-    expect(html).toContain("github.com/bizmation/PredictionMarketLitigation");
-    expect(html).toContain("ops.predictionmarketlitigation.com");
+  it("does not hard-code seed KPI figures on first paint", () => {
+    // renderToStaticMarkup runs no effects, so figures are em dashes.
+    expect(apex()).toContain("—");
   });
 });
 

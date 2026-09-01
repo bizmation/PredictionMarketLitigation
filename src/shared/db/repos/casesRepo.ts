@@ -8,6 +8,7 @@ import {
   type Case,
   type CaseDetail
 } from "../../schemas/caseSchema";
+import { DevelopmentSchema, type Development } from "../../schemas/development";
 import { asBool, type Db } from "../client";
 import { mapEntity, type EntityRow } from "./entitiesRepo";
 import { listSourcesForOwner } from "./sourcesRepo";
@@ -95,6 +96,46 @@ export async function listCases(db: Db): Promise<Case[]> {
     )
     .all<CaseRow>();
   return (results ?? []).map(mapCase);
+}
+
+type DevelopmentRow = {
+  id: string;
+  occurred_at: string;
+  description: string;
+  case_id: string;
+  caption: string;
+  court: string;
+};
+
+/**
+ * Latest docket events for the apex "Latest developments" feed.
+ * JOIN rather than N+1 case-detail fetches — list cases have no docket rows.
+ */
+export async function listRecentDevelopments(
+  db: Db,
+  limit = 7
+): Promise<Development[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT e.id, e.occurred_at, e.description, e.case_id,
+              c.caption, c.court
+         FROM docket_events e
+         JOIN cases c ON c.id = e.case_id
+     ORDER BY e.occurred_at DESC, e.id ASC
+        LIMIT ?`
+    )
+    .bind(limit)
+    .all<DevelopmentRow>();
+  return (results ?? []).map((row) =>
+    DevelopmentSchema.parse({
+      id: row.id,
+      occurredAt: row.occurred_at,
+      description: row.description,
+      caseId: row.case_id,
+      caption: row.caption,
+      court: row.court
+    })
+  );
 }
 
 export async function getCaseById(

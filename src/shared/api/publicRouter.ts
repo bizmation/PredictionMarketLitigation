@@ -11,6 +11,7 @@ import * as casesRepo from "../db/repos/casesRepo";
 import * as certSignalRepo from "../db/repos/certSignalRepo";
 import * as circuitsRepo from "../db/repos/circuitsRepo";
 import * as entitiesRepo from "../db/repos/entitiesRepo";
+import * as kpisRepo from "../db/repos/kpisRepo";
 import * as statesRepo from "../db/repos/statesRepo";
 
 /**
@@ -107,6 +108,14 @@ export async function handlePublicApi(
       const signal = await certSignalRepo.getCertSignal(db);
       if (!signal) throw notFound("Cert signal not published.");
       return jsonOk(signal);
+    }
+
+    if (pathname === "/api/kpis") {
+      return jsonOk(await kpisRepo.getKpis(db));
+    }
+
+    if (pathname === "/api/developments") {
+      return jsonList(await casesRepo.listRecentDevelopments(db));
     }
 
     // Owned /api/* prefix with no matching route → envelope 404 (architecture).

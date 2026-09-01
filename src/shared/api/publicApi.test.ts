@@ -205,6 +205,110 @@ describe("public F1 API (story 2.1)", () => {
   });
 });
 
+describe("apex orientation aggregates (story 2.2)", () => {
+  it("returns SQL-derived KPIs as a camelCase single resource", async () => {
+    const res = await worker.fetch!(get("/api/kpis"), testEnv);
+    expect(res.status).toBe(200);
+    const kpis = (await res.json()) as Record<string, unknown>;
+    const serialized = JSON.stringify(kpis);
+    expect(serialized).not.toMatch(
+      /states_tracked|matters_tracked|occurred_at|updated_at/
+    );
+
+    const casesRes = await worker.fetch!(get("/api/cases"), testEnv);
+    const cases = (await casesRes.json()) as {
+      items: Array<{
+        id: string;
+        forum: string;
+        lifecycle: string;
+      }>;
+    };
+    const statesRes = await worker.fetch!(get("/api/states"), testEnv);
+    const states = (await statesRes.json()) as {
+      items: Array<{
+        posture: string;
+        operationalStatus: string;
+        updatedAt: string;
+      }>;
+    };
+
+    const appellate = cases.items.filter(
+      (c) => c.forum === "federal-appellate"
+    );
+    const appealsPending = appellate.filter((c) => c.lifecycle === "active");
+    expect(cases.items.some((c) => c.id === "case-flaherty")).toBe(true);
+    expect(kpis.appealsPending).toBe(appealsPending.length);
+    expect(appealsPending.length).toBeLessThan(appellate.length);
+
+    const tracked = states.items.filter((s) => s.posture !== "untracked");
+    expect(kpis.statesTracked).toBe(tracked.length);
+    expect(kpis.statesTracked).toBeLessThan(51);
+    expect(kpis.statesTotal).toBe(51);
+    expect(kpis.mattersTracked).toBe(cases.items.length);
+
+    const circuitsRes = await worker.fetch!(get("/api/circuits"), testEnv);
+    const circuits = (await circuitsRes.json()) as {
+      items: Array<{ posture: string }>;
+    };
+    expect(kpis.circuitsTotal).toBe(circuits.items.length);
+    expect(kpis.circuitsDecided).toBe(
+      circuits.items.filter((c) =>
+        ["platform", "state", "banned"].includes(c.posture)
+      ).length
+    );
+    expect(kpis.circuitsWithActivity).toBe(
+      circuits.items.filter((c) => c.posture !== "untracked").length
+    );
+
+    expect(kpis.operationalGo).toBe(
+      states.items.filter((s) => s.operationalStatus === "go").length
+    );
+    expect(kpis.operationalRestricted).toBe(
+      states.items.filter((s) => s.operationalStatus === "restricted").length
+    );
+    expect(kpis.operationalBanned).toBe(
+      states.items.filter((s) => s.operationalStatus === "banned").length
+    );
+    const unknown = states.items.filter(
+      (s) => s.operationalStatus === "unknown"
+    ).length;
+    expect(
+      Number(kpis.operationalGo) +
+        Number(kpis.operationalRestricted) +
+        Number(kpis.operationalBanned) +
+        unknown
+    ).toBe(51);
+
+    const freshness = String(kpis.freshness);
+    const windowStart = new Date(freshness);
+    windowStart.setUTCDate(windowStart.getUTCDate() - 30);
+    expect(kpis.changedWindowStart).toBe(
+      windowStart.toISOString().slice(0, 10)
+    );
+    expect(kpis.changedIn30Days).toBe(
+      tracked.filter((s) => s.updatedAt >= windowStart.toISOString()).length
+    );
+    expect(kpis.provenanceKind).toBe("human");
+  });
+
+  it("lists recent developments newest-first, at most seven, camelCase", async () => {
+    const res = await worker.fetch!(get("/api/developments"), testEnv);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      items: Array<{ occurredAt: string; caseId: string; caption: string }>;
+    };
+    expect(Array.isArray(body.items)).toBe(true);
+    expect(body.items.length).toBeGreaterThan(0);
+    expect(body.items.length).toBeLessThanOrEqual(7);
+    expect(JSON.stringify(body)).not.toMatch(/occurred_at|case_id/);
+    for (let i = 1; i < body.items.length; i++) {
+      expect(body.items[i - 1]!.occurredAt >= body.items[i]!.occurredAt).toBe(
+        true
+      );
+    }
+  });
+});
+
 describe("F1 seed integrity", () => {
   it("gives every published tracked claim a Tier-1 source", async () => {
     const checks = [
