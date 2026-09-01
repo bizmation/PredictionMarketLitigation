@@ -22,7 +22,12 @@ import { WarnChip } from "./WarnChip";
  */
 
 const POSTURES = Object.keys(POSTURE_LABELS) as Posture[];
-const STATUSES: OperationalStatus[] = ["go", "restricted", "banned"];
+// Hand-listed rather than imported from schemas/vocabulary: this gallery is
+// lazy-loaded, and a VALUE import would pull zod into its chunk for a list of
+// four strings. The cost is that TypeScript cannot enforce exhaustiveness on an
+// array literal, so this can silently fall behind — trustComponents.test.tsx
+// iterates the canonical set instead, and is what actually catches a new value.
+const STATUSES: OperationalStatus[] = ["go", "restricted", "banned", "unknown"];
 const RUN_STATUSES: RunStatus[] = [
   "published",
   "awaiting",

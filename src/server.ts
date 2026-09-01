@@ -18,6 +18,7 @@ import {
   isAgentsPath,
   requireOperator
 } from "./shared/lib/adminGuard";
+import { handlePublicApi } from "./shared/api/publicRouter";
 
 export class ChatAgent extends AIChatAgent<Env> {
   maxPersistedMessages = 100;
@@ -307,6 +308,11 @@ export default {
         headers: ADMIN_CACHE_HEADERS
       });
     }
+
+    // Story 2.1 — public read-only F1 REST. After admin/agents guards so
+    // `/api/admin/*` cannot fall into the public router unguarded.
+    const publicResponse = await handlePublicApi(request, env, pathname);
+    if (publicResponse) return publicResponse;
 
     return (
       (await routeAgentRequest(request, env)) ||

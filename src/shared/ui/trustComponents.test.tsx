@@ -1,12 +1,19 @@
+import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { formatEtDate, formatEtDateTime } from "../lib/dates";
 import {
+  OPERATIONAL_STATUS_VALUES,
+  POSTURE_VALUES,
+  PROVENANCE_KIND_VALUES
+} from "../schemas/vocabulary";
+import {
   EmptyState,
   LastUpdated,
   NotLiveDraftBanner,
   OriginFlag,
+  POSTURE_LABELS,
   PostureSwatch,
   ProvenanceLabel,
   RunStatusChip,
@@ -19,6 +26,63 @@ import {
 // the class names come from the UX handoff, and the enum strings must match
 // what D1 stores and Zod validates later. Changing either here is a breaking
 // change, not a refactor.
+
+/**
+ * The UI renders the canonical vocabulary, not a parallel copy of it.
+ *
+ * Story 2.1 moved the enum values into shared/schemas/vocabulary.ts so D1, the
+ * API and these components share one definition. `Record<Posture, string>`
+ * already makes a MISSING label a compile error — these run-time cases catch
+ * what the type cannot: an empty label, and a stale extra key left behind after
+ * a value is removed from the ramp.
+ */
+describe("UI vocabulary tracks the canonical schema", () => {
+  it("gives every posture a non-empty reader-facing label", () => {
+    for (const posture of POSTURE_VALUES) {
+      expect(POSTURE_LABELS[posture]?.trim()).toBeTruthy();
+    }
+  });
+
+  it("has no label for a posture that no longer exists", () => {
+    expect(Object.keys(POSTURE_LABELS).sort()).toEqual(
+      [...POSTURE_VALUES].sort()
+    );
+  });
+
+  it("renders each canonical operational status verbatim", () => {
+    // The badge prints the raw glossary string and derives its CSS class from
+    // it. Prettifying here would desync the class from the stylesheet.
+    for (const status of OPERATIONAL_STATUS_VALUES) {
+      const html = renderToStaticMarkup(<StatusBadge status={status} />);
+      expect(html).toContain(`class="badge ${status}"`);
+      expect(html).toContain(`>${status}<`);
+    }
+  });
+
+  it("has a stylesheet rule for every value it can render", () => {
+    // Both components derive their CSS class from the raw enum string, so a
+    // value added to the vocabulary with no matching rule renders as an
+    // unstyled badge or swatch — visible only by looking at the page. Adding
+    // `unknown` to the operational statuses is exactly that case: it must not
+    // fall back to looking like `go`, which is the green one.
+    const css = readFileSync("src/shared/ui/pml.css", "utf8");
+    for (const status of OPERATIONAL_STATUS_VALUES) {
+      expect(css, `.badge.${status} has no rule`).toContain(`.badge.${status}`);
+    }
+    for (const posture of POSTURE_VALUES) {
+      expect(css, `.sw.${posture} has no rule`).toContain(`.sw.${posture}`);
+    }
+  });
+
+  it("renders each canonical provenance kind", () => {
+    for (const kind of PROVENANCE_KIND_VALUES) {
+      const html = renderToStaticMarkup(<ProvenanceLabel kind={kind} />);
+      expect(html).toContain(
+        kind === "agent" ? "Agent-approved" : "Human-approved"
+      );
+    }
+  });
+});
 
 describe("NotLiveDraftBanner", () => {
   it("carries the ticket edge and the banner", () => {

@@ -23,12 +23,21 @@
   "assets": {
     "directory": "./public",
     "not_found_handling": "single-page-application",
+    // Kept in parity with wrangler.jsonc (see the long note there for why the
+    // whole `/api` prefix, and why re-adding `/api/admin*` is a hard deploy
+    // failure rather than harmless duplication).
+    //
+    // Parity matters more here than for most fields: the vitest pool has no
+    // asset layer at all, so a drift in THIS array is invisible to every test
+    // and only shows up in production — which is the exact failure mode the
+    // widening exists to fix.
     "run_worker_first": [
       "/agents",
       "/agents/*",
+      "/oauth",
       "/oauth/*",
-      "/api/admin",
-      "/api/admin/*"
+      "/api",
+      "/api/*"
     ]
   },
   "durable_objects": {

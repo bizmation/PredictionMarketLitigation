@@ -34,29 +34,65 @@
   "assets": {
     "directory": "./public",
     "not_found_handling": "single-page-application",
-    // `/api/admin/*` and `/agents/*` MUST run the Worker first. The compat flag
-    // assets_navigation_prefers_asset_serving is default-on for compatibility
-    // dates >= 2025-04-01, so asset-eligible requests can otherwise skip the
-    // Worker entirely — and a skipped Worker is a skipped auth check.
+    // Worker-owned API and agent routes MUST run the Worker first. The compat
+    // flag assets_navigation_prefers_asset_serving is default-on for
+    // compatibility dates >= 2025-04-01, so asset-eligible requests can
+    // otherwise skip the Worker entirely — and a skipped Worker is a skipped
+    // auth check or public API response.
     // Cloudflare documents run_worker_first as required when "performing any
     // authentication checks ... before serving static assets".
     //
-    // Bare paths are listed alongside their globs (`/api/admin` as well as
-    // `/api/admin/*`): a trailing-slash glob is not documented to match its
-    // bare parent, and the guards deliberately match the bare path. One
-    // missing entry would mean the asset server answers it with index.html and
-    // the guard never runs.
+    // Bare prefix roots are listed alongside their globs (`/api` + `/api/*`,
+    // `/agents` + `/agents/*`): a trailing-slash glob does not match its bare
+    // parent. More specific `/api/admin*` rules must not be duplicated because
+    // `/api/*` already subsumes them and Wrangler rejects redundant siblings.
     //
     // `/admin` is deliberately NOT listed: it is the SPA document, it leaks
     // nothing (every band is an empty placeholder), and routing it through the
     // Worker buys nothing until Access is bound at the edge. Revisit when the
     // Zero Trust application exists (deploy runbook, part B).
+    // Story 2.1 widened `/api/admin*` to all of `/api*`, because the public
+    // read API added there would otherwise have been served as index.html.
+    //
+    // WHY THE WHOLE PREFIX, not just the new routes. Once `run_worker_first`
+    // is an ARRAY, the router sets has_static_routing=true, and that flag is
+    // the FIRST term of the asset-worker's canFetch check — so
+    // not_found_handling stays "single-page-application" and every unlisted
+    // path resolves to a real asset match. There is no Accept-header or
+    // Sec-Fetch-Mode escape: a JSON fetch and an address-bar hit both get
+    // 200 text/html, and the Worker is never invoked. The documented
+    // navigation-only behaviour of assets_navigation_prefers_asset_serving
+    // never gets evaluated, because has_static_routing short-circuits ahead
+    // of it. Unlisted means unreachable, for every client.
+    //
+    // `/api` AND `/api/*` are both required: `/api/*` compiles to the anchored
+    // regex /^\/api\/.*$/, which the bare path does not match. Same reason
+    // `/agents` is listed beside `/agents/*`.
+    //
+    // Do NOT re-add `/api/admin` or `/api/admin/*`. Wrangler's
+    // validateStaticRoutingRules REJECTS a rule that a sibling glob subsumes —
+    // keeping them is a hard deploy failure ("rule '/api/*' makes it
+    // redundant"), not harmless duplication. Both still run the Worker first;
+    // they are covered by `/api/*`. `/agents` + `/agents/*` is legal by
+    // contrast, because "/agents".startsWith("/agents/") is false.
+    //
+    // Side effect, deliberate: `/api/%61dmin/session` used to miss this
+    // matcher (it tests the RAW pathname, while adminGuard.normalizePath
+    // decodes) and was answered with index.html, so the guard never ran.
+    // Nothing sensitive was served, but the admin API was unreachable by that
+    // spelling. Under `/api/*` it reaches the Worker and normalizes correctly.
+    //
+    // Cost, also deliberate: paths listed here always invoke the Worker, so
+    // public read traffic moves from free asset serving onto billed
+    // invocations, and on the free tier excess returns 429 rather than
+    // falling back to assets.
     "run_worker_first": [
       "/agents",
       "/agents/*",
+      "/oauth",
       "/oauth/*",
-      "/api/admin",
-      "/api/admin/*"
+      "/api",
+      "/api/*"
     ]
   },
   "durable_objects": {
@@ -74,10 +110,9 @@
     }
   ],
 
-  // No code reads env.DB yet — Story 2.1 owns the schema — so this binds
-  // ahead of that story rather than blocking on it. `--local` (Miniflare
-  // simulation) is what `npm run dev` runs against; the real database below
-  // is what a real deploy writes to.
+  // Story 2.1 makes D1 canonical for the public F1 entities. `--local`
+  // (Miniflare simulation) is used for development and tests; the database
+  // below is the production store populated by Wrangler migrations.
   //
   // Created 2026-08-10 via the Cloudflare D1 API (name: pml, region: ENAM).
   //
@@ -111,7 +146,6 @@
     }
   ]
 
-  // Story 2.1 adds the D1 schema and migrations. This story only binds the
-  // database; it creates no tables.
+  // Story 2.1 owns the F1 D1 schema, seed, and read-only public API.
   // Story 3.2 — AI Gateway binding/credentials via Worker secrets (never committed)
 }

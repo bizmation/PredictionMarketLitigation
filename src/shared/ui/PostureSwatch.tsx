@@ -11,8 +11,23 @@
  * rows and case metadata lines, each with its own spacing.
  */
 
-export type Posture = "untracked" | "platform" | "pending" | "state" | "banned";
+// The values live in shared/schemas/vocabulary.ts, which is canonical for the
+// D1 column, the JSON on the wire, and the CSS class below (architecture
+// #Enforcement-Guidelines). Story 2.1 moved them there; this file used to
+// declare its own union, and two definitions that can drift is a data bug
+// waiting for the first migration.
+//
+// `import type` is deliberate: it is erased at build, so the schema module's
+// zod dependency never reaches the client bundle.
+import type { Posture } from "../schemas/vocabulary";
 
+export type { Posture };
+
+/**
+ * Reader-facing copy for each step. Keyed by the canonical enum, so adding a
+ * posture without adding its label is a type error rather than a rendered
+ * `undefined` — see vocabulary.test.ts, which pins the membership.
+ */
 export const POSTURE_LABELS: Record<Posture, string> = {
   untracked: "No tracked activity",
   platform: "Decided for platform",

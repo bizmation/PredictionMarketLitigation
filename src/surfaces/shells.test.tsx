@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 
 import { AdminShell } from "./admin/AdminShell";
 import { ApexShell } from "./apex/ApexShell";
+import { LaunchNote } from "./apex/LaunchNote";
 import { OpsShell } from "./ops/OpsShell";
 
 const apex = () => renderToStaticMarkup(<ApexShell />);
+const launchNote = () => renderToStaticMarkup(<LaunchNote />);
 const ops = () => renderToStaticMarkup(<OpsShell />);
 const admin = () => renderToStaticMarkup(<AdminShell />);
 
@@ -70,7 +72,7 @@ describe("ApexShell", () => {
   });
 
   it("uses EmptyState for every unwired band", () => {
-    expect(apex()).toContain('class="empty"');
+    expect(apex().match(/class="empty"/g)).toHaveLength(10);
   });
 });
 
@@ -92,6 +94,43 @@ describe("OpsShell", () => {
 
   it("warns that nothing on ops. is live tracker content", () => {
     expect(ops()).toContain("Nothing here is live tracker content");
+  });
+});
+
+describe("ApexShell launch note (temporary, Story 2.2 removes it)", () => {
+  it("gives the document exactly one h1", () => {
+    // Before this band the page had none: SectionBand titles are h2 and the
+    // TopBar brand is a div. An outline gap that mattered the moment the site
+    // got linked to from anywhere.
+    const html = apex();
+    expect(html.match(/<h1[\s>]/g)).toHaveLength(1);
+  });
+
+  it("explains that empty is deliberate, not broken", () => {
+    // The whole reason this band exists: nine honest EmptyStates with nothing
+    // above them read as abandoned rather than early.
+    const html = launchNote().toLowerCase();
+    expect(html).toContain("deliberately");
+    expect(html).toContain("open source");
+  });
+
+  it("keeps the absence-is-not-a-finding rule on the landing view", () => {
+    expect(launchNote()).toContain("Absence of a finding is never a finding.");
+  });
+
+  it("does not claim the pipeline is running yet", () => {
+    // It is not built — Epic 3 owns it. A landing page that implies a live
+    // pipeline would be the exact overstatement the trust chrome forbids.
+    const html = launchNote().toLowerCase();
+    expect(html).toContain("what comes next");
+    expect(html).not.toContain("updated daily");
+    expect(html).not.toContain("live pipeline");
+  });
+
+  it("links out to the repo and to ops.", () => {
+    const html = launchNote();
+    expect(html).toContain("github.com/bizmation/PredictionMarketLitigation");
+    expect(html).toContain("ops.predictionmarketlitigation.com");
   });
 });
 

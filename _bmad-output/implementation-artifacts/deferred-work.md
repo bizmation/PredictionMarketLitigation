@@ -31,3 +31,12 @@
 ## ~~Open from: Story 1.3 (2026-08-10)~~ — CLOSED
 
 - ~~`/admin` is reachable by anyone who knows the path until Story 1.4 wires Cloudflare Access... the route must not ship to a real domain unprotected.~~ — **RESOLVED 2026-08-10 (Story 1.5 Part B).** The condition this entry set was met before the domain went live, in the order it demanded: 1.4 shipped the Worker-side verification, then 1.5 bound the domains and created the Access application in the same session, so `/admin` was never reachable unprotected on a real domain. Verified against production: `/admin` answers `302` to the Access login, and the admin chrome no longer claims to be unprotected.
+
+## Deferred from: code review of 2-1-f1-data-model-apis-case-law-seed.md (2026-08-31)
+
+- `npm run deploy` still publishes the repository SPA over the stable root landing page because `/preview/*` routing and a repository-owned landing document have not landed. This predates Story 2.1's migration-script change and remains governed by the explicit warning in `docs/deploy-runbook.md`; do not run a live deploy until that routing work is completed or the operator deliberately accepts the overwrite.
+- Story 2.2 must delete the unconditional launch-state `LaunchNote` before any later Epic 2 story wires a reader-facing band; otherwise its “views are not wired” copy would sit above live findings.
+- Brand `Posture` and `OperationalStatus` at the TypeScript boundary so their shared `banned` literal cannot be passed between UI components. This is a cross-UI type refactor, not a Story 2.1 data-contract fix.
+- Story 2.5 owns the FTS index and query design needed for case free-text search; the 25-row seed does not justify choosing that design early.
+- FR9's future `pending-primary` ingestion state still needs a first-class representation when the governed write pipeline lands. Every current seeded tracked claim has Tier-1 coverage, so no live row needs that state today.
+- The ops and admin documents still have no `<h1>`. Their future chrome stories should fix the pre-existing outline gap without changing Story 2.1's apex-only UI.

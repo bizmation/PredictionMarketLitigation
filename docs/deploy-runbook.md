@@ -1,5 +1,40 @@
 # Deploy runbook
 
+## PROJECT RULE — everything in-progress ships under `/preview/*`
+
+**Adopted 2026-08-11 (Patrick). Applies until the stack is built; it is not a permanent architecture.**
+
+The public root must be a stable landing page at all times. While Epics 2–4 are under construction, no half-built surface may occupy `/`.
+
+| Path | Serves | Rule |
+|---|---|---|
+| `/` | The static landing page | **Always up.** Never replaced by a build artifact. Carries a "see our progress" link into `/preview/`. |
+| `/preview/*` | The in-progress React app — apex tracker, `ops.`, admin | Everything we are building. Free to be empty, broken, or mid-migration. |
+| `/api/*` | Worker routes | **Unchanged.** APIs keep their real paths — no `/preview` prefix. They are consumed by the preview app and must not need rewriting when it graduates. |
+
+**Why the APIs are exempt.** Prefixing them would mean every fetch path changes again at launch, and `run_worker_first`, the Access application destinations, and `adminGuard`'s prefix matching would all need a second edit. The API contract is already the thing we want stable; only the *presentation* is provisional.
+
+**Why not a staging environment.** Story 1.5 deliberately cut multi-environment for a solo operator, and that decision stands. `/preview` gives the same "look without being seen" benefit at a fraction of the setup, on the domain that already exists.
+
+### The hazard this rule exists to prevent — and one that already happened
+
+**2026-08-11: production and the repo diverged.** A static landing page was deployed to `/` from outside this working tree. `public/` in git contains only `favicon.ico`, so **any `npm run deploy` from the repo replaces that landing page with the SPA build** and the root goes back to being a construction site.
+
+Until the rule below is implemented, treat `npm run deploy` as destructive to the landing page. Confirm what `/` serves before and after every deploy.
+
+### What implementing this requires
+
+1. **The landing page must live in the repo**, in `public/`, and be committed. A page that only exists on Cloudflare is one deploy away from gone, and cannot be reviewed. Recover the deployed HTML (`curl https://predictionmarketlitigation.com/ -o public/index.html`) before anything else overwrites it.
+2. **`index.html` conflict.** Vite emits the SPA as `dist/client/index.html`, which currently lands at `/`. The landing page needs that slot, so the SPA's document has to be emitted or routed under `/preview/` instead.
+3. **`not_found_handling: "single-page-application"` is now wrong at the root.** It makes *every* unmatched path serve the SPA shell. Under this rule, unmatched paths under `/preview/*` should serve the SPA shell, and unmatched paths elsewhere should not resolve to it.
+4. **`resolveSurface` (`src/shared/lib/surface.ts`) reads the URL to choose apex / ops / admin.** It needs a base-path concept so `/preview/`, `/preview/admin` and the `ops.` host all still resolve correctly. Its tests pin the current behaviour and will need extending, not replacing.
+5. **Access application destinations** currently name `/admin`, `/admin/*`, `/api/admin/*` on the apex host. If admin moves under `/preview/admin`, the Access app's `destinations` must move with it **or the admin surface silently loses its edge gate.** The Worker-side `requireOperator` still holds, but do not rely on the backstop alone — see `docs/access-runbook.md`.
+6. **`run_worker_first` stays as-is.** `/api` and `/api/*` are unaffected; `/preview/*` is asset-served and must NOT be added, or every preview page becomes a billed Worker invocation.
+
+> Item 5 is the one with teeth. Everything else fails visibly; that one fails by quietly serving an ungated admin path. Verify with `curl` against the real domain after any move — the test pool has no asset layer and no Access, so nothing local can catch it.
+
+
+
 Story 1.5 shipped the configuration. This is the part that needs a Cloudflare account, in this order, because each step depends on the one before it.
 
 > **Status: COMPLETE as of 2026-08-10.** The site is live on both domains, Access gates `/admin`, AC7 is verified, and step 5 (Workers Builds) was **dropped by decision** rather than left open — deploys are `npm run deploy` from the laptop, with the test gate moved into that script.
@@ -31,7 +66,11 @@ Nothing here is automated on purpose: creating a database, binding a domain and 
 npx wrangler d1 create pml
 ```
 
-This story creates **no tables**. Schema and migrations are Story 2.1.
+Story 2.1 now owns the F1 schema and seed. Migrations `0001`–`0004` were
+applied to production D1 on 2026-08-31; `npm run migrate:remote` currently
+reports no pending migration. Migration `0004` replaces available third-party
+mirrors with verified official court/agency-hosted copies while preserving the
+fixed August 9 snapshot.
 
 ---
 

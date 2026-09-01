@@ -9,7 +9,11 @@
  * Appears on every published item and throughout ops. evidence.
  */
 
-export type ProvenanceKind = "human" | "agent";
+// Canonical in shared/schemas/vocabulary.ts as of Story 2.1. `import type` is
+// erased at build, so zod does not follow this into the client bundle.
+import type { ProvenanceKind } from "../schemas/vocabulary";
+
+export type { ProvenanceKind };
 
 type ProvenanceLabelProps = {
   kind: ProvenanceKind;

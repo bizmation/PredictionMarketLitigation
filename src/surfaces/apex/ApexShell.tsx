@@ -9,6 +9,7 @@ import {
   WarnChip,
   type TopBarLink
 } from "../../shared/ui";
+import { LaunchNote } from "./LaunchNote";
 
 /**
  * Apex — the litigation intelligence tracker.
@@ -63,10 +64,14 @@ export function ApexShell({ dev = false }: ApexShellProps) {
       <TrustBar
         warn={<WarnChip />}
         message="Built by AI, governed and approved by a human; corrections welcome."
-        meta={<LastUpdated at="2026-08-10T10:00:00.000Z" />}
+        meta={<LastUpdated at="2026-08-09T16:00:00.000Z" />}
       />
 
       <main>
+        {/* Launch-state only. Story 2.2 replaces this with the real masthead,
+            credibility strip and KPI row. See LaunchNote's own header. */}
+        <LaunchNote dev={dev} />
+
         <SectionBand
           id="brief"
           kicker="01"
@@ -77,8 +82,8 @@ export function ApexShell({ dev = false }: ApexShellProps) {
             title="No summary published yet"
             hint="The tracker publishes nothing it cannot source."
           >
-            The executive summary is written from approved case data, which
-            arrives with the litigation data model.
+            The approved case seed is available through the API; Story 2.2 turns
+            it into the reader-facing summary.
           </EmptyState>
         </SectionBand>
 
@@ -92,8 +97,8 @@ export function ApexShell({ dev = false }: ApexShellProps) {
             title="Map not yet wired"
             hint="Absence of a finding is not a finding of legality."
           >
-            The circuit heat map renders real U.S. geography over approved
-            posture data. Neither is loaded yet.
+            Approved circuit posture data is available through the API; Story
+            2.3 renders it over real U.S. geography.
           </EmptyState>
         </SectionBand>
 
@@ -104,11 +109,11 @@ export function ApexShell({ dev = false }: ApexShellProps) {
           why="Is a given platform legal in a given state today, and what is the controlling authority?"
         >
           <EmptyState
-            title="No tracked states yet"
+            title="State board not yet wired"
             hint="An untracked state is not a permissive one."
           >
-            The status board lists operational status, posture and controlling
-            case per state, with a per-platform breakdown.
+            Story 2.4 renders the seeded operational status, posture,
+            controlling case, sources, and per-platform breakdown.
           </EmptyState>
         </SectionBand>
 
@@ -119,11 +124,11 @@ export function ApexShell({ dev = false }: ApexShellProps) {
           why="Which legal questions are actually driving outcomes, across every tracked matter."
         >
           <EmptyState
-            title="No issues mapped yet"
+            title="Issue views not yet wired"
             hint="Issue tags come from the case record."
           >
-            Four views over the issue taxonomy — matrix, emergence, frequency
-            and family breakdown — all reading the same approved matters.
+            Story 2.6 renders matrix, emergence, frequency, and family views
+            from the approved case issue tags.
           </EmptyState>
         </SectionBand>
 
@@ -134,11 +139,11 @@ export function ApexShell({ dev = false }: ApexShellProps) {
           why="Every tracked matter, its docket, and the primary source behind each event."
         >
           <EmptyState
-            title="No cases loaded"
+            title="Case views not yet wired"
             hint="Every docket event will link to a Tier-1 source."
           >
-            The case list and detail view arrive with the litigation data model
-            and the case-law seed.
+            The case-law seed and rich detail API are ready; Story 2.5 renders
+            the list, filters, sources, and docket timeline.
           </EmptyState>
         </SectionBand>
 
@@ -149,10 +154,11 @@ export function ApexShell({ dev = false }: ApexShellProps) {
           why="Per-platform footprint: where each operator stands, and in which matters."
         >
           <EmptyState
-            title="No entities loaded"
+            title="Entity view not yet wired"
             hint="Platforms are tracked, not endorsed."
           >
-            Each platform's operational footprint and its matter list.
+            Story 2.7 renders each seeded platform's operational footprint and
+            matter list.
           </EmptyState>
         </SectionBand>
 
@@ -163,11 +169,11 @@ export function ApexShell({ dev = false }: ApexShellProps) {
           why="A qualitative reading of Supreme Court review — named factors, no model, no score."
         >
           <EmptyState
-            title="No reading published"
+            title="Signal view not yet wired"
             hint="This is a reading, never a probability and never market-derived."
           >
-            The signal is a five-step qualitative scale with its factors named
-            in full.
+            The qualitative seed reading is available through the API; Story 2.8
+            renders its five-step scale and named factors.
           </EmptyState>
         </SectionBand>
 

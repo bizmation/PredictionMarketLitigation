@@ -8,7 +8,16 @@
  * (architecture #Naming-Patterns). Do not prettify them here.
  */
 
-export type OperationalStatus = "go" | "restricted" | "banned";
+// Canonical in shared/schemas/vocabulary.ts as of Story 2.1. `import type` is
+// erased at build, so zod does not follow this into the client bundle.
+//
+// NOTE: `banned` is also a `Posture` value, and means something different
+// there — posture is which way the litigation came out, this is whether a
+// platform can operate today. A state is routinely `restricted` here while its
+// posture is `pending`. Never map one onto the other.
+import type { OperationalStatus } from "../schemas/vocabulary";
+
+export type { OperationalStatus };
 
 type StatusBadgeProps = {
   status: OperationalStatus;

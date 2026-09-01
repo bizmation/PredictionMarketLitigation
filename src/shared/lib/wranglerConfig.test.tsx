@@ -17,6 +17,19 @@ import { describe, expect, it } from "vitest";
 
 const configs = ["wrangler.jsonc", "wrangler.test.jsonc"];
 
+function readRunWorkerFirst(file: string): string[] {
+  const source = readFileSync(file, "utf8");
+  const match = /"run_worker_first"\s*:\s*(\[[^\]]*\])/.exec(source);
+  expect(match, `${file} must declare run_worker_first`).not.toBeNull();
+  return JSON.parse(match![1]!) as string[];
+}
+
+function ruleMatches(rule: string, pathname: string): boolean {
+  return rule.endsWith("/*")
+    ? pathname.startsWith(rule.slice(0, -1))
+    : pathname === rule;
+}
+
 describe("dev bypass cannot be deployed", () => {
   it.each(configs)("%s does not declare ACCESS_DEV_BYPASS", (file) => {
     const source = readFileSync(file, "utf8");
@@ -38,6 +51,22 @@ describe("dev bypass cannot be deployed", () => {
     const gitignore = readFileSync(".gitignore", "utf8");
     expect(gitignore).toMatch(/^\.dev\.vars\*?$/m);
   });
+});
+
+describe("worker-first route parity", () => {
+  it("keeps production and test routing rules identical", () => {
+    expect(readRunWorkerFirst("wrangler.test.jsonc")).toEqual(
+      readRunWorkerFirst("wrangler.jsonc")
+    );
+  });
+
+  it.each(["/api", "/api/circuits", "/api/admin/session", "/oauth"])(
+    "routes %s through the Worker before assets",
+    (pathname) => {
+      const rules = readRunWorkerFirst("wrangler.jsonc");
+      expect(rules.some((rule) => ruleMatches(rule, pathname))).toBe(true);
+    }
+  );
 });
 
 /**

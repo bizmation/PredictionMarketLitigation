@@ -294,6 +294,15 @@ footer.foot a {
   color: oklch(0.98 0.01 25);
   background: oklch(0.5 0.13 25);
 }
+/* Absence of a finding, not a finding of legality. Dashed and uncoloured on
+   purpose: UX-DR2 already uses a dashed hairline for the posture ramp's
+   `untracked` step, so "we have not established this" reads the same way on
+   both axes. It must never be mistakable for `go`, which is the green one. */
+.badge.unknown {
+  border-style: dashed;
+  color: var(--color-neutral-700);
+  background: transparent;
+}
 .badge.upd {
   border-color: var(--color-accent);
   color: var(--color-accent-700);
