@@ -1785,10 +1785,223 @@ header.masthead h1 {
   line-height: 1.6;
 }
 
+/* ---- entity ledger (story 2.7) ---------------------------
+   Ported from Tracker.html #entities. Operational bar fills
+   are scoped under .etab .ec so they do not reuse posture
+   .sw.platform / .sw.pending. */
+.etabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+}
+.etab {
+  font: inherit;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-divider);
+  min-width: 214px;
+  color: inherit;
+}
+.etab:hover {
+  border-color: var(--color-neutral-400);
+  background: var(--color-accent-100);
+}
+.etab[aria-selected="true"] {
+  border-color: var(--color-accent-600);
+  background: var(--color-accent-100);
+}
+.etab:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.etab .en {
+  display: block;
+  font-family: var(--font-heading);
+  font-size: 18px;
+  line-height: 1.15;
+}
+.etab .et {
+  display: block;
+  font-size: 11px;
+  color: var(--color-neutral-700);
+  margin-top: 3px;
+}
+.etab .ec {
+  display: flex;
+  gap: 3px;
+  margin-top: 8px;
+}
+.etab .ec span {
+  height: 6px;
+  flex: none;
+}
+.estats {
+  display: flex;
+  gap: var(--space-4);
+  margin-top: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-divider);
+}
+.estats div {
+  line-height: 1.1;
+}
+.estats b {
+  display: block;
+  font-family: var(--font-heading);
+  font-size: 20px;
+  font-weight: 400;
+  font-feature-settings: "tnum";
+}
+.estats span {
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-neutral-600);
+}
+.etab .bar {
+  margin-top: var(--space-3);
+}
+.etab .barcap {
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-neutral-600);
+  margin-bottom: 4px;
+}
+.etab .ec .sw.go {
+  background: oklch(0.95 0.03 150);
+  border-color: oklch(0.52 0.09 150);
+}
+.etab .ec .sw.restricted {
+  border-color: oklch(0.6 0.1 78);
+  background-color: oklch(0.95 0.045 85);
+  background-image: repeating-linear-gradient(
+    45deg,
+    oklch(0.6 0.1 78 / 35%) 0,
+    oklch(0.6 0.1 78 / 35%) 1px,
+    transparent 1px,
+    transparent 6px
+  );
+}
+.etab .ec .sw.banned {
+  background: oklch(0.5 0.13 25);
+  border-color: oklch(0.5 0.13 25);
+}
+.rtag {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border: 1px solid var(--color-neutral-400);
+  padding: 1px 6px;
+  color: var(--color-neutral-800);
+}
+.rtag.plaintiff {
+  border-color: var(--color-accent-600);
+  color: var(--color-accent-700);
+}
+.ent {
+  display: grid;
+  grid-template-columns: 1fr 1.6fr;
+  gap: var(--space-8);
+  align-items: start;
+}
+.ent h3 {
+  font-size: 29px;
+  font-weight: 400;
+  line-height: 1.15;
+  margin: var(--space-2) 0;
+}
+.ent .et {
+  font-size: 12.5px;
+  color: var(--color-neutral-700);
+}
+.eprov {
+  margin-top: var(--space-3);
+}
+.ledger {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-top: var(--space-3);
+}
+.ledger td {
+  padding: 7px 0;
+  border-bottom: 1px solid var(--color-divider);
+  vertical-align: top;
+}
+.ledger td:first-child {
+  width: 96px;
+}
+.ledger .sts {
+  font-size: 13px;
+  line-height: 1.5;
+}
+.ledger .sts button {
+  font: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  color: var(--color-accent-700);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.ledger .sts button:hover {
+  color: var(--color-accent-600);
+}
+.ledger .none {
+  color: var(--color-neutral-600);
+}
+.efootnote {
+  font-size: 12px;
+  color: var(--color-neutral-600);
+  line-height: 1.6;
+  margin-top: var(--space-2);
+}
+.matters {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+}
+.matters li {
+  border-bottom: 1px solid var(--color-divider);
+  padding: var(--space-3) 0;
+}
+.matters .mrow {
+  display: flex;
+  gap: var(--space-3);
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.matters .mcap {
+  font-family: var(--font-heading);
+  font-size: 16.5px;
+  font-style: italic;
+}
+.matters .mmeta {
+  font-size: 11.5px;
+  color: var(--color-neutral-600);
+}
+.matters button.link {
+  font: inherit;
+  font-size: 12px;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  color: var(--color-accent-700);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 @media (max-width: 940px) {
   .f1,
   .board,
-  .cases {
+  .cases,
+  .ent {
     grid-template-columns: 1fr;
   }
   .detail {
