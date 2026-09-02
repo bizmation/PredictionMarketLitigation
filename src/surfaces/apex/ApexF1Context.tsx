@@ -13,7 +13,7 @@ import type { CaseListItem } from "../../shared/schemas/caseSchema";
 import type { Circuit } from "../../shared/schemas/circuit";
 import type { State } from "../../shared/schemas/state";
 import { useCircuitData } from "./circuits/useCircuitData";
-import type { ApexSelection } from "./selection";
+import { shouldBumpStateDetailEpoch, type ApexSelection } from "./selection";
 import type { StatusFilter } from "./states/boardView";
 import { useApexSelection } from "./useApexSelection";
 
@@ -21,7 +21,8 @@ import { useApexSelection } from "./useApexSelection";
  * Shared F1 lists + URL selection for the heat map and status board.
  *
  * Instantiating `useApexSelection` twice desyncs the two bands. This provider
- * is the one hook. Filter chips stay local — they are not a URL param.
+ * is the one hook. Filter chips stay local — they are not a URL param. Issue
+ * is the exception: it is a shareable axis on `?issue=`.
  */
 
 export type ApexF1Value = {
@@ -35,6 +36,9 @@ export type ApexF1Value = {
   setStatusFilter: Dispatch<SetStateAction<StatusFilter>>;
   /** Bumps on every `commit` so a re-select of the same code refetches detail. */
   detailEpoch: number;
+  /** Bumps when the issue-map Clear chip also wipes case-bar local FR40 filters. */
+  filtersEpoch: number;
+  resetLocalFilters: () => void;
 };
 
 const ApexF1Context = createContext<ApexF1Value | null>(null);
@@ -47,21 +51,36 @@ export function ApexF1Provider({ children }: { children: ReactNode }) {
     [circuits]
   );
   const caseIds = useMemo(() => cases.map((row) => row.id), [cases]);
+  const issueSlugs = useMemo(
+    () => [
+      ...new Set(
+        cases.flatMap((row) => row.listIssueTags.map((tag) => tag.slug))
+      )
+    ],
+    [cases]
+  );
   const { selection, commit: writeSelection } = useApexSelection(
     stateCodes,
     circuitIds,
     caseIds,
+    issueSlugs,
     listsReady
   );
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [detailEpoch, setDetailEpoch] = useState(0);
+  const [filtersEpoch, setFiltersEpoch] = useState(0);
   const commit = useCallback(
     (next: ApexSelection) => {
       writeSelection(next);
-      setDetailEpoch((n) => n + 1);
+      if (shouldBumpStateDetailEpoch(selection, next)) {
+        setDetailEpoch((n) => n + 1);
+      }
     },
-    [writeSelection]
+    [writeSelection, selection]
   );
+  const resetLocalFilters = useCallback(() => {
+    setFiltersEpoch((n) => n + 1);
+  }, []);
 
   const value = useMemo<ApexF1Value>(
     () => ({
@@ -73,7 +92,9 @@ export function ApexF1Provider({ children }: { children: ReactNode }) {
       commit,
       statusFilter,
       setStatusFilter,
-      detailEpoch
+      detailEpoch,
+      filtersEpoch,
+      resetLocalFilters
     }),
     [
       circuits,
@@ -83,7 +104,9 @@ export function ApexF1Provider({ children }: { children: ReactNode }) {
       selection,
       commit,
       statusFilter,
-      detailEpoch
+      detailEpoch,
+      filtersEpoch,
+      resetLocalFilters
     ]
   );
 

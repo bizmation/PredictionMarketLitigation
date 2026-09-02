@@ -1707,6 +1707,84 @@ header.masthead h1 {
   line-height: 1.6;
 }
 
+/* ---- issue map -------------------------------------------- */
+.chart {
+  width: 100%;
+}
+.chartcard {
+  border: 1px solid var(--color-divider);
+  margin-bottom: var(--space-6);
+}
+.chartcard > .ch {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-divider);
+  background: var(--color-neutral-100);
+}
+.chartcard > .ch .kicker {
+  flex: none;
+}
+.chartcard > .ch .note {
+  font-size: 12px;
+  color: var(--color-neutral-700);
+  margin-left: auto;
+  text-align: right;
+  max-width: 58ch;
+  line-height: 1.5;
+}
+.issuebar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  border: 1px solid var(--color-neutral-700);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-6);
+  background: var(--color-neutral-100);
+}
+.issuebar .lead {
+  font-family: var(--font-heading);
+  font-size: 20px;
+}
+.issuebar .fam {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-neutral-600);
+}
+.issuematters {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  flex: 1 1 320px;
+}
+.issuematters button {
+  font: inherit;
+  font-size: 12px;
+  background: none;
+  cursor: pointer;
+  border: 1px solid var(--color-neutral-400);
+  color: var(--color-neutral-800);
+  padding: 2px 9px;
+}
+.issuematters button:hover {
+  border-color: var(--color-accent-600);
+  color: var(--color-accent-700);
+  background: var(--color-accent-100);
+}
+.issuematters button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.issuehint {
+  font-size: 12.5px;
+  color: var(--color-neutral-700);
+  line-height: 1.6;
+}
+
 @media (max-width: 940px) {
   .f1,
   .board,

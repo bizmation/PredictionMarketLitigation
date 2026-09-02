@@ -71,6 +71,7 @@ function caseRow(
     listIssueTags: [],
     affectedStateCodes: [],
     entityRoles: [],
+    firstOccurredAt: null,
     ...partial
   };
 }
@@ -131,11 +132,13 @@ function stub(partial: Partial<ApexF1Value> = {}): ApexF1Value {
     states: mockStates,
     cases: mockCases,
     listsReady: true,
-    selection: { state: null, circuit: null, case: null },
+    selection: { state: null, circuit: null, case: null, issue: null },
     commit: () => undefined,
     statusFilter: "all",
     setStatusFilter: (() => undefined) as ApexF1Value["setStatusFilter"],
     detailEpoch: 0,
+    filtersEpoch: 0,
+    resetLocalFilters: () => undefined,
     ...partial
   };
 }
@@ -222,7 +225,9 @@ describe("StateBoard", () => {
 
   it("marks the selected row and opens the panel on a hydrated NJ selection", () => {
     const html = board(
-      stub({ selection: { state: "NJ", circuit: "cir-3", case: null } })
+      stub({
+        selection: { state: "NJ", circuit: "cir-3", case: null, issue: null }
+      })
     );
     expect(html).toContain('aria-selected="true"');
     expect(html).toContain("<h3>New Jersey</h3>");
@@ -240,7 +245,9 @@ describe("StateBoard", () => {
 
   it("renders honest untracked copy when the map selects an untracked state", () => {
     const html = board(
-      stub({ selection: { state: "AK", circuit: null, case: null } })
+      stub({
+        selection: { state: "AK", circuit: null, case: null, issue: null }
+      })
     );
     const aside = html.match(/<aside[\s\S]*?<\/aside>/)?.[0] ?? "";
     expect(aside).toContain("<h3>Alaska</h3>");
@@ -259,7 +266,7 @@ describe("StateBoard", () => {
     const html = board(
       stub({
         states: [nj, nv, ct, rogue],
-        selection: { state: "AK", circuit: null, case: null }
+        selection: { state: "AK", circuit: null, case: null, issue: null }
       })
     );
     const aside = html.match(/<aside[\s\S]*?<\/aside>/)?.[0] ?? "";
@@ -275,7 +282,9 @@ describe("StateBoard", () => {
 
   it("marks the controlling caption as em.case", () => {
     const html = board(
-      stub({ selection: { state: "NJ", circuit: "cir-3", case: null } })
+      stub({
+        selection: { state: "NJ", circuit: "cir-3", case: null, issue: null }
+      })
     );
     expect(html).toContain('<em class="case">KalshiEx LLC v. Flaherty</em>');
   });
@@ -284,7 +293,7 @@ describe("StateBoard", () => {
     const html = board(
       stub({
         cases: [],
-        selection: { state: "NJ", circuit: "cir-3", case: null }
+        selection: { state: "NJ", circuit: "cir-3", case: null, issue: null }
       })
     );
     expect(html).toContain("Case record not loaded");

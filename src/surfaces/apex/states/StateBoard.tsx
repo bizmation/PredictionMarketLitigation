@@ -43,7 +43,7 @@ export function StateBoard() {
     states.find((state) => state.code === selection.state) ?? null;
 
   function select(code: string) {
-    commit(selectionForState(code, states));
+    commit(selectionForState(code, states, selection));
   }
 
   function onSort(key: BoardSortKey) {

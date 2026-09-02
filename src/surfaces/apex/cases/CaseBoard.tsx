@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { useApexF1 } from "../ApexF1Context";
-import { selectionForCase } from "../selection";
+import {
+  clearedIssueSelection,
+  selectionForCase,
+  selectionForIssue
+} from "../selection";
 import { CaseDetailPanel } from "./CaseDetail";
 import { CaseFiltersBar } from "./CaseFilters";
 import { CaseList } from "./CaseList";
@@ -17,14 +21,30 @@ import {
 import { useCaseDetail } from "./useCaseDetail";
 
 export function CaseBoard() {
-  const { cases, circuits, states, selection, commit, listsReady } =
-    useApexF1();
+  const {
+    cases,
+    circuits,
+    states,
+    selection,
+    commit,
+    listsReady,
+    filtersEpoch
+  } = useApexF1();
   const [filters, setFilters] = useState<CaseFilters>(emptyCaseFilters);
   const [caseEpoch, setCaseEpoch] = useState(0);
   const { detail, status: detailStatus } = useCaseDetail(
     selection.case,
     caseEpoch
   );
+
+  useEffect(() => {
+    setFilters(emptyCaseFilters());
+  }, [filtersEpoch]);
+
+  const merged: CaseFilters = {
+    ...filters,
+    issue: selection.issue ?? "all"
+  };
 
   const stateNames = useMemo(() => {
     const map = new Map<string, string>();
@@ -33,8 +53,15 @@ export function CaseBoard() {
   }, [states]);
 
   const rows = useMemo(
-    () => cases.filter((row) => caseMatches(row, filters, stateNames)),
-    [cases, filters, stateNames]
+    () =>
+      cases.filter((row) =>
+        caseMatches(
+          row,
+          { ...filters, issue: selection.issue ?? "all" },
+          stateNames
+        )
+      ),
+    [cases, filters, selection.issue, stateNames]
   );
   const selected = cases.find((row) => row.id === selection.case) ?? null;
 
@@ -53,7 +80,7 @@ export function CaseBoard() {
   return (
     <>
       <CaseFiltersBar
-        filters={filters}
+        filters={merged}
         visible={rows.length}
         total={cases.length}
         issueOptions={uniqueIssueTags(cases)}
@@ -62,7 +89,13 @@ export function CaseBoard() {
         circuitIds={uniqueCircuitIds(cases)}
         circuits={circuits}
         onSearch={(q) => setFilters((current) => ({ ...current, q }))}
-        onIssue={(issue) => setFilters((current) => ({ ...current, issue }))}
+        onIssue={(issue) =>
+          commit(
+            issue === "all"
+              ? { ...selection, issue: null }
+              : selectionForIssue(issue, selection)
+          )
+        }
         onState={(state) => setFilters((current) => ({ ...current, state }))}
         onCircuit={(circuit) =>
           setFilters((current) => ({ ...current, circuit }))
@@ -73,7 +106,10 @@ export function CaseBoard() {
             postures: togglePosture(current.postures, posture)
           }))
         }
-        onClear={() => setFilters(emptyCaseFilters())}
+        onClear={() => {
+          setFilters(emptyCaseFilters());
+          commit(clearedIssueSelection(selection));
+        }}
       />
       <div className="cases">
         <CaseList

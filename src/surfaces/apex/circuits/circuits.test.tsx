@@ -12,8 +12,10 @@ import {
   parseApexSelection,
   selectionForCase,
   selectionForCircuit,
+  selectionForIssue,
   selectionForState,
-  serializeApexSelection
+  serializeApexSelection,
+  shouldBumpStateDetailEpoch
 } from "../selection";
 import { CircuitIndex } from "./CircuitIndex";
 import { CircuitLegend } from "./CircuitLegend";
@@ -96,106 +98,186 @@ const mockStates: State[] = [
 describe("selection.ts", () => {
   const none = new Set<string>();
 
-  it("round-trips NJ / cir-3 / case-flaherty", () => {
-    const sel = { state: "NJ", circuit: "cir-3", case: "case-flaherty" };
+  it("round-trips NJ / cir-3 / case-flaherty / cea-preemption", () => {
+    const sel = {
+      state: "NJ",
+      circuit: "cir-3",
+      case: "case-flaherty",
+      issue: "cea-preemption"
+    };
     expect(serializeApexSelection(sel)).toBe(
-      "?state=NJ&circuit=cir-3&case=case-flaherty"
+      "?state=NJ&circuit=cir-3&case=case-flaherty&issue=cea-preemption"
     );
     expect(
-      parseApexSelection("?state=NJ&circuit=cir-3&case=case-flaherty")
+      parseApexSelection(
+        "?state=NJ&circuit=cir-3&case=case-flaherty&issue=cea-preemption"
+      )
     ).toEqual(sel);
     expect(
-      parseApexSelection("state=nj&circuit=CIR-3&case=CASE-FLAHERTY")
+      parseApexSelection(
+        "state=nj&circuit=CIR-3&case=CASE-FLAHERTY&issue=CEA-PREEMPTION"
+      )
     ).toEqual(sel);
   });
 
-  it("ignores garbage state, circuit, and case params", () => {
+  it("round-trips a lone ?issue=cea-preemption", () => {
+    const sel = {
+      state: null,
+      circuit: null,
+      case: null,
+      issue: "cea-preemption"
+    };
+    expect(serializeApexSelection(sel)).toBe("?issue=cea-preemption");
+    expect(parseApexSelection("?issue=cea-preemption")).toEqual(sel);
+  });
+
+  it("ignores garbage state, circuit, case, and issue params", () => {
     expect(parseApexSelection("?state=New%20Jersey&circuit=3")).toEqual({
       state: null,
       circuit: null,
-      case: null
+      case: null,
+      issue: null
     });
     expect(parseApexSelection("?state=ZZZ&circuit=fed")).toEqual({
       state: null,
       circuit: null,
-      case: null
+      case: null,
+      issue: null
     });
     expect(parseApexSelection("?state=nj&circuit=not-a-circuit")).toEqual({
       state: "NJ",
       circuit: null,
-      case: null
+      case: null,
+      issue: null
     });
     expect(parseApexSelection("?case=flaherty")).toEqual({
       state: null,
       circuit: null,
-      case: null
+      case: null,
+      issue: null
     });
     expect(parseApexSelection("?case=Case%20Flaherty")).toEqual({
       state: null,
       circuit: null,
-      case: null
+      case: null,
+      issue: null
+    });
+    expect(parseApexSelection("?issue=CEA%20preemption")).toEqual({
+      state: null,
+      circuit: null,
+      case: null,
+      issue: null
     });
   });
 
   it("drops well-formed codes that are not in the payload", () => {
     expect(
       constrainApexSelection(
-        { state: "ZZ", circuit: "cir-9", case: "case-nope" },
+        {
+          state: "ZZ",
+          circuit: "cir-9",
+          case: "case-nope",
+          issue: "uigea"
+        },
         new Set(["NJ"]),
         new Set(["cir-3"]),
-        new Set(["case-flaherty"])
+        new Set(["case-flaherty"]),
+        new Set(["cea-preemption"])
       )
-    ).toEqual({ state: null, circuit: null, case: null });
+    ).toEqual({ state: null, circuit: null, case: null, issue: null });
   });
 
   it("does not honor params before membership sets exist", () => {
     expect(
       constrainApexSelection(
-        { state: "NJ", circuit: "cir-3", case: "case-flaherty" },
+        {
+          state: "NJ",
+          circuit: "cir-3",
+          case: "case-flaherty",
+          issue: "cea-preemption"
+        },
+        none,
         none,
         none,
         none
       )
-    ).toEqual({ state: null, circuit: null, case: null });
+    ).toEqual({ state: null, circuit: null, case: null, issue: null });
   });
 
   it("keeps the unloaded axis when only one membership set has landed", () => {
+    const current = {
+      state: "NJ",
+      circuit: "cir-3",
+      case: "case-flaherty",
+      issue: "cea-preemption"
+    };
+    expect(
+      constrainApexSelection(current, new Set(["NJ"]), none, none, none)
+    ).toEqual(current);
+    expect(
+      constrainApexSelection(current, none, new Set(["cir-3"]), none, none)
+    ).toEqual(current);
     expect(
       constrainApexSelection(
-        { state: "NJ", circuit: "cir-3", case: "case-flaherty" },
+        current,
+        none,
+        none,
+        new Set(["case-flaherty"]),
+        none
+      )
+    ).toEqual(current);
+    expect(
+      constrainApexSelection(
+        current,
+        none,
+        none,
+        none,
+        new Set(["cea-preemption"])
+      )
+    ).toEqual(current);
+  });
+
+  it("empty issueSlugs keeps a parsed issue (staggered axis)", () => {
+    expect(
+      constrainApexSelection(
+        {
+          state: "NJ",
+          circuit: "cir-3",
+          case: "case-flaherty",
+          issue: "cea-preemption"
+        },
         new Set(["NJ"]),
-        none,
-        none
-      )
-    ).toEqual({ state: "NJ", circuit: "cir-3", case: "case-flaherty" });
-    expect(
-      constrainApexSelection(
-        { state: "NJ", circuit: "cir-3", case: "case-flaherty" },
-        none,
         new Set(["cir-3"]),
+        new Set(["case-flaherty"]),
         none
       )
-    ).toEqual({ state: "NJ", circuit: "cir-3", case: "case-flaherty" });
-    expect(
-      constrainApexSelection(
-        { state: "NJ", circuit: "cir-3", case: "case-flaherty" },
-        none,
-        none,
-        new Set(["case-flaherty"])
-      )
-    ).toEqual({ state: "NJ", circuit: "cir-3", case: "case-flaherty" });
+    ).toEqual({
+      state: "NJ",
+      circuit: "cir-3",
+      case: "case-flaherty",
+      issue: "cea-preemption"
+    });
   });
 
   it("does not rewrite the URL until F1 lists have settled", () => {
     const pasted = "?state=NJ&circuit=cir-3";
-    expect(nextApexSearch(pasted, new Set(["NJ"]), none, none, false)).toEqual({
-      selection: { state: "NJ", circuit: "cir-3", case: null },
+    expect(
+      nextApexSearch(pasted, new Set(["NJ"]), none, none, none, false)
+    ).toEqual({
+      selection: { state: "NJ", circuit: "cir-3", case: null, issue: null },
       search: pasted
     });
     expect(
-      nextApexSearch(pasted, new Set(["NJ"]), new Set(["cir-3"]), none, true)
+      nextApexSearch(
+        pasted,
+        new Set(["NJ"]),
+        new Set(["cir-3"]),
+        none,
+        none,
+        true
+      )
     ).toEqual({
-      selection: { state: "NJ", circuit: "cir-3", case: null },
+      selection: { state: "NJ", circuit: "cir-3", case: null, issue: null },
       search: pasted
     });
   });
@@ -207,36 +289,47 @@ describe("selection.ts", () => {
         new Set(["NJ"]),
         new Set(["cir-3"]),
         none,
+        none,
         true
       )
     ).toEqual({
-      selection: { state: null, circuit: null, case: null },
+      selection: { state: null, circuit: null, case: null, issue: null },
       search: "?surface=apex"
     });
     expect(
-      nextApexSearch("?state=ZZ&circuit=cir-9", none, none, none, true)
+      nextApexSearch("?state=ZZ&circuit=cir-9", none, none, none, none, true)
     ).toEqual({
-      selection: { state: null, circuit: null, case: null },
+      selection: { state: null, circuit: null, case: null, issue: null },
       search: ""
     });
   });
 
-  it("selecting a state sets that row's circuit; All keeps the state", () => {
-    expect(selectionForState("NJ", mockStates)).toEqual({
+  it("selecting a state sets that row's circuit and keeps the issue axis", () => {
+    expect(
+      selectionForState("NJ", mockStates, {
+        state: null,
+        circuit: null,
+        case: "case-flaherty",
+        issue: "cea-preemption"
+      })
+    ).toEqual({
       state: "NJ",
       circuit: "cir-3",
-      case: null
+      case: null,
+      issue: "cea-preemption"
     });
     expect(
       clearCircuitSelection({
         state: "NJ",
         circuit: "cir-3",
-        case: "case-flaherty"
+        case: "case-flaherty",
+        issue: "cea-preemption"
       })
     ).toEqual({
       state: "NJ",
       circuit: null,
-      case: "case-flaherty"
+      case: "case-flaherty",
+      issue: "cea-preemption"
     });
   });
 
@@ -245,30 +338,82 @@ describe("selection.ts", () => {
       selectionForCircuit("cir-3", mockStates, {
         state: null,
         circuit: null,
-        case: null
+        case: null,
+        issue: null
       })
-    ).toEqual({ state: "NJ", circuit: "cir-3", case: null });
+    ).toEqual({ state: "NJ", circuit: "cir-3", case: null, issue: null });
     expect(
       selectionForCircuit("cir-fed", mockStates, {
         state: "NJ",
         circuit: "cir-3",
-        case: "case-flaherty"
+        case: "case-flaherty",
+        issue: "cea-preemption"
       })
-    ).toEqual({ state: "NJ", circuit: "cir-fed", case: "case-flaherty" });
+    ).toEqual({
+      state: "NJ",
+      circuit: "cir-fed",
+      case: "case-flaherty",
+      issue: "cea-preemption"
+    });
   });
 
-  it("selecting a case preserves state and circuit", () => {
+  it("selecting a case preserves state, circuit, and issue", () => {
     expect(
       selectionForCase("case-flaherty", {
         state: "NJ",
         circuit: "cir-3",
-        case: null
+        case: null,
+        issue: "cea-preemption"
       })
     ).toEqual({
       state: "NJ",
       circuit: "cir-3",
-      case: "case-flaherty"
+      case: "case-flaherty",
+      issue: "cea-preemption"
     });
+  });
+
+  it("selecting an issue toggles the already-active slug", () => {
+    const current = {
+      state: "NJ",
+      circuit: "cir-3",
+      case: "case-flaherty",
+      issue: "cea-preemption"
+    };
+    expect(selectionForIssue("cea-preemption", current).issue).toBeNull();
+    expect(selectionForIssue("state-enforcement", current).issue).toBe(
+      "state-enforcement"
+    );
+    expect(selectionForIssue(null, current).issue).toBeNull();
+  });
+
+  it("does not bump state-detail epoch for issue or case-only clicks", () => {
+    const open = {
+      state: "NJ",
+      circuit: "cir-3",
+      case: "case-flaherty",
+      issue: "cea-preemption"
+    };
+    expect(
+      shouldBumpStateDetailEpoch(open, {
+        ...open,
+        issue: "state-enforcement"
+      })
+    ).toBe(false);
+    expect(
+      shouldBumpStateDetailEpoch(open, {
+        ...open,
+        case: "case-other"
+      })
+    ).toBe(false);
+    expect(
+      shouldBumpStateDetailEpoch(open, {
+        ...open,
+        state: "NV",
+        circuit: "cir-9"
+      })
+    ).toBe(true);
+    expect(shouldBumpStateDetailEpoch(open, open)).toBe(true);
   });
 });
 
@@ -300,7 +445,7 @@ describe("CircuitLegend", () => {
       <CircuitLegend
         circuits={mockCircuits}
         states={mockStates}
-        selection={{ state: "NJ", circuit: "cir-3", case: null }}
+        selection={{ state: "NJ", circuit: "cir-3", case: null, issue: null }}
         mapPostures={new Set()}
         onTogglePosture={() => undefined}
         onSelectCircuit={() => undefined}
@@ -326,7 +471,7 @@ describe("CircuitMap fallback", () => {
         states={mockStates}
         circuits={mockCircuits}
         cases={[]}
-        selection={{ state: null, circuit: null, case: null }}
+        selection={{ state: null, circuit: null, case: null, issue: null }}
         mapPostures={new Set()}
         showCirc
         statusFilter="all"
