@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import type { Case } from "../../../shared/schemas/caseSchema";
+import type { CaseListItem } from "../../../shared/schemas/caseSchema";
 import type { Circuit } from "../../../shared/schemas/circuit";
 import type { State, StateDetail } from "../../../shared/schemas/state";
 import type { ApexF1Value } from "../ApexF1Context";
@@ -53,7 +53,9 @@ function state(partial: Partial<State> & Pick<State, "code" | "name">): State {
   };
 }
 
-function caseRow(partial: Partial<Case> & Pick<Case, "id" | "caption">): Case {
+function caseRow(
+  partial: Partial<CaseListItem> & Pick<CaseListItem, "id" | "caption">
+): CaseListItem {
   return {
     court: "D.N.J.",
     docketNumber: "24-cv-1",
@@ -66,6 +68,9 @@ function caseRow(partial: Partial<Case> & Pick<Case, "id" | "caption">): Case {
     provenanceKind: "human",
     publishedAt: STAMP,
     updatedAt: STAMP,
+    listIssueTags: [],
+    affectedStateCodes: [],
+    entityRoles: [],
     ...partial
   };
 }
@@ -110,11 +115,13 @@ const ak = state({
 });
 
 const mockStates: State[] = [nj, nv, ct, ak];
-const mockCases: Case[] = [
+const mockCases: CaseListItem[] = [
   caseRow({
     id: "case-flaherty",
     caption: "KalshiEx LLC v. Flaherty",
-    docketNumber: "24-2077"
+    docketNumber: "24-2077",
+    affectedStateCodes: ["NJ"],
+    entityRoles: ["plaintiff"]
   })
 ];
 
@@ -124,7 +131,7 @@ function stub(partial: Partial<ApexF1Value> = {}): ApexF1Value {
     states: mockStates,
     cases: mockCases,
     listsReady: true,
-    selection: { state: null, circuit: null },
+    selection: { state: null, circuit: null, case: null },
     commit: () => undefined,
     statusFilter: "all",
     setStatusFilter: (() => undefined) as ApexF1Value["setStatusFilter"],
@@ -214,7 +221,9 @@ describe("StateBoard", () => {
   });
 
   it("marks the selected row and opens the panel on a hydrated NJ selection", () => {
-    const html = board(stub({ selection: { state: "NJ", circuit: "cir-3" } }));
+    const html = board(
+      stub({ selection: { state: "NJ", circuit: "cir-3", case: null } })
+    );
     expect(html).toContain('aria-selected="true"');
     expect(html).toContain("<h3>New Jersey</h3>");
     expect(html).toContain("KalshiEx LLC v. Flaherty");
@@ -230,7 +239,9 @@ describe("StateBoard", () => {
   });
 
   it("renders honest untracked copy when the map selects an untracked state", () => {
-    const html = board(stub({ selection: { state: "AK", circuit: null } }));
+    const html = board(
+      stub({ selection: { state: "AK", circuit: null, case: null } })
+    );
     const aside = html.match(/<aside[\s\S]*?<\/aside>/)?.[0] ?? "";
     expect(aside).toContain("<h3>Alaska</h3>");
     expect(aside).toContain("Nothing in this state has been reviewed");
@@ -248,7 +259,7 @@ describe("StateBoard", () => {
     const html = board(
       stub({
         states: [nj, nv, ct, rogue],
-        selection: { state: "AK", circuit: null }
+        selection: { state: "AK", circuit: null, case: null }
       })
     );
     const aside = html.match(/<aside[\s\S]*?<\/aside>/)?.[0] ?? "";
@@ -263,7 +274,9 @@ describe("StateBoard", () => {
   });
 
   it("marks the controlling caption as em.case", () => {
-    const html = board(stub({ selection: { state: "NJ", circuit: "cir-3" } }));
+    const html = board(
+      stub({ selection: { state: "NJ", circuit: "cir-3", case: null } })
+    );
     expect(html).toContain('<em class="case">KalshiEx LLC v. Flaherty</em>');
   });
 
@@ -271,7 +284,7 @@ describe("StateBoard", () => {
     const html = board(
       stub({
         cases: [],
-        selection: { state: "NJ", circuit: "cir-3" }
+        selection: { state: "NJ", circuit: "cir-3", case: null }
       })
     );
     expect(html).toContain("Case record not loaded");

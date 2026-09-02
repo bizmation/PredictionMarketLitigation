@@ -9,7 +9,7 @@ import {
   type SetStateAction
 } from "react";
 
-import type { Case } from "../../shared/schemas/caseSchema";
+import type { CaseListItem } from "../../shared/schemas/caseSchema";
 import type { Circuit } from "../../shared/schemas/circuit";
 import type { State } from "../../shared/schemas/state";
 import { useCircuitData } from "./circuits/useCircuitData";
@@ -27,7 +27,7 @@ import { useApexSelection } from "./useApexSelection";
 export type ApexF1Value = {
   circuits: Circuit[];
   states: State[];
-  cases: Case[];
+  cases: CaseListItem[];
   listsReady: boolean;
   selection: ApexSelection;
   commit: (next: ApexSelection) => void;
@@ -46,9 +46,11 @@ export function ApexF1Provider({ children }: { children: ReactNode }) {
     () => circuits.map((circuit) => circuit.id),
     [circuits]
   );
+  const caseIds = useMemo(() => cases.map((row) => row.id), [cases]);
   const { selection, commit: writeSelection } = useApexSelection(
     stateCodes,
     circuitIds,
+    caseIds,
     listsReady
   );
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");

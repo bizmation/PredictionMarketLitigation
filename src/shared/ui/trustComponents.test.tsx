@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
-import { formatEtDate, formatEtDateTime } from "../lib/dates";
+import { formatEtDate, formatEtDateTime, formatIsoDate } from "../lib/dates";
 import {
   OPERATIONAL_STATUS_VALUES,
   POSTURE_VALUES,
@@ -282,6 +282,11 @@ describe("date formatting (src/shared/lib/dates.ts)", () => {
   it("formatEtDate (date-only) covers both EDT and EST", () => {
     expect(formatEtDate("2026-08-09T10:12:00.000Z")).toBe("9 Aug 2026");
     expect(formatEtDate("2026-01-15T15:30:00.000Z")).toBe("15 Jan 2026");
+  });
+
+  it("formatIsoDate does not roll a calendar day backwards in ET", () => {
+    expect(formatIsoDate("2024-07-01")).toBe("1 Jul 2024");
+    expect(formatEtDate("2024-07-01")).not.toBe("1 Jul 2024");
   });
 
   it("falls back to a safe label instead of throwing on an invalid ISO string", () => {

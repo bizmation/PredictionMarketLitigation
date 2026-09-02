@@ -44,3 +44,11 @@ export function formatEtDate(iso: string): string {
   if (Number.isNaN(date.getTime())) return INVALID_DATE_LABEL;
   return DATE_ONLY.format(date);
 }
+
+/**
+ * Date-only ISO (`YYYY-MM-DD`) → ET calendar label without a TZ shift.
+ * `new Date("YYYY-MM-DD")` is UTC midnight, which is the previous day in ET.
+ */
+export function formatIsoDate(isoDate: string): string {
+  return formatEtDate(`${isoDate}T12:00:00.000Z`);
+}

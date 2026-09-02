@@ -2,11 +2,13 @@ import {
   CaseDetailSchema,
   CaseEntitySchema,
   CaseIssueTagSchema,
+  CaseListItemSchema,
   CaseSchema,
   CaseStateSchema,
   DocketEventDetailSchema,
   type Case,
-  type CaseDetail
+  type CaseDetail,
+  type CaseListItem
 } from "../../schemas/caseSchema";
 import { DevelopmentSchema, type Development } from "../../schemas/development";
 import { asBool, type Db } from "../client";
@@ -85,7 +87,28 @@ function mapCase(row: CaseRow): Case {
   });
 }
 
-export async function listCases(db: Db): Promise<Case[]> {
+type ListTagRow = {
+  case_id: string;
+  slug: string;
+  label: string;
+  is_controlling: number;
+};
+
+type ListStateRow = {
+  case_id: string;
+  code: string;
+};
+
+type ListRoleRow = {
+  case_id: string;
+  case_role: string;
+};
+
+function uniquePush<T>(list: T[], value: T): void {
+  if (!list.includes(value)) list.push(value);
+}
+
+export async function listCases(db: Db): Promise<CaseListItem[]> {
   const { results } = await db
     .prepare(
       `SELECT id, caption, court, docket_number, forum,
@@ -95,7 +118,70 @@ export async function listCases(db: Db): Promise<Case[]> {
      ORDER BY updated_at DESC, id ASC`
     )
     .all<CaseRow>();
-  return (results ?? []).map(mapCase);
+  const cases = (results ?? []).map(mapCase);
+
+  const [tagResult, stateResult, roleResult] = await Promise.all([
+    db
+      .prepare(
+        `SELECT cit.case_id, t.slug, t.label, cit.is_controlling
+           FROM case_issue_tags cit
+           JOIN issue_tags t ON t.id = cit.issue_tag_id
+       ORDER BY cit.is_controlling DESC, t.label ASC`
+      )
+      .all<ListTagRow>(),
+    db
+      .prepare(
+        `SELECT cs.case_id, s.code
+           FROM case_states cs
+           JOIN states s ON s.id = cs.state_id
+       ORDER BY s.name ASC`
+      )
+      .all<ListStateRow>(),
+    db
+      .prepare(
+        `SELECT ce.case_id, ce.role AS case_role
+           FROM case_entities ce
+       ORDER BY ce.case_id, ce.role ASC`
+      )
+      .all<ListRoleRow>()
+  ]);
+
+  const tagsByCase = new Map<
+    string,
+    Array<{ slug: string; label: string; isControlling: boolean }>
+  >();
+  for (const row of tagResult.results ?? []) {
+    const list = tagsByCase.get(row.case_id) ?? [];
+    list.push({
+      slug: row.slug,
+      label: row.label,
+      isControlling: asBool(row.is_controlling)
+    });
+    tagsByCase.set(row.case_id, list);
+  }
+
+  const statesByCase = new Map<string, string[]>();
+  for (const row of stateResult.results ?? []) {
+    const list = statesByCase.get(row.case_id) ?? [];
+    uniquePush(list, row.code);
+    statesByCase.set(row.case_id, list);
+  }
+
+  const rolesByCase = new Map<string, CaseListItem["entityRoles"]>();
+  for (const row of roleResult.results ?? []) {
+    const list = rolesByCase.get(row.case_id) ?? [];
+    uniquePush(list, row.case_role as CaseListItem["entityRoles"][number]);
+    rolesByCase.set(row.case_id, list);
+  }
+
+  return cases.map((row) =>
+    CaseListItemSchema.parse({
+      ...row,
+      listIssueTags: tagsByCase.get(row.id) ?? [],
+      affectedStateCodes: statesByCase.get(row.id) ?? [],
+      entityRoles: rolesByCase.get(row.id) ?? []
+    })
+  );
 }
 
 type DevelopmentRow = {
