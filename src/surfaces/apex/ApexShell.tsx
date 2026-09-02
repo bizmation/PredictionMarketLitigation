@@ -10,12 +10,14 @@ import {
   WarnChip,
   type TopBarLink
 } from "../../shared/ui";
+import { ApexF1Provider } from "./ApexF1Context";
 import { CircuitSplit } from "./circuits/CircuitSplit";
 import { CredibilityStrip } from "./orientation/CredibilityStrip";
 import { ExecutiveBrief } from "./orientation/ExecutiveBrief";
 import { KpiRow } from "./orientation/KpiRow";
 import { Masthead } from "./orientation/Masthead";
 import { useOrientation } from "./orientation/useOrientation";
+import { StateBoard } from "./states/StateBoard";
 
 /**
  * Apex — the litigation intelligence tracker.
@@ -91,29 +93,25 @@ export function ApexShell({ dev = false }: ApexShellProps) {
           <ExecutiveBrief kpis={kpis} />
         </SectionBand>
 
-        <SectionBand
-          id="circuits"
-          kicker="Heat map"
-          title="The circuit split"
-          why="Geography and doctrine disagree. The map colors states by the posture that controls them; the index colors the courts of appeals. Select either — the other follows."
-        >
-          <CircuitSplit />
-        </SectionBand>
-
-        <SectionBand
-          id="states"
-          kicker="03"
-          title="State status board"
-          why="Is a given platform legal in a given state today, and what is the controlling authority?"
-        >
-          <EmptyState
-            title="State board not yet wired"
-            hint="An untracked state is not a permissive one."
+        <ApexF1Provider>
+          <SectionBand
+            id="circuits"
+            kicker="Heat map"
+            title="The circuit split"
+            why="Geography and doctrine disagree. The map colors states by the posture that controls them; the index colors the courts of appeals. Select either — the other follows."
           >
-            Story 2.4 renders the seeded operational status, posture,
-            controlling case, sources, and per-platform breakdown.
-          </EmptyState>
-        </SectionBand>
+            <CircuitSplit />
+          </SectionBand>
+
+          <SectionBand
+            id="states"
+            kicker="Status board"
+            title="State by state"
+            why="Operational status answers the compliance question — can this platform take the order in this state today. Posture answers where the law is heading. They are not the same field, and they can disagree."
+          >
+            <StateBoard />
+          </SectionBand>
+        </ApexF1Provider>
 
         <SectionBand
           id="issues"

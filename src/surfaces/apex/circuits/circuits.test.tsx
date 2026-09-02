@@ -18,6 +18,7 @@ import { CircuitIndex } from "./CircuitIndex";
 import { CircuitLegend } from "./CircuitLegend";
 import { CircuitMap, MAP_FALLBACK } from "./CircuitMap";
 import { CircuitSplit } from "./CircuitSplit";
+import { ApexF1Provider } from "../ApexF1Context";
 import { US_ATLAS_STATE_NAMES } from "./atlasStateNames";
 
 const STAMP = "2026-08-09T16:00:00.000Z";
@@ -266,13 +267,14 @@ describe("CircuitMap fallback", () => {
         selection={{ state: null, circuit: null }}
         mapPostures={new Set()}
         showCirc
+        statusFilter="all"
         onSelectState={() => undefined}
         onSelectCircuit={() => undefined}
       />
     );
     expect(html).toContain(MAP_FALLBACK);
-    expect(html).toContain("will carry them once it is wired");
-    expect(html.toLowerCase()).not.toContain("state board carry the same");
+    expect(html).toContain("status board still carry");
+    expect(html).not.toContain("once it is wired");
     expect(html).not.toContain(" d=");
     expect(html).toContain('role="img"');
     expect(html).toContain("data-map");
@@ -281,7 +283,11 @@ describe("CircuitMap fallback", () => {
 
 describe("CircuitSplit first paint", () => {
   it("lays out legend, map card and index without inventing seed counts", () => {
-    const html = renderToStaticMarkup(<CircuitSplit />);
+    const html = renderToStaticMarkup(
+      <ApexF1Provider>
+        <CircuitSplit />
+      </ApexF1Provider>
+    );
     expect(html).toContain('class="f1"');
     expect(html).toContain('class="circuits"');
     expect(html).toContain('class="legend"');

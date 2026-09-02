@@ -1,31 +1,21 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 
 import { formatEtDate } from "../../../shared/lib/dates";
 import type { Posture } from "../../../shared/schemas/vocabulary";
+import { useApexF1 } from "../ApexF1Context";
 import {
   clearCircuitSelection,
   selectionForCircuit,
   selectionForState
 } from "../selection";
-import { useApexSelection } from "../useApexSelection";
 import { CircuitIndex } from "./CircuitIndex";
 import { CircuitLegend } from "./CircuitLegend";
 import { CircuitMap } from "./CircuitMap";
 import { maxUpdatedAt } from "./circuitView";
-import { useCircuitData } from "./useCircuitData";
 
 export function CircuitSplit() {
-  const { circuits, states, cases, listsReady } = useCircuitData();
-  const stateCodes = useMemo(() => states.map((state) => state.code), [states]);
-  const circuitIds = useMemo(
-    () => circuits.map((circuit) => circuit.id),
-    [circuits]
-  );
-  const { selection, commit } = useApexSelection(
-    stateCodes,
-    circuitIds,
-    listsReady
-  );
+  const { circuits, states, cases, selection, commit, statusFilter } =
+    useApexF1();
   const [mapPostures, setMapPostures] = useState<Set<Posture>>(new Set());
   const [showCirc, setShowCirc] = useState(true);
 
@@ -90,6 +80,7 @@ export function CircuitSplit() {
             cases={cases}
             selection={selection}
             mapPostures={mapPostures}
+            statusFilter={statusFilter}
             showCirc={showCirc}
             onSelectState={selectState}
             onSelectCircuit={(id) => selectCircuit(id)}

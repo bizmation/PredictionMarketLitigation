@@ -55,6 +55,24 @@ export function useApexSelection(
     }
   }, [stateKey, circuitKey, listsReady]);
 
+  useEffect(() => {
+    function onPopState() {
+      const next = nextApexSearch(
+        window.location.search,
+        setFromKey(stateKey),
+        setFromKey(circuitKey),
+        listsReady
+      );
+      setSelection(next.selection);
+      if (!listsReady) return;
+      if (next.search !== window.location.search) {
+        writeSelection(next.selection);
+      }
+    }
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [stateKey, circuitKey, listsReady]);
+
   const commit = useCallback(
     (next: ApexSelection) => {
       const constrained = constrainApexSelection(

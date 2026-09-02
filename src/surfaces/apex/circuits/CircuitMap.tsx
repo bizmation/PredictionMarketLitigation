@@ -16,12 +16,13 @@ import type { State } from "../../../shared/schemas/state";
 import type { Posture } from "../../../shared/schemas/vocabulary";
 import { POSTURE_LABELS } from "../../../shared/ui";
 import type { ApexSelection } from "../selection";
+import { rowMatchesStatusFilter, type StatusFilter } from "../states/boardView";
 import { circStroke, circuitShortLabel } from "./circuitView";
 
 /* oxlint-disable jsx-a11y/prefer-tag-over-role -- choropleth SVG; no <img> equivalent */
 
 export const MAP_FALLBACK =
-  "Map geometry could not be loaded. The circuit index still carries the same postures. The state board will carry them once it is wired — this view is a second reading of the same record, never the only one.";
+  "Map geometry could not be loaded. The circuit index and the status board still carry the same postures. This view is a second reading of the same record, never the only one.";
 
 type UsAtlas = Topology<{
   states: GeometryCollection<{ name: string }>;
@@ -42,6 +43,7 @@ type CircuitMapProps = {
   cases: Case[];
   selection: ApexSelection;
   mapPostures: ReadonlySet<Posture>;
+  statusFilter: StatusFilter;
   showCirc: boolean;
   onSelectState: (code: string) => void;
   onSelectCircuit: (circuitId: string) => void;
@@ -78,6 +80,7 @@ export function CircuitMap({
   cases,
   selection,
   mapPostures,
+  statusFilter,
   showCirc,
   onSelectState,
   onSelectCircuit
@@ -88,6 +91,7 @@ export function CircuitMap({
   const casesRef = useRef(cases);
   const selectionRef = useRef(selection);
   const mapPosturesRef = useRef(mapPostures);
+  const statusFilterRef = useRef(statusFilter);
   const showCircRef = useRef(showCirc);
   const onSelectStateRef = useRef(onSelectState);
   const onSelectCircuitRef = useRef(onSelectCircuit);
@@ -96,6 +100,7 @@ export function CircuitMap({
   casesRef.current = cases;
   selectionRef.current = selection;
   mapPosturesRef.current = mapPostures;
+  statusFilterRef.current = statusFilter;
   showCircRef.current = showCirc;
   onSelectStateRef.current = onSelectState;
   onSelectCircuitRef.current = onSelectCircuit;
@@ -323,7 +328,8 @@ export function CircuitMap({
             (row !== undefined && row.circuitId === sel.circuit);
           const posture = postureOf(d.properties.name, statesRef.current);
           const inPosture = postures.size === 0 || postures.has(posture);
-          return inCircuit && inPosture ? 1 : 0.22;
+          const inStatus = rowMatchesStatusFilter(row, statusFilterRef.current);
+          return inCircuit && inPosture && inStatus ? 1 : 0.22;
         })
         .attr(
           "aria-label",
@@ -359,7 +365,7 @@ export function CircuitMap({
 
   useEffect(() => {
     paintRef.current?.();
-  }, [selection, mapPostures, showCirc, cases]);
+  }, [selection, mapPostures, statusFilter, showCirc, cases]);
 
   return (
     <>

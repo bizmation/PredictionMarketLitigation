@@ -52,6 +52,7 @@ function isState(value: unknown): value is State {
     typeof row.code === "string" &&
     typeof row.name === "string" &&
     (row.circuitId === null || typeof row.circuitId === "string") &&
+    typeof row.operationalStatus === "string" &&
     isPosture(row.posture) &&
     (row.controllingCaseId === null ||
       typeof row.controllingCaseId === "string") &&

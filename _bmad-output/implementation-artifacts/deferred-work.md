@@ -47,5 +47,9 @@
 
 ## Deferred from: code review of 2-3-circuit-split-heat-map.md (2026-09-01)
 
-- `history.replaceState` writes `?state=` / `?circuit=` but does not listen for `popstate`. Story 2.4 owns board sync and can attach Back/Forward traversal if the shareable URL contract needs it.
+- ~~`history.replaceState` writes `?state=` / `?circuit=` but does not listen for `popstate`. Story 2.4 owns board sync and can attach Back/Forward traversal if the shareable URL contract needs it.~~ — **RESOLVED 2026-09-01 (Story 2.4):** `useApexSelection` now listens for `popstate` and re-runs `nextApexSearch`; clicks still use `replaceState`.
+
+## Deferred from: code review of 2-4-state-status-board-synced-with-map.md (2026-09-01)
+
+- Failed or empty F1 list still prints "0 of 0 tracked states" with absence-is-not-a-finding copy. `useCircuitData` fail-closes to `states: []` and `listsReady: true`; the map already had this empty-list path. Distinguish fetch-fail from "nothing tracked" when a later story owns list-error chrome.
 
