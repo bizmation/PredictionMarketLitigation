@@ -74,7 +74,7 @@ describe("ApexShell", () => {
 
   it("uses EmptyState for every unwired tracker band", () => {
     const html = apex();
-    const remaining = ["issues", "cases", "entities", "cert", "trust", "ops"];
+    const remaining = ["issues", "entities", "cert", "trust", "ops"];
     for (const id of remaining) {
       const section = html.match(
         new RegExp(`<section class="band" id="${id}"[\\s\\S]*?</section>`)
@@ -99,6 +99,12 @@ describe("ApexShell", () => {
     expect(states).toContain('class="board"');
     expect(states).toContain('class="grid"');
     expect(states).toContain("State by state");
+    const cases = html.match(
+      /<section class="band" id="cases"[\s\S]*?<\/section>/
+    )?.[0];
+    expect(cases).not.toContain("Case views not yet wired");
+    expect(cases).toContain('class="cases"');
+    expect(cases).toContain('class="casebar"');
   });
 });
 

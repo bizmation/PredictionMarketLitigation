@@ -10,6 +10,7 @@ import {
   constrainApexSelection,
   nextApexSearch,
   parseApexSelection,
+  selectionForCase,
   selectionForCircuit,
   selectionForState,
   serializeApexSelection
@@ -93,75 +94,108 @@ const mockStates: State[] = [
 ];
 
 describe("selection.ts", () => {
-  it("round-trips NJ / cir-3", () => {
-    const sel = { state: "NJ", circuit: "cir-3" };
-    expect(serializeApexSelection(sel)).toBe("?state=NJ&circuit=cir-3");
-    expect(parseApexSelection("?state=NJ&circuit=cir-3")).toEqual(sel);
-    expect(parseApexSelection("state=nj&circuit=CIR-3")).toEqual(sel);
+  const none = new Set<string>();
+
+  it("round-trips NJ / cir-3 / case-flaherty", () => {
+    const sel = { state: "NJ", circuit: "cir-3", case: "case-flaherty" };
+    expect(serializeApexSelection(sel)).toBe(
+      "?state=NJ&circuit=cir-3&case=case-flaherty"
+    );
+    expect(
+      parseApexSelection("?state=NJ&circuit=cir-3&case=case-flaherty")
+    ).toEqual(sel);
+    expect(
+      parseApexSelection("state=nj&circuit=CIR-3&case=CASE-FLAHERTY")
+    ).toEqual(sel);
   });
 
-  it("ignores garbage state and circuit params", () => {
+  it("ignores garbage state, circuit, and case params", () => {
     expect(parseApexSelection("?state=New%20Jersey&circuit=3")).toEqual({
       state: null,
-      circuit: null
+      circuit: null,
+      case: null
     });
     expect(parseApexSelection("?state=ZZZ&circuit=fed")).toEqual({
       state: null,
-      circuit: null
+      circuit: null,
+      case: null
     });
     expect(parseApexSelection("?state=nj&circuit=not-a-circuit")).toEqual({
       state: "NJ",
-      circuit: null
+      circuit: null,
+      case: null
+    });
+    expect(parseApexSelection("?case=flaherty")).toEqual({
+      state: null,
+      circuit: null,
+      case: null
+    });
+    expect(parseApexSelection("?case=Case%20Flaherty")).toEqual({
+      state: null,
+      circuit: null,
+      case: null
     });
   });
 
   it("drops well-formed codes that are not in the payload", () => {
     expect(
       constrainApexSelection(
-        { state: "ZZ", circuit: "cir-9" },
+        { state: "ZZ", circuit: "cir-9", case: "case-nope" },
         new Set(["NJ"]),
-        new Set(["cir-3"])
+        new Set(["cir-3"]),
+        new Set(["case-flaherty"])
       )
-    ).toEqual({ state: null, circuit: null });
+    ).toEqual({ state: null, circuit: null, case: null });
   });
 
   it("does not honor params before membership sets exist", () => {
     expect(
       constrainApexSelection(
-        { state: "NJ", circuit: "cir-3" },
-        new Set(),
-        new Set()
+        { state: "NJ", circuit: "cir-3", case: "case-flaherty" },
+        none,
+        none,
+        none
       )
-    ).toEqual({ state: null, circuit: null });
+    ).toEqual({ state: null, circuit: null, case: null });
   });
 
   it("keeps the unloaded axis when only one membership set has landed", () => {
     expect(
       constrainApexSelection(
-        { state: "NJ", circuit: "cir-3" },
+        { state: "NJ", circuit: "cir-3", case: "case-flaherty" },
         new Set(["NJ"]),
-        new Set()
+        none,
+        none
       )
-    ).toEqual({ state: "NJ", circuit: "cir-3" });
+    ).toEqual({ state: "NJ", circuit: "cir-3", case: "case-flaherty" });
     expect(
       constrainApexSelection(
-        { state: "NJ", circuit: "cir-3" },
-        new Set(),
-        new Set(["cir-3"])
+        { state: "NJ", circuit: "cir-3", case: "case-flaherty" },
+        none,
+        new Set(["cir-3"]),
+        none
       )
-    ).toEqual({ state: "NJ", circuit: "cir-3" });
+    ).toEqual({ state: "NJ", circuit: "cir-3", case: "case-flaherty" });
+    expect(
+      constrainApexSelection(
+        { state: "NJ", circuit: "cir-3", case: "case-flaherty" },
+        none,
+        none,
+        new Set(["case-flaherty"])
+      )
+    ).toEqual({ state: "NJ", circuit: "cir-3", case: "case-flaherty" });
   });
 
-  it("does not rewrite the URL until both F1 lists have settled", () => {
+  it("does not rewrite the URL until F1 lists have settled", () => {
     const pasted = "?state=NJ&circuit=cir-3";
-    expect(nextApexSearch(pasted, new Set(["NJ"]), new Set(), false)).toEqual({
-      selection: { state: "NJ", circuit: "cir-3" },
+    expect(nextApexSearch(pasted, new Set(["NJ"]), none, none, false)).toEqual({
+      selection: { state: "NJ", circuit: "cir-3", case: null },
       search: pasted
     });
     expect(
-      nextApexSearch(pasted, new Set(["NJ"]), new Set(["cir-3"]), true)
+      nextApexSearch(pasted, new Set(["NJ"]), new Set(["cir-3"]), none, true)
     ).toEqual({
-      selection: { state: "NJ", circuit: "cir-3" },
+      selection: { state: "NJ", circuit: "cir-3", case: null },
       search: pasted
     });
   });
@@ -172,16 +206,17 @@ describe("selection.ts", () => {
         "?surface=apex&state=ZZ&circuit=cir-9",
         new Set(["NJ"]),
         new Set(["cir-3"]),
+        none,
         true
       )
     ).toEqual({
-      selection: { state: null, circuit: null },
+      selection: { state: null, circuit: null, case: null },
       search: "?surface=apex"
     });
     expect(
-      nextApexSearch("?state=ZZ&circuit=cir-9", new Set(), new Set(), true)
+      nextApexSearch("?state=ZZ&circuit=cir-9", none, none, none, true)
     ).toEqual({
-      selection: { state: null, circuit: null },
+      selection: { state: null, circuit: null, case: null },
       search: ""
     });
   });
@@ -189,24 +224,51 @@ describe("selection.ts", () => {
   it("selecting a state sets that row's circuit; All keeps the state", () => {
     expect(selectionForState("NJ", mockStates)).toEqual({
       state: "NJ",
-      circuit: "cir-3"
+      circuit: "cir-3",
+      case: null
     });
-    expect(clearCircuitSelection({ state: "NJ", circuit: "cir-3" })).toEqual({
+    expect(
+      clearCircuitSelection({
+        state: "NJ",
+        circuit: "cir-3",
+        case: "case-flaherty"
+      })
+    ).toEqual({
       state: "NJ",
-      circuit: null
+      circuit: null,
+      case: "case-flaherty"
     });
   });
 
   it("selecting a circuit takes the first member in the states list", () => {
     expect(
-      selectionForCircuit("cir-3", mockStates, { state: null, circuit: null })
-    ).toEqual({ state: "NJ", circuit: "cir-3" });
+      selectionForCircuit("cir-3", mockStates, {
+        state: null,
+        circuit: null,
+        case: null
+      })
+    ).toEqual({ state: "NJ", circuit: "cir-3", case: null });
     expect(
       selectionForCircuit("cir-fed", mockStates, {
         state: "NJ",
-        circuit: "cir-3"
+        circuit: "cir-3",
+        case: "case-flaherty"
       })
-    ).toEqual({ state: "NJ", circuit: "cir-fed" });
+    ).toEqual({ state: "NJ", circuit: "cir-fed", case: "case-flaherty" });
+  });
+
+  it("selecting a case preserves state and circuit", () => {
+    expect(
+      selectionForCase("case-flaherty", {
+        state: "NJ",
+        circuit: "cir-3",
+        case: null
+      })
+    ).toEqual({
+      state: "NJ",
+      circuit: "cir-3",
+      case: "case-flaherty"
+    });
   });
 });
 
@@ -238,7 +300,7 @@ describe("CircuitLegend", () => {
       <CircuitLegend
         circuits={mockCircuits}
         states={mockStates}
-        selection={{ state: "NJ", circuit: "cir-3" }}
+        selection={{ state: "NJ", circuit: "cir-3", case: null }}
         mapPostures={new Set()}
         onTogglePosture={() => undefined}
         onSelectCircuit={() => undefined}
@@ -264,7 +326,7 @@ describe("CircuitMap fallback", () => {
         states={mockStates}
         circuits={mockCircuits}
         cases={[]}
-        selection={{ state: null, circuit: null }}
+        selection={{ state: null, circuit: null, case: null }}
         mapPostures={new Set()}
         showCirc
         statusFilter="all"

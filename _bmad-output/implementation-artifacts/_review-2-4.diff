@@ -1,0 +1,1580 @@
+﻿diff --git a/src/shared/ui/pml.css b/src/shared/ui/pml.css
+index 7ca3138..64c5224 100644
+--- a/src/shared/ui/pml.css
++++ b/src/shared/ui/pml.css
+@@ -508,9 +508,151 @@ table.grid tbody tr.pick:hover td {
+ table.grid tr[aria-selected="true"] td {
+   background: var(--color-accent-100);
+ }
+-table.grid tr[aria-selected="true"] td:first-child {
+-  box-shadow: inset 2px 0 0 var(--color-accent);
+-  padding-left: var(--space-2);
++table.grid th button {
++  font: inherit;
++  background: none;
++  border: 0;
++  padding: 0;
++  cursor: pointer;
++  color: inherit;
++  letter-spacing: inherit;
++  text-transform: inherit;
++}
++table.grid th button:hover {
++  color: var(--color-accent-700);
++}
++
++/* ---- status board ---------------------------------------- */
++.board {
++  display: grid;
++  grid-template-columns: 1.5fr 1fr;
++  gap: var(--space-6);
++  align-items: start;
++}
++.filters .rowcount {
++  margin-left: auto;
++}
++td.stname {
++  font-family: var(--font-heading);
++  font-size: 17px;
++}
++td.stname button {
++  font: inherit;
++  background: none;
++  border: 0;
++  padding: 0;
++  color: inherit;
++  cursor: pointer;
++  text-align: left;
++}
++td .case {
++  font-style: italic;
++  color: var(--color-neutral-800);
++}
++td .cite {
++  display: block;
++  font-size: 11.5px;
++  color: var(--color-neutral-600);
++}
++.board-note {
++  font-size: 12px;
++  color: var(--color-neutral-700);
++  line-height: 1.6;
++  margin-top: var(--space-3);
++}
++.detail {
++  border: 1px solid var(--color-neutral-700);
++  position: sticky;
++  top: 78px;
++}
++.detail .dhead {
++  padding: var(--space-4);
++  border-bottom: 1px solid var(--color-divider);
++}
++.detail .dhead h3 {
++  font-size: 27px;
++  font-weight: 400;
++  line-height: 1.1;
++}
++.detail .dhead-meta {
++  display: flex;
++  gap: var(--space-3);
++  align-items: center;
++  margin-top: var(--space-3);
++  flex-wrap: wrap;
++}
++.detail .dbody {
++  padding: var(--space-4);
++  font-size: 13px;
++}
++.detail dl {
++  margin: 0;
++  display: grid;
++  grid-template-columns: 96px 1fr;
++  gap: 6px var(--space-3);
++}
++.detail dt {
++  font-size: 10.5px;
++  letter-spacing: 0.14em;
++  text-transform: uppercase;
++  color: var(--color-neutral-600);
++  padding-top: 2px;
++}
++.detail dd {
++  margin: 0;
++  line-height: 1.5;
++}
++.detail .dbody > p {
++  font-size: 13px;
++  line-height: 1.6;
++  margin: var(--space-4) 0 0;
++  color: var(--color-neutral-800);
++}
++.plat-kicker {
++  margin-top: var(--space-6);
++}
++.plat {
++  width: 100%;
++  border-collapse: collapse;
++  font-size: 12.5px;
++  margin-top: var(--space-2);
++}
++.plat th {
++  text-align: left;
++  font-size: 10px;
++  letter-spacing: 0.14em;
++  text-transform: uppercase;
++  font-weight: 500;
++  color: var(--color-neutral-600);
++  padding-bottom: 5px;
++  border-bottom: 1px solid var(--color-divider);
++}
++.plat td {
++  padding: 6px 0;
++  border-bottom: 1px solid var(--color-divider);
++}
++.plat td:last-child {
++  text-align: right;
++}
++.plat-note {
++  font-size: 12px;
++  color: var(--color-neutral-700);
++  line-height: 1.6;
++  margin-top: var(--space-2);
++}
++.srcline {
++  font-size: 12px;
++  margin-top: var(--space-3);
++  line-height: 1.6;
++}
++.srcline a {
++  display: block;
++}
++.detail-actions {
++  display: flex;
++  gap: var(--space-3);
++  margin-top: var(--space-4);
++  flex-wrap: wrap;
+ }
+ 
+ /* ---- panels ---------------------------------------------- */
+@@ -1374,9 +1516,13 @@ header.masthead h1 {
+   color: var(--color-neutral-500);
+ }
+ @media (max-width: 940px) {
+-  .f1 {
++  .f1,
++  .board {
+     grid-template-columns: 1fr;
+   }
++  .detail {
++    position: static;
++  }
+ }
+ 
+ /* ---- native controls, themed ------------------------------ */
+diff --git a/src/surfaces/apex/ApexShell.tsx b/src/surfaces/apex/ApexShell.tsx
+index 3fd7428..08192f7 100644
+--- a/src/surfaces/apex/ApexShell.tsx
++++ b/src/surfaces/apex/ApexShell.tsx
+@@ -10,12 +10,14 @@ import {
+   WarnChip,
+   type TopBarLink
+ } from "../../shared/ui";
++import { ApexF1Provider } from "./ApexF1Context";
+ import { CircuitSplit } from "./circuits/CircuitSplit";
+ import { CredibilityStrip } from "./orientation/CredibilityStrip";
+ import { ExecutiveBrief } from "./orientation/ExecutiveBrief";
+ import { KpiRow } from "./orientation/KpiRow";
+ import { Masthead } from "./orientation/Masthead";
+ import { useOrientation } from "./orientation/useOrientation";
++import { StateBoard } from "./states/StateBoard";
+ 
+ /**
+  * Apex ΓÇö the litigation intelligence tracker.
+@@ -91,29 +93,25 @@ export function ApexShell({ dev = false }: ApexShellProps) {
+           <ExecutiveBrief kpis={kpis} />
+         </SectionBand>
+ 
+-        <SectionBand
+-          id="circuits"
+-          kicker="Heat map"
+-          title="The circuit split"
+-          why="Geography and doctrine disagree. The map colors states by the posture that controls them; the index colors the courts of appeals. Select either ΓÇö the other follows."
+-        >
+-          <CircuitSplit />
+-        </SectionBand>
+-
+-        <SectionBand
+-          id="states"
+-          kicker="03"
+-          title="State status board"
+-          why="Is a given platform legal in a given state today, and what is the controlling authority?"
+-        >
+-          <EmptyState
+-            title="State board not yet wired"
+-            hint="An untracked state is not a permissive one."
++        <ApexF1Provider>
++          <SectionBand
++            id="circuits"
++            kicker="Heat map"
++            title="The circuit split"
++            why="Geography and doctrine disagree. The map colors states by the posture that controls them; the index colors the courts of appeals. Select either ΓÇö the other follows."
+           >
+-            Story 2.4 renders the seeded operational status, posture,
+-            controlling case, sources, and per-platform breakdown.
+-          </EmptyState>
+-        </SectionBand>
++            <CircuitSplit />
++          </SectionBand>
++
++          <SectionBand
++            id="states"
++            kicker="Status board"
++            title="State by state"
++            why="Operational status answers the compliance question ΓÇö can this platform take the order in this state today. Posture answers where the law is heading. They are not the same field, and they can disagree."
++          >
++            <StateBoard />
++          </SectionBand>
++        </ApexF1Provider>
+ 
+         <SectionBand
+           id="issues"
+diff --git a/src/surfaces/apex/circuits/CircuitMap.tsx b/src/surfaces/apex/circuits/CircuitMap.tsx
+index 5439908..5772f96 100644
+--- a/src/surfaces/apex/circuits/CircuitMap.tsx
++++ b/src/surfaces/apex/circuits/CircuitMap.tsx
+@@ -16,12 +16,13 @@ import type { State } from "../../../shared/schemas/state";
+ import type { Posture } from "../../../shared/schemas/vocabulary";
+ import { POSTURE_LABELS } from "../../../shared/ui";
+ import type { ApexSelection } from "../selection";
++import { rowMatchesStatusFilter, type StatusFilter } from "../states/boardView";
+ import { circStroke, circuitShortLabel } from "./circuitView";
+ 
+ /* oxlint-disable jsx-a11y/prefer-tag-over-role -- choropleth SVG; no <img> equivalent */
+ 
+ export const MAP_FALLBACK =
+-  "Map geometry could not be loaded. The circuit index still carries the same postures. The state board will carry them once it is wired ΓÇö this view is a second reading of the same record, never the only one.";
++  "Map geometry could not be loaded. The circuit index and the status board still carry the same postures. This view is a second reading of the same record, never the only one.";
+ 
+ type UsAtlas = Topology<{
+   states: GeometryCollection<{ name: string }>;
+@@ -42,6 +43,7 @@ type CircuitMapProps = {
+   cases: Case[];
+   selection: ApexSelection;
+   mapPostures: ReadonlySet<Posture>;
++  statusFilter: StatusFilter;
+   showCirc: boolean;
+   onSelectState: (code: string) => void;
+   onSelectCircuit: (circuitId: string) => void;
+@@ -78,6 +80,7 @@ export function CircuitMap({
+   cases,
+   selection,
+   mapPostures,
++  statusFilter,
+   showCirc,
+   onSelectState,
+   onSelectCircuit
+@@ -88,6 +91,7 @@ export function CircuitMap({
+   const casesRef = useRef(cases);
+   const selectionRef = useRef(selection);
+   const mapPosturesRef = useRef(mapPostures);
++  const statusFilterRef = useRef(statusFilter);
+   const showCircRef = useRef(showCirc);
+   const onSelectStateRef = useRef(onSelectState);
+   const onSelectCircuitRef = useRef(onSelectCircuit);
+@@ -96,6 +100,7 @@ export function CircuitMap({
+   casesRef.current = cases;
+   selectionRef.current = selection;
+   mapPosturesRef.current = mapPostures;
++  statusFilterRef.current = statusFilter;
+   showCircRef.current = showCirc;
+   onSelectStateRef.current = onSelectState;
+   onSelectCircuitRef.current = onSelectCircuit;
+@@ -323,7 +328,8 @@ export function CircuitMap({
+             (row !== undefined && row.circuitId === sel.circuit);
+           const posture = postureOf(d.properties.name, statesRef.current);
+           const inPosture = postures.size === 0 || postures.has(posture);
+-          return inCircuit && inPosture ? 1 : 0.22;
++          const inStatus = rowMatchesStatusFilter(row, statusFilterRef.current);
++          return inCircuit && inPosture && inStatus ? 1 : 0.22;
+         })
+         .attr(
+           "aria-label",
+@@ -359,7 +365,7 @@ export function CircuitMap({
+ 
+   useEffect(() => {
+     paintRef.current?.();
+-  }, [selection, mapPostures, showCirc, cases]);
++  }, [selection, mapPostures, statusFilter, showCirc, cases]);
+ 
+   return (
+     <>
+diff --git a/src/surfaces/apex/circuits/CircuitSplit.tsx b/src/surfaces/apex/circuits/CircuitSplit.tsx
+index 5a6f069..73d096a 100644
+--- a/src/surfaces/apex/circuits/CircuitSplit.tsx
++++ b/src/surfaces/apex/circuits/CircuitSplit.tsx
+@@ -1,31 +1,21 @@
+-import { useMemo, useState } from "react";
++import { useState } from "react";
+ 
+ import { formatEtDate } from "../../../shared/lib/dates";
+ import type { Posture } from "../../../shared/schemas/vocabulary";
++import { useApexF1 } from "../ApexF1Context";
+ import {
+   clearCircuitSelection,
+   selectionForCircuit,
+   selectionForState
+ } from "../selection";
+-import { useApexSelection } from "../useApexSelection";
+ import { CircuitIndex } from "./CircuitIndex";
+ import { CircuitLegend } from "./CircuitLegend";
+ import { CircuitMap } from "./CircuitMap";
+ import { maxUpdatedAt } from "./circuitView";
+-import { useCircuitData } from "./useCircuitData";
+ 
+ export function CircuitSplit() {
+-  const { circuits, states, cases, listsReady } = useCircuitData();
+-  const stateCodes = useMemo(() => states.map((state) => state.code), [states]);
+-  const circuitIds = useMemo(
+-    () => circuits.map((circuit) => circuit.id),
+-    [circuits]
+-  );
+-  const { selection, commit } = useApexSelection(
+-    stateCodes,
+-    circuitIds,
+-    listsReady
+-  );
++  const { circuits, states, cases, selection, commit, statusFilter } =
++    useApexF1();
+   const [mapPostures, setMapPostures] = useState<Set<Posture>>(new Set());
+   const [showCirc, setShowCirc] = useState(true);
+ 
+@@ -90,6 +80,7 @@ export function CircuitSplit() {
+             cases={cases}
+             selection={selection}
+             mapPostures={mapPostures}
++            statusFilter={statusFilter}
+             showCirc={showCirc}
+             onSelectState={selectState}
+             onSelectCircuit={(id) => selectCircuit(id)}
+diff --git a/src/surfaces/apex/circuits/circuits.test.tsx b/src/surfaces/apex/circuits/circuits.test.tsx
+index a6a3a8d..b2cb18d 100644
+--- a/src/surfaces/apex/circuits/circuits.test.tsx
++++ b/src/surfaces/apex/circuits/circuits.test.tsx
+@@ -18,6 +18,7 @@ import { CircuitIndex } from "./CircuitIndex";
+ import { CircuitLegend } from "./CircuitLegend";
+ import { CircuitMap, MAP_FALLBACK } from "./CircuitMap";
+ import { CircuitSplit } from "./CircuitSplit";
++import { ApexF1Provider } from "../ApexF1Context";
+ import { US_ATLAS_STATE_NAMES } from "./atlasStateNames";
+ 
+ const STAMP = "2026-08-09T16:00:00.000Z";
+@@ -266,13 +267,14 @@ describe("CircuitMap fallback", () => {
+         selection={{ state: null, circuit: null }}
+         mapPostures={new Set()}
+         showCirc
++        statusFilter="all"
+         onSelectState={() => undefined}
+         onSelectCircuit={() => undefined}
+       />
+     );
+     expect(html).toContain(MAP_FALLBACK);
+-    expect(html).toContain("will carry them once it is wired");
+-    expect(html.toLowerCase()).not.toContain("state board carry the same");
++    expect(html).toContain("status board still carry");
++    expect(html).not.toContain("once it is wired");
+     expect(html).not.toContain(" d=");
+     expect(html).toContain('role="img"');
+     expect(html).toContain("data-map");
+@@ -281,7 +283,11 @@ describe("CircuitMap fallback", () => {
+ 
+ describe("CircuitSplit first paint", () => {
+   it("lays out legend, map card and index without inventing seed counts", () => {
+-    const html = renderToStaticMarkup(<CircuitSplit />);
++    const html = renderToStaticMarkup(
++      <ApexF1Provider>
++        <CircuitSplit />
++      </ApexF1Provider>
++    );
+     expect(html).toContain('class="f1"');
+     expect(html).toContain('class="circuits"');
+     expect(html).toContain('class="legend"');
+diff --git a/src/surfaces/apex/circuits/useCircuitData.ts b/src/surfaces/apex/circuits/useCircuitData.ts
+index 82d4bd9..a25e13d 100644
+--- a/src/surfaces/apex/circuits/useCircuitData.ts
++++ b/src/surfaces/apex/circuits/useCircuitData.ts
+@@ -52,6 +52,7 @@ function isState(value: unknown): value is State {
+     typeof row.code === "string" &&
+     typeof row.name === "string" &&
+     (row.circuitId === null || typeof row.circuitId === "string") &&
++    typeof row.operationalStatus === "string" &&
+     isPosture(row.posture) &&
+     (row.controllingCaseId === null ||
+       typeof row.controllingCaseId === "string") &&
+diff --git a/src/surfaces/apex/useApexSelection.ts b/src/surfaces/apex/useApexSelection.ts
+index 74ca97e..d305ac9 100644
+--- a/src/surfaces/apex/useApexSelection.ts
++++ b/src/surfaces/apex/useApexSelection.ts
+@@ -55,6 +55,24 @@ export function useApexSelection(
+     }
+   }, [stateKey, circuitKey, listsReady]);
+ 
++  useEffect(() => {
++    function onPopState() {
++      const next = nextApexSearch(
++        window.location.search,
++        setFromKey(stateKey),
++        setFromKey(circuitKey),
++        listsReady
++      );
++      setSelection(next.selection);
++      if (!listsReady) return;
++      if (next.search !== window.location.search) {
++        writeSelection(next.selection);
++      }
++    }
++    window.addEventListener("popstate", onPopState);
++    return () => window.removeEventListener("popstate", onPopState);
++  }, [stateKey, circuitKey, listsReady]);
++
+   const commit = useCallback(
+     (next: ApexSelection) => {
+       const constrained = constrainApexSelection(
+diff --git a/src/surfaces/shells.test.tsx b/src/surfaces/shells.test.tsx
+index b74e0b6..bd6d7bb 100644
+--- a/src/surfaces/shells.test.tsx
++++ b/src/surfaces/shells.test.tsx
+@@ -74,15 +74,7 @@ describe("ApexShell", () => {
+ 
+   it("uses EmptyState for every unwired tracker band", () => {
+     const html = apex();
+-    const remaining = [
+-      "states",
+-      "issues",
+-      "cases",
+-      "entities",
+-      "cert",
+-      "trust",
+-      "ops"
+-    ];
++    const remaining = ["issues", "cases", "entities", "cert", "trust", "ops"];
+     for (const id of remaining) {
+       const section = html.match(
+         new RegExp(`<section class="band" id="${id}"[\\s\\S]*?</section>`)
+@@ -100,6 +92,13 @@ describe("ApexShell", () => {
+     expect(circuits).not.toContain('class="empty"');
+     expect(circuits).toContain('class="f1"');
+     expect(circuits).toContain('class="circuits"');
++    const states = html.match(
++      /<section class="band" id="states"[\s\S]*?<\/section>/
++    )?.[0];
++    expect(states).not.toContain("State board not yet wired");
++    expect(states).toContain('class="board"');
++    expect(states).toContain('class="grid"');
++    expect(states).toContain("State by state");
+   });
+ });
+ 
+diff --git a/src/surfaces/apex/ApexF1Context.tsx b/src/surfaces/apex/ApexF1Context.tsx
+new file mode 100644
+index 0000000..a1715ba
+--- /dev/null
++++ b/src/surfaces/apex/ApexF1Context.tsx
+@@ -0,0 +1,91 @@
++import {
++  createContext,
++  useContext,
++  useMemo,
++  useState,
++  type Dispatch,
++  type ReactNode,
++  type SetStateAction
++} from "react";
++
++import type { Case } from "../../shared/schemas/caseSchema";
++import type { Circuit } from "../../shared/schemas/circuit";
++import type { State } from "../../shared/schemas/state";
++import { useCircuitData } from "./circuits/useCircuitData";
++import type { ApexSelection } from "./selection";
++import type { StatusFilter } from "./states/boardView";
++import { useApexSelection } from "./useApexSelection";
++
++/**
++ * Shared F1 lists + URL selection for the heat map and status board.
++ *
++ * Instantiating `useApexSelection` twice desyncs the two bands. This provider
++ * is the one hook. Filter chips stay local ΓÇö they are not a URL param.
++ */
++
++export type ApexF1Value = {
++  circuits: Circuit[];
++  states: State[];
++  cases: Case[];
++  listsReady: boolean;
++  selection: ApexSelection;
++  commit: (next: ApexSelection) => void;
++  statusFilter: StatusFilter;
++  setStatusFilter: Dispatch<SetStateAction<StatusFilter>>;
++};
++
++const ApexF1Context = createContext<ApexF1Value | null>(null);
++
++export function ApexF1Provider({ children }: { children: ReactNode }) {
++  const { circuits, states, cases, listsReady } = useCircuitData();
++  const stateCodes = useMemo(() => states.map((state) => state.code), [states]);
++  const circuitIds = useMemo(
++    () => circuits.map((circuit) => circuit.id),
++    [circuits]
++  );
++  const { selection, commit } = useApexSelection(
++    stateCodes,
++    circuitIds,
++    listsReady
++  );
++  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
++
++  const value = useMemo<ApexF1Value>(
++    () => ({
++      circuits,
++      states,
++      cases,
++      listsReady,
++      selection,
++      commit,
++      statusFilter,
++      setStatusFilter
++    }),
++    [circuits, states, cases, listsReady, selection, commit, statusFilter]
++  );
++
++  return (
++    <ApexF1Context.Provider value={value}>{children}</ApexF1Context.Provider>
++  );
++}
++
++export function useApexF1(): ApexF1Value {
++  const value = useContext(ApexF1Context);
++  if (!value) {
++    throw new Error("useApexF1 must be used inside ApexF1Provider");
++  }
++  return value;
++}
++
++/** Test-only: inject lists and selection without fetching. */
++export function ApexF1Stub({
++  value,
++  children
++}: {
++  value: ApexF1Value;
++  children: ReactNode;
++}) {
++  return (
++    <ApexF1Context.Provider value={value}>{children}</ApexF1Context.Provider>
++  );
++}
+diff --git a/src/surfaces/apex/states/boardView.ts b/src/surfaces/apex/states/boardView.ts
+new file mode 100644
+index 0000000..be1647c
+--- /dev/null
++++ b/src/surfaces/apex/states/boardView.ts
+@@ -0,0 +1,101 @@
++import { POSTURE_RAMP } from "../circuits/circuitView";
++import type { State } from "../../../shared/schemas/state";
++import type {
++  OperationalStatus,
++  Posture
++} from "../../../shared/schemas/vocabulary";
++
++/**
++ * Board filter/sort helpers ΓÇö pure, no `window`.
++ *
++ * Operational status is the filter axis. Posture is an independent sort key.
++ * Do not collapse `banned` across the two enums.
++ */
++
++export type StatusFilter = "all" | "go" | "restricted" | "banned";
++
++export type BoardSortKey = "name" | "status" | "posture" | "updated";
++
++export type BoardSort = {
++  key: BoardSortKey;
++  dir: 1 | -1;
++};
++
++export const DEFAULT_BOARD_SORT: BoardSort = { key: "name", dir: 1 };
++
++const STATUS_ORDER: Record<OperationalStatus, number> = {
++  go: 0,
++  restricted: 1,
++  banned: 2,
++  unknown: 3
++};
++
++const POSTURE_ORDER = Object.fromEntries(
++  POSTURE_RAMP.map((posture, index) => [posture, index])
++) as Record<Posture, number>;
++
++export function trackedStates(states: readonly State[]): State[] {
++  return states.filter((state) => state.posture !== "untracked");
++}
++
++export function filterByStatus(
++  rows: readonly State[],
++  filter: StatusFilter
++): State[] {
++  if (filter === "all") return [...rows];
++  return rows.filter((row) => row.operationalStatus === filter);
++}
++
++export function rowMatchesStatusFilter(
++  row: { operationalStatus?: string } | undefined,
++  filter: StatusFilter
++): boolean {
++  if (filter === "all") return true;
++  return row?.operationalStatus === filter;
++}
++
++export function nextBoardSort(
++  current: BoardSort,
++  key: BoardSortKey
++): BoardSort {
++  if (current.key === key) {
++    return { key, dir: current.dir === 1 ? -1 : 1 };
++  }
++  return { key, dir: 1 };
++}
++
++export function sortBoardRows(
++  rows: readonly State[],
++  sort: BoardSort
++): State[] {
++  const copy = [...rows];
++  copy.sort((a, b) => {
++    let cmp = 0;
++    if (sort.key === "name") cmp = a.name.localeCompare(b.name);
++    else if (sort.key === "status") {
++      cmp =
++        STATUS_ORDER[a.operationalStatus] - STATUS_ORDER[b.operationalStatus];
++    } else if (sort.key === "posture") {
++      cmp = POSTURE_ORDER[a.posture] - POSTURE_ORDER[b.posture];
++    } else {
++      cmp = a.updatedAt.localeCompare(b.updatedAt);
++    }
++    if (cmp === 0) cmp = a.name.localeCompare(b.name);
++    return cmp * sort.dir;
++  });
++  return copy;
++}
++
++/** 30 UTC days before a published freshness stamp ΓÇö same arithmetic as kpisRepo. */
++export function windowStartUtc(freshness: string): string {
++  const start = new Date(freshness);
++  start.setUTCDate(start.getUTCDate() - 30);
++  return start.toISOString();
++}
++
++export function isFresh(updatedAt: string, freshness: string | null): boolean {
++  if (!freshness) return false;
++  const start = new Date(freshness);
++  if (Number.isNaN(start.getTime())) return false;
++  return updatedAt >= windowStartUtc(freshness);
++}
+diff --git a/src/surfaces/apex/states/StateBoard.tsx b/src/surfaces/apex/states/StateBoard.tsx
+new file mode 100644
+index 0000000..f68ee4e
+--- /dev/null
++++ b/src/surfaces/apex/states/StateBoard.tsx
+@@ -0,0 +1,87 @@
++import { useMemo, useState } from "react";
++
++import { useApexF1 } from "../ApexF1Context";
++import { maxUpdatedAt } from "../circuits/circuitView";
++import { selectionForState } from "../selection";
++import {
++  DEFAULT_BOARD_SORT,
++  filterByStatus,
++  nextBoardSort,
++  sortBoardRows,
++  trackedStates,
++  type BoardSortKey
++} from "./boardView";
++import { StateDetailPanel } from "./StateDetail";
++import { StateFilters } from "./StateFilters";
++import { StateTable } from "./StateTable";
++import { useStateDetail } from "./useStateDetail";
++
++export function StateBoard() {
++  const {
++    states,
++    circuits,
++    cases,
++    selection,
++    commit,
++    statusFilter,
++    setStatusFilter
++  } = useApexF1();
++  const [sort, setSort] = useState(DEFAULT_BOARD_SORT);
++  const { detail, status: detailStatus } = useStateDetail(selection.state);
++
++  const tracked = useMemo(() => trackedStates(states), [states]);
++  const rows = useMemo(
++    () => sortBoardRows(filterByStatus(tracked, statusFilter), sort),
++    [tracked, statusFilter, sort]
++  );
++  const freshness = maxUpdatedAt(states);
++  const selected =
++    states.find((state) => state.code === selection.state) ?? null;
++
++  function select(code: string) {
++    commit(selectionForState(code, states));
++  }
++
++  function onSort(key: BoardSortKey) {
++    setSort((current) => nextBoardSort(current, key));
++  }
++
++  return (
++    <>
++      <StateFilters
++        filter={statusFilter}
++        visible={rows.length}
++        tracked={tracked.length}
++        onChange={setStatusFilter}
++      />
++      <div className="board">
++        <div>
++          <StateTable
++            rows={rows}
++            circuits={circuits}
++            cases={cases}
++            selectedCode={selection.state}
++            sort={sort}
++            freshness={freshness}
++            onSort={onSort}
++            onSelect={select}
++          />
++          <p className="board-note">
++            Every status and posture cell above links to at least one Tier-1
++            source in the state panel. States with no tracked activity are
++            absent from this table rather than shown as neutral ΓÇö absence is not
++            a finding.
++          </p>
++        </div>
++        <StateDetailPanel
++          selected={selected}
++          circuits={circuits}
++          cases={cases}
++          detail={detail}
++          detailStatus={detailStatus}
++          freshness={freshness}
++        />
++      </div>
++    </>
++  );
++}
+diff --git a/src/surfaces/apex/states/StateDetail.tsx b/src/surfaces/apex/states/StateDetail.tsx
+new file mode 100644
+index 0000000..7234faa
+--- /dev/null
++++ b/src/surfaces/apex/states/StateDetail.tsx
+@@ -0,0 +1,213 @@
++import type { Case } from "../../../shared/schemas/caseSchema";
++import type { Circuit } from "../../../shared/schemas/circuit";
++import type { State, StateDetail } from "../../../shared/schemas/state";
++import { formatEtDate } from "../../../shared/lib/dates";
++import {
++  EmptyState,
++  PostureSwatch,
++  ProvenanceLabel,
++  StatusBadge,
++  UpdatedBadge
++} from "../../../shared/ui";
++import { isFresh } from "./boardView";
++import type { DetailLoad } from "./useStateDetail";
++
++const UNTRACKED_COPY =
++  "Nothing in this state has been reviewed. Absence of a finding is not a finding of legality ΓÇö no case, order or enforcement action is being tracked here.";
++
++type StateDetailPanelProps = {
++  selected: State | null;
++  circuits: Circuit[];
++  cases: Case[];
++  detail: StateDetail | null;
++  detailStatus: DetailLoad["status"];
++  freshness: string | null;
++};
++
++export function StateDetailPanel({
++  selected,
++  circuits,
++  cases,
++  detail,
++  detailStatus,
++  freshness
++}: StateDetailPanelProps) {
++  if (!selected) {
++    return (
++      <aside className="detail" aria-live="polite">
++        <EmptyState
++          title="Select a state on the map or in the table."
++          hint="Absence of a finding is not a finding of legality."
++        >
++          The panel answers whether a platform can take the order in that state
++          today, with the controlling authority and a primary source.
++        </EmptyState>
++      </aside>
++    );
++  }
++
++  if (selected.posture === "untracked") {
++    return (
++      <aside className="detail" aria-live="polite">
++        <div className="dhead">
++          <div className="kicker">State detail ┬╖ is it legal here?</div>
++          <h3>{selected.name}</h3>
++          <div className="dhead-meta">
++            <StatusBadge status={selected.operationalStatus} />
++            <PostureSwatch posture={selected.posture} />
++          </div>
++        </div>
++        <div className="dbody">
++          <p>{UNTRACKED_COPY}</p>
++          <div className="detail-actions">
++            <a className="btn btn-ghost" href="#trust">
++              Report an error
++            </a>
++          </div>
++        </div>
++      </aside>
++    );
++  }
++
++  const circuit = circuits.find((item) => item.id === selected.circuitId);
++  const controlling = selected.controllingCaseId
++    ? cases.find((item) => item.id === selected.controllingCaseId)
++    : undefined;
++  const platforms = detail?.platformStatuses ?? [];
++  const sources = detail?.sources ?? [];
++  const platformNotes = platforms
++    .map((row) => row.note)
++    .filter((note): note is string => Boolean(note));
++  const hasTier1 = sources.some((source) => source.tier === "tier1");
++  const showUpdated = isFresh(selected.updatedAt, freshness);
++
++  return (
++    <aside className="detail" aria-live="polite">
++      <div className="dhead">
++        <div className="kicker">State detail ┬╖ is it legal here?</div>
++        <h3>{selected.name}</h3>
++        <div className="dhead-meta">
++          <StatusBadge status={selected.operationalStatus} />
++          <PostureSwatch posture={selected.posture} />
++          {showUpdated ? <UpdatedBadge /> : null}
++        </div>
++      </div>
++      <div className="dbody">
++        <dl>
++          <dt>Circuit</dt>
++          <dd>{circuit?.name ?? "None tracked"}</dd>
++          <dt>Controlling</dt>
++          <dd>
++            {controlling ? (
++              <>
++                <em>{controlling.caption}</em>
++                {controlling.docketNumber
++                  ? `, ${controlling.docketNumber}`
++                  : ""}
++              </>
++            ) : (
++              "None tracked"
++            )}
++          </dd>
++          <dt>Updated</dt>
++          <dd className="num">{formatEtDate(selected.updatedAt)}</dd>
++          <dt>Provenance</dt>
++          <dd>
++            <ProvenanceLabel kind={selected.provenanceKind} />
++          </dd>
++        </dl>
++        {selected.whyNote ? <p>{selected.whyNote}</p> : null}
++
++        <div className="kicker plat-kicker">By platform</div>
++        {detailStatus === "loading" || detailStatus === "idle" ? (
++          <p>Loading per-platform breakdownΓÇª</p>
++        ) : detailStatus === "error" ? (
++          <EmptyState
++            title="Per-platform breakdown could not be loaded."
++            hint="The table still shows the published state-wide status."
++          >
++            The request for this state's detail failed. That is a retrieval
++            problem, not a finding of legality.
++          </EmptyState>
++        ) : platforms.length === 0 ? (
++          <EmptyState
++            title="No per-platform breakdown published"
++            hint="That is a gap in this record, not a finding of legality."
++          >
++            The state-wide operational status still applies.
++          </EmptyState>
++        ) : (
++          <>
++            <table className="plat">
++              <thead>
++                <tr>
++                  <th>Platform</th>
++                  <th>Status</th>
++                </tr>
++              </thead>
++              <tbody>
++                {platforms.map((row) => (
++                  <tr key={row.id}>
++                    <td>{row.entity.name}</td>
++                    <td>
++                      <StatusBadge status={row.operationalStatus} />
++                    </td>
++                  </tr>
++                ))}
++              </tbody>
++            </table>
++            {platformNotes.map((note) => (
++              <p key={note} className="plat-note">
++                {note}
++              </p>
++            ))}
++          </>
++        )}
++
++        <div className="srcline">
++          <span className="kicker">Primary sources</span>
++          <br />
++          {detailStatus === "loading" ||
++          detailStatus === "idle" ? null : detailStatus === "error" ? (
++            <EmptyState
++              title="Sources could not be loaded."
++              hint="Do not treat a missing panel as a missing citation."
++            >
++              Retry selecting the state. Claims stay unpublished without a
++              Tier-1 source on the record.
++            </EmptyState>
++          ) : !hasTier1 ? (
++            <EmptyState
++              title="No Tier-1 source on this record"
++              hint="A tracked claim without a primary source is a data gap."
++            >
++              Nothing is invented here to fill the cell.
++            </EmptyState>
++          ) : (
++            sources.map((source) => (
++              <a
++                key={source.id}
++                href={source.url}
++                target="_blank"
++                rel="noopener"
++              >
++                {source.title}
++              </a>
++            ))
++          )}
++        </div>
++
++        <div className="detail-actions">
++          {selected.controllingCaseId ? (
++            <a className="btn btn-secondary" href="#cases">
++              Open case record
++            </a>
++          ) : null}
++          <a className="btn btn-ghost" href="#trust">
++            Report an error
++          </a>
++        </div>
++      </div>
++    </aside>
++  );
++}
+diff --git a/src/surfaces/apex/states/StateFilters.tsx b/src/surfaces/apex/states/StateFilters.tsx
+new file mode 100644
+index 0000000..cd5ceb5
+--- /dev/null
++++ b/src/surfaces/apex/states/StateFilters.tsx
+@@ -0,0 +1,42 @@
++import type { StatusFilter } from "./boardView";
++
++const CHIPS: ReadonlyArray<{ id: StatusFilter; label: string }> = [
++  { id: "all", label: "All" },
++  { id: "go", label: "Go" },
++  { id: "restricted", label: "Restricted" },
++  { id: "banned", label: "Banned" }
++];
++
++type StateFiltersProps = {
++  filter: StatusFilter;
++  visible: number;
++  tracked: number;
++  onChange: (filter: StatusFilter) => void;
++};
++
++export function StateFilters({
++  filter,
++  visible,
++  tracked,
++  onChange
++}: StateFiltersProps) {
++  return (
++    <div className="filters">
++      <span className="kicker">Status</span>
++      {CHIPS.map((chip) => (
++        <button
++          key={chip.id}
++          type="button"
++          className="chip"
++          aria-pressed={filter === chip.id}
++          onClick={() => onChange(chip.id)}
++        >
++          {chip.label}
++        </button>
++      ))}
++      <span className="num rowcount">
++        {visible} of {tracked} tracked states
++      </span>
++    </div>
++  );
++}
+diff --git a/src/surfaces/apex/states/StateTable.tsx b/src/surfaces/apex/states/StateTable.tsx
+new file mode 100644
+index 0000000..5deb89d
+--- /dev/null
++++ b/src/surfaces/apex/states/StateTable.tsx
+@@ -0,0 +1,145 @@
++import type { Case } from "../../../shared/schemas/caseSchema";
++import type { Circuit } from "../../../shared/schemas/circuit";
++import type { State } from "../../../shared/schemas/state";
++import { formatEtDate } from "../../../shared/lib/dates";
++import { PostureSwatch, StatusBadge, UpdatedBadge } from "../../../shared/ui";
++import { circuitShortLabel } from "../circuits/circuitView";
++import type { BoardSort, BoardSortKey } from "./boardView";
++import { isFresh } from "./boardView";
++
++type StateTableProps = {
++  rows: State[];
++  circuits: Circuit[];
++  cases: Case[];
++  selectedCode: string | null;
++  sort: BoardSort;
++  freshness: string | null;
++  onSort: (key: BoardSortKey) => void;
++  onSelect: (code: string) => void;
++};
++
++function ariaSort(
++  sort: BoardSort,
++  key: BoardSortKey
++): "ascending" | "descending" | undefined {
++  if (sort.key !== key) return undefined;
++  return sort.dir === 1 ? "ascending" : "descending";
++}
++
++function SortHeader({
++  label,
++  sortKey,
++  sort,
++  onSort
++}: {
++  label: string;
++  sortKey: BoardSortKey;
++  sort: BoardSort;
++  onSort: (key: BoardSortKey) => void;
++}) {
++  const current = ariaSort(sort, sortKey);
++  return (
++    <th scope="col" aria-sort={current}>
++      <button type="button" onClick={() => onSort(sortKey)}>
++        {label}
++      </button>
++    </th>
++  );
++}
++
++export function StateTable({
++  rows,
++  circuits,
++  cases,
++  selectedCode,
++  sort,
++  freshness,
++  onSort,
++  onSelect
++}: StateTableProps) {
++  return (
++    <table className="grid">
++      <thead>
++        <tr>
++          <SortHeader
++            label="State"
++            sortKey="name"
++            sort={sort}
++            onSort={onSort}
++          />
++          <SortHeader
++            label="Status"
++            sortKey="status"
++            sort={sort}
++            onSort={onSort}
++          />
++          <SortHeader
++            label="Posture"
++            sortKey="posture"
++            sort={sort}
++            onSort={onSort}
++          />
++          <th scope="col">Controlling case</th>
++          <SortHeader
++            label="Updated"
++            sortKey="updated"
++            sort={sort}
++            onSort={onSort}
++          />
++        </tr>
++      </thead>
++      <tbody>
++        {rows.map((row) => {
++          const circuit = circuits.find((c) => c.id === row.circuitId);
++          const controlling = row.controllingCaseId
++            ? cases.find((item) => item.id === row.controllingCaseId)
++            : undefined;
++          return (
++            <tr
++              key={row.code}
++              className="pick"
++              aria-selected={selectedCode === row.code}
++              onClick={() => onSelect(row.code)}
++            >
++              <td className="stname">
++                <button type="button" onClick={() => onSelect(row.code)}>
++                  {row.name}
++                </button>
++                {circuit ? (
++                  <span className="cite">{circuitShortLabel(circuit)}</span>
++                ) : null}
++              </td>
++              <td>
++                <StatusBadge status={row.operationalStatus} />
++              </td>
++              <td>
++                <PostureSwatch posture={row.posture} />
++              </td>
++              <td>
++                {controlling ? (
++                  <>
++                    <span className="case">{controlling.caption}</span>
++                    {controlling.docketNumber ? (
++                      <span className="cite">{controlling.docketNumber}</span>
++                    ) : null}
++                  </>
++                ) : (
++                  <span className="cite">None tracked</span>
++                )}
++              </td>
++              <td className="num">
++                {formatEtDate(row.updatedAt)}
++                {isFresh(row.updatedAt, freshness) ? (
++                  <>
++                    {" "}
++                    <UpdatedBadge />
++                  </>
++                ) : null}
++              </td>
++            </tr>
++          );
++        })}
++      </tbody>
++    </table>
++  );
++}
+diff --git a/src/surfaces/apex/states/useStateDetail.ts b/src/surfaces/apex/states/useStateDetail.ts
+new file mode 100644
+index 0000000..a3bfeaa
+--- /dev/null
++++ b/src/surfaces/apex/states/useStateDetail.ts
+@@ -0,0 +1,68 @@
++import { useEffect, useState } from "react";
++
++import type { StateDetail } from "../../../shared/schemas/state";
++
++/**
++ * Fetch one published state detail when a code is selected.
++ * Bare JSON (`jsonOk`), fail closed, AbortController. No query library.
++ */
++
++export type DetailLoad = {
++  detail: StateDetail | null;
++  status: "idle" | "loading" | "success" | "error";
++};
++
++function isStateDetail(value: unknown): value is StateDetail {
++  if (value === null || typeof value !== "object") return false;
++  const row = value as Record<string, unknown>;
++  return (
++    typeof row.code === "string" &&
++    typeof row.name === "string" &&
++    Array.isArray(row.platformStatuses) &&
++    Array.isArray(row.sources)
++  );
++}
++
++export function useStateDetail(code: string | null): DetailLoad {
++  const [detail, setDetail] = useState<StateDetail | null>(null);
++  const [status, setStatus] = useState<DetailLoad["status"]>("idle");
++
++  useEffect(() => {
++    if (!code) {
++      setDetail(null);
++      setStatus("idle");
++      return;
++    }
++
++    const controller = new AbortController();
++    setDetail(null);
++    setStatus("loading");
++
++    fetch(`/api/states/${code}`, {
++      signal: controller.signal,
++      headers: { accept: "application/json" }
++    })
++      .then((res) =>
++        res.ok ? res.json() : Promise.reject(new Error("detail"))
++      )
++      .then((body: unknown) => {
++        if (controller.signal.aborted) return;
++        if (isStateDetail(body) && body.code === code) {
++          setDetail(body);
++          setStatus("success");
++          return;
++        }
++        setDetail(null);
++        setStatus("error");
++      })
++      .catch(() => {
++        if (controller.signal.aborted) return;
++        setDetail(null);
++        setStatus("error");
++      });
++
++    return () => controller.abort();
++  }, [code]);
++
++  return { detail, status };
++}
+diff --git a/src/surfaces/apex/states/states.test.tsx b/src/surfaces/apex/states/states.test.tsx
+new file mode 100644
+index 0000000..e902752
+--- /dev/null
++++ b/src/surfaces/apex/states/states.test.tsx
+@@ -0,0 +1,308 @@
++import { renderToStaticMarkup } from "react-dom/server";
++import { describe, expect, it } from "vitest";
++
++import type { Case } from "../../../shared/schemas/caseSchema";
++import type { Circuit } from "../../../shared/schemas/circuit";
++import type { State, StateDetail } from "../../../shared/schemas/state";
++import type { ApexF1Value } from "../ApexF1Context";
++import { ApexF1Stub } from "../ApexF1Context";
++import {
++  DEFAULT_BOARD_SORT,
++  filterByStatus,
++  isFresh,
++  nextBoardSort,
++  rowMatchesStatusFilter,
++  sortBoardRows,
++  trackedStates,
++  windowStartUtc
++} from "./boardView";
++import { StateBoard } from "./StateBoard";
++import { StateDetailPanel } from "./StateDetail";
++
++const STAMP = "2026-08-09T16:00:00.000Z";
++
++function circuit(
++  partial: Partial<Circuit> & Pick<Circuit, "id" | "name">
++): Circuit {
++  return {
++    number: null,
++    posture: "untracked",
++    hasSplit: false,
++    summary: null,
++    provenanceKind: "human",
++    publishedAt: STAMP,
++    updatedAt: STAMP,
++    ...partial
++  };
++}
++
++function state(partial: Partial<State> & Pick<State, "code" | "name">): State {
++  return {
++    id: `st-${partial.code.toLowerCase()}`,
++    circuitId: null,
++    operationalStatus: "unknown",
++    operationalStatusBasis: "inferred",
++    posture: "untracked",
++    controllingCaseId: null,
++    whyNote: null,
++    provenanceKind: "human",
++    publishedAt: STAMP,
++    updatedAt: STAMP,
++    ...partial
++  };
++}
++
++function caseRow(partial: Partial<Case> & Pick<Case, "id" | "caption">): Case {
++  return {
++    court: "D.N.J.",
++    docketNumber: "24-cv-1",
++    forum: "federal-appellate",
++    lifecycle: "resolved",
++    posture: "platform",
++    circuitId: "cir-3",
++    filedAt: null,
++    decidedAt: null,
++    provenanceKind: "human",
++    publishedAt: STAMP,
++    updatedAt: STAMP,
++    ...partial
++  };
++}
++
++const mockCircuits: Circuit[] = [
++  circuit({
++    id: "cir-3",
++    number: 3,
++    name: "Third Circuit",
++    posture: "platform"
++  })
++];
++
++const nj = state({
++  code: "NJ",
++  name: "New Jersey",
++  circuitId: "cir-3",
++  operationalStatus: "go",
++  posture: "pending",
++  controllingCaseId: "case-flaherty",
++  whyNote: "The Third Circuit held the CFTC occupies the field."
++});
++const nv = state({
++  code: "NV",
++  name: "Nevada",
++  circuitId: "cir-3",
++  operationalStatus: "restricted",
++  posture: "pending"
++});
++const ct = state({
++  code: "CT",
++  name: "Connecticut",
++  circuitId: "cir-3",
++  operationalStatus: "banned",
++  posture: "banned"
++});
++const ak = state({
++  code: "AK",
++  name: "Alaska",
++  operationalStatus: "unknown",
++  posture: "untracked"
++});
++
++const mockStates: State[] = [nj, nv, ct, ak];
++const mockCases: Case[] = [
++  caseRow({
++    id: "case-flaherty",
++    caption: "KalshiEx LLC v. Flaherty",
++    docketNumber: "24-2077"
++  })
++];
++
++function stub(partial: Partial<ApexF1Value> = {}): ApexF1Value {
++  return {
++    circuits: mockCircuits,
++    states: mockStates,
++    cases: mockCases,
++    listsReady: true,
++    selection: { state: null, circuit: null },
++    commit: () => undefined,
++    statusFilter: "all",
++    setStatusFilter: (() => undefined) as ApexF1Value["setStatusFilter"],
++    ...partial
++  };
++}
++
++function board(value: ApexF1Value): string {
++  return renderToStaticMarkup(
++    <ApexF1Stub value={value}>
++      <StateBoard />
++    </ApexF1Stub>
++  );
++}
++
++describe("boardView", () => {
++  it("omits untracked from the table set", () => {
++    expect(trackedStates(mockStates).map((row) => row.code)).toEqual([
++      "NJ",
++      "NV",
++      "CT"
++    ]);
++  });
++
++  it("filters by operational status only", () => {
++    const tracked = trackedStates(mockStates);
++    expect(filterByStatus(tracked, "go").map((row) => row.code)).toEqual([
++      "NJ"
++    ]);
++    expect(
++      filterByStatus(tracked, "restricted").map((row) => row.code)
++    ).toEqual(["NV"]);
++    expect(filterByStatus(tracked, "all")).toHaveLength(3);
++  });
++
++  it("sorts status go < restricted < banned and never puts untracked in the table", () => {
++    const rows = sortBoardRows(trackedStates(mockStates), {
++      key: "status",
++      dir: 1
++    });
++    expect(rows.map((row) => row.code)).toEqual(["NJ", "NV", "CT"]);
++    expect(rows.every((row) => row.posture !== "untracked")).toBe(true);
++  });
++
++  it("toggles sort direction on the same key and resets on a new key", () => {
++    const next = nextBoardSort(DEFAULT_BOARD_SORT, "name");
++    expect(next).toEqual({ key: "name", dir: -1 });
++    expect(nextBoardSort(next, "status")).toEqual({ key: "status", dir: 1 });
++  });
++
++  it("treats freshness as 30 UTC days before the published stamp, not Date.now()", () => {
++    expect(windowStartUtc(STAMP)).toBe("2026-07-10T16:00:00.000Z");
++    expect(isFresh(STAMP, STAMP)).toBe(true);
++    expect(isFresh("2026-07-09T16:00:00.000Z", STAMP)).toBe(false);
++  });
++
++  it("dims map states whose operational status does not match the board filter", () => {
++    expect(rowMatchesStatusFilter({ operationalStatus: "go" }, "all")).toBe(
++      true
++    );
++    expect(rowMatchesStatusFilter({ operationalStatus: "go" }, "banned")).toBe(
++      false
++    );
++    expect(
++      rowMatchesStatusFilter({ operationalStatus: "banned" }, "banned")
++    ).toBe(true);
++    expect(rowMatchesStatusFilter(undefined, "banned")).toBe(false);
++    expect(rowMatchesStatusFilter(undefined, "all")).toBe(true);
++  });
++});
++
++describe("StateBoard", () => {
++  it("hides a restricted row when Go is pressed and never lists untracked", () => {
++    const all = board(stub());
++    expect(all).toContain("New Jersey");
++    expect(all).toContain("Nevada");
++    expect(all).not.toContain("Alaska");
++    expect(all).toContain("3 of 3 tracked states");
++    expect(all).not.toContain("51");
++
++    const goOnly = board(stub({ statusFilter: "go" }));
++    expect(goOnly).toContain("New Jersey");
++    expect(goOnly).not.toContain("Nevada");
++    expect(goOnly).not.toContain("Alaska");
++    expect(goOnly).toContain("1 of 3 tracked states");
++  });
++
++  it("marks the selected row and opens the panel on a hydrated NJ selection", () => {
++    const html = board(stub({ selection: { state: "NJ", circuit: "cir-3" } }));
++    expect(html).toContain('aria-selected="true"');
++    expect(html).toContain("<h3>New Jersey</h3>");
++    expect(html).toContain("KalshiEx LLC v. Flaherty");
++    expect(html).toContain("24-2077");
++    expect(html).toContain("Third Circuit");
++    expect(html).not.toContain("Select a state on the map or in the table.");
++  });
++
++  it("shows empty panel copy when nothing is selected, not New Jersey", () => {
++    const html = board(stub());
++    expect(html).toContain("Select a state on the map or in the table.");
++    expect(html).not.toContain("<h3>New Jersey</h3>");
++  });
++
++  it("renders honest untracked copy when the map selects an untracked state", () => {
++    const html = board(stub({ selection: { state: "AK", circuit: null } }));
++    const aside = html.match(/<aside[\s\S]*?<\/aside>/)?.[0] ?? "";
++    expect(aside).toContain("<h3>Alaska</h3>");
++    expect(aside).toContain("Nothing in this state has been reviewed");
++    expect(aside).toContain('class="badge unknown"');
++    expect(aside).not.toContain('class="badge go"');
++  });
++});
++
++describe("StateDetailPanel sources", () => {
++  const detail: StateDetail = {
++    ...nj,
++    platformStatuses: [
++      {
++        id: "sps-nj-kalshi",
++        stateId: "st-nj",
++        entityId: "ent-kalshi",
++        operationalStatus: "go",
++        operationalStatusBasis: "inferred",
++        note: "CFTC-registered event contracts.",
++        provenanceKind: "human",
++        publishedAt: STAMP,
++        updatedAt: STAMP,
++        entity: {
++          id: "ent-kalshi",
++          slug: "kalshi",
++          name: "Kalshi",
++          role: "platform",
++          provenanceKind: "human",
++          publishedAt: STAMP,
++          updatedAt: STAMP
++        },
++        sources: [
++          {
++            id: "src-plat",
++            owningTable: "state_platform_statuses",
++            owningId: "sps-nj-kalshi",
++            url: "https://www.cftc.gov/example",
++            title: "CFTC order",
++            tier: "tier1",
++            publishedAt: null
++          }
++        ]
++      }
++    ],
++    sources: [
++      {
++        id: "src-nj",
++        owningTable: "states",
++        owningId: "st-nj",
++        url: "https://www.courtlistener.com/example",
++        title: "Flaherty opinion",
++        tier: "tier1",
++        publishedAt: null
++      }
++    ]
++  };
++
++  it("renders a tier-1 source from the detail payload without fetching", () => {
++    const html = renderToStaticMarkup(
++      <StateDetailPanel
++        selected={nj}
++        circuits={mockCircuits}
++        cases={mockCases}
++        detail={detail}
++        detailStatus="success"
++        freshness={STAMP}
++      />
++    );
++    expect(html).toContain("Flaherty opinion");
++    expect(html).toContain("https://www.courtlistener.com/example");
++    expect(html).toContain("Kalshi");
++    expect(html).toContain("CFTC-registered event contracts.");
++    expect(html).toContain('href="#cases"');
++    expect(html).toContain('href="#trust"');
++    expect(html).not.toContain("#correct");
++  });
++});

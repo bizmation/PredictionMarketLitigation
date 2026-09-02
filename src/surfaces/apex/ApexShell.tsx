@@ -11,6 +11,7 @@ import {
   type TopBarLink
 } from "../../shared/ui";
 import { ApexF1Provider } from "./ApexF1Context";
+import { CaseBoard } from "./cases/CaseBoard";
 import { CircuitSplit } from "./circuits/CircuitSplit";
 import { CredibilityStrip } from "./orientation/CredibilityStrip";
 import { ExecutiveBrief } from "./orientation/ExecutiveBrief";
@@ -111,37 +112,31 @@ export function ApexShell({ dev = false }: ApexShellProps) {
           >
             <StateBoard />
           </SectionBand>
+
+          <SectionBand
+            id="issues"
+            kicker="04"
+            title="Issue map"
+            why="Which legal questions are actually driving outcomes, across every tracked matter."
+          >
+            <EmptyState
+              title="Issue views not yet wired"
+              hint="Issue tags come from the case record."
+            >
+              Story 2.6 renders matrix, emergence, frequency, and family views
+              from the approved case issue tags.
+            </EmptyState>
+          </SectionBand>
+
+          <SectionBand
+            id="cases"
+            kicker="Case record"
+            title="Cases"
+            why="One record per case, one posture per case. If a state and a circuit disagree on screen, that is a data error — report it."
+          >
+            <CaseBoard />
+          </SectionBand>
         </ApexF1Provider>
-
-        <SectionBand
-          id="issues"
-          kicker="04"
-          title="Issue map"
-          why="Which legal questions are actually driving outcomes, across every tracked matter."
-        >
-          <EmptyState
-            title="Issue views not yet wired"
-            hint="Issue tags come from the case record."
-          >
-            Story 2.6 renders matrix, emergence, frequency, and family views
-            from the approved case issue tags.
-          </EmptyState>
-        </SectionBand>
-
-        <SectionBand
-          id="cases"
-          kicker="05"
-          title="Case record"
-          why="Every tracked matter, its docket, and the primary source behind each event."
-        >
-          <EmptyState
-            title="Case views not yet wired"
-            hint="Every docket event will link to a Tier-1 source."
-          >
-            The case-law seed and rich detail API are ready; Story 2.5 renders
-            the list, filters, sources, and docket timeline.
-          </EmptyState>
-        </SectionBand>
 
         <SectionBand
           id="entities"

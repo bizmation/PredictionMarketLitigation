@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import type { Case } from "../../../shared/schemas/caseSchema";
+import type { CaseListItem } from "../../../shared/schemas/caseSchema";
 import type { Circuit } from "../../../shared/schemas/circuit";
 import type { State } from "../../../shared/schemas/state";
 import type { Posture } from "../../../shared/schemas/vocabulary";
@@ -15,7 +15,7 @@ import type { Posture } from "../../../shared/schemas/vocabulary";
 export type CircuitData = {
   circuits: Circuit[];
   states: State[];
-  cases: Case[];
+  cases: CaseListItem[];
   listsReady: boolean;
 };
 
@@ -60,10 +60,32 @@ function isState(value: unknown): value is State {
   );
 }
 
-function isCase(value: unknown): value is Case {
+function isListIssueTag(value: unknown): boolean {
   if (value === null || typeof value !== "object") return false;
   const row = value as Record<string, unknown>;
-  return typeof row.id === "string" && typeof row.caption === "string";
+  return (
+    typeof row.slug === "string" &&
+    typeof row.label === "string" &&
+    typeof row.isControlling === "boolean"
+  );
+}
+
+function isCase(value: unknown): value is CaseListItem {
+  if (value === null || typeof value !== "object") return false;
+  const row = value as Record<string, unknown>;
+  return (
+    typeof row.id === "string" &&
+    typeof row.caption === "string" &&
+    typeof row.posture === "string" &&
+    typeof row.forum === "string" &&
+    typeof row.lifecycle === "string" &&
+    Array.isArray(row.listIssueTags) &&
+    row.listIssueTags.every(isListIssueTag) &&
+    Array.isArray(row.affectedStateCodes) &&
+    row.affectedStateCodes.every((code) => typeof code === "string") &&
+    Array.isArray(row.entityRoles) &&
+    row.entityRoles.every((role) => typeof role === "string")
+  );
 }
 
 function unwrapItems(body: unknown): unknown[] | null {
@@ -77,9 +99,10 @@ function unwrapItems(body: unknown): unknown[] | null {
 export function useCircuitData(): CircuitData {
   const [circuits, setCircuits] = useState<Circuit[]>([]);
   const [states, setStates] = useState<State[]>([]);
-  const [cases, setCases] = useState<Case[]>([]);
+  const [cases, setCases] = useState<CaseListItem[]>([]);
   const [circuitsReady, setCircuitsReady] = useState(false);
   const [statesReady, setStatesReady] = useState(false);
+  const [casesReady, setCasesReady] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -123,9 +146,9 @@ export function useCircuitData(): CircuitData {
     );
     load(
       "/api/cases",
-      (items) => setCases(items as Case[]),
+      (items) => setCases(items as CaseListItem[]),
       isCase,
-      () => {}
+      () => setCasesReady(true)
     );
 
     return () => controller.abort();
@@ -135,6 +158,6 @@ export function useCircuitData(): CircuitData {
     circuits,
     states,
     cases,
-    listsReady: circuitsReady && statesReady
+    listsReady: circuitsReady && statesReady && casesReady
   };
 }

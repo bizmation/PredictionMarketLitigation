@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { useApexF1 } from "../ApexF1Context";
 import { maxUpdatedAt } from "../circuits/circuitView";
-import { selectionForState } from "../selection";
+import { selectionForCase, selectionForState } from "../selection";
 import {
   DEFAULT_BOARD_SORT,
   filterByStatus,
@@ -90,6 +90,11 @@ export function StateBoard() {
           detail={detail}
           detailStatus={detailStatus}
           freshness={freshness}
+          onOpenCase={() => {
+            if (selected?.controllingCaseId) {
+              commit(selectionForCase(selected.controllingCaseId, selection));
+            }
+          }}
         />
       </div>
     </>

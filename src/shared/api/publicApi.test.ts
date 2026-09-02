@@ -108,6 +108,26 @@ describe("public F1 API (story 2.1)", () => {
     }
   });
 
+  it("enriches the case list with filter fields without a partyRole scalar", async () => {
+    const res = await worker.fetch!(get("/api/cases"), testEnv);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      items: Array<{
+        id: string;
+        partyRole?: unknown;
+        listIssueTags: Array<{ slug: string }>;
+        affectedStateCodes: string[];
+        entityRoles: string[];
+      }>;
+    };
+    const flaherty = body.items.find((row) => row.id === "case-flaherty");
+    expect(flaherty).toBeDefined();
+    expect(flaherty).not.toHaveProperty("partyRole");
+    expect(flaherty!.listIssueTags.length).toBeGreaterThan(0);
+    expect(flaherty!.affectedStateCodes).toContain("NJ");
+    expect(Array.isArray(flaherty!.entityRoles)).toBe(true);
+  });
+
   it("returns rich case detail with Tier-1 docket evidence", async () => {
     const res = await worker.fetch!(get("/api/cases/case-flaherty"), testEnv);
     expect(res.status).toBe(200);

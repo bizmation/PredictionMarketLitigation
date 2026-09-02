@@ -1,0 +1,1413 @@
+﻿diff --git a/_bmad-output/implementation-artifacts/sprint-status.yaml b/_bmad-output/implementation-artifacts/sprint-status.yaml
+index 337de93..9a5e239 100644
+--- a/_bmad-output/implementation-artifacts/sprint-status.yaml
++++ b/_bmad-output/implementation-artifacts/sprint-status.yaml
+@@ -53,8 +53,8 @@ development_status:
+   epic-1-retrospective: optional
+ 
+   # Epic 2: Litigation Intelligence Tracker (Apex)
+-  epic-2: backlog
+-  2-1-f1-data-model-apis-case-law-seed: backlog
++  epic-2: in-progress
++  2-1-f1-data-model-apis-case-law-seed: in-progress
+   2-2-apex-orientation-chrome: backlog
+   2-3-circuit-split-heat-map: backlog
+   2-4-state-status-board-synced-with-map: backlog
+diff --git a/docs/deploy-runbook.md b/docs/deploy-runbook.md
+index daaf5c3..54107fe 100644
+--- a/docs/deploy-runbook.md
++++ b/docs/deploy-runbook.md
+@@ -1,5 +1,40 @@
+ # Deploy runbook
+ 
++## PROJECT RULE ΓÇö everything in-progress ships under `/preview/*`
++
++**Adopted 2026-08-11 (Patrick). Applies until the stack is built; it is not a permanent architecture.**
++
++The public root must be a stable landing page at all times. While Epics 2ΓÇô4 are under construction, no half-built surface may occupy `/`.
++
++| Path | Serves | Rule |
++|---|---|---|
++| `/` | The static landing page | **Always up.** Never replaced by a build artifact. Carries a "see our progress" link into `/preview/`. |
++| `/preview/*` | The in-progress React app ΓÇö apex tracker, `ops.`, admin | Everything we are building. Free to be empty, broken, or mid-migration. |
++| `/api/*` | Worker routes | **Unchanged.** APIs keep their real paths ΓÇö no `/preview` prefix. They are consumed by the preview app and must not need rewriting when it graduates. |
++
++**Why the APIs are exempt.** Prefixing them would mean every fetch path changes again at launch, and `run_worker_first`, the Access application destinations, and `adminGuard`'s prefix matching would all need a second edit. The API contract is already the thing we want stable; only the *presentation* is provisional.
++
++**Why not a staging environment.** Story 1.5 deliberately cut multi-environment for a solo operator, and that decision stands. `/preview` gives the same "look without being seen" benefit at a fraction of the setup, on the domain that already exists.
++
++### The hazard this rule exists to prevent ΓÇö and one that already happened
++
++**2026-08-11: production and the repo diverged.** A static landing page was deployed to `/` from outside this working tree. `public/` in git contains only `favicon.ico`, so **any `npm run deploy` from the repo replaces that landing page with the SPA build** and the root goes back to being a construction site.
++
++Until the rule below is implemented, treat `npm run deploy` as destructive to the landing page. Confirm what `/` serves before and after every deploy.
++
++### What implementing this requires
++
++1. **The landing page must live in the repo**, in `public/`, and be committed. A page that only exists on Cloudflare is one deploy away from gone, and cannot be reviewed. Recover the deployed HTML (`curl https://predictionmarketlitigation.com/ -o public/index.html`) before anything else overwrites it.
++2. **`index.html` conflict.** Vite emits the SPA as `dist/client/index.html`, which currently lands at `/`. The landing page needs that slot, so the SPA's document has to be emitted or routed under `/preview/` instead.
++3. **`not_found_handling: "single-page-application"` is now wrong at the root.** It makes *every* unmatched path serve the SPA shell. Under this rule, unmatched paths under `/preview/*` should serve the SPA shell, and unmatched paths elsewhere should not resolve to it.
++4. **`resolveSurface` (`src/shared/lib/surface.ts`) reads the URL to choose apex / ops / admin.** It needs a base-path concept so `/preview/`, `/preview/admin` and the `ops.` host all still resolve correctly. Its tests pin the current behaviour and will need extending, not replacing.
++5. **Access application destinations** currently name `/admin`, `/admin/*`, `/api/admin/*` on the apex host. If admin moves under `/preview/admin`, the Access app's `destinations` must move with it **or the admin surface silently loses its edge gate.** The Worker-side `requireOperator` still holds, but do not rely on the backstop alone ΓÇö see `docs/access-runbook.md`.
++6. **`run_worker_first` stays as-is.** `/api` and `/api/*` are unaffected; `/preview/*` is asset-served and must NOT be added, or every preview page becomes a billed Worker invocation.
++
++> Item 5 is the one with teeth. Everything else fails visibly; that one fails by quietly serving an ungated admin path. Verify with `curl` against the real domain after any move ΓÇö the test pool has no asset layer and no Access, so nothing local can catch it.
++
++
++
+ Story 1.5 shipped the configuration. This is the part that needs a Cloudflare account, in this order, because each step depends on the one before it.
+ 
+ > **Status: COMPLETE as of 2026-08-10.** The site is live on both domains, Access gates `/admin`, AC7 is verified, and step 5 (Workers Builds) was **dropped by decision** rather than left open ΓÇö deploys are `npm run deploy` from the laptop, with the test gate moved into that script.
+diff --git a/package.json b/package.json
+index fb549eb..f5fc1f3 100644
+--- a/package.json
++++ b/package.json
+@@ -15,7 +15,9 @@
+     "start": "vite dev",
+     "test": "vitest run",
+     "build": "vite build",
+-    "deploy": "vite build && vitest run && wrangler deploy",
++    "migrate:local": "wrangler d1 migrations apply pml --local",
++    "migrate:remote": "wrangler d1 migrations apply pml --remote",
++    "deploy": "vite build && vitest run && wrangler d1 migrations apply pml --remote && wrangler deploy",
+     "types": "wrangler types env.d.ts",
+     "format": "oxfmt --write .",
+     "lint": "oxlint src/",
+diff --git a/src/shared/ui/DesignSystemGallery.tsx b/src/shared/ui/DesignSystemGallery.tsx
+index 972ffdb..895f47f 100644
+--- a/src/shared/ui/DesignSystemGallery.tsx
++++ b/src/shared/ui/DesignSystemGallery.tsx
+@@ -22,7 +22,12 @@ import { WarnChip } from "./WarnChip";
+  */
+ 
+ const POSTURES = Object.keys(POSTURE_LABELS) as Posture[];
+-const STATUSES: OperationalStatus[] = ["go", "restricted", "banned"];
++// Hand-listed rather than imported from schemas/vocabulary: this gallery is
++// lazy-loaded, and a VALUE import would pull zod into its chunk for a list of
++// four strings. The cost is that TypeScript cannot enforce exhaustiveness on an
++// array literal, so this can silently fall behind ΓÇö trustComponents.test.tsx
++// iterates the canonical set instead, and is what actually catches a new value.
++const STATUSES: OperationalStatus[] = ["go", "restricted", "banned", "unknown"];
+ const RUN_STATUSES: RunStatus[] = [
+   "published",
+   "awaiting",
+diff --git a/src/shared/ui/PostureSwatch.tsx b/src/shared/ui/PostureSwatch.tsx
+index 39ad08c..d7783ad 100644
+--- a/src/shared/ui/PostureSwatch.tsx
++++ b/src/shared/ui/PostureSwatch.tsx
+@@ -11,8 +11,23 @@
+  * rows and case metadata lines, each with its own spacing.
+  */
+ 
+-export type Posture = "untracked" | "platform" | "pending" | "state" | "banned";
++// The values live in shared/schemas/vocabulary.ts, which is canonical for the
++// D1 column, the JSON on the wire, and the CSS class below (architecture
++// #Enforcement-Guidelines). Story 2.1 moved them there; this file used to
++// declare its own union, and two definitions that can drift is a data bug
++// waiting for the first migration.
++//
++// `import type` is deliberate: it is erased at build, so the schema module's
++// zod dependency never reaches the client bundle.
++import type { Posture } from "../schemas/vocabulary";
+ 
++export type { Posture };
++
++/**
++ * Reader-facing copy for each step. Keyed by the canonical enum, so adding a
++ * posture without adding its label is a type error rather than a rendered
++ * `undefined` ΓÇö see vocabulary.test.ts, which pins the membership.
++ */
+ export const POSTURE_LABELS: Record<Posture, string> = {
+   untracked: "No tracked activity",
+   platform: "Decided for platform",
+diff --git a/src/shared/ui/ProvenanceLabel.tsx b/src/shared/ui/ProvenanceLabel.tsx
+index 46c363f..fde3c1a 100644
+--- a/src/shared/ui/ProvenanceLabel.tsx
++++ b/src/shared/ui/ProvenanceLabel.tsx
+@@ -9,7 +9,11 @@
+  * Appears on every published item and throughout ops. evidence.
+  */
+ 
+-export type ProvenanceKind = "human" | "agent";
++// Canonical in shared/schemas/vocabulary.ts as of Story 2.1. `import type` is
++// erased at build, so zod does not follow this into the client bundle.
++import type { ProvenanceKind } from "../schemas/vocabulary";
++
++export type { ProvenanceKind };
+ 
+ type ProvenanceLabelProps = {
+   kind: ProvenanceKind;
+diff --git a/src/shared/ui/StatusBadge.tsx b/src/shared/ui/StatusBadge.tsx
+index 623f530..8a0972c 100644
+--- a/src/shared/ui/StatusBadge.tsx
++++ b/src/shared/ui/StatusBadge.tsx
+@@ -8,7 +8,16 @@
+  * (architecture #Naming-Patterns). Do not prettify them here.
+  */
+ 
+-export type OperationalStatus = "go" | "restricted" | "banned";
++// Canonical in shared/schemas/vocabulary.ts as of Story 2.1. `import type` is
++// erased at build, so zod does not follow this into the client bundle.
++//
++// NOTE: `banned` is also a `Posture` value, and means something different
++// there ΓÇö posture is which way the litigation came out, this is whether a
++// platform can operate today. A state is routinely `restricted` here while its
++// posture is `pending`. Never map one onto the other.
++import type { OperationalStatus } from "../schemas/vocabulary";
++
++export type { OperationalStatus };
+ 
+ type StatusBadgeProps = {
+   status: OperationalStatus;
+diff --git a/src/shared/ui/pml.css b/src/shared/ui/pml.css
+index afc45b5..09debaa 100644
+--- a/src/shared/ui/pml.css
++++ b/src/shared/ui/pml.css
+@@ -294,6 +294,15 @@ footer.foot a {
+   color: oklch(0.98 0.01 25);
+   background: oklch(0.5 0.13 25);
+ }
++/* Absence of a finding, not a finding of legality. Dashed and uncoloured on
++   purpose: UX-DR2 already uses a dashed hairline for the posture ramp's
++   `untracked` step, so "we have not established this" reads the same way on
++   both axes. It must never be mistakable for `go`, which is the green one. */
++.badge.unknown {
++  border-style: dashed;
++  color: var(--color-neutral-700);
++  background: transparent;
++}
+ .badge.upd {
+   border-color: var(--color-accent);
+   color: var(--color-accent-700);
+diff --git a/src/shared/ui/trustComponents.test.tsx b/src/shared/ui/trustComponents.test.tsx
+index 9130fdd..2a19fda 100644
+--- a/src/shared/ui/trustComponents.test.tsx
++++ b/src/shared/ui/trustComponents.test.tsx
+@@ -1,12 +1,19 @@
++import { readFileSync } from "node:fs";
+ import { renderToStaticMarkup } from "react-dom/server";
+ import { describe, expect, it } from "vitest";
+ 
+ import { formatEtDate, formatEtDateTime } from "../lib/dates";
++import {
++  OPERATIONAL_STATUS_VALUES,
++  POSTURE_VALUES,
++  PROVENANCE_KIND_VALUES
++} from "../schemas/vocabulary";
+ import {
+   EmptyState,
+   LastUpdated,
+   NotLiveDraftBanner,
+   OriginFlag,
++  POSTURE_LABELS,
+   PostureSwatch,
+   ProvenanceLabel,
+   RunStatusChip,
+@@ -20,6 +27,63 @@ import {
+ // what D1 stores and Zod validates later. Changing either here is a breaking
+ // change, not a refactor.
+ 
++/**
++ * The UI renders the canonical vocabulary, not a parallel copy of it.
++ *
++ * Story 2.1 moved the enum values into shared/schemas/vocabulary.ts so D1, the
++ * API and these components share one definition. `Record<Posture, string>`
++ * already makes a MISSING label a compile error ΓÇö these run-time cases catch
++ * what the type cannot: an empty label, and a stale extra key left behind after
++ * a value is removed from the ramp.
++ */
++describe("UI vocabulary tracks the canonical schema", () => {
++  it("gives every posture a non-empty reader-facing label", () => {
++    for (const posture of POSTURE_VALUES) {
++      expect(POSTURE_LABELS[posture]?.trim()).toBeTruthy();
++    }
++  });
++
++  it("has no label for a posture that no longer exists", () => {
++    expect(Object.keys(POSTURE_LABELS).sort()).toEqual(
++      [...POSTURE_VALUES].sort()
++    );
++  });
++
++  it("renders each canonical operational status verbatim", () => {
++    // The badge prints the raw glossary string and derives its CSS class from
++    // it. Prettifying here would desync the class from the stylesheet.
++    for (const status of OPERATIONAL_STATUS_VALUES) {
++      const html = renderToStaticMarkup(<StatusBadge status={status} />);
++      expect(html).toContain(`class="badge ${status}"`);
++      expect(html).toContain(`>${status}<`);
++    }
++  });
++
++  it("has a stylesheet rule for every value it can render", () => {
++    // Both components derive their CSS class from the raw enum string, so a
++    // value added to the vocabulary with no matching rule renders as an
++    // unstyled badge or swatch ΓÇö visible only by looking at the page. Adding
++    // `unknown` to the operational statuses is exactly that case: it must not
++    // fall back to looking like `go`, which is the green one.
++    const css = readFileSync("src/shared/ui/pml.css", "utf8");
++    for (const status of OPERATIONAL_STATUS_VALUES) {
++      expect(css, `.badge.${status} has no rule`).toContain(`.badge.${status}`);
++    }
++    for (const posture of POSTURE_VALUES) {
++      expect(css, `.sw.${posture} has no rule`).toContain(`.sw.${posture}`);
++    }
++  });
++
++  it("renders each canonical provenance kind", () => {
++    for (const kind of PROVENANCE_KIND_VALUES) {
++      const html = renderToStaticMarkup(<ProvenanceLabel kind={kind} />);
++      expect(html).toContain(
++        kind === "agent" ? "Agent-approved" : "Human-approved"
++      );
++    }
++  });
++});
++
+ describe("NotLiveDraftBanner", () => {
+   it("carries the ticket edge and the banner", () => {
+     const html = renderToStaticMarkup(
+diff --git a/src/surfaces/apex/ApexShell.tsx b/src/surfaces/apex/ApexShell.tsx
+index 0bc31cc..c3df255 100644
+--- a/src/surfaces/apex/ApexShell.tsx
++++ b/src/surfaces/apex/ApexShell.tsx
+@@ -9,6 +9,7 @@ import {
+   WarnChip,
+   type TopBarLink
+ } from "../../shared/ui";
++import { LaunchNote } from "./LaunchNote";
+ 
+ /**
+  * Apex ΓÇö the litigation intelligence tracker.
+@@ -67,6 +68,10 @@ export function ApexShell({ dev = false }: ApexShellProps) {
+       />
+ 
+       <main>
++        {/* Launch-state only. Story 2.2 replaces this with the real masthead,
++            credibility strip and KPI row. See LaunchNote's own header. */}
++        <LaunchNote dev={dev} />
++
+         <SectionBand
+           id="brief"
+           kicker="01"
+diff --git a/src/surfaces/shells.test.tsx b/src/surfaces/shells.test.tsx
+index 60b2506..8f12e1b 100644
+--- a/src/surfaces/shells.test.tsx
++++ b/src/surfaces/shells.test.tsx
+@@ -95,6 +95,43 @@ describe("OpsShell", () => {
+   });
+ });
+ 
++describe("ApexShell launch note (temporary, Story 2.2 removes it)", () => {
++  it("gives the document exactly one h1", () => {
++    // Before this band the page had none: SectionBand titles are h2 and the
++    // TopBar brand is a div. An outline gap that mattered the moment the site
++    // got linked to from anywhere.
++    const html = apex();
++    expect(html.match(/<h1[\s>]/g)).toHaveLength(1);
++  });
++
++  it("explains that empty is deliberate, not broken", () => {
++    // The whole reason this band exists: nine honest EmptyStates with nothing
++    // above them read as abandoned rather than early.
++    const html = apex().toLowerCase();
++    expect(html).toContain("deliberately");
++    expect(html).toContain("open source");
++  });
++
++  it("keeps the absence-is-not-a-finding rule on the landing view", () => {
++    expect(apex()).toContain("Absence of a finding is never a finding.");
++  });
++
++  it("does not claim the pipeline is running yet", () => {
++    // It is not built ΓÇö Epic 3 owns it. A landing page that implies a live
++    // pipeline would be the exact overstatement the trust chrome forbids.
++    const html = apex().toLowerCase();
++    expect(html).toContain("what comes next");
++    expect(html).not.toContain("updated daily");
++    expect(html).not.toContain("live pipeline");
++  });
++
++  it("links out to the repo and to ops.", () => {
++    const html = apex();
++    expect(html).toContain("github.com/bizmation/PredictionMarketLitigation");
++    expect(html).toContain("ops.predictionmarketlitigation.com");
++  });
++});
++
+ describe("AdminShell", () => {
+   it("links to both apex and ops.", () => {
+     const html = admin();
+diff --git a/wrangler.jsonc b/wrangler.jsonc
+index 92d0f53..7cab219 100644
+--- a/wrangler.jsonc
++++ b/wrangler.jsonc
+@@ -51,13 +51,42 @@
+     // nothing (every band is an empty placeholder), and routing it through the
+     // Worker buys nothing until Access is bound at the edge. Revisit when the
+     // Zero Trust application exists (deploy runbook, part B).
+-    "run_worker_first": [
+-      "/agents",
+-      "/agents/*",
+-      "/oauth/*",
+-      "/api/admin",
+-      "/api/admin/*"
+-    ]
++    // Story 2.1 widened `/api/admin*` to all of `/api*`, because the public
++    // read API added there would otherwise have been served as index.html.
++    //
++    // WHY THE WHOLE PREFIX, not just the new routes. Once `run_worker_first`
++    // is an ARRAY, the router sets has_static_routing=true, and that flag is
++    // the FIRST term of the asset-worker's canFetch check ΓÇö so
++    // not_found_handling stays "single-page-application" and every unlisted
++    // path resolves to a real asset match. There is no Accept-header or
++    // Sec-Fetch-Mode escape: a JSON fetch and an address-bar hit both get
++    // 200 text/html, and the Worker is never invoked. The documented
++    // navigation-only behaviour of assets_navigation_prefers_asset_serving
++    // never gets evaluated, because has_static_routing short-circuits ahead
++    // of it. Unlisted means unreachable, for every client.
++    //
++    // `/api` AND `/api/*` are both required: `/api/*` compiles to the anchored
++    // regex /^\/api\/.*$/, which the bare path does not match. Same reason
++    // `/agents` is listed beside `/agents/*`.
++    //
++    // Do NOT re-add `/api/admin` or `/api/admin/*`. Wrangler's
++    // validateStaticRoutingRules REJECTS a rule that a sibling glob subsumes ΓÇö
++    // keeping them is a hard deploy failure ("rule '/api/*' makes it
++    // redundant"), not harmless duplication. Both still run the Worker first;
++    // they are covered by `/api/*`. `/agents` + `/agents/*` is legal by
++    // contrast, because "/agents".startsWith("/agents/") is false.
++    //
++    // Side effect, deliberate: `/api/%61dmin/session` used to miss this
++    // matcher (it tests the RAW pathname, while adminGuard.normalizePath
++    // decodes) and was answered with index.html, so the guard never ran.
++    // Nothing sensitive was served, but the admin API was unreachable by that
++    // spelling. Under `/api/*` it reaches the Worker and normalizes correctly.
++    //
++    // Cost, also deliberate: paths listed here always invoke the Worker, so
++    // public read traffic moves from free asset serving onto billed
++    // invocations, and on the free tier excess returns 429 rather than
++    // falling back to assets.
++    "run_worker_first": ["/agents", "/agents/*", "/oauth/*", "/api", "/api/*"]
+   },
+   "durable_objects": {
+     "bindings": [
+diff --git a/wrangler.test.jsonc b/wrangler.test.jsonc
+index 7dbffcf..d79e619 100644
+--- a/wrangler.test.jsonc
++++ b/wrangler.test.jsonc
+@@ -23,13 +23,15 @@
+   "assets": {
+     "directory": "./public",
+     "not_found_handling": "single-page-application",
+-    "run_worker_first": [
+-      "/agents",
+-      "/agents/*",
+-      "/oauth/*",
+-      "/api/admin",
+-      "/api/admin/*"
+-    ]
++    // Kept in parity with wrangler.jsonc (see the long note there for why the
++    // whole `/api` prefix, and why re-adding `/api/admin*` is a hard deploy
++    // failure rather than harmless duplication).
++    //
++    // Parity matters more here than for most fields: the vitest pool has no
++    // asset layer at all, so a drift in THIS array is invisible to every test
++    // and only shows up in production ΓÇö which is the exact failure mode the
++    // widening exists to fix.
++    "run_worker_first": ["/agents", "/agents/*", "/oauth/*", "/api", "/api/*"]
+   },
+   "durable_objects": {
+     "bindings": [
+diff --git a/_bmad-output/implementation-artifacts/2-1-f1-data-model-apis-case-law-seed.md b/_bmad-output/implementation-artifacts/2-1-f1-data-model-apis-case-law-seed.md
+new file mode 100644
+index 0000000..7f2e747
+--- /dev/null
++++ b/_bmad-output/implementation-artifacts/2-1-f1-data-model-apis-case-law-seed.md
+@@ -0,0 +1,345 @@
++---
++baseline_commit: ee5a3b2
++---
++
++# Story 2.1: F1 Data Model, APIs & Case-Law Seed
++
++Status: in-progress
++
++<!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
++
++## Story
++
++As a reader (via the tracker),
++I want approved litigation entities loaded from a real store with seed content,
++so that apex views can show trustworthy, structured data instead of hard-coded HTML mocks.
++
++## ΓÜá∩╕Å Read this before writing any code
++
++**This is the first story that touches D1, and the first that adds a public `/api/*` route.** Three things will bite you, and only one of them is caught by tests:
++
++1. **Public `/api/*` routes will return `index.html`, not JSON, in production** unless you add them to `run_worker_first` in `wrangler.jsonc`. The test pool has no asset layer, so **every test will pass while production is broken.** See Task 5.
++2. **`banned` is a value in TWO different enums** and they mean different things. Conflating them corrupts the data model at its root. See "The vocabulary trap".
++3. **The controlled vocabularies already exist in shipped code.** Do not invent new ones. See "Reuse, do not reinvent".
++
++## Acceptance Criteria
++
++1. **Given** the Cloudflare app from Epic 1, **when** D1 migrations and Zod schemas are added for circuits, states (incl. operational status, posture, per-platform breakdown, sources, `updated_at`), cases (docket events, issue tags, party role, lifecycle), entities/platforms, and cert signal, **then** `wrangler d1 migrations apply` runs clean against both local and remote
++2. **And** a seed script/migration loads illustrative data from the case-law surveys in `docs/research/` (realistic captions/states; **not** claiming production freshness until the pipeline exists)
++3. **And** read-only public REST endpoints return these entities as JSON validated by Zod, in the architecture's envelopes ΓÇö list `{ items, nextCursor? }`, single resource bare, error `{ code, message, details? }`
++4. **And** every seeded published claim carries a provenance label + publish/last-updated timestamps (FR18 seed)
++5. **And** no Draft/Run tables are required yet (those come in Epic 3)
++6. **And** untracked vs tracked-unsettled states are distinguishable in the schema ΓÇö "we have no data" must never render as "we looked and found nothing concerning"
++
++## Tasks / Subtasks
++
++- [x] **Task 1: Preflight** (AC: all)
++  - [x] Confirm baseline green: `npm test` ΓåÆ **218 tests / 7 files / exit 0 / zero cloud credentials**. That last clause is load-bearing and survives this story ΓÇö D1 tests run against Miniflare, never the real database
++  - [x] Confirm `npm run check` exits 0 and `npm ci` exits 0
++  - [x] Confirm `env.DB` is referenced nowhere in `src/` yet (`grep -r "env.DB" src/`). This story is its first consumer
++  - [x] Read `docs/research/aug926-prediction_markets_case_law_survey.md` (largest and most current, 120 KB) plus the June survey for the seed corpus. **Do not invent case captions** ΓÇö every seeded case must trace to a survey
++
++- [x] **Task 2: Canonical enums in `src/shared/schemas/`** (AC: 1, 6)
++  - [x] Create `src/shared/schemas/vocabulary.ts` as the single source of truth for the controlled vocabularies, defined as Zod enums
++  - [x] **Import the exact string sets from the shipped UI types ΓÇö do not retype them from memory.** They are already correct and already rendered:
++    - `Posture` ΓÇö `src/shared/ui/PostureSwatch.tsx:15` ΓåÆ `untracked | platform | pending | state | banned`
++    - `OperationalStatus` ΓÇö `src/shared/ui/StatusBadge.tsx:11` ΓåÆ `go | restricted | banned`
++    - `ProvenanceKind` ΓÇö `src/shared/ui/ProvenanceLabel.tsx:12` ΓåÆ `human | agent`
++  - [ ] **Invert the dependency**: the Zod enum becomes canonical, and each UI component imports its type from `shared/schemas/vocabulary.ts` instead of declaring its own. Architecture is explicit that `src/shared/schemas` is canonical [Source: architecture.md#Enforcement-Guidelines]. Two definitions of `Posture` that can drift is the failure this prevents
++  - [ ] Add a test asserting the Zod enum members equal the UI's rendered label keys (`POSTURE_LABELS`), so adding a posture without a label fails the build rather than rendering `undefined`
++  - [ ] **Do not add new vocabulary values.** If the surveys need a posture that does not exist, stop and flag it ΓÇö the ramp is a UX-DR2 design decision, not an implementation detail
++
++- [ ] **Task 3: D1 migrations** (AC: 1, 5, 6) ΓÇö *DDL complete; `--remote` apply deliberately deferred to Task 8*
++  - [x] Create `migrations/` at repo root. It does not exist yet; `wrangler.jsonc` already declares `"migrations_dir": "migrations"`, so no config change is needed
++  - [x] `migrations/0001_f1_core.sql` ΓÇö tables per the schema sketch in Dev Notes. `snake_case` plural tables, `snake_case` columns, `id` TEXT primary keys, `<entity>_id` FKs, `idx_<table>_<cols>` indexes [Source: architecture.md#Naming-Patterns]
++  - [x] Store enum values as the **PRD glossary strings verbatim** ΓÇö `go`, `restricted`, `banned`. No integer codes, no abbreviations
++  - [x] Timestamps stored as ISO 8601 UTC strings with `Z`, not unix integers [Source: architecture.md#Format-Patterns]
++  - [x] **Create NO `drafts`, `runs`, or `evidence_events` tables** ΓÇö Epic 3 owns those. **No `poll_votes`** ΓÇö Story 2.9's migration owns it. **No `submissions`** ΓÇö Story 4.5's
++  - [x] Booleans as INTEGER 0/1 in D1, coerced at the Zod boundary [Source: architecture.md#API-Response-Formats]
++  - [x] `npx wrangler d1 migrations apply pml --local` ΓåÆ 26 commands, Γ£à
++  - [ ] `--remote` apply ΓÇö held until the seed (Task 6) is ready, so production gets schema and data in one pass rather than sitting with empty tables
++
++- [ ] **Task 4: Zod schemas + repos** (AC: 1, 3)
++  - [ ] `src/shared/schemas/` ΓÇö `circuit.ts`, `state.ts`, `case.ts`, `entity.ts`, `certSignal.ts`. `PascalCase` + `Schema` suffix (`StateSchema`, `CaseSchema`) [Source: architecture.md#Code-Naming-Conventions]
++  - [ ] `src/shared/db/client.ts` + `src/shared/db/repos/{statesRepo,casesRepo,circuitsRepo,entitiesRepo,certSignalRepo}.ts`
++  - [ ] **The snake_case ΓåÆ camelCase mapping happens in the repo layer and nowhere else.** `operational_status` ΓåÆ `operationalStatus`. Never leak `snake_case` to the public API [Source: architecture.md#Data-Exchange-Formats]
++  - [ ] `src/shared/api/errors.ts` + `src/shared/api/respond.ts` ΓÇö the `{ code, message, details? }` envelope and list/single helpers. **Reuse the existing envelope shape** already used by `requireOperator` in `src/shared/lib/adminGuard.ts:122` so the API speaks one error dialect
++  - [ ] No direct browser ΓåÆ D1. All access through Worker routes ΓåÆ repos [Source: architecture.md#API-Boundaries]
++
++- [ ] **Task 5: Public REST routes ΓÇö AND the `run_worker_first` fix** (AC: 3)
++  - [ ] Add read-only routes in `src/server.ts`: `GET /api/circuits`, `/api/states`, `/api/states/:code`, `/api/cases`, `/api/cases/:id`, `/api/entities`, `/api/cert-signal`. Plural, no trailing slash, query params `camelCase` [Source: architecture.md#API-Naming-Conventions]
++  - [ ] **CRITICAL ΓÇö add the public API prefix to `run_worker_first` in `wrangler.jsonc` AND `wrangler.test.jsonc`.** Without it these routes return the SPA's `index.html` in production. `assets_navigation_prefers_asset_serving` is default-on for this project's compatibility date (2026-06-11), so asset-eligible requests skip the Worker entirely ΓÇö the same trap `wrangler.jsonc:36-53` already documents for `/api/admin/*`. **The test pool has no asset layer, so tests cannot catch this** (`src/server.test.ts:193` ΓÇö "no asset layer in the test pool"). Verify against the deployed Worker with `curl`, not with a test
++  - [ ] Order matters in the fetch handler: `isAdminApiPath` and `isAgentsPath` must still be evaluated **before** any public `/api/*` matching, or `/api/admin/*` falls into the public router unguarded. The admin prefix is a sub-path of the public one
++  - [ ] **Regression guard, non-negotiable:** `/api/administrivia` must stay unguarded-and-not-matched, and `/api/poll/votes` must keep returning 404 (Story 2.9 owns it). Both have existing tests at `src/server.test.ts` ΓÇö they must still pass unmodified
++  - [ ] Public GETs are cacheable; admin responses are not. **Do not** apply `ADMIN_CACHE_HEADERS` to public routes
++  - [ ] Errors map to `{ code, message }` at the route edge, no stack or secret leakage [Source: architecture.md#Error-Handling-Patterns]
++
++- [ ] **Task 6: Seed from the case-law surveys** (AC: 2, 4)
++  - [ ] `migrations/0002_seed_f1.sql` (or a script that emits it ΓÇö pick one and say which in Completion Notes)
++  - [ ] Every seeded row carries `provenance_kind = 'human'` (Patrick curated it from the surveys; no agent has run yet), a publish timestamp, and `updated_at`
++  - [ ] **The seed must not claim production freshness.** Carry a source label and date that reflects the surveys (through June 2026 / Aug 9 2026), not "now". A reader must be able to tell seeded illustrative data from pipeline-published data
++  - [ ] Every state/posture claim links to ΓëÑ1 primary source (FR2) ΓÇö the `sources` relation is not optional decoration
++  - [ ] Seed at minimum the states the surveys actually cover (Nevada, Massachusetts, New Jersey, and the CFTC six-state campaign), plus circuits with a real split, plus the tracked platforms named in Story 2.7 (Kalshi, Polymarket US, Robinhood Derivatives, NADEX/Crypto.com, Coinbase)
++  - [ ] **Untracked states must be seeded as untracked, not omitted.** AC6 turns on this: a state absent from the table and a state with `posture = 'untracked'` must be distinguishable, and the map (Story 2.3) renders untracked as near-white + dashed specifically so absence never reads as safety
++
++- [ ] **Task 7: Tests** (AC: all)
++  - [ ] D1 tests go in the **`workers` project** (`*.test.ts`) ΓÇö workerd has the D1 binding; the `ui` project (node) does not. `wrangler.test.jsonc` already carries a `d1_databases` block; keep it in sync with `wrangler.jsonc` per that file's own policy
++  - [ ] Apply migrations in test setup via `applyD1Migrations` from `cloudflare:test` (vitest-pool-workers). Do **not** hand-write `CREATE TABLE` in tests ΓÇö that forks the schema from `migrations/` and the fork will silently drift
++  - [ ] Schema tests: every Zod schema round-trips a repo row; enum members match the UI label maps; snake_case never appears in any API response body
++  - [ ] Route tests: each endpoint returns the right envelope; unknown ids 404 with `{ code, message }`; **`/api/admin/*` still 403s** and `/agents/*` still 403s (perimeter regression)
++  - [ ] Assert the untracked-vs-tracked-unsettled distinction survives a round trip through D1 ΓåÆ repo ΓåÆ Zod ΓåÆ JSON
++  - [ ] `npm test` green with **zero cloud credentials** ΓÇö this invariant has held for 5 stories; do not regress it
++
++- [ ] **Task 8: Finalize** (AC: all)
++  - [ ] `npm run check` exit 0 (oxfmt covers `.md`, `.json` and `.sql`-adjacent files too ΓÇö it bit Story 1.5 late)
++  - [ ] `npx wrangler deploy --dry-run` clean, then deploy and **verify the public API with `curl` against the real domain** ΓÇö this is the only way to catch the `run_worker_first` trap
++  - [ ] Build the File List from `git diff --name-only`, not memory ΓÇö Stories 1.2 and 1.4 both got this wrong
++  - [ ] Single commit; do not push unless asked
++
++## Dev Notes
++
++### The vocabulary trap ΓÇö read twice
++
++**`banned` exists in two different enums and means two different things.**
++
++| Enum | Values | Question it answers |
++|---|---|---|
++| `Posture` | `untracked` \| `platform` \| `pending` \| `state` \| `banned` | Which way did the *litigation* come out? |
++| `OperationalStatus` | `go` \| `restricted` \| `banned` | Can a platform *operate there today*? |
++
++A state can be `operationalStatus: "restricted"` while its `posture` is `pending`. These are independent axes and both live on the `states` table. Modelling them as one column, or reusing one enum for both, destroys the distinction the whole apex product exists to show. Name the columns `operational_status` and `posture` and keep them separate all the way to the JSON.
++
++### Reuse, do not reinvent
++
++Everything below already exists and is already shipped. Import it.
++
++| Need | Already at | Note |
++|---|---|---|
++| Posture ramp + labels | `src/shared/ui/PostureSwatch.tsx` | `POSTURE_LABELS` is the rendered copy |
++| Operational status | `src/shared/ui/StatusBadge.tsx` | glossary strings, stored verbatim in D1 |
++| Provenance kinds | `src/shared/ui/ProvenanceLabel.tsx` | `human` \| `agent` |
++| ISO ΓåÆ ET display | `src/shared/lib/dates.ts` | `formatEtDateTime`, `formatEtDate`. Storage stays ISO-UTC-`Z`; only presentation is ET |
++| Error envelope | `src/shared/lib/adminGuard.ts:122` | `{ code, message }` ΓÇö match it |
++| Empty states | `src/shared/ui/EmptyState.tsx` | Story 2.7 requires it for platforms with no matters |
++| Last-updated chrome | `src/shared/ui/LastUpdated.tsx`, `UpdatedBadge.tsx` | consumers of the timestamps this story stores |
++
++**Zod is already a dependency at `^4.4.3`** (architecture-verified version) and already imported in `src/server.ts`. Do not add a validation library.
++
++### Schema sketch (starting point, not a contract)
++
++```
++circuits(id, name, number, posture, summary, updated_at)
++states(id, code, name, circuit_id, operational_status, posture,
++       controlling_case_id, why_note, provenance_kind, published_at, updated_at)
++state_platform_status(state_id, entity_id, operational_status, note)   -- AC1 "per-platform breakdown"
++sources(id, owning_table, owning_id, url, title, tier, published_at)   -- FR2: ΓëÑ1 primary source per claim
++cases(id, caption, court, docket_number, forum, party_role, lifecycle,
++      posture, circuit_id, provenance_kind, published_at, updated_at)
++docket_events(id, case_id, at, description, source_id)                 -- reverse-chron timeline (2.5)
++issue_tags(id, label, slug)
++case_issue_tags(case_id, issue_tag_id, is_controlling)                 -- "first/controlling in accent" (2.5)
++case_states(case_id, state_id)                                         -- affected states (2.5)
++entities(id, name, slug, role)                                         -- platforms (2.7)
++case_entities(case_id, entity_id, role)
++cert_signal(id, reading, factors_json, method_note, reviewed_at,
++            approver, provenance_kind, updated_at)                     -- single current row (2.8)
++```
++
++Adjust as the surveys demand ΓÇö but keep the join tables. Stories 2.4ΓÇô2.7 all need many-to-many (a case affects several states; a platform appears in several cases), and retrofitting that after the seed lands is far more expensive than getting it right now.
++
++### What later stories need from this one
++
++| Story | Needs |
++|---|---|
++| 2.2 Orientation chrome | KPI figures from **aggregate queries**, not hard-coded ΓÇö matters tracked, states, appeals pending, changed in 30 days |
++| 2.3 Heat map | `posture` per state + circuit membership; `untracked` distinguishable |
++| 2.4 Status board | sortable state/status/posture/updated; per-platform breakdown; `?state=NJ` deep link |
++| 2.5 Case list | free-text search, posture, issue tag, state, circuit filters; docket timeline |
++| 2.6 Issue map | issue ├ù posture matrix, emergence timeline ΓÇö needs `issue_tags` with dates |
++| 2.7 Entity ledger | per-platform matter lists |
++| 2.8 Cert signal | factors + last-review + approver |
++| 2.9 Poll | **its own migration** ΓÇö do not create `poll_votes` here |
++
++### Previous story intelligence (1.5, and the Epic 1 arc)
++
++- **`.dev.vars` is loaded into the Vitest environment.** It silently disarmed five tests in Story 1.4. Any test asserting rejection must construct its own env ΓÇö see `src/server.test.ts:30` (`anon`/`authed`).
++- **A JWKS-style module-level cache burned a test in this very repo.** `access.ts` caches per team domain for the isolate's lifetime, which made a test pass for the wrong reason for two stories. If you add any module-level cache to the repo layer, ask what a second test in the same isolate will see.
++- **Verify claims by running them.** Story 1.3 claimed 61 green tests and a passing check; neither reproduced. Read exit codes, not summary lines.
++- **`npm run deploy` now runs the full test suite as a gate** (`vite build && vitest run && wrangler deploy`). A failing test blocks the deploy ΓÇö that is deliberate, do not route around it.
++- **There is no CI.** Workers Builds was dropped in Story 1.5; `main` does not auto-deploy. Deploys are manual and local. Nothing will catch a mistake for you after the fact.
++- **`npm run check` covers markdown and JSON**, not just source. It regressed late in Story 1.5 for exactly this reason.
++- **Two Vitest projects:** `workers` for `*.test.ts` (workerd, has D1, no fs), `ui` for `*.test.tsx` (node, has fs, no bindings).
++
++### Current code state (verified at `ee5a3b2`)
++
++- `src/server.ts` ΓÇö `ChatAgent` DO + a `fetch` handler that guards `isAgentsPath`, then `isAdminApiPath` (with a `GET /api/admin/session` handler), then falls through to `routeAgentRequest` and a bare 404. **Your public router goes after the two guards and before the fallthrough.**
++- `src/shared/lib/` ΓÇö `access.ts`, `adminGuard.ts`, `dates.ts`, `surface.ts`. No `db/`, no `schemas/`, no `api/` yet ΓÇö all three are new in this story.
++- `wrangler.jsonc` ΓÇö D1 `pml` bound as `DB`, id `d07713fe-d0f1-4708-a174-394b04fc01b9`, `migrations_dir: "migrations"` already declared. `run_worker_first` covers `/agents`, `/agents/*`, `/oauth/*`, `/api/admin`, `/api/admin/*` ΓÇö **and nothing else.**
++- The D1 database exists and has **0 tables**. This story creates the first.
++- `docs/research/` holds the three case-law surveys (268 KB total) ΓÇö the seed corpus.
++
++### Architecture requirements binding this story
++
++- **Data (LOCKED):** D1 is canonical for F1 entities; DO is in-flight Run state only [architecture.md#Data-Architecture]
++- **Validation:** Zod shared schemas as source of truth, canonical in `src/shared/schemas` [#Enforcement-Guidelines]
++- **Migrations:** Wrangler D1 migrations from day 1, in `migrations/` [#Structure-Patterns]
++- **API envelopes:** single = bare JSON; list = `{ items, nextCursor? }`; error = `{ code, message, details? }` [#API-Response-Formats]
++- **Boundary:** DB `snake_case` Γåö API `camelCase`, mapped in the repo layer [#Data-Exchange-Formats]
++- **Dates:** ISO 8601 UTC with `Z` [#Format-Patterns]
++- **Write path:** only the Approval Gate publishes live F1 ΓÇö but no gate exists yet, so this story's seed is the one sanctioned bulk write. Do not build a general-purpose write API [#Write-path-rules]
++- **Boundaries:** `surfaces/*` may import `shared/*`, never `pipeline/*` [#Component-Boundaries]
++
++### Scope boundaries (do NOT do in this story)
++
++- **No UI.** Stories 2.2ΓÇô2.10 own every apex view. This story ends at JSON.
++- **No `poll_votes`** (2.9), **no `submissions`** (4.5), **no `drafts`/`runs`/`evidence_events`** (Epic 3)
++- No AI Gateway, no agents, no pipeline code
++- No write endpoints ΓÇö read-only public REST only
++- No TopoJSON/geo assets (2.3 owns `public/geo/`)
++- Do not touch `ChatAgent` internals or the admin/agents guards beyond adding the public router alongside them
++- Never touch `_bmad/`, `.claude/`, `.agents/`, or `_bmad-output/` except this story file and `sprint-status.yaml`
++
++### Testing standards summary
++
++- Vitest ~4.1.10, two projects; baseline **218 tests / 7 files / exit 0 / zero cloud credentials**
++- D1 tests use `applyD1Migrations` from `cloudflare:test` against Miniflare ΓÇö never the real database, never credentials
++- This story's bar: every endpoint gets a shape test and a not-found test; the admin/agents perimeter gets a regression test proving the new router did not open it
++- `wrangler deploy --dry-run` validates config; **only a real `curl` against the deployed domain validates `run_worker_first`**
++
++### References
++
++- [Source: epics.md#Story-2.1] lines 378ΓÇô392 ΓÇö story + ACs
++- [Source: epics.md] 394ΓÇô539 ΓÇö Stories 2.2ΓÇô2.10, the consumers of this schema
++- [Source: architecture.md] 169ΓÇô177 (data), 188ΓÇô196 (API), 296ΓÇô310 (naming), 318ΓÇô350 (structure/format), 377ΓÇô381 (write path), 412ΓÇô509 (directory tree), 513ΓÇô531 (boundaries), 700ΓÇô721 (post-epics amendments)
++- [Source: docs/research/] three case-law surveys ΓÇö the seed corpus
++- [Source: _bmad-output/implementation-artifacts/1-5-deploy-pipeline-environments.md] ΓÇö deploy gate, no-CI decision, test-isolation traps
++- [Cloudflare: D1 migrations](https://developers.cloudflare.com/d1/reference/migrations/) ┬╖ [vitest-pool-workers D1](https://developers.cloudflare.com/workers/testing/vitest-integration/) ┬╖ [run_worker_first](https://developers.cloudflare.com/workers/static-assets/routing/worker-script/)
++
++## Open Questions for Patrick (do not block implementation)
++
++1. **Seed breadth.** Minimum viable is the states the surveys actually cover. Do you want all 50 states seeded as `untracked` so the map renders complete on day one, or only tracked states until the pipeline fills the rest?
++2. **Cert signal shape.** Story 2.8 needs factors with "bold leads + explanations". Store as a JSON column, or a `cert_signal_factors` table? JSON is faster now; a table is queryable later.
++3. **`nextCursor` today or later?** The architecture specifies it, but the seed is small enough that no endpoint will paginate. Ship the field unused, or omit until a list actually needs it?
++
++## Review Findings ΓÇö code review 2026-08-11 (Blind Hunter ┬╖ Edge Case Hunter ┬╖ Acceptance Auditor)
++
++Run against the working tree at baseline `ee5a3b2` with Tasks 1ΓÇô3 complete and 4ΓÇô8 unstarted. All three layers completed; none failed. ~60 raw findings ΓåÆ deduplicated to the below. **9 dismissed** (mostly restatements of "Tasks 4ΓÇô8 are unstarted", which was scoped out, plus two false positives about `wrangler.test.jsonc` needing changes it does not).
++
++Severity is by consequence for the reader of a public litigation tracker, not by theoretical worst case. On this project, "renders an unfounded legal claim as fact" is `high` regardless of how small the code change is.
++
++### RESOLVED during the review (all were live in production)
++
++- [x] **[HIGH][blind+auditor] Landing copy asserted four unsourced quantitative claims, and stated the litigation direction backwards.** `LaunchNote.tsx` said Kalshi, Polymarket, Robinhood and Coinbase "are being sued by state gaming regulators" ΓÇö the dominant federal pattern is the reverse (`KalshiEX v. Flaherty`, `v. Martin`, `v. Schuler`, `v. Orgel`, `v. Cox` are all platform-as-plaintiff on preemption). It also asserted "roughly nineteen states / six federal circuits / no split resolved yet" with no source, twelve lines above a paragraph explaining that mock content is forbidden *because a reader cannot tell a mock from a finding*. **Fixed and deployed** (`cef4d538`): rewritten as the two-directional dispute, all counts removed, with a comment forbidding quantitative claims in that JSX.
++- [x] **[HIGH][edge+auditor] `className="why"` rendered completely unstyled.** `pml.css` defines `.why` only as `.sec-head .why`. Both LaunchNote paragraphs were direct children of `.wrap`, so they shipped as full-bleed unstyled body text ΓÇö and the file's own header claimed "styled entirely with existing classes". **Fixed and deployed** (`ad738aee`): switched to `.muted`, which is standalone-styled, with a comment naming the trap.
++- [x] **[HIGH][auditor] Copy credited a governance control that does not exist.** "the operator gate that means no machine can publish here on its own" ΓÇö there is no publish path at all, for human or machine, so the gate is not what prevents it. **Fixed:** now states plainly that no publishing path exists yet. Also fixed present-indicative "is published next door on ops." ΓåÆ "**will be** published".
++- [x] **[HIGH][auditor] AC6 failed on the second axis ΓÇö `operational_status` forced every state into an affirmative legality claim.** `posture` had `untracked`, but `operational_status` was `NOT NULL` with only `go | restricted | banned`. ~31 states appear nowhere in the corpus and would have had to be seeded `go`, which `pml.css:274` renders **green** ΓÇö a green GO badge beside a "No tracked activity" swatch, i.e. AC6's exact prohibition. **Resolved by decision (Patrick, option B):** added `unknown`, styled dashed-and-uncoloured to match UX-DR2's treatment of absence. Deliberately not named `untracked` ΓÇö that string is already a `Posture` member and a second cross-enum overlap would worsen the axis confusion this module exists to prevent.
++- [x] **[HIGH][blind+edge] Nothing applied the migration automatically.** Wrangler runs it fine (`wrangler d1 migrations apply pml --local` was run, 26 commands Γ£à) ΓÇö the gap was pipeline, not capability: `npm run deploy` had no migrate step, so a deploy could ship a Worker against a database with no tables. **Fixed:** added `migrate:local` / `migrate:remote` scripts, and `deploy` now migrates before deploying so new code never meets an old schema.
++- [x] **[MEDIUM][edge] No test tied enum values to stylesheet rules.** Both `StatusBadge` and `PostureSwatch` derive their CSS class from the raw enum string, so a new value without a rule renders unstyled ΓÇö invisible except by eye. This is exactly how the `.why` bug reached production. **Fixed:** `trustComponents.test.tsx` now reads `pml.css` and asserts a rule exists for every `OPERATIONAL_STATUS_VALUES` and `POSTURE_VALUES` member.
++
++### DECISION NEEDED ΓÇö before the seed (Task 6)
++
++- [ ] **[HIGH][auditor] Story 2.6's emergence timeline cannot be served, and `cases` has no real-world date at all.** `issue_tags` has no date column, and `cases` carries only `published_at` / `updated_at` ΓÇö *our* record timestamps, which Task 6 requires to be a single survey-coverage date. So `MIN(published_at)` per tag degenerates to a flat line. The only real-world date in the schema is `docket_events.occurred_at`, which makes Story 2.6 depend on exhaustively seeding dockets for every case. **Choose:** add `cases.filed_at` / `decided_at` now (cheap, one column each), or accept that 2.6 needs a migration plus a much heavier seed later.
++- [ ] **[MEDIUM][edge] `LaunchNote` renders unconditionally.** If any band is wired by Stories 2.3ΓÇô2.8 *before* Story 2.2 deletes LaunchNote, "Nothing is published here yet" renders directly above real published findings. **Choose:** gate it on a published-row count of zero, or accept the ordering constraint that 2.2 must land before any other Epic 2 UI story.
++
++### PATCH ΓÇö fold into the DDL revision, before `migrate:remote`
++
++- [ ] **[HIGH][blind+edge+auditor] No `CHECK` constraint on any enum column.** The seed lands as raw SQL via `wrangler d1 migrations apply`, so **Zod is never in the write path**. `posture='GO'`, `operational_status='pending'`, `provenance_kind='system'` all insert cleanly, and `StatusBadge` interpolates the raw string into both the CSS class and the visible text ΓÇö a corrupted value renders a wrong legal status. This is what makes "vocabulary.ts is canonical for D1 and the UI alike" a comment rather than a mechanism. One `CHECK (col IN (ΓÇª))` per column.
++- [ ] **[HIGH][blind+edge+auditor] `state_platform_status` claims are structurally unsourceable.** It carries the most legally specific claim the product makes ("legal for Kalshi, not for Polymarket") with no `provenance_kind` and no `published_at`, and `sources.owning_table` does not list it as a valid owner ΓÇö so those rows *cannot* link to a source at all, violating FR2. Its composite PK also leaves no `owning_id` to point at. Needs a surrogate `id`, provenance columns, and admission to `owning_table`. `circuits` has the same provenance gap on `posture` / `has_split`.
++- [ ] **[MEDIUM][blind+edge] `docket_events.source_id` is nullable and untiered** while `ApexShell.tsx:143` already promises readers "Every docket event will link to a Tier-1 source."
++- [ ] **[MEDIUM][blind+edge+auditor] Three enum-shaped columns exist only as SQL comments** ΓÇö `forum`, `sources.owning_table`, `cert_signal.reading`. No Zod enum, no test, no type. `forum` is load-bearing for Story 2.2's "appeals pending" KPI and its four values were invented here, traceable to no spec source.
++- [ ] **[MEDIUM][edge] Timestamp format unconstrained.** `'2026-08-12 10:00:00'` (space, no `Z`) sorts before `'ΓÇªTΓÇª'` and makes `formatEtDateTime` return "Invalid Date". Mixed precision is worse: `'.'` < `'Z'`, so `ΓÇª00.500Z` sorts *before* `ΓÇª00Z`.
++- [ ] **[MEDIUM][edge+auditor] `cert_signal` has no singleton constraint** ΓÇö a second row makes "which reading is live?" undefined for Story 2.8.
++- [ ] **[MEDIUM][edge] `states.code` / `entities.slug` UNIQUE is BINARY-collated** ΓÇö `'ca'` and `'CA'` both insert, producing one state listed twice with conflicting postures.
++- [ ] **[MEDIUM][edge] Two `case_issue_tags` rows can both be `is_controlling`** ΓÇö Story 2.5 then renders two accent tags or an arbitrary one. `CREATE UNIQUE INDEX ΓÇª ON case_issue_tags(case_id) WHERE is_controlling = 1` fixes it.
++- [ ] **[MEDIUM][edge] Migration is not transaction-wrapped** ΓÇö a partial failure leaves the database half-migrated and the re-run fails on the already-created table, with nothing recorded as applied.
++- [ ] **[MEDIUM][edge] Decided postures may carry no controlling authority.** `posture IN ('state','platform','banned')` with `controlling_case_id IS NULL` is an unsourced FR2 claim. Likewise `forum='federal-appellate'` with `circuit_id IS NULL` silently drops a case from the circuit-split view that exists to show it.
++- [ ] **[LOW][blind+auditor] Two tables are singular** ΓÇö `state_platform_status`, `cert_signal` ΓÇö under a header asserting the naming rule is followed "without exception", and `cert_signal` propagates the singular into `sources.owning_table` data.
++
++### PATCH ΓÇö code and tests
++
++- [ ] **[MEDIUM][blind] Two comments assert coverage that does not exist** ΓÇö "a test asserts no source points at a missing row" and "the repo enforces it" (at-most-one controlling tag). Neither exists. In a codebase this comment-dependent, a false assurance is worse than silence. Either build them or strike the claims.
++- [ ] **[MEDIUM][blind+edge] Three new vocabularies are unpinned and unconsumed** ΓÇö `CASE_LIFECYCLE_VALUES`, `PARTY_ROLE_VALUES`, `SOURCE_TIER_VALUES` have no membership test and no call site. A `'tier-1'` typo would pass and silently mis-gate Epic 3's auto-approval eligibility.
++- [ ] **[MEDIUM][blind+edge] `run_worker_first` parity between the two configs is untested**, and nothing asserts `/api/admin/session` is still worker-first ΓÇö that auth-critical property used to be explicit in the array and is now implied by a subsumption argument in a comment. `wranglerConfig.test.tsx` already reads both files from disk; the mechanism exists.
++- [ ] **[MEDIUM][edge] `/oauth` bare path is absent from `run_worker_first`** (only `/oauth/*` is listed). An MCP OAuth callback landing on exactly `/oauth` is served `index.html` and never runs. Pre-existing, not introduced here.
++- [ ] **[MEDIUM][edge+auditor] Unhandled `/api/*` returns bare-text 404**, not the `{code, message}` envelope the architecture mandates and `adminGuard` already uses. Task 5 should fix this when it adds the router.
++- [ ] **[MEDIUM][blind] `ApexShell` renders a hardcoded `LastUpdated at="2026-08-10ΓÇª"`** ΓÇö a visible "Updated 10 Aug 2026" one band above copy saying nothing is published. Two contradictory freshness signals within a screen.
++- [ ] **[MEDIUM][blind+edge] Three LaunchNote tests are vacuous.** Two assert strings that `ApexShell` already contains independently (they pass with `LaunchNote` deleted); one asserts the absence of two phrases that never existed while the copy already says "governed daily pipeline". Assert against `renderToStaticMarkup(<LaunchNote />)` directly.
++- [ ] **[MEDIUM][blind+auditor] `LaunchNote` hand-rolls `EmptyState`'s exact markup**, which also weakens the existing "uses EmptyState for every unwired band" test ΓÇö it now passes on LaunchNote's own `.empty` div even if every real band lost its EmptyState.
++- [ ] **[LOW][edge] `ProvenanceLabel` falls through to the human branch** for any non-`agent` value, so a future third kind would render with solid approved weight. Use a `Record<ProvenanceKind, string>` lookup.
++- [ ] **[LOW][edge] `ops.` and `/admin` still have no `<h1>`** ΓÇö the outline gap LaunchNote fixed on apex only.
++- [ ] **[LOW][blind] `wrangler.jsonc` carries two comments giving opposite instructions** ΓÇö the retained pre-2.1 note says to list bare paths alongside globs (`/api/admin` *and* `/api/admin/*`); the new note says those exact entries must not be present or the deploy hard-fails. Both are true of their own era; a reader stopping at the first does the thing the second forbids.
++- [ ] **[LOW][auditor] Story bookkeeping** ΓÇö Task 2's checkboxes are inverted (the two subtasks actually implemented are unchecked; the one marked done describes the approach deliberately *not* taken); Completion Notes say 248 tests when the tree has 253 (the delta is the five off-story LaunchNote tests); File List omits five changed files. Task 8 covers the File List.
++
++### DEFER
++
++- [ ] **[MEDIUM][edge] Brand the two colliding enums** ΓÇö `PostureSchema.brand<'Posture'>()` / `OperationalStatusSchema.brand<'OperationalStatus'>()`. Today `if (posture === 'banned') <StatusBadge status={posture} />` compiles cleanly because the shared literal narrows across both types ΓÇö a litigation posture rendering as an operational status, the exact collapse the module guards against. Real, but a wider refactor than this story.
++- [ ] **[LOW][edge] No FTS index for Story 2.5's free-text case search.** Fine at seed scale; noted so it is not a surprise.
++- [ ] **[LOW][auditor] FR9's "pending-primary label" third state** has no representation on `states` / `cases`. Derivable via `NOT EXISTS (ΓÇª tier='tier1')`, but nothing records the deliberate judgement.
++- [ ] **[LOW][auditor] `run_worker_first` was widened ahead of the routes that justify it**, so production currently pays billed invocations for `/api/*` 404s with no benefit. Correct for Task 5, landed early; self-resolving when Task 5 lands.
++
++## Decisions taken mid-implementation (Patrick, approved 2026-08-11)
++
++Both arose from reading the actual case-law corpus, and neither was anticipated by the ACs. Recorded here because each changes what the seed is allowed to assert.
++
++### 1. Minnesota is `restricted`. No fourth `operational_status` value.
++
++Minnesota enacted a felony ban (SF 4760) that took effect 1 Aug 2026, and a federal preliminary injunction blocked enforcement four days earlier. So the statute is real and the platforms are running.
++
++- `go` hides a felony statute that is on the books and could be un-enjoined on appeal.
++- `banned` is factually wrong about what a reader can do today, and this column answers exactly "is [platform] legal in [state] today?".
++- `restricted` is the honest middle. The nuance lives in `why_note`, which Story 2.4 renders in the detail panel.
++
++**No fourth enum value was added**, per this story's own Task 2 instruction. `StatusBadge` renders exactly three values with matching CSS and a hatch pattern for `restricted`; extending the ramp is a UX-DR3 design decision, not an implementation detail. If a future state needs `banned-but-enjoined` as a first-class value, that is a UX story, not a schema patch.
++
++### 2. New column: `states.operational_status_basis` ΓÇö `stated` | `inferred`.
++
++The corpus states an operational status for only **three** of roughly nineteen substantively-covered states (Nevada, Illinois, Massachusetts). Every other value would be *derived from injunction posture* ΓÇö a reasonable inference, but an inference.
++
++On a tracker whose entire premise is that a reader can trust what it displays, seeding inference as fact is the precise failure mode the project exists to avoid, and AC2 forbids claiming freshness the sources do not support. One column keeps the distinction queryable rather than buried in prose, and lets Story 2.4 mark inferred rows visibly.
++
++**Consequence for the seed:** every row carries its basis, and the `stated` rows are traceable to a specific sentence in a specific survey. Where a status is `inferred`, `why_note` must name the injunction it was inferred from.
++
++### Related, already applied
++
++- **`circuits.has_split` seeds `false`.** Survey [A] asserts an existing Third/Sixth Circuit split; it has conflated the *S.D. Ohio district* ruling with a Sixth Circuit ruling ΓÇö its own table labels that column correctly. As of the corpus's latest coverage (2026-08-07) there is no federal appellate split: `Flaherty` is the only appellate merits holding.
++- **Massachusetts is the row most likely to be seeded wrong.** Survey [A] never mentions the Feb 2026 Appeals Court stay, so following it alone produces a `banned` flag when platforms are in fact still operating pending SJC review. Seed `restricted` + `stated`.
++- **The three surveys are not three sources.** Two of them are the same document at two points in time. Genuine corroboration exists only where the independent survey agrees with that pair ΓÇö roughly 60% of extracted rows rest on a single document. The seed carries per-row source attribution rather than implying consensus.
++
++## Dev Agent Record
++
++### Agent Model Used
++
++Claude Opus 5 (claude-opus-5) ΓÇö Claude Code session, with three research subagents (seed-corpus extraction, D1/vitest testing API, Workers asset-routing semantics)
++
++### Debug Log References
++
++- **The vocabulary lived in the UI, not in schemas.** Story 1.2 declared `Posture`, `OperationalStatus` and `ProvenanceKind` as hand-written union types inside the components that render them, while architecture designates `src/shared/schemas` canonical. Inverted rather than duplicated: the schema owns the values, the components `import type` from it and re-export for their existing call sites.
++- **`import type` is load-bearing, not stylistic.** A value import of `vocabulary.ts` would drag zod into the client bundle for a type that is erased at compile time. Verified empirically: after the inversion the client bundle emitted the **same content hash** (`index-SXlhDgBw.js`) as the pre-change build ΓÇö byte-identical, zero bytes added, and `grep` confirms no zod in `dist/client`.
++
++### Completion Notes List
++
++- **Task 1 ΓÇö preflight green.** 218 tests / 7 files / exit 0, `npm run check` 0, `npm ci` 0, `env.DB` confirmed unconsumed (this story is its first consumer), `CLOUDFLARE_API_TOKEN` unset so the zero-credential invariant held from the start.
++- **Task 2 ΓÇö canonical vocabulary.** `src/shared/schemas/vocabulary.ts` now owns `Posture`, `OperationalStatus`, `ProvenanceKind`, plus `CaseLifecycle`, `PartyRole` and `SourceTier` that the DDL needed. 26 tests pin the membership *literally* rather than deriving it from the implementation ΓÇö a test that computes its expectation from the code under test proves nothing.
++- **The `banned` collision is pinned by test, not just by comment.** `banned` is a member of both `Posture` and `OperationalStatus` and means different things in each. Three tests assert the two enums stay independent: that they overlap on exactly `banned`, that `pending` satisfies only posture, and that `go` satisfies only operational status. If the two are ever merged, all three fail.
++- **UI consistency is enforced at both levels.** `Record<Posture, string>` makes a *missing* label a compile error; four new runtime cases in `trustComponents.test.tsx` catch what the type cannot ΓÇö an empty-string label and a stale extra key left after a value is removed from the ramp.
++- **Task 3 ΓÇö schema applies clean.** `migrations/0001_f1_core.sql`, 26 commands, `wrangler d1 migrations apply pml --local` Γ£à. Remote deliberately NOT applied yet. Join tables (`case_states`, `case_entities`, `case_issue_tags`) are in from the start because Stories 2.4ΓÇô2.7 all need many-to-many and retrofitting after a seed lands is far more expensive.
++- **`sources` is polymorphic by `(owning_table, owning_id)`** because one court order is routinely the source for a case, a state and a circuit simultaneously. SQLite cannot enforce a polymorphic FK, so that invariant is the repo layer's and gets its own test.
++- **No numeric column on `cert_signal`, deliberately.** Story 2.8 requires an explicitly qualitative reading; adding a score column later is exactly how a qualitative signal quietly becomes a forecast.
++- 248 tests / 8 files / exit 0, `npm run check` exit 0.
++
++### File List
++
++New:
++
++- src/shared/schemas/vocabulary.ts
++- src/shared/schemas/vocabulary.test.ts
++- migrations/0001_f1_core.sql
++
++Modified:
++
++- src/shared/ui/PostureSwatch.tsx (type now imported from schemas; label map documented)
++- src/shared/ui/StatusBadge.tsx (type now imported from schemas; `banned` collision warned in place)
++- src/shared/ui/ProvenanceLabel.tsx (type now imported from schemas)
++- src/shared/ui/trustComponents.test.tsx (UI-tracks-canonical-vocabulary cases)
++- _bmad-output/implementation-artifacts/sprint-status.yaml (status transitions)
++- _bmad-output/implementation-artifacts/2-1-f1-data-model-apis-case-law-seed.md (this file)
+diff --git a/migrations/0001_f1_core.sql b/migrations/0001_f1_core.sql
+new file mode 100644
+index 0000000..f009e44
+--- /dev/null
++++ b/migrations/0001_f1_core.sql
+@@ -0,0 +1,267 @@
++-- Story 2.1 ΓÇö F1 core schema.
++--
++-- Revised 2026-08-11 after code review. Revised IN PLACE rather than adding a
++-- corrective 0002 because this migration had never been applied remotely; local
++-- state is disposable (`.wrangler/state`). Do not do this once a migration has
++-- reached production.
++--
++-- Naming follows architecture.md#Naming-Patterns: snake_case plural tables,
++-- snake_case columns, TEXT `id` primary keys, `<entity>_id` foreign keys,
++-- `idx_<table>_<cols>` indexes. Enum columns store the PRD glossary strings
++-- VERBATIM ΓÇö the same strings the API returns and the UI renders as CSS classes.
++--
++-- ΓöÇΓöÇ WHY EVERY ENUM COLUMN HAS A CHECK ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
++-- The seed arrives as raw SQL through `wrangler d1 migrations apply`, so Zod is
++-- NEVER in the write path. Without these constraints `posture='GO'` inserts
++-- cleanly, and StatusBadge interpolates the raw string into both the CSS class
++-- and the visible text ΓÇö rendering a wrong legal status to a reader with no
++-- error anywhere. The CHECKs are what make src/shared/schemas/vocabulary.ts
++-- canonical for D1 in fact rather than in comment.
++--
++-- ΓöÇΓöÇ THE TWO AXES ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
++--   operational_status  go | restricted | banned | unknown
++--                       ΓåÆ can a platform operate there today?
++--   posture             untracked | platform | pending | state | banned
++--                       ΓåÆ which way did the litigation come out?
++-- `banned` is a member of BOTH and means different things in each. A state is
++-- routinely operational_status='restricted' with posture='pending'. Never merge
++-- these columns and never add a CHECK that assumes one implies the other.
++--
++-- `unknown` (operational) and `untracked` (posture) are deliberately DIFFERENT
++-- words for the two axes' absence values, so the enums overlap on `banned` only.
++--
++-- NOT IN THIS MIGRATION, deliberately: drafts, runs, evidence_events (Epic 3),
++-- poll_votes (Story 2.9), submissions (Story 4.5).
++--
++-- NOTE ON TRANSACTIONS: no explicit BEGIN/COMMIT. Wrangler pre-splits this file
++-- into single statements (`unstable_splitSqlQuery`) and runs them through one
++-- `db.batch()`, which is already one implicit transaction. An explicit BEGIN
++-- would be split out as its own statement and break that.
++
++-- ΓöÇΓöÇ Circuits ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
++
++CREATE TABLE circuits (
++  id              TEXT PRIMARY KEY,
++  number          INTEGER UNIQUE,           -- NULL for D.C. / Federal Circuit
++  name            TEXT NOT NULL CHECK (length(trim(name)) > 0),
++  posture         TEXT NOT NULL CHECK (posture IN ('untracked','platform','pending','state','banned')),
++  has_split       INTEGER NOT NULL DEFAULT 0 CHECK (has_split IN (0,1)),
++  summary         TEXT,
++  -- Provenance: circuits carry published claims (posture, has_split) exactly as
++  -- states and cases do, so they carry the same attribution columns.
++  provenance_kind TEXT NOT NULL CHECK (provenance_kind IN ('human','agent')),
++  published_at    TEXT NOT NULL CHECK (published_at LIKE '____-__-__T__:__:__%Z'),
++  updated_at      TEXT NOT NULL CHECK (updated_at LIKE '____-__-__T__:__:__%Z')
++);
++
++-- ΓöÇΓöÇ Entities (prediction-market platforms) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
++
++CREATE TABLE entities (
++  id         TEXT PRIMARY KEY,
++  slug       TEXT NOT NULL UNIQUE COLLATE NOCASE,
++  name       TEXT NOT NULL CHECK (length(trim(name)) > 0),
++  role       TEXT,
++  updated_at TEXT NOT NULL CHECK (updated_at LIKE '____-__-__T__:__:__%Z')
++);
++
++-- ΓöÇΓöÇ Cases ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
++--
++-- `caption` is stored exactly as the source writes it, including party order.
++-- The UI italicises it; it must not be reformatted here.
++--
++-- filed_at / decided_at are REAL-WORLD dates, distinct from published_at and
++-- updated_at, which are OUR record timestamps. Added on review: Story 2.6's
++-- emergence timeline has no other date to work from ΓÇö the seed gives every row
++-- the same survey-coverage published_at, so MIN(published_at) per issue tag
++-- would be a flat line. Nullable because plenty of matters in the corpus have
++-- no filing date recorded and none have a decision yet.
++
++CREATE TABLE cases (
++  id              TEXT PRIMARY KEY,
++  caption         TEXT NOT NULL CHECK (length(trim(caption)) > 0),
++  court           TEXT NOT NULL CHECK (length(trim(court)) > 0),
++  docket_number   TEXT,
++  forum           TEXT NOT NULL CHECK (forum IN ('federal-district','federal-appellate','state','agency')),
++  party_role      TEXT NOT NULL CHECK (party_role IN ('plaintiff','defendant')),
++  lifecycle       TEXT NOT NULL CHECK (lifecycle IN ('active','resolved')),
++  posture         TEXT NOT NULL CHECK (posture IN ('untracked','platform','pending','state','banned')),
++  circuit_id      TEXT REFERENCES circuits(id),
++  filed_at        TEXT CHECK (filed_at IS NULL OR filed_at LIKE '____-__-__%'),
++  decided_at      TEXT CHECK (decided_at IS NULL OR decided_at LIKE '____-__-__%'),
++  provenance_kind TEXT NOT NULL CHECK (provenance_kind IN ('human','agent')),
++  published_at    TEXT NOT NULL CHECK (published_at LIKE '____-__-__T__:__:__%Z'),
++  updated_at      TEXT NOT NULL CHECK (updated_at LIKE '____-__-__T__:__:__%Z'),
++  -- An appellate case with no circuit silently vanishes from the circuit-split
++  -- view that exists to show it.
++  CHECK (forum <> 'federal-appellate' OR circuit_id IS NOT NULL)
++);
++
++CREATE INDEX idx_cases_circuit_id ON cases(circuit_id);
++CREATE INDEX idx_cases_lifecycle ON cases(lifecycle);
++CREATE INDEX idx_cases_updated_at ON cases(updated_at);
++CREATE INDEX idx_cases_filed_at ON cases(filed_at);
++
++-- ΓöÇΓöÇ States ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
++--
++-- AC6 needs BOTH axes to be able to say "we do not know", and it is the second
++-- one that nearly shipped wrong. `posture='untracked'` was always available;
++-- `operational_status` was NOT NULL over three affirmative claims, so ~31 states
++-- absent from the corpus would have had to be seeded `go` ΓÇö which pml.css
++-- renders GREEN. A green GO badge beside a "No tracked activity" swatch is
++-- exactly what AC6 forbids. Hence `unknown`.
++--
++-- operational_status_basis records HOW we know, which is a separate question
++-- from WHETHER. The corpus states an operational status for only three states
++-- (NV, IL, MA); everything else is inferred from injunction posture. Seeding
++-- inference as fact is the failure mode this whole project exists to avoid, so
++-- the distinction is a column rather than a note.
++
++CREATE TABLE states (
++  id                        TEXT PRIMARY KEY,
++  code                      TEXT NOT NULL UNIQUE COLLATE NOCASE CHECK (code GLOB '[A-Za-z][A-Za-z]'),
++  name                      TEXT NOT NULL CHECK (length(trim(name)) > 0),
++  circuit_id                TEXT REFERENCES circuits(id),
++  operational_status        TEXT NOT NULL CHECK (operational_status IN ('go','restricted','banned','unknown')),
++  operational_status_basis  TEXT NOT NULL CHECK (operational_status_basis IN ('stated','inferred')),
++  posture                   TEXT NOT NULL CHECK (posture IN ('untracked','platform','pending','state','banned')),
++  controlling_case_id       TEXT REFERENCES cases(id),
++  why_note                  TEXT,
++  provenance_kind           TEXT NOT NULL CHECK (provenance_kind IN ('human','agent')),
++  published_at              TEXT NOT NULL CHECK (published_at LIKE '____-__-__T__:__:__%Z'),
++  updated_at                TEXT NOT NULL CHECK (updated_at LIKE '____-__-__T__:__:__%Z'),
++  -- A decided posture with no controlling authority is an unsourced FR2 claim.
++  CHECK (posture IN ('untracked','pending') OR controlling_case_id IS NOT NULL),
++  -- An unknown operational status cannot have been "stated" by a source.
++  CHECK (operational_status <> 'unknown' OR operational_status_basis = 'inferred')
++);
++
++CREATE INDEX idx_states_circuit_id ON states(circuit_id);
++CREATE INDEX idx_states_operational_status ON states(operational_status);
++CREATE INDEX idx_states_posture ON states(posture);
++CREATE INDEX idx_states_updated_at ON states(updated_at);
++
++-- Per-platform breakdown (AC1) ΓÇö "legal for Kalshi, not for Polymarket".
++--
++-- Surrogate `id` rather than the composite PK it had before review: `sources`
++-- is polymorphic by (owning_table, owning_id), so without a single-column key
++-- these rows could not be sourced at all. They carry the most legally specific
++-- claim the product makes, and FR2 requires every status claim to have a
++-- primary source ΓÇö so they also carry full provenance, like every other
++-- claim-bearing table.
++
++CREATE TABLE state_platform_statuses (
++  id                 TEXT PRIMARY KEY,
++  state_id           TEXT NOT NULL REFERENCES states(id),
++  entity_id          TEXT NOT NULL REFERENCES entities(id),
++  operational_status TEXT NOT NULL CHECK (operational_status IN ('go','restricted','banned','unknown')),
++  note               TEXT,
++  provenance_kind    TEXT NOT NULL CHECK (provenance_kind IN ('human','agent')),
++  published_at       TEXT NOT NULL CHECK (published_at LIKE '____-__-__T__:__:__%Z'),
++  updated_at         TEXT NOT NULL CHECK (updated_at LIKE '____-__-__T__:__:__%Z'),
++  UNIQUE (state_id, entity_id)
++);
++
++CREATE INDEX idx_state_platform_statuses_entity_id ON state_platform_statuses(entity_id);
++
++-- ΓöÇΓöÇ Sources ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
++--
++-- FR2: every status/posture claim links to >= 1 primary source. Polymorphic by
++-- (owning_table, owning_id) because one court order is routinely the source for
++-- a case, a state and a circuit at once. SQLite cannot enforce a polymorphic
++-- FK ΓÇö that invariant belongs to the repo layer, and there is no test for it
++-- yet (Task 7 owes one; this comment does not claim otherwise).
++--
++-- `tier` is load-bearing beyond display: Epic 3 makes Tier-2-only findings
++-- ineligible for auto-approval, so it has to be right in the seed.
++
++CREATE TABLE sources (
++  id           TEXT PRIMARY KEY,
++  owning_table TEXT NOT NULL CHECK (owning_table IN ('cases','states','circuits','cert_signals','state_platform_statuses')),
++  owning_id    TEXT NOT NULL,
++  url          TEXT,
++  title        TEXT NOT NULL CHECK (length(trim(title)) > 0),
++  tier         TEXT NOT NULL CHECK (tier IN ('tier1','tier2')),
++  published_at TEXT CHECK (published_at IS NULL OR published_at LIKE '____-__-__%')
++);
++
++CREATE INDEX idx_sources_owning_table_owning_id ON sources(owning_table, owning_id);
++
++-- ΓöÇΓöÇ Docket events ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
++-- Story 2.5 renders these reverse-chronologically. `source_id` is NOT NULL
++-- because ApexShell already tells readers "Every docket event will link to a
++-- Tier-1 source" ΓÇö the tier half is the repo layer's to enforce.
++
++CREATE TABLE docket_events (
++  id          TEXT PRIMARY KEY,
++  case_id     TEXT NOT NULL REFERENCES cases(id),
++  occurred_at TEXT NOT NULL CHECK (occurred_at LIKE '____-__-__%'),
++  description TEXT NOT NULL CHECK (length(trim(description)) > 0),
++  source_id   TEXT NOT NULL REFERENCES sources(id)
++);
++
++CREATE INDEX idx_docket_events_case_id_occurred_at ON docket_events(case_id, occurred_at);
++
++-- ΓöÇΓöÇ Issue taxonomy ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
++
++CREATE TABLE issue_tags (
++  id    TEXT PRIMARY KEY,
++  slug  TEXT NOT NULL UNIQUE COLLATE NOCASE,
++  label TEXT NOT NULL CHECK (length(trim(label)) > 0)
++);
++
++CREATE TABLE case_issue_tags (
++  case_id        TEXT NOT NULL REFERENCES cases(id),
++  issue_tag_id   TEXT NOT NULL REFERENCES issue_tags(id),
++  is_controlling INTEGER NOT NULL DEFAULT 0 CHECK (is_controlling IN (0,1)),
++  PRIMARY KEY (case_id, issue_tag_id)
++);
++
++CREATE INDEX idx_case_issue_tags_issue_tag_id ON case_issue_tags(issue_tag_id);
++
++-- Story 2.5 renders the controlling tag in accent. Two of them would render two
++-- accents or an arbitrary one; enforced here rather than left to a repo layer.
++CREATE UNIQUE INDEX idx_case_issue_tags_controlling
++  ON case_issue_tags(case_id) WHERE is_controlling = 1;
++
++-- ΓöÇΓöÇ Join tables ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
++-- Many-to-many from the start: a case affects several states, a platform
++-- appears in several cases. Stories 2.4ΓÇô2.7 all depend on this.
++
++CREATE TABLE case_states (
++  case_id  TEXT NOT NULL REFERENCES cases(id),
++  state_id TEXT NOT NULL REFERENCES states(id),
++  PRIMARY KEY (case_id, state_id)
++);
++
++CREATE INDEX idx_case_states_state_id ON case_states(state_id);
++
++CREATE TABLE case_entities (
++  case_id   TEXT NOT NULL REFERENCES cases(id),
++  entity_id TEXT NOT NULL REFERENCES entities(id),
++  role      TEXT,
++  PRIMARY KEY (case_id, entity_id)
++);
++
++CREATE INDEX idx_case_entities_entity_id ON case_entities(entity_id);
++
++-- ΓöÇΓöÇ Cert signal ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
++--
++-- Story 2.8: a QUALITATIVE reading on a 5-segment scale, explicitly not a
++-- probability and not market-derived. There is deliberately NO numeric score
++-- column ΓÇö adding one later is how a qualitative signal quietly becomes a
++-- forecast.
++--
++-- Singleton by construction. Without the id CHECK, a second row makes "which
++-- reading is live?" undefined and Story 2.8 has to guess.
++
++CREATE TABLE cert_signals (
++  id              TEXT PRIMARY KEY CHECK (id = 'current'),
++  reading         TEXT NOT NULL CHECK (reading IN ('remote','low','elevated','likely','near-certain')),
++  factors_json    TEXT NOT NULL,
++  method_note     TEXT NOT NULL CHECK (length(trim(method_note)) > 0),
++  reviewed_at     TEXT NOT NULL CHECK (reviewed_at LIKE '____-__-__%'),
++  approver        TEXT NOT NULL CHECK (length(trim(approver)) > 0),
++  provenance_kind TEXT NOT NULL CHECK (provenance_kind IN ('human','agent')),
++  published_at    TEXT NOT NULL CHECK (published_at LIKE '____-__-__T__:__:__%Z'),
++  updated_at      TEXT NOT NULL CHECK (updated_at LIKE '____-__-__T__:__:__%Z')
++);
+diff --git a/src/shared/schemas/vocabulary.ts b/src/shared/schemas/vocabulary.ts
+new file mode 100644
+index 0000000..a45c06a
+--- /dev/null
++++ b/src/shared/schemas/vocabulary.ts
+@@ -0,0 +1,125 @@
++import { z } from "zod";
++
++/**
++ * Controlled vocabularies ΓÇö the canonical definition, for D1 and the UI alike.
++ *
++ * Architecture is explicit that `src/shared/schemas` is canonical
++ * (#Enforcement-Guidelines) and that DB enums "store PRD glossary strings
++ * exactly" (#Naming-Patterns). These strings therefore appear verbatim in three
++ * places ΓÇö the D1 column, the JSON on the wire, and the CSS class the UI
++ * renders ΓÇö and must stay one definition rather than three that drift.
++ *
++ * Story 1.2 shipped these as hand-written union types inside the UI components
++ * that render them. Story 2.1 inverts that: the schema owns the values and the
++ * components import from here. Two definitions of `Posture` that can disagree
++ * is a data-integrity bug waiting for the first migration.
++ *
++ * ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
++ * THE ONE THING TO GET RIGHT: `banned` IS IN BOTH VOCABULARIES.
++ *
++ *   posture.banned            ΓåÆ the litigation came out against platforms
++ *   operationalStatus.banned  ΓåÆ a platform cannot operate there today
++ *
++ * They are INDEPENDENT AXES on the same `states` row. A state is routinely
++ * operationally `restricted` while its posture is `pending` ΓÇö that is the
++ * normal condition of an unsettled docket, not an edge case. Modelling them as
++ * one column, or reusing one enum for both, silently destroys the distinction
++ * the apex product exists to show, and `banned` is precisely the value that
++ * makes the mistake survive a spot check.
++ * ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
++ */
++
++/**
++ * Posture ramp ΓÇö one axis, five steps, darker = worse for platforms.
++ *
++ * Order is the RAMP order, not alphabetical: legends, swatches and the heat map
++ * read it as a scale. `untracked` leads because absence of a finding is the
++ * start of the ramp, not a midpoint ΓÇö UX-DR2 renders it near-white with a
++ * dashed edge so it can never be mistaken for a neutral finding.
++ */
++export const POSTURE_VALUES = [
++  "untracked",
++  "platform",
++  "pending",
++  "state",
++  "banned"
++] as const;
++
++export const PostureSchema = z.enum(POSTURE_VALUES);
++export type Posture = z.infer<typeof PostureSchema>;
++
++/**
++ * Operational status ΓÇö "is [platform] legal in [state] today?".
++ *
++ * PRD glossary values, stored verbatim in D1. Do not prettify, title-case, or
++ * abbreviate: the UI renders the raw string and the CSS class is derived from
++ * it (`badge go`, `badge restricted`, `badge banned`).
++ */
++/**
++ * `unknown` is NOT a fourth judgement ΓÇö it is the absence of one.
++ *
++ * Added 2026-08-11 (Patrick's call) because the column is NOT NULL and the
++ * other three are all affirmative legality claims. Roughly 31 states appear
++ * nowhere in the case-law corpus; without this they would have to be seeded
++ * `go`, which pml.css renders GREEN. A reader would see a green GO badge beside
++ * a "No tracked activity" swatch and conclude prediction markets are legal in a
++ * state nobody has looked at ΓÇö the exact failure AC6 exists to prevent
++ * ("we have no data" must never render as "we looked and found nothing
++ * concerning").
++ *
++ * Deliberately NOT named `untracked`. That is a `Posture` member, and this enum
++ * already shares `banned` with that one; a second overlapping string would make
++ * the two axes harder to keep apart, which is the thing this module is most
++ * concerned with. Different word, different axis.
++ */
++export const OPERATIONAL_STATUS_VALUES = [
++  "go",
++  "restricted",
++  "banned",
++  "unknown"
++] as const;
++
++export const OperationalStatusSchema = z.enum(OPERATIONAL_STATUS_VALUES);
++export type OperationalStatus = z.infer<typeof OperationalStatusSchema>;
++
++/**
++ * Who approved a published claim, frozen at publish time.
++ *
++ * Seeded rows are `human`: Patrick curated them from the case-law surveys and
++ * no agent has run yet. Epic 3's gate is what starts writing `agent`.
++ */
++export const PROVENANCE_KIND_VALUES = ["human", "agent"] as const;
++
++export const ProvenanceKindSchema = z.enum(PROVENANCE_KIND_VALUES);
++export type ProvenanceKind = z.infer<typeof ProvenanceKindSchema>;
++
++/**
++ * Case lifecycle ΓÇö drives visual weight in the case list (Story 2.5).
++ */
++export const CASE_LIFECYCLE_VALUES = ["active", "resolved"] as const;
++
++export const CaseLifecycleSchema = z.enum(CASE_LIFECYCLE_VALUES);
++export type CaseLifecycle = z.infer<typeof CaseLifecycleSchema>;
++
++/**
++ * Which side of the caption the prediction-market platform sits on.
++ *
++ * Story 2.5 renders this as "party role". It is not derivable from the caption
++ * text ΓÇö plenty of matters have the platform as plaintiff challenging a state
++ * regulator ΓÇö so it is stored, not parsed.
++ */
++export const PARTY_ROLE_VALUES = ["plaintiff", "defendant"] as const;
++
++export const PartyRoleSchema = z.enum(PARTY_ROLE_VALUES);
++export type PartyRole = z.infer<typeof PartyRoleSchema>;
++
++/**
++ * Source tier ΓÇö Tier 1 is a court or agency record; Tier 2 is reporting about
++ * one. FR2 requires every status/posture claim to carry at least one primary
++ * source, and Epic 3 makes Tier-2-only findings ineligible for auto-approval,
++ * so the distinction has to survive into the seed rather than arriving later.
++ */
++export const SOURCE_TIER_VALUES = ["tier1", "tier2"] as const;
++
++export const SourceTierSchema = z.enum(SOURCE_TIER_VALUES);
++export type SourceTier = z.infer<typeof SourceTierSchema>;
+diff --git a/src/shared/schemas/vocabulary.test.ts b/src/shared/schemas/vocabulary.test.ts
+new file mode 100644
+index 0000000..44d6044
+--- /dev/null
++++ b/src/shared/schemas/vocabulary.test.ts
+@@ -0,0 +1,121 @@
++import { describe, expect, it } from "vitest";
++
++import {
++  OPERATIONAL_STATUS_VALUES,
++  OperationalStatusSchema,
++  POSTURE_VALUES,
++  PostureSchema,
++  ProvenanceKindSchema
++} from "./vocabulary";
++
++/**
++ * The controlled vocabularies are the spine of the F1 data model.
++ *
++ * These strings are stored verbatim in D1 and rendered verbatim in the UI
++ * (architecture #Naming-Patterns: "store PRD glossary strings exactly"). A
++ * value changed here silently changes what every seeded row means, so the
++ * membership is pinned literally rather than derived ΓÇö a test that computes
++ * the expected set from the implementation proves nothing.
++ */
++describe("posture vocabulary", () => {
++  it("has exactly the five ramp steps, in ramp order", () => {
++    expect(POSTURE_VALUES).toEqual([
++      "untracked",
++      "platform",
++      "pending",
++      "state",
++      "banned"
++    ]);
++  });
++
++  it.each(["untracked", "platform", "pending", "state", "banned"])(
++    "accepts %s",
++    (value) => {
++      expect(PostureSchema.parse(value)).toBe(value);
++    }
++  );
++
++  it.each(["go", "restricted", "", "BANNED", "unknown"])(
++    "rejects %s",
++    (value) => {
++      expect(PostureSchema.safeParse(value).success).toBe(false);
++    }
++  );
++});
++
++describe("operational status vocabulary", () => {
++  it("has the three glossary values plus the explicit absence value", () => {
++    expect(OPERATIONAL_STATUS_VALUES).toEqual([
++      "go",
++      "restricted",
++      "banned",
++      "unknown"
++    ]);
++  });
++
++  it.each(["go", "restricted", "banned", "unknown"])("accepts %s", (value) => {
++    expect(OperationalStatusSchema.parse(value)).toBe(value);
++  });
++
++  it("does not share its absence value with the posture ramp", () => {
++    // The two axes already collide on `banned`. Naming this one `untracked`
++    // would have added a second overlap and made them harder to keep apart.
++    expect(OperationalStatusSchema.safeParse("unknown").success).toBe(true);
++    expect(PostureSchema.safeParse("unknown").success).toBe(false);
++    expect(PostureSchema.safeParse("untracked").success).toBe(true);
++    expect(OperationalStatusSchema.safeParse("untracked").success).toBe(false);
++  });
++
++  it.each(["untracked", "platform", "pending", "state", ""])(
++    "rejects posture value %s",
++    (value) => {
++      expect(OperationalStatusSchema.safeParse(value).success).toBe(false);
++    }
++  );
++});
++
++/**
++ * THE TRAP THIS FILE EXISTS TO PIN.
++ *
++ * `banned` is a member of BOTH vocabularies and means something different in
++ * each: as a posture it says the litigation came out against platforms; as an
++ * operational status it says a platform cannot operate there today. They are
++ * independent axes ΓÇö a state can be operationally `restricted` while its
++ * posture is `pending`, and that combination is the single most common real
++ * state of the docket.
++ *
++ * Collapsing them into one column or one enum destroys the distinction the
++ * whole apex product exists to show, and `banned` is the value that makes the
++ * mistake look correct in a spot check.
++ */
++describe("posture and operational status are independent axes", () => {
++  it("overlaps on exactly one value: banned", () => {
++    const overlap = POSTURE_VALUES.filter((v) =>
++      (OPERATIONAL_STATUS_VALUES as readonly string[]).includes(v)
++    );
++    expect(overlap).toEqual(["banned"]);
++  });
++
++  it("does not let a posture value satisfy an operational status", () => {
++    // If these ever both pass, the two enums have been merged.
++    expect(PostureSchema.safeParse("pending").success).toBe(true);
++    expect(OperationalStatusSchema.safeParse("pending").success).toBe(false);
++  });
++
++  it("does not let an operational status satisfy a posture", () => {
++    expect(OperationalStatusSchema.safeParse("go").success).toBe(true);
++    expect(PostureSchema.safeParse("go").success).toBe(false);
++  });
++});
++
++describe("provenance vocabulary", () => {
++  it.each(["human", "agent"])("accepts %s", (value) => {
++    expect(ProvenanceKindSchema.parse(value)).toBe(value);
++  });
++
++  it("rejects anything else ΓÇö provenance is not free text", () => {
++    for (const value of ["", "system", "Human", "unknown"]) {
++      expect(ProvenanceKindSchema.safeParse(value).success).toBe(false);
++    }
++  });
++});
+diff --git a/src/surfaces/apex/LaunchNote.tsx b/src/surfaces/apex/LaunchNote.tsx
+new file mode 100644
+index 0000000..d066048
+--- /dev/null
++++ b/src/surfaces/apex/LaunchNote.tsx
+@@ -0,0 +1,104 @@
++import { surfaceHref } from "../../shared/lib/surface";
++
++/**
++ * Launch-state masthead ΓÇö TEMPORARY, and it says so on the page.
++ *
++ * WHY THIS EXISTS. Epic 1 shipped the platform; every content band below is an
++ * honest EmptyState naming the story that fills it. That is correct, but nine
++ * empty bands with nothing above them read as *abandoned* rather than *early* ΓÇö
++ * and the project's own rule cuts both ways: a surface must never look better
++ * protected or further along than it is, but it must not look worse either.
++ * A first-time visitor arriving from a link deserves to know what this is and
++ * why it is empty, in that order.
++ *
++ * WHAT IT IS NOT. Not the real masthead. Story 2.2 owns the credibility strip,
++ * the H1 + bottom line, the KPI row derived from real counts, and the executive
++ * brief. This band is the placeholder that 2.2 DELETES ΓÇö not a component it
++ * extends. Do not grow features here.
++ *
++ * It also carries the page's only `<h1>`. Every SectionBand title is an `<h2>`
++ * and the TopBar brand is a div, so before this the document had no `h1` at
++ * all ΓÇö an outline and SEO gap that mattered the moment the site got linked to.
++ *
++ * Styled entirely with existing classes (.band/.wrap/.kicker/.why/.muted) so it
++ * ships no CSS that Story 2.2 would then have to unpick.
++ */
++
++const REPO_URL = "https://github.com/bizmation/PredictionMarketLitigation";
++
++type LaunchNoteProps = {
++  /** True in local development ΓÇö routes cross-surface links via ?surface=. */
++  dev?: boolean;
++};
++
++export function LaunchNote({ dev = false }: LaunchNoteProps) {
++  const opsHref = surfaceHref("ops", { dev });
++
++  return (
++    <section className="band" id="what-this-is">
++      <div className="wrap">
++        <div className="kicker">00 ┬╖ Day one</div>
++
++        <h1>
++          A public tracker for U.S. prediction-market litigation ΓÇö built by AI,
++          governed by a human, in the open.
++        </h1>
++
++        {/* Deliberately asserts no counts, no outcomes and no direction of
++            blame. This band sits above nine EmptyStates explaining that nothing
++            is published because nothing is sourced yet ΓÇö so anything stated
++            here would have to meet that same bar, and a hardcoded figure in JSX
++            cannot. Describe the shape of the dispute; publish findings only
++            through the data model, with provenance, once it exists. */}
++        {/* `.muted`, not `.why`: pml.css only ever defines `.sec-head .why`
++            (as a descendant), so a bare `.why` outside a section header renders
++            completely unstyled. `.muted` and `.kicker` are the standalone rules. */}
++        <p className="muted">
++          Whether regulated prediction markets are lawful in a given U.S. state
++          is being litigated in both directions at once: platforms suing state
++          regulators on the argument that federal commodities law preempts state
++          gambling law, and states bringing their own enforcement actions
++          against the platforms. Courts have gone both ways. This site will
++          track where that actually stands, state by state, with the primary
++          source behind every claim.
++        </p>
++
++        <div className="empty">
++          <b>Nothing is published here yet ΓÇö deliberately</b>
++          Every section below is empty because the litigation data model has not
++          landed. They are labelled rather than filled with plausible-looking
++          mock content, because a reader cannot tell a convincing mock from a
++          finding, and this project's only real asset is that you can trust what
++          it shows you. Empty is the honest state until it isn't.
++          <span className="hint">
++            An untracked state is not a permissive one. Absence of a finding is
++            never a finding.
++          </span>
++        </div>
++
++        <p className="muted">
++          <b>What is live today:</b> the two public surfaces, the design system,
++          and an access-gated operator area. No publishing path exists yet ΓÇö for
++          a human or a machine ΓÇö which is the honest reason nothing has been
++          published, rather than any control having stopped it.{" "}
++          <b>What comes next:</b> the case-law data model and seed, then the
++          governed daily pipeline whose every run ΓÇö including the runs that
++          propose nothing ΓÇö <b>will be</b> published next door on{" "}
++          <a href={opsHref} rel="noopener">
++            ops.
++          </a>
++        </p>
++
++        <p className="muted">
++          The whole thing is open source and being built in public, one layer at
++          a time:{" "}
++          <a href={REPO_URL} rel="noopener noreferrer" target="_blank">
++            github.com/bizmation/PredictionMarketLitigation
++          </a>
++          . The litigation is the subject; the governed pipeline underneath it
++          is the point, and it is designed to be pointed at other domains.
++        </p>
++      </div>
++    </section>
++  );
++}

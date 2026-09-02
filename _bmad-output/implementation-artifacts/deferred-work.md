@@ -37,7 +37,7 @@
 - `npm run deploy` still publishes the repository SPA over the stable root landing page because `/preview/*` routing and a repository-owned landing document have not landed. This predates Story 2.1's migration-script change and remains governed by the explicit warning in `docs/deploy-runbook.md`; do not run a live deploy until that routing work is completed or the operator deliberately accepts the overwrite.
 - ~~Story 2.2 must delete the unconditional launch-state `LaunchNote` before any later Epic 2 story wires a reader-facing band; otherwise its “views are not wired” copy would sit above live findings.~~ — **RESOLVED 2026-08-31 (Story 2.2):** `LaunchNote.tsx` is deleted. Apex orientation is credibility → masthead → KPI → `#brief`; remaining bands stay EmptyState.
 - Brand `Posture` and `OperationalStatus` at the TypeScript boundary so their shared `banned` literal cannot be passed between UI components. This is a cross-UI type refactor, not a Story 2.1 data-contract fix.
-- Story 2.5 owns the FTS index and query design needed for case free-text search; the 25-row seed does not justify choosing that design early.
+- ~~**[LOW][edge][Deferred to 2.5] No FTS index for Story 2.5's free-text case search.** Fine at seed scale; recorded for the story that implements search.~~ — **RESOLVED 2026-09-01 (Story 2.5):** client-side AND-token match on the 25-row list payload. D1 FTS5 is postponed until `GET /api/cases` list-all is no longer sufficient.
 - FR9's future `pending-primary` ingestion state still needs a first-class representation when the governed write pipeline lands. Every current seeded tracked claim has Tier-1 coverage, so no live row needs that state today.
 - The ops and admin documents still have no `<h1>`. Their future chrome stories should fix the pre-existing outline gap without changing Story 2.1's apex-only UI.
 
@@ -52,4 +52,10 @@
 ## Deferred from: code review of 2-4-state-status-board-synced-with-map.md (2026-09-01)
 
 - Failed or empty F1 list still prints "0 of 0 tracked states" with absence-is-not-a-finding copy. `useCircuitData` fail-closes to `states: []` and `listsReady: true`; the map already had this empty-list path. Distinguish fetch-fail from "nothing tracked" when a later story owns list-error chrome.
+
+## Deferred from: code review of 2-5-case-list-detail-rich-filters.md (2026-09-02)
+
+- `useCircuitData` `load()` still uses `items.every(guard)`, so one invalid `/api/cases` item discards the whole list (same helper as circuits/states). Empty `caseIds` then cannot constrain `?case=`.
+- `listCases` `CaseListItemSchema.parse`s every assembled row in one pass; one invalid `case_role` 500s `GET /api/cases`. Same all-or-nothing parse as the other F1 list repos.
+- `/api/cases` (and the sibling F1 list fetches) have no timeout; a hung request leaves `listsReady` false so invalid `state` / `circuit` / `case` params are never stripped.
 

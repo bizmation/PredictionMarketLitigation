@@ -30,6 +30,21 @@ export const CaseSchema = z.object({
 
 export type Case = z.infer<typeof CaseSchema>;
 
+/** Slim tag projection for client-side FR40 filters — not the detail `issueTags`. */
+export const ListIssueTagSchema = z.object({
+  slug: z.string().min(1),
+  label: z.string().min(1),
+  isControlling: z.boolean()
+});
+
+export const CaseListItemSchema = CaseSchema.extend({
+  listIssueTags: z.array(ListIssueTagSchema),
+  affectedStateCodes: z.array(z.string().length(2)),
+  entityRoles: z.array(CaseEntityRoleSchema)
+});
+
+export type CaseListItem = z.infer<typeof CaseListItemSchema>;
+
 export const DocketEventSchema = z.object({
   id: z.string().min(1),
   caseId: z.string().min(1),

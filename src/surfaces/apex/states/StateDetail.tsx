@@ -22,6 +22,7 @@ type StateDetailPanelProps = {
   detail: StateDetail | null;
   detailStatus: DetailLoad["status"];
   freshness: string | null;
+  onOpenCase?: () => void;
 };
 
 function controllingCopy(
@@ -46,7 +47,8 @@ export function StateDetailPanel({
   cases,
   detail,
   detailStatus,
-  freshness
+  freshness,
+  onOpenCase
 }: StateDetailPanelProps) {
   if (!selected) {
     return (
@@ -210,7 +212,7 @@ export function StateDetailPanel({
 
         <div className="detail-actions">
           {selected.controllingCaseId ? (
-            <a className="btn btn-secondary" href="#cases">
+            <a className="btn btn-secondary" href="#cases" onClick={onOpenCase}>
               Open case record
             </a>
           ) : null}

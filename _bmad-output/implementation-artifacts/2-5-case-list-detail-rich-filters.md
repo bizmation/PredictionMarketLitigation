@@ -1,11 +1,12 @@
 ---
+baseline_commit: 534bb371bb494164ffbe2cc9c1af32585353ec55
 baseline_branch: story/2-4-state-status-board-synced-with-map
 main_at_creation: 727e2ecc8b6a67364c645a4ac31a731f30725a88
 ---
 
 # Story 2.5: Case List, Detail & Rich Filters
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -38,39 +39,39 @@ so that I can verify posture from the single source of truth.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Preflight** (AC: all)
-  - [ ] Confirm Story 2.4 is **committed** on `story/2-4-state-status-board-synced-with-map` (or merged). Record `git log -1 --oneline`. If 2.4 is still uncommitted, **stop** — this story patches 2.4 files
-  - [ ] Confirm `npm test` is green on that 2.4 SHA. Record the count. Zero cloud credentials
-  - [ ] Confirm `npm run check` exits 0
-  - [ ] Confirm `GET /api/cases` is `{ items: Case[] }` length 25 and `GET /api/cases/case-flaherty` is **bare** `CaseDetail` with `docketEvents`, `issueTags`, `states`, `entities`, `sources` (≥1 tier1). If 404, you are not on 2.1
-  - [ ] Confirm `#cases` is still EmptyState and `#states` is `<StateBoard />` inside `ApexF1Provider`. If `LaunchNote.tsx` exists, stop
-  - [ ] Read, do not remember: Tracker.html `#cases` (~903–930), case CSS (~326–370), `caseMatches` / `renderCases` (~1665–1775). Recreate in React; do not ship the HTML (UX-DR24)
-  - [ ] Read `ApexF1Context.tsx`, `selection.ts`, `useApexSelection.ts`, `useCircuitData.ts`, `ApexShell.tsx` `#cases`, `StateDetail.tsx` “Open case record”, `Masthead.tsx` developments, `useStateDetail.ts`, `caseSchema.ts`, `casesRepo.ts`, `publicRouter.ts`, `vocabulary.ts`, `dates.ts`, `states.test.tsx` stub
-  - [ ] Branch: `story/2-5-case-list-detail-rich-filters` from the **2.4 commit**, not from `727e2ec`
+- [x] **Task 1: Preflight** (AC: all)
+  - [x] Confirm Story 2.4 is **committed** on `story/2-4-state-status-board-synced-with-map` (or merged). Record `git log -1 --oneline`. If 2.4 is still uncommitted, **stop** — this story patches 2.4 files
+  - [x] Confirm `npm test` is green on that 2.4 SHA. Record the count. Zero cloud credentials
+  - [x] Confirm `npm run check` exits 0
+  - [x] Confirm `GET /api/cases` is `{ items: Case[] }` length 25 and `GET /api/cases/case-flaherty` is **bare** `CaseDetail` with `docketEvents`, `issueTags`, `states`, `entities`, `sources` (≥1 tier1). If 404, you are not on 2.1
+  - [x] Confirm `#cases` is still EmptyState and `#states` is `<StateBoard />` inside `ApexF1Provider`. If `LaunchNote.tsx` exists, stop
+  - [x] Read, do not remember: Tracker.html `#cases` (~903–930), case CSS (~326–370), `caseMatches` / `renderCases` (~1665–1775). Recreate in React; do not ship the HTML (UX-DR24)
+  - [x] Read `ApexF1Context.tsx`, `selection.ts`, `useApexSelection.ts`, `useCircuitData.ts`, `ApexShell.tsx` `#cases`, `StateDetail.tsx` “Open case record”, `Masthead.tsx` developments, `useStateDetail.ts`, `caseSchema.ts`, `casesRepo.ts`, `publicRouter.ts`, `vocabulary.ts`, `dates.ts`, `states.test.tsx` stub
+  - [x] Branch: `story/2-5-case-list-detail-rich-filters` from the **2.4 commit**, not from `727e2ec`
 
-- [ ] **Task 2: Enrich `GET /api/cases` so filters do not N+1** (AC: 2)
-  - [ ] Add `CaseListItemSchema = CaseSchema.extend({ ... })` in `caseSchema.ts`. **Do not** put these fields on `CaseSchema` itself — `CaseDetailSchema` already has a differently shaped `issueTags`:
+- [x] **Task 2: Enrich `GET /api/cases` so filters do not N+1** (AC: 2)
+  - [x] Add `CaseListItemSchema = CaseSchema.extend({ ... })` in `caseSchema.ts`. **Do not** put these fields on `CaseSchema` itself — `CaseDetailSchema` already has a differently shaped `issueTags`:
     - `listIssueTags: { slug, label, isControlling }[]`
     - `affectedStateCodes: string[]` (2-letter codes, from `case_states` → `states.code`)
     - `entityRoles: CaseEntityRole[]` (from `case_entities.role`, may be empty)
-  - [ ] `listCases` still **one list endpoint**, same `{ items }` envelope, **no query params**. After the cases `SELECT`, run **three** follow-up queries (all rows, not per case) and assemble in JS. Do not `getCaseById` in a loop. Do not add `/api/cases?include=`
-  - [ ] Keep `GET /api/cases/:id` unchanged (bare `CaseDetail`). Detail still has **no** `partyRole` scalar — do not weaken `publicApi.test.ts`
-  - [ ] Pin in `publicApi.test.ts`: a list item has the three new arrays; still no `partyRole`; `case-flaherty` list row’s `affectedStateCodes` includes `"NJ"`; `listIssueTags` is non-empty. Do not assert seed `25` in UI tests
-  - [ ] HALT if you add FTS5, Fuse, MiniSearch, or a second cases endpoint
+  - [x] `listCases` still **one list endpoint**, same `{ items }` envelope, **no query params**. After the cases `SELECT`, run **three** follow-up queries (all rows, not per case) and assemble in JS. Do not `getCaseById` in a loop. Do not add `/api/cases?include=`
+  - [x] Keep `GET /api/cases/:id` unchanged (bare `CaseDetail`). Detail still has **no** `partyRole` scalar — do not weaken `publicApi.test.ts`
+  - [x] Pin in `publicApi.test.ts`: a list item has the three new arrays; still no `partyRole`; `case-flaherty` list row’s `affectedStateCodes` includes `"NJ"`; `listIssueTags` is non-empty. Do not assert seed `25` in UI tests
+  - [x] HALT if you add FTS5, Fuse, MiniSearch, or a second cases endpoint
 
-- [ ] **Task 3: Extend selection with `?case=`** (AC: 4)
-  - [ ] `ApexSelection = { state, circuit, case }` where `case` is the seed id (`case-flaherty`) or `null`
-  - [ ] Parse: `CASE_RE = /^case-[a-z0-9]+(?:-[a-z0-9]+)*$/i` — fail closed (drop `flaherty`, `Case-Flaherty` with spaces, path-like values). Store lowercase (`case-mi-nessel`)
-  - [ ] `serializeApexSelection` writes/deletes `case` the same way it does `state` / `circuit`. Preserve unrelated keys
-  - [ ] `constrainApexSelection(..., caseIds: ReadonlySet<string>)` — same staggered-axis rule as state/circuit: empty set keeps the parsed value for that axis; non-empty set drops unknown ids. Update **every** caller (`nextApexSearch`, `useApexSelection`, `circuits.test.tsx`, `states.test.tsx` stub)
-  - [ ] `selectionForCase(id, current)` → `{ ...current, case: id }`. Does **not** clear state/circuit. Does **not** invent a state from `affectedStateCodes`
-  - [ ] `useCircuitData`: add `casesReady`; `listsReady = circuitsReady && statesReady && casesReady`. Today cases load with `settled: () => {}` so `?case=` would be unconstrained forever or stripped — fix that. Tighten `isCase` to require `posture`, `forum`, `lifecycle`, and the three new arrays
-  - [ ] `useApexSelection(stateCodes, circuitIds, caseIds, listsReady)` — third key `caseKey`. `commit` / `popstate` / mount all pass `caseIds`. Initial state includes `case: null`
-  - [ ] HALT if you add React Router, `pushState` for clicks, or a second selection store
-  - [ ] **Do not** change `CircuitMap.paint()` from `selection.case`. Map fills stay posture; opacity stays circuit × posture-legend × statusFilter. Case selection is a list/panel/URL concern
+- [x] **Task 3: Extend selection with `?case=`** (AC: 4)
+  - [x] `ApexSelection = { state, circuit, case }` where `case` is the seed id (`case-flaherty`) or `null`
+  - [x] Parse: `CASE_RE = /^case-[a-z0-9]+(?:-[a-z0-9]+)*$/i` — fail closed (drop `flaherty`, `Case-Flaherty` with spaces, path-like values). Store lowercase (`case-mi-nessel`)
+  - [x] `serializeApexSelection` writes/deletes `case` the same way it does `state` / `circuit`. Preserve unrelated keys
+  - [x] `constrainApexSelection(..., caseIds: ReadonlySet<string>)` — same staggered-axis rule as state/circuit: empty set keeps the parsed value for that axis; non-empty set drops unknown ids. Update **every** caller (`nextApexSearch`, `useApexSelection`, `circuits.test.tsx`, `states.test.tsx` stub)
+  - [x] `selectionForCase(id, current)` → `{ ...current, case: id }`. Does **not** clear state/circuit. Does **not** invent a state from `affectedStateCodes`
+  - [x] `useCircuitData`: add `casesReady`; `listsReady = circuitsReady && statesReady && casesReady`. Today cases load with `settled: () => {}` so `?case=` would be unconstrained forever or stripped — fix that. Tighten `isCase` to require `posture`, `forum`, `lifecycle`, and the three new arrays
+  - [x] `useApexSelection(stateCodes, circuitIds, caseIds, listsReady)` — third key `caseKey`. `commit` / `popstate` / mount all pass `caseIds`. Initial state includes `case: null`
+  - [x] HALT if you add React Router, `pushState` for clicks, or a second selection store
+  - [x] **Do not** change `CircuitMap.paint()` from `selection.case`. Map fills stay posture; opacity stays circuit × posture-legend × statusFilter. Case selection is a list/panel/URL concern
 
-- [ ] **Task 4: Pure case helpers** (AC: 1–3, 5)
-  - [ ] New `src/surfaces/apex/cases/caseView.ts` — **pure, no `window`**:
+- [x] **Task 4: Pure case helpers** (AC: 1–3, 5)
+  - [x] New `src/surfaces/apex/cases/caseView.ts` — **pure, no `window`**:
     - `FORUM_LABELS: Record<Forum, string>` — `federal-district` → “Federal district”; `federal-appellate` → “Federal appellate”; `state` → “State court”; `agency` → “Agency”. **Not** the prototype’s `federal` / `both`
     - `CASE_POSTURE_CHIP: Record<Posture, string>` — short chip copy: For platform / Pending / For state / Banned / Untracked. Detail uses `POSTURE_LABELS`
     - `partyRoleLabel(roles: readonly CaseEntityRole[]): string | null` — if both `plaintiff` and `defendant` → `"Both"`; else if `plaintiff` → `"Plaintiff"`; else if `defendant` → `"Defendant"`; else unique remaining roles title-cased and joined with `" / "` (`appellant` → Appellant, `enforcement-target` → Enforcement target); empty → `null` (omit the meta slot, do not print “Unknown”)
@@ -79,26 +80,26 @@ so that I can verify posture from the single source of truth.
     - `uniqueIssueTags(rows)` / `uniqueAffectedCodes(rows)` for dropdown options. Sort labels `localeCompare`
     - `emptyCaseFilters()` — search `""`, posture `Set`, issue `"all"`, state `"all"`, circuit `"all"`
     - `filtersAreClear(f)` — used for Clear `aria-pressed`
-  - [ ] Pin these with **mock** rows (`case-flaherty` pending/NJ/cir-3/cea-preemption; `case-other` banned/NV). Do not assert seed counts
+  - [x] Pin these with **mock** rows (`case-flaherty` pending/NJ/cir-3/cea-preemption; `case-other` banned/NV). Do not assert seed counts
 
-- [ ] **Task 5: `#cases` UI** (AC: 1–5)
-  - [ ] New files under `src/surfaces/apex/cases/` (surface-local — **not** `src/shared/ui/`):
+- [x] **Task 5: `#cases` UI** (AC: 1–5)
+  - [x] New files under `src/surfaces/apex/cases/` (surface-local — **not** `src/shared/ui/`):
     - `CaseBoard.tsx` — filters + `.cases` grid (list | panel); composed inside existing `SectionBand id="cases"`
     - `CaseFilters.tsx` — `.casebar`: `<input type="search" class="srch">`, issue `<select>`, state `<select>`, circuit `<select>`, posture chips + Clear as `<button class="chip" aria-pressed>`
     - `CaseList.tsx` — `.caselist` of `<button type="button" class="caseitem">` with `aria-selected`. **No** `role="button"` on a non-button
     - `CaseDetail.tsx` — sticky aside (reuse `.detail` / `.dhead` / `.dbody` / `.srcline` / `.detail-actions`)
     - `useCaseDetail.ts` — clone `useStateDetail`: fetch `GET /api/cases/${id}` when `selection.case` is set; AbortController; fail closed; `epoch` from context so re-select of the same id retries; `resolveCaseDetailLoad` drops a payload whose `id` ≠ current selection (2.4 review: do not paint Flaherty’s docket under a newly selected caption)
     - `isCaseDetail` must require `docketEvents`/`issueTags`/`states`/`sources` arrays and that each docket event has `source` with `url` + `title` + `tier` — a 200 missing those is `error`, not a throw
-  - [ ] **Provider span:** wrap `#circuits` through `#cases` in `ApexF1Provider` (the `#issues` EmptyState sits in the middle — that is fine; 2.6 will need the same context). Do **not** create a second provider
-  - [ ] Rewrite `ApexShell.tsx` `#cases` only: keep SectionBand; replace EmptyState with `<CaseBoard />`. Handoff copy:
+  - [x] **Provider span:** wrap `#circuits` through `#cases` in `ApexF1Provider` (the `#issues` EmptyState sits in the middle — that is fine; 2.6 will need the same context). Do **not** create a second provider
+  - [x] Rewrite `ApexShell.tsx` `#cases` only: keep SectionBand; replace EmptyState with `<CaseBoard />`. Handoff copy:
     - kicker: `A3 · Case record` (or `Case record` if the numbered kickers on later EmptyStates would clash — numbered `05` is the placeholder; **do not keep `05`**)
     - title: `Cases`
     - why: `One record per case, one posture per case. If a state and a circuit disagree on screen, that is a data error — report it.`
     - Leave `#issues` `#entities` `#cert` `#trust` `#ops` as EmptyState
-  - [ ] **List row:** italic caption (`.cap`, Cormorant via existing heading stack / `font-style: italic`); `.meta` = forum label · court · docket number; `.ctag` = `PostureSwatch` (label allowed — UX-DR2 fill never travels alone) + `partyRoleLabel` when non-null + lifecycle word. `data-lifecycle={row.lifecycle}` for CSS weight. Select via the `.caseitem` button → `commit(selectionForCase(id, selection))`. Keep the API list order (`updated_at DESC`) after filtering — **no sort headers** on this band (that is the state board’s job)
-  - [ ] If filters hide the selected row, **keep the panel**. Do not `commit({ case: null })` on filter change. (Same idea as 2.4: a dimmed map state can still be the selection.)
-  - [ ] **Panel empty** (no selection): `.empty` — “Select a case from the list.” / hint “Absence of a match is not a finding about the litigation.” Do **not** render Flaherty
-  - [ ] **Panel selected** (list fields immediately; detail as it lands):
+  - [x] **List row:** italic caption (`.cap`, Cormorant via existing heading stack / `font-style: italic`); `.meta` = forum label · court · docket number; `.ctag` = `PostureSwatch` (label allowed — UX-DR2 fill never travels alone) + `partyRoleLabel` when non-null + lifecycle word. `data-lifecycle={row.lifecycle}` for CSS weight. Select via the `.caseitem` button → `commit(selectionForCase(id, selection))`. Keep the API list order (`updated_at DESC`) after filtering — **no sort headers** on this band (that is the state board’s job)
+  - [x] If filters hide the selected row, **keep the panel**. Do not `commit({ case: null })` on filter change. (Same idea as 2.4: a dimmed map state can still be the selection.)
+  - [x] **Panel empty** (no selection): `.empty` — “Select a case from the list.” / hint “Absence of a match is not a finding about the litigation.” Do **not** render Flaherty
+  - [x] **Panel selected** (list fields immediately; detail as it lands):
     - kicker `Case record`
     - `<h3>` caption — section heading, **not** a second document `h1`
     - forum label + `court` · `docketNumber` (or omit the number when null) + `<ProvenanceLabel kind={row.provenanceKind} />`
@@ -108,27 +109,27 @@ so that I can verify posture from the single source of truth.
     - Docket: `<ul class="docket">` from `detail.docketEvents` (already `ORDER BY occurred_at DESC`). Date via **date-only** helper (Task 6). Link `event.source.title` → `event.source.url` (`target="_blank" rel="noopener"`). Tracked + still loading → don’t claim “no docket”. Loaded + zero events → EmptyState, do not invent a row
     - Closing note under the list (12px, neutral-600)
     - Actions: `Report an error` → `<a class="btn btn-ghost" href="#trust">`. No CSV/JSON
-  - [ ] **Open case from the board:** `StateDetail` “Open case record” becomes `onClick` → `commit(selectionForCase(controllingCaseId, selection))` plus `href="#cases"` (hash scroll). Do not drop `?state=` / `?circuit=`
-  - [ ] **Masthead developments:** `href={`?case=${encodeURIComponent(item.caseId)}#cases`}` is acceptable as an **entry point** (may replace other query keys on full navigation). Prefer commit if you wrap Masthead in the provider; do **not** lift `useOrientation` into F1 context
-  - [ ] **Unmatched filter:** EmptyState “No case matches” / hint that this is a statement about the filter, with `<a href="#trust">tell us what is missing</a>` — **`#trust`, not `#correct`**
-  - [ ] **404/network on detail:** honest message in the panel; list stays up
-  - [ ] One document `<h1>` remains the masthead. Focus ring is the global accent outline (NFR5)
-  - [ ] At `max-width: 940px`, after selecting a case, `scrollIntoView` the panel (same 2.4 board patch — stacked detail is `static` under the list)
+  - [x] **Open case from the board:** `StateDetail` “Open case record” becomes `onClick` → `commit(selectionForCase(controllingCaseId, selection))` plus `href="#cases"` (hash scroll). Do not drop `?state=` / `?circuit=`
+  - [x] **Masthead developments:** `href={`?case=${encodeURIComponent(item.caseId)}#cases`}` is acceptable as an **entry point** (may replace other query keys on full navigation). Prefer commit if you wrap Masthead in the provider; do **not** lift `useOrientation` into F1 context
+  - [x] **Unmatched filter:** EmptyState “No case matches” / hint that this is a statement about the filter, with `<a href="#trust">tell us what is missing</a>` — **`#trust`, not `#correct`**
+  - [x] **404/network on detail:** honest message in the panel; list stays up
+  - [x] One document `<h1>` remains the masthead. Focus ring is the global accent outline (NFR5)
+  - [x] At `max-width: 940px`, after selecting a case, `scrollIntoView` the panel (same 2.4 board patch — stacked detail is `static` under the list)
 
-- [ ] **Task 6: Dates — do not TZ-shift docket days** (AC: 3)
-  - [ ] `occurredAt` is `IsoDate` (`YYYY-MM-DD`). `formatEtDate("2024-07-01")` is UTC midnight → previous calendar day in ET. Masthead already works around this with a local `formatIsoDate` that appends `T12:00:00.000Z`
-  - [ ] **Lift** that helper into `src/shared/lib/dates.ts` as `formatIsoDate` and use it from Masthead + docket items. Do not copy a third private function
+- [x] **Task 6: Dates — do not TZ-shift docket days** (AC: 3)
+  - [x] `occurredAt` is `IsoDate` (`YYYY-MM-DD`). `formatEtDate("2024-07-01")` is UTC midnight → previous calendar day in ET. Masthead already works around this with a local `formatIsoDate` that appends `T12:00:00.000Z`
+  - [x] **Lift** that helper into `src/shared/lib/dates.ts` as `formatIsoDate` and use it from Masthead + docket items. Do not copy a third private function
 
-- [ ] **Task 7: CSS** (AC: 1, 3)
-  - [ ] Port into `src/shared/ui/pml.css` using tokens: `.casebar`, `.srch`, `.casebar select`, `.casechips`, `.cases`, `.caselist`, `.caseitem` (+ hover / `[aria-selected=true]` / `:focus-visible`), `.caseitem .cap` (**italic**), `.caseitem .meta`, `.ctag`, `.forum`, `.itag` / `.itag.primary`, `.docket` / `.docket li` / `::before` / `.docket .d`, `[data-lifecycle="resolved"]` quieter
-  - [ ] Desktop `.cases { grid-template-columns: 1fr 1.05fr; gap: var(--space-6); align-items: start; }` — **README A3**, not the prototype’s `1fr 3fr` (same class of bug as 2.3 ignoring broken `.f1`)
-  - [ ] Reuse `.detail` sticky panel (`top: 78px`, `max-height` already from 2.4). Do **not** restyle `.board` (state table)
-  - [ ] Add `.cases { grid-template-columns: 1fr; }` to the existing `@media (max-width: 940px)` block that already collapses `.f1` / `.board` (~L1525). Do not invent a new breakpoint
-  - [ ] Reuse `.chip`, `.empty`, `.btn`, `.kicker`, `.num`, `.prov`. Do **not** add `.export`
-  - [ ] Do not redeclare posture fills (`.sw.*`) or badge colors
+- [x] **Task 7: CSS** (AC: 1, 3)
+  - [x] Port into `src/shared/ui/pml.css` using tokens: `.casebar`, `.srch`, `.casebar select`, `.casechips`, `.cases`, `.caselist`, `.caseitem` (+ hover / `[aria-selected=true]` / `:focus-visible`), `.caseitem .cap` (**italic**), `.caseitem .meta`, `.ctag`, `.forum`, `.itag` / `.itag.primary`, `.docket` / `.docket li` / `::before` / `.docket .d`, `[data-lifecycle="resolved"]` quieter
+  - [x] Desktop `.cases { grid-template-columns: 1fr 1.05fr; gap: var(--space-6); align-items: start; }` — **README A3**, not the prototype’s `1fr 3fr` (same class of bug as 2.3 ignoring broken `.f1`)
+  - [x] Reuse `.detail` sticky panel (`top: 78px`, `max-height` already from 2.4). Do **not** restyle `.board` (state table)
+  - [x] Add `.cases { grid-template-columns: 1fr; }` to the existing `@media (max-width: 940px)` block that already collapses `.f1` / `.board` (~L1525). Do not invent a new breakpoint
+  - [x] Reuse `.chip`, `.empty`, `.btn`, `.kicker`, `.num`, `.prov`. Do **not** add `.export`
+  - [x] Do not redeclare posture fills (`.sw.*`) or badge colors
 
-- [ ] **Task 8: Tests** (AC: all)
-  - [ ] `src/surfaces/apex/cases/cases.test.tsx`:
+- [x] **Task 8: Tests** (AC: all)
+  - [x] `src/surfaces/apex/cases/cases.test.tsx`:
     - Search token AND: `"kalshi flaherty"` matches the Flaherty mock; `"kalshi nevada"` does not
     - Issue dropdown `cea-preemption` hides a mock without that slug
     - State `NJ` hides a mock whose `affectedStateCodes` is `["NV"]`
@@ -142,19 +143,33 @@ so that I can verify posture from the single source of truth.
     - Controlling tag: `isControlling: true` gets `.itag.primary` even if it is not first in the array
     - Posture SSOT: mock case `pending` with an affected state `banned` still renders pending on the row — do not take the state’s posture
     - Sources: detail mock with a tier1 docket link is present; do not hit the network
-  - [ ] `circuits.test.tsx` selection: every expected `{ state, circuit }` grows `case: null`; add round-trip `?case=case-flaherty`; garbage `?case=flaherty` and `?case=Case%20Flaherty` fail closed; constrain drops unknown `case-nope` when the set has `case-flaherty`; staggered: empty `caseIds` keeps parsed case
-  - [ ] `states.test.tsx` stub `selection` includes `case: null`; “Open case record” still present when `controllingCaseId` is set (href `#cases`)
-  - [ ] `shells.test.tsx`: `#cases` no longer contains “Case views not yet wired”; `.cases` / `.caseitem` or `.casebar` present; remaining EmptyState bands are `issues`, `entities`, `cert`, `trust`, `ops` (**5**). IA split still holds. Exactly one `h1`
-  - [ ] `publicApi.test.ts`: list enrichment pins (Task 2); existing Flaherty detail + 404 + malformed id tests still pass
-  - [ ] Static markup will not run `useEffect` — first paint without docket events is expected. Do not assert seed `25` in JSX
-  - [ ] `npm test` green, zero cloud credentials
+  - [x] `circuits.test.tsx` selection: every expected `{ state, circuit }` grows `case: null`; add round-trip `?case=case-flaherty`; garbage `?case=flaherty` and `?case=Case%20Flaherty` fail closed; constrain drops unknown `case-nope` when the set has `case-flaherty`; staggered: empty `caseIds` keeps parsed case
+  - [x] `states.test.tsx` stub `selection` includes `case: null`; “Open case record” still present when `controllingCaseId` is set (href `#cases`)
+  - [x] `shells.test.tsx`: `#cases` no longer contains “Case views not yet wired”; `.cases` / `.caseitem` or `.casebar` present; remaining EmptyState bands are `issues`, `entities`, `cert`, `trust`, `ops` (**5**). IA split still holds. Exactly one `h1`
+  - [x] `publicApi.test.ts`: list enrichment pins (Task 2); existing Flaherty detail + 404 + malformed id tests still pass
+  - [x] Static markup will not run `useEffect` — first paint without docket events is expected. Do not assert seed `25` in JSX
+  - [x] `npm test` green, zero cloud credentials
 
-- [ ] **Task 9: Finalize** (AC: all)
-  - [ ] `npm run check` exit 0
-  - [ ] Close the deferred-work FTS bullet: record that 2.5 chose client-side AND-token match at 25-row scale; FTS5 is postponed until the corpus makes `GET /api/cases` list-all insufficient
-  - [ ] **Do not live-deploy.** `npx wrangler deploy --dry-run` is enough
-  - [ ] File List from `git status` / diff. Single commit only if Patrick asks
-  - [ ] Browser-verify `#cases`: list paints, search, chips, dropdowns, Clear, row → panel, `?case=case-flaherty` restores panel, `?case=nope` fail-closed, board “Open case record” selects Flaherty and scrolls to `#cases` without losing `?state=`, italic caption, resolved row quieter, 940px stacks and unsticks the panel, docket dates are the calendar day in the seed (not the previous ET day), `#issues` still EmptyState
+- [x] **Task 9: Finalize** (AC: all)
+  - [x] `npm run check` exit 0
+  - [x] Close the deferred-work FTS bullet: record that 2.5 chose client-side AND-token match at 25-row scale; FTS5 is postponed until the corpus makes `GET /api/cases` list-all insufficient
+  - [x] **Do not live-deploy.** `npx wrangler deploy --dry-run` is enough
+  - [x] File List from `git status` / diff. Single commit only if Patrick asks
+  - [x] Browser-verify `#cases`: list paints, search, chips, dropdowns, Clear, row → panel, `?case=case-flaherty` restores panel, `?case=nope` fail-closed, board “Open case record” selects Flaherty and scrolls to `#cases` without losing `?state=`, italic caption, resolved row quieter, 940px stacks and unsticks the panel, docket dates are the calendar day in the seed (not the previous ET day), `#issues` still EmptyState
+
+### Review Findings — 2026-09-02
+
+Parallel Blind Hunter / Edge Case Hunter / Acceptance Auditor. AC1–AC5 met; no default Flaherty, one selection hook, no N+1, no `partyRole` scalar, `isControlling` not index 0. Findings below are honesty, refetch flash, and filter-chip nits.
+
+- [x] [Review][Patch] Loading or empty catalog is described as a filter miss (“No case matches” / “Nothing in the record fits those terms”) [src/surfaces/apex/cases/CaseList.tsx:12]
+- [x] [Review][Patch] Shared `detailEpoch` refetches the open docket on every `commit`, so a circuit or affected-state click flashes “Loading docket…” [src/surfaces/apex/ApexF1Context.tsx:58]
+- [x] [Review][Patch] Successful detail with zero docket events still prints “Every event above links to a Tier-1 source” [src/surfaces/apex/cases/CaseDetail.tsx:177]
+- [x] [Review][Patch] `POSTURE_CHIP_ORDER` omits `untracked` even though `CASE_POSTURE_CHIP` defines the label [src/surfaces/apex/cases/caseView.ts:29]
+- [x] [Review][Patch] Circuit filter options sort by raw id (`cir-11` before `cir-2`) [src/surfaces/apex/cases/caseView.ts:111]
+- [x] [Review][Patch] Search placeholder omits issue tags, which `caseMatches` does search [src/surfaces/apex/cases/CaseFilters.tsx:51]
+- [x] [Review][Defer] `load()` still uses `items.every(guard)` so one bad `/api/cases` row blanks the whole list — deferred, pre-existing [src/surfaces/apex/circuits/useCircuitData.ts:125]
+- [x] [Review][Defer] `listCases` `CaseListItemSchema.parse`s every row in one pass; one invalid enrichment 500s the list — deferred, pre-existing repo parse-all [src/shared/db/repos/casesRepo.ts:177]
+- [x] [Review][Defer] `/api/cases` fetch has no timeout, so `listsReady` never settles on a hung request — deferred, pre-existing [src/surfaces/apex/circuits/useCircuitData.ts:147]
 
 ## Dev Notes
 
@@ -389,12 +404,56 @@ No `project-context.md` is present in the repo. Carry architecture.md + the 2.1�
 
 ### Agent Model Used
 
+Cursor Grok 4.6
+
 ### Debug Log References
+
+- Preflight on merged 2.4 `534bb37`: 333 passed / 12 files; `npm run check` exit 0; no `LaunchNote.tsx`.
+- Post-implementation: 348 passed / 13 files, zero cloud credentials.
+- `npm run check` failed once on oxfmt (7 files) then on jsx-a11y `aria-selected` on `<button class="caseitem">`. Used `aria-pressed` (same 2.3 circuit-index pattern) and `[aria-pressed="true"]` CSS. Then `npm run check` exit 0.
+- `npx wrangler deploy --dry-run` exit 0. No live deploy.
+- Browser verify on `localhost:5173` (Vite restarted after a stale hung server). `#cases` paints 25 of 25; AND search `kalshi flaherty` → 2 rows; Pending chip + that search → unmatched `#trust` empty; Clear restores; issue `cea-preemption` → 9 of 25; NJ + Third Circuit → Flaherty appellate only. Row select writes `?case=case-flaherty#cases`. Docket dates `24 Jul 2026` / `6 Apr 2026` (not the previous ET day). Controlling tag `.itag.primary` is CEA preemption. Caption `font-style: italic`. Resolved row opacity `0.62`. `?case=nope` stripped to `#cases` empty panel. Board “Open case record” from `?state=NJ#states` → `?state=NJ&case=case-flaherty#cases`. Filters hiding Flaherty keep the panel. 900px: `.cases` one column, `.detail` `static`. `#issues` still EmptyState.
 
 ### Completion Notes List
 
+- Extended the existing `ApexF1Provider` selection with `?case=`. One hook. Filters stay local React state.
+- Enriched `GET /api/cases` with `listIssueTags`, `affectedStateCodes`, `entityRoles` via three follow-up queries. Detail is still bare `CaseDetail`. No `partyRole` scalar. No N+1 `/api/cases/:id` for the list.
+- `#cases` is list + sticky panel under `src/surfaces/apex/cases/`. Client-side AND-token search at 25-row scale; FTS5 postponed (deferred-work closed).
+- Date-only docket days go through lifted `formatIsoDate` (noon-UTC) so ET cannot roll the calendar day back.
+- `.cases` desktop grid is README A3 `1fr 1.05fr`, not the prototype `1fr 3fr`. Case-row buttons use `aria-pressed` because `aria-selected` is invalid on `button`.
+- No `pages/CaseDetailPage`, no forum filter, no CSV/JSON, no default Flaherty, no live deploy, no new npm packages.
+
 ### File List
+
+- _bmad-output/implementation-artifacts/2-5-case-list-detail-rich-filters.md
+- _bmad-output/implementation-artifacts/deferred-work.md
+- _bmad-output/implementation-artifacts/sprint-status.yaml
+- src/shared/api/publicApi.test.ts
+- src/shared/db/repos/casesRepo.ts
+- src/shared/lib/dates.ts
+- src/shared/schemas/caseSchema.ts
+- src/shared/ui/pml.css
+- src/shared/ui/trustComponents.test.tsx
+- src/surfaces/apex/ApexF1Context.tsx
+- src/surfaces/apex/ApexShell.tsx
+- src/surfaces/apex/cases/CaseBoard.tsx
+- src/surfaces/apex/cases/CaseDetail.tsx
+- src/surfaces/apex/cases/CaseFilters.tsx
+- src/surfaces/apex/cases/CaseList.tsx
+- src/surfaces/apex/cases/caseView.ts
+- src/surfaces/apex/cases/cases.test.tsx
+- src/surfaces/apex/cases/useCaseDetail.ts
+- src/surfaces/apex/circuits/circuits.test.tsx
+- src/surfaces/apex/circuits/useCircuitData.ts
+- src/surfaces/apex/orientation/Masthead.tsx
+- src/surfaces/apex/selection.ts
+- src/surfaces/apex/states/StateBoard.tsx
+- src/surfaces/apex/states/StateDetail.tsx
+- src/surfaces/apex/states/states.test.tsx
+- src/surfaces/apex/useApexSelection.ts
+- src/surfaces/shells.test.tsx
 
 ## Change Log
 
 - 2026-09-01: Story context created from Epic 2 / FR3 / FR40 / UX-DR11 / handoff A3 / Stories 2.1–2.4 (ready-for-dev)
+- 2026-09-01: Implemented `#cases` list + detail + FR40 filters on the 2.4 selection provider; status → review

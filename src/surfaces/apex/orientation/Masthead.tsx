@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { EmptyState } from "../../../shared/ui";
-import { formatEtDate } from "../../../shared/lib/dates";
+import { formatEtDate, formatIsoDate } from "../../../shared/lib/dates";
 import type { ApexKpis } from "../../../shared/schemas/kpi";
 import type { Development } from "../../../shared/schemas/development";
 
@@ -10,11 +10,6 @@ type MastheadProps = {
   developments: Development[];
   children?: ReactNode;
 };
-
-/** Date-only ISO (`YYYY-MM-DD`) → ET calendar label without a TZ shift. */
-function formatIsoDate(isoDate: string): string {
-  return formatEtDate(`${isoDate}T12:00:00.000Z`);
-}
 
 /**
  * H1, bottom line, CTAs, meta, Latest developments.
@@ -87,7 +82,7 @@ export function Masthead({
               <ul className="feed">
                 {developments.map((item) => (
                   <li key={item.id}>
-                    <a href="#cases">
+                    <a href={`?case=${encodeURIComponent(item.caseId)}#cases`}>
                       <span className="fd">
                         {formatIsoDate(item.occurredAt)} · {item.court}
                       </span>
