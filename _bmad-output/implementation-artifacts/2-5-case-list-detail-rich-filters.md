@@ -6,7 +6,7 @@ main_at_creation: 727e2ecc8b6a67364c645a4ac31a731f30725a88
 
 # Story 2.5: Case List, Detail & Rich Filters
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -156,6 +156,20 @@ so that I can verify posture from the single source of truth.
   - [x] **Do not live-deploy.** `npx wrangler deploy --dry-run` is enough
   - [x] File List from `git status` / diff. Single commit only if Patrick asks
   - [x] Browser-verify `#cases`: list paints, search, chips, dropdowns, Clear, row → panel, `?case=case-flaherty` restores panel, `?case=nope` fail-closed, board “Open case record” selects Flaherty and scrolls to `#cases` without losing `?state=`, italic caption, resolved row quieter, 940px stacks and unsticks the panel, docket dates are the calendar day in the seed (not the previous ET day), `#issues` still EmptyState
+
+### Review Findings — 2026-09-02
+
+Parallel Blind Hunter / Edge Case Hunter / Acceptance Auditor. AC1–AC5 met; no default Flaherty, one selection hook, no N+1, no `partyRole` scalar, `isControlling` not index 0. Findings below are honesty, refetch flash, and filter-chip nits.
+
+- [x] [Review][Patch] Loading or empty catalog is described as a filter miss (“No case matches” / “Nothing in the record fits those terms”) [src/surfaces/apex/cases/CaseList.tsx:12]
+- [x] [Review][Patch] Shared `detailEpoch` refetches the open docket on every `commit`, so a circuit or affected-state click flashes “Loading docket…” [src/surfaces/apex/ApexF1Context.tsx:58]
+- [x] [Review][Patch] Successful detail with zero docket events still prints “Every event above links to a Tier-1 source” [src/surfaces/apex/cases/CaseDetail.tsx:177]
+- [x] [Review][Patch] `POSTURE_CHIP_ORDER` omits `untracked` even though `CASE_POSTURE_CHIP` defines the label [src/surfaces/apex/cases/caseView.ts:29]
+- [x] [Review][Patch] Circuit filter options sort by raw id (`cir-11` before `cir-2`) [src/surfaces/apex/cases/caseView.ts:111]
+- [x] [Review][Patch] Search placeholder omits issue tags, which `caseMatches` does search [src/surfaces/apex/cases/CaseFilters.tsx:51]
+- [x] [Review][Defer] `load()` still uses `items.every(guard)` so one bad `/api/cases` row blanks the whole list — deferred, pre-existing [src/surfaces/apex/circuits/useCircuitData.ts:125]
+- [x] [Review][Defer] `listCases` `CaseListItemSchema.parse`s every row in one pass; one invalid enrichment 500s the list — deferred, pre-existing repo parse-all [src/shared/db/repos/casesRepo.ts:177]
+- [x] [Review][Defer] `/api/cases` fetch has no timeout, so `listsReady` never settles on a hung request — deferred, pre-existing [src/surfaces/apex/circuits/useCircuitData.ts:147]
 
 ## Dev Notes
 

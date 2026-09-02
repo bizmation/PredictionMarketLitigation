@@ -1,4 +1,5 @@
 import type { CaseListItem } from "../../../shared/schemas/caseSchema";
+import type { Circuit } from "../../../shared/schemas/circuit";
 import type {
   CaseEntityRole,
   CaseLifecycle,
@@ -30,7 +31,8 @@ export const POSTURE_CHIP_ORDER: ReadonlyArray<Posture> = [
   "platform",
   "pending",
   "state",
-  "banned"
+  "banned",
+  "untracked"
 ];
 
 export type CaseFilters = {
@@ -113,7 +115,30 @@ export function uniqueCircuitIds(rows: readonly CaseListItem[]): string[] {
   for (const row of rows) {
     if (row.circuitId) ids.add(row.circuitId);
   }
-  return [...ids].sort((a, b) => a.localeCompare(b));
+  return [...ids];
+}
+
+export function sortCircuitIds(
+  ids: readonly string[],
+  circuits: readonly Circuit[]
+): string[] {
+  const byId = new Map(circuits.map((row) => [row.id, row]));
+  return [...ids].sort((a, b) => {
+    const left = byId.get(a);
+    const right = byId.get(b);
+    const leftNumber = left?.number;
+    const rightNumber = right?.number;
+    if (
+      leftNumber != null &&
+      rightNumber != null &&
+      leftNumber !== rightNumber
+    ) {
+      return leftNumber - rightNumber;
+    }
+    if (leftNumber != null && rightNumber == null) return -1;
+    if (leftNumber == null && rightNumber != null) return 1;
+    return (left?.name ?? a).localeCompare(right?.name ?? b);
+  });
 }
 
 export function caseMatches(

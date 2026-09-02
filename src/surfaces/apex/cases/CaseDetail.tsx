@@ -174,7 +174,7 @@ export function CaseDetailPanel({
             </ul>
           )}
         </div>
-        {liveStatus === "success" ? (
+        {liveStatus === "success" && events.length > 0 ? (
           <p className="docket-note">
             Every event above links to a Tier-1 source. Trade-press reports are
             used as leads only and never appear as the citation of record.

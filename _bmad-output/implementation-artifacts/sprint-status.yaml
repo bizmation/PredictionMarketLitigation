@@ -1,5 +1,5 @@
 # generated: 2026-08-09
-# last_updated: 2026-09-01
+# last_updated: 2026-09-02
 # project: PML
 # project_key: NOKEY
 # tracking_system: file-system
@@ -36,7 +36,7 @@
 # - Source epics: _bmad-output/planning-artifacts/epics.md (35 stories, readiness punch list applied 2026-08-09)
 
 generated: 2026-08-09
-last_updated: 2026-09-01
+last_updated: 2026-09-02
 project: PML
 project_key: NOKEY
 tracking_system: file-system
@@ -58,7 +58,7 @@ development_status:
   2-2-apex-orientation-chrome: done
   2-3-circuit-split-heat-map: done
   2-4-state-status-board-synced-with-map: done
-  2-5-case-list-detail-rich-filters: review
+  2-5-case-list-detail-rich-filters: done
   2-6-issue-map-synced-to-cases: backlog
   2-7-entity-ledger: backlog
   2-8-qualitative-cert-signal: backlog

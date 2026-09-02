@@ -17,12 +17,13 @@ import {
 import { useCaseDetail } from "./useCaseDetail";
 
 export function CaseBoard() {
-  const { cases, circuits, states, selection, commit, detailEpoch } =
+  const { cases, circuits, states, selection, commit, listsReady } =
     useApexF1();
   const [filters, setFilters] = useState<CaseFilters>(emptyCaseFilters);
+  const [caseEpoch, setCaseEpoch] = useState(0);
   const { detail, status: detailStatus } = useCaseDetail(
     selection.case,
-    detailEpoch
+    caseEpoch
   );
 
   const stateNames = useMemo(() => {
@@ -39,6 +40,7 @@ export function CaseBoard() {
 
   function select(id: string) {
     commit(selectionForCase(id, selection));
+    setCaseEpoch((n) => n + 1);
   }
 
   useEffect(() => {
@@ -74,7 +76,13 @@ export function CaseBoard() {
         onClear={() => setFilters(emptyCaseFilters())}
       />
       <div className="cases">
-        <CaseList rows={rows} selectedId={selection.case} onSelect={select} />
+        <CaseList
+          rows={rows}
+          selectedId={selection.case}
+          onSelect={select}
+          listsReady={listsReady}
+          total={cases.length}
+        />
         <CaseDetailPanel
           selected={selected}
           circuits={circuits}

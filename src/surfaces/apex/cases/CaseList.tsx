@@ -6,9 +6,36 @@ type CaseListProps = {
   rows: CaseListItem[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  listsReady: boolean;
+  total: number;
 };
 
-export function CaseList({ rows, selectedId, onSelect }: CaseListProps) {
+export function CaseList({
+  rows,
+  selectedId,
+  onSelect,
+  listsReady,
+  total
+}: CaseListProps) {
+  if (!listsReady) {
+    return (
+      <div className="empty" style={{ marginTop: "var(--space-4)" }}>
+        <b>Loading cases</b>
+        <p>
+          The published list has not settled yet. That is a retrieval wait, not
+          a finding about the litigation.
+        </p>
+      </div>
+    );
+  }
+  if (total === 0) {
+    return (
+      <div className="empty" style={{ marginTop: "var(--space-4)" }}>
+        <b>No cases published</b>
+        <p>Absence of a record is not a finding about the litigation.</p>
+      </div>
+    );
+  }
   if (rows.length === 0) {
     return (
       <div className="empty" style={{ marginTop: "var(--space-4)" }}>

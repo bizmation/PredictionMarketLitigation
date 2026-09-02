@@ -11,11 +11,14 @@ import type { ApexF1Value } from "../ApexF1Context";
 import { ApexF1Stub } from "../ApexF1Context";
 import { CaseBoard } from "./CaseBoard";
 import { CaseDetailPanel } from "./CaseDetail";
+import { CaseList } from "./CaseList";
 import {
   caseMatches,
   emptyCaseFilters,
   filtersAreClear,
   partyRoleLabel,
+  POSTURE_CHIP_ORDER,
+  sortCircuitIds,
   uniqueIssueTags,
   type CaseFilters
 } from "./caseView";
@@ -294,6 +297,23 @@ describe("caseView", () => {
       "state-enforcement"
     ]);
   });
+
+  it("includes Untracked in the posture chip order", () => {
+    expect(POSTURE_CHIP_ORDER).toContain("untracked");
+  });
+
+  it("sorts circuit filter ids by court number, not raw id", () => {
+    const mixed = [
+      circuit({ id: "cir-11", number: 11, name: "Eleventh Circuit" }),
+      circuit({ id: "cir-2", number: 2, name: "Second Circuit" }),
+      circuit({ id: "cir-dc", number: null, name: "D.C. Circuit" })
+    ];
+    expect(sortCircuitIds(["cir-11", "cir-dc", "cir-2"], mixed)).toEqual([
+      "cir-2",
+      "cir-11",
+      "cir-dc"
+    ]);
+  });
 });
 
 describe("CaseBoard", () => {
@@ -304,6 +324,9 @@ describe("CaseBoard", () => {
     expect(html).toContain('class="cap"');
     expect(html).toContain("2 of 2 cases");
     expect(html).toContain("Select a case from the list.");
+    expect(html).toContain(
+      "Search caption, court, docket number, issue tag or state"
+    );
   });
 
   it("marks the selected row and shows its caption in the panel", () => {
@@ -338,6 +361,51 @@ describe("CaseBoard", () => {
   });
 });
 
+describe("CaseList empty states", () => {
+  it("does not describe a loading catalog as a filter miss", () => {
+    const html = renderToStaticMarkup(
+      <CaseList
+        rows={[]}
+        selectedId={null}
+        onSelect={() => undefined}
+        listsReady={false}
+        total={0}
+      />
+    );
+    expect(html).toContain("Loading cases");
+    expect(html).not.toContain("No case matches");
+    expect(html).not.toContain("fits those terms");
+  });
+
+  it("does not describe an empty catalog as a filter miss", () => {
+    const html = renderToStaticMarkup(
+      <CaseList
+        rows={[]}
+        selectedId={null}
+        onSelect={() => undefined}
+        listsReady={true}
+        total={0}
+      />
+    );
+    expect(html).toContain("No cases published");
+    expect(html).not.toContain("No case matches");
+  });
+
+  it("uses filter-miss copy only when published rows were hidden", () => {
+    const html = renderToStaticMarkup(
+      <CaseList
+        rows={[]}
+        selectedId={null}
+        onSelect={() => undefined}
+        listsReady={true}
+        total={2}
+      />
+    );
+    expect(html).toContain("No case matches");
+    expect(html).toContain("#trust");
+  });
+});
+
 describe("CaseDetailPanel", () => {
   it("accents the controlling tag even when it is not first", () => {
     const html = renderToStaticMarkup(
@@ -361,6 +429,26 @@ describe("CaseDetailPanel", () => {
     expect(html).toContain("CourtListener docket");
     expect(html).toContain("https://www.courtlistener.com/docket/flaherty/");
     expect(html).toContain("Every event above links to a Tier-1 source");
+  });
+
+  it("does not claim events have Tier-1 sources when the docket is empty", () => {
+    const html = renderToStaticMarkup(
+      <CaseDetailPanel
+        selected={flaherty}
+        circuits={mockCircuits}
+        states={mockStates}
+        selection={{
+          state: null,
+          circuit: null,
+          case: "case-flaherty"
+        }}
+        commit={() => undefined}
+        detail={{ ...detailMock, docketEvents: [] }}
+        detailStatus="success"
+      />
+    );
+    expect(html).toContain("No docket events published");
+    expect(html).not.toContain("Every event above links to a Tier-1 source");
   });
 });
 

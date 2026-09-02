@@ -5,6 +5,7 @@ import {
   CASE_POSTURE_CHIP,
   POSTURE_CHIP_ORDER,
   filtersAreClear,
+  sortCircuitIds,
   type CaseFilters
 } from "./caseView";
 
@@ -48,7 +49,7 @@ export function CaseFiltersBar({
       <input
         className="srch"
         type="search"
-        placeholder="Search caption, court, docket number or state…"
+        placeholder="Search caption, court, docket number, issue tag or state…"
         aria-label="Search cases"
         value={filters.q}
         onChange={(event) => onSearch(event.target.value)}
@@ -83,7 +84,7 @@ export function CaseFiltersBar({
         onChange={(event) => onCircuit(event.target.value)}
       >
         <option value="all">All circuits</option>
-        {circuitIds.map((id) => (
+        {sortCircuitIds(circuitIds, circuits).map((id) => (
           <option key={id} value={id}>
             {circuits.find((circuit) => circuit.id === id)?.name ?? id}
           </option>

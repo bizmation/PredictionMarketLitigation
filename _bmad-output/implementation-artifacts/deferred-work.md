@@ -53,3 +53,9 @@
 
 - Failed or empty F1 list still prints "0 of 0 tracked states" with absence-is-not-a-finding copy. `useCircuitData` fail-closes to `states: []` and `listsReady: true`; the map already had this empty-list path. Distinguish fetch-fail from "nothing tracked" when a later story owns list-error chrome.
 
+## Deferred from: code review of 2-5-case-list-detail-rich-filters.md (2026-09-02)
+
+- `useCircuitData` `load()` still uses `items.every(guard)`, so one invalid `/api/cases` item discards the whole list (same helper as circuits/states). Empty `caseIds` then cannot constrain `?case=`.
+- `listCases` `CaseListItemSchema.parse`s every assembled row in one pass; one invalid `case_role` 500s `GET /api/cases`. Same all-or-nothing parse as the other F1 list repos.
+- `/api/cases` (and the sibling F1 list fetches) have no timeout; a hung request leaves `listsReady` false so invalid `state` / `circuit` / `case` params are never stripped.
+
