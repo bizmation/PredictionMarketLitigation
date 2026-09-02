@@ -13,6 +13,7 @@ import {
 import { ApexF1Provider } from "./ApexF1Context";
 import { CaseBoard } from "./cases/CaseBoard";
 import { CircuitSplit } from "./circuits/CircuitSplit";
+import { EntityBoard } from "./entities/EntityBoard";
 import { IssueBoard } from "./issues/IssueBoard";
 import { CredibilityStrip } from "./orientation/CredibilityStrip";
 import { ExecutiveBrief } from "./orientation/ExecutiveBrief";
@@ -131,22 +132,16 @@ export function ApexShell({ dev = false }: ApexShellProps) {
           >
             <CaseBoard />
           </SectionBand>
-        </ApexF1Provider>
 
-        <SectionBand
-          id="entities"
-          kicker="06"
-          title="Entity ledger"
-          why="Per-platform footprint: where each operator stands, and in which matters."
-        >
-          <EmptyState
-            title="Entity view not yet wired"
-            hint="Platforms are tracked, not endorsed."
+          <SectionBand
+            id="entities"
+            kicker="A3b · Entity record"
+            title="Platforms and parties"
+            why="The same order can reach one platform and not another. This view reads the record the other way round — by who is actually bound."
           >
-            Story 2.7 renders each seeded platform's operational footprint and
-            matter list.
-          </EmptyState>
-        </SectionBand>
+            <EntityBoard />
+          </SectionBand>
+        </ApexF1Provider>
 
         <SectionBand
           id="cert"

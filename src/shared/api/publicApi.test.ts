@@ -108,6 +108,40 @@ describe("public F1 API (story 2.1)", () => {
     }
   });
 
+  it("enriches the entity list with matters and footprint without a slug route", async () => {
+    const res = await worker.fetch!(get("/api/entities"), testEnv);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      items: Array<{
+        slug: string;
+        name: string;
+        role: string | null;
+        provenanceKind: string;
+        matters: Array<{ caseId: string; role: string }>;
+        footprint: Array<{ stateCode: string; operationalStatus: string }>;
+      }>;
+    };
+    expect(body.items).toHaveLength(5);
+    const kalshi = body.items.find((row) => row.slug === "kalshi");
+    expect(kalshi).toBeDefined();
+    expect(kalshi!.name).toBeTruthy();
+    expect(kalshi!.role).toBe("DCM");
+    expect(kalshi!.provenanceKind).toBe("human");
+    expect(kalshi!.matters).toContainEqual(
+      expect.objectContaining({ caseId: "case-flaherty", role: "plaintiff" })
+    );
+    expect(kalshi!.footprint).toContainEqual(
+      expect.objectContaining({ stateCode: "NJ", operationalStatus: "go" })
+    );
+
+    const missing = await worker.fetch!(get("/api/entities/kalshi"), testEnv);
+    expect(missing.status).toBe(404);
+    expect(await missing.json()).toEqual({
+      code: "not_found",
+      message: expect.any(String)
+    });
+  });
+
   it("enriches the case list with filter fields without a partyRole scalar", async () => {
     const res = await worker.fetch!(get("/api/cases"), testEnv);
     expect(res.status).toBe(200);

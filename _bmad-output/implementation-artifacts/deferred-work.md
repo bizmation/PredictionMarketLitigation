@@ -63,3 +63,7 @@
 
 - Client `isCase` still uses `items.every(guard)`, so one invalid `/api/cases` item discards the whole list. Story 2.6 added `firstOccurredAt === null || typeof string` to that guard, so a mixed-deploy or cached payload missing the new field now fails the same all-or-nothing check. Same 2.5 blast radius; do not change the `every()` contract here.
 
+## Deferred from: code review of 2-7-entity-ledger.md (2026-09-02)
+
+- Entity tests pin `selectionFromEntityMatter` / `selectionForState` and static “Open case record” markup instead of clicking `commit`. Epic 2 UI tests are `renderToStaticMarkup` only; there is no click driver and Story 2.7 forbids a new npm dependency. Revisit if a later story adds a harness.
+

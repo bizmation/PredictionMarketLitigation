@@ -74,7 +74,7 @@ describe("ApexShell", () => {
 
   it("uses EmptyState for every unwired tracker band", () => {
     const html = apex();
-    const remaining = ["entities", "cert", "trust", "ops"];
+    const remaining = ["cert", "trust", "ops"];
     for (const id of remaining) {
       const section = html.match(
         new RegExp(`<section class="band" id="${id}"[\\s\\S]*?</section>`)
@@ -112,6 +112,13 @@ describe("ApexShell", () => {
     expect(issues).toContain("What is actually being litigated");
     expect(issues).toContain("A2b · Issue map");
     expect(issues).toMatch(/class="(issuebar|chartcard)"/);
+    const entities = html.match(
+      /<section class="band" id="entities"[\s\S]*?<\/section>/
+    )?.[0];
+    expect(entities).not.toContain("Entity view not yet wired");
+    expect(entities).toContain("Platforms and parties");
+    expect(entities).toContain("A3b · Entity record");
+    expect(entities).toMatch(/class="(etabs|ent)"/);
   });
 });
 

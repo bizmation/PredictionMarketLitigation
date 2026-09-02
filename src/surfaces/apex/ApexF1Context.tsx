@@ -18,11 +18,13 @@ import type { StatusFilter } from "./states/boardView";
 import { useApexSelection } from "./useApexSelection";
 
 /**
- * Shared F1 lists + URL selection for the heat map and status board.
+ * Shared F1 lists + URL selection for map, board, case record, issue map,
+ * and entity ledger.
  *
- * Instantiating `useApexSelection` twice desyncs the two bands. This provider
+ * Instantiating `useApexSelection` twice desyncs the bands. This provider
  * is the one hook. Filter chips stay local — they are not a URL param. Issue
- * is the exception: it is a shareable axis on `?issue=`.
+ * is the exception: it is a shareable axis on `?issue=`. Entity tab selection
+ * is local React state, not a URL param.
  */
 
 export type ApexF1Value = {
