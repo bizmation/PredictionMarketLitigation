@@ -84,7 +84,8 @@ function isCase(value: unknown): value is CaseListItem {
     Array.isArray(row.affectedStateCodes) &&
     row.affectedStateCodes.every((code) => typeof code === "string") &&
     Array.isArray(row.entityRoles) &&
-    row.entityRoles.every((role) => typeof role === "string")
+    row.entityRoles.every((role) => typeof role === "string") &&
+    (row.firstOccurredAt === null || typeof row.firstOccurredAt === "string")
   );
 }
 

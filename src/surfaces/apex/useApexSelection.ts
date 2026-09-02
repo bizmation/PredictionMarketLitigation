@@ -32,17 +32,20 @@ export function useApexSelection(
   stateCodes: readonly string[],
   circuitIds: readonly string[],
   caseIds: readonly string[],
+  issueSlugs: readonly string[],
   listsReady = true
 ): UseApexSelection {
   const [selection, setSelection] = useState<ApexSelection>({
     state: null,
     circuit: null,
-    case: null
+    case: null,
+    issue: null
   });
 
   const stateKey = [...stateCodes].sort().join(",");
   const circuitKey = [...circuitIds].sort().join(",");
   const caseKey = [...caseIds].sort().join(",");
+  const issueKey = [...issueSlugs].sort().join(",");
 
   useEffect(() => {
     const next = nextApexSearch(
@@ -50,6 +53,7 @@ export function useApexSelection(
       setFromKey(stateKey),
       setFromKey(circuitKey),
       setFromKey(caseKey),
+      setFromKey(issueKey),
       listsReady
     );
     setSelection(next.selection);
@@ -57,7 +61,7 @@ export function useApexSelection(
     if (next.search !== window.location.search) {
       writeSelection(next.selection);
     }
-  }, [stateKey, circuitKey, caseKey, listsReady]);
+  }, [stateKey, circuitKey, caseKey, issueKey, listsReady]);
 
   useEffect(() => {
     function onPopState() {
@@ -66,6 +70,7 @@ export function useApexSelection(
         setFromKey(stateKey),
         setFromKey(circuitKey),
         setFromKey(caseKey),
+        setFromKey(issueKey),
         listsReady
       );
       setSelection(next.selection);
@@ -76,7 +81,7 @@ export function useApexSelection(
     }
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
-  }, [stateKey, circuitKey, caseKey, listsReady]);
+  }, [stateKey, circuitKey, caseKey, issueKey, listsReady]);
 
   const commit = useCallback(
     (next: ApexSelection) => {
@@ -84,12 +89,13 @@ export function useApexSelection(
         next,
         setFromKey(stateKey),
         setFromKey(circuitKey),
-        setFromKey(caseKey)
+        setFromKey(caseKey),
+        setFromKey(issueKey)
       );
       setSelection(constrained);
       writeSelection(constrained);
     },
-    [stateKey, circuitKey, caseKey]
+    [stateKey, circuitKey, caseKey, issueKey]
   );
 
   return { selection, commit };

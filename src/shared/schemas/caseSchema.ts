@@ -40,7 +40,8 @@ export const ListIssueTagSchema = z.object({
 export const CaseListItemSchema = CaseSchema.extend({
   listIssueTags: z.array(ListIssueTagSchema),
   affectedStateCodes: z.array(z.string().length(2)),
-  entityRoles: z.array(CaseEntityRoleSchema)
+  entityRoles: z.array(CaseEntityRoleSchema),
+  firstOccurredAt: IsoDateSchema.nullable()
 });
 
 export type CaseListItem = z.infer<typeof CaseListItemSchema>;

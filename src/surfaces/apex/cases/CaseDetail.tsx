@@ -91,7 +91,7 @@ export function CaseDetailPanel({
                   <a
                     href="#states"
                     onClick={() =>
-                      commit(selectionForState(state.code, states))
+                      commit(selectionForState(state.code, states, selection))
                     }
                   >
                     {state.name}

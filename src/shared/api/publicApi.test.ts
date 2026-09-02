@@ -118,6 +118,7 @@ describe("public F1 API (story 2.1)", () => {
         listIssueTags: Array<{ slug: string }>;
         affectedStateCodes: string[];
         entityRoles: string[];
+        firstOccurredAt: string | null;
       }>;
     };
     const flaherty = body.items.find((row) => row.id === "case-flaherty");
@@ -126,6 +127,8 @@ describe("public F1 API (story 2.1)", () => {
     expect(flaherty!.listIssueTags.length).toBeGreaterThan(0);
     expect(flaherty!.affectedStateCodes).toContain("NJ");
     expect(Array.isArray(flaherty!.entityRoles)).toBe(true);
+    expect(flaherty!.firstOccurredAt).toBe("2026-04-06");
+    expect(flaherty!.firstOccurredAt).not.toBe("2025-04-01");
   });
 
   it("returns rich case detail with Tier-1 docket evidence", async () => {

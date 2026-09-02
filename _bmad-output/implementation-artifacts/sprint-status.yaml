@@ -59,7 +59,7 @@ development_status:
   2-3-circuit-split-heat-map: done
   2-4-state-status-board-synced-with-map: done
   2-5-case-list-detail-rich-filters: done
-  2-6-issue-map-synced-to-cases: ready-for-dev
+  2-6-issue-map-synced-to-cases: done
   2-7-entity-ledger: backlog
   2-8-qualitative-cert-signal: backlog
   2-9-reader-cert-poll-tally-api: backlog

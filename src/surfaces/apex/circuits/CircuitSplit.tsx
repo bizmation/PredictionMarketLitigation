@@ -35,7 +35,7 @@ export function CircuitSplit() {
   }
 
   function selectState(code: string) {
-    commit(selectionForState(code, states));
+    commit(selectionForState(code, states, selection));
   }
 
   function selectCircuit(circuitId: string | null) {

@@ -104,6 +104,11 @@ type ListRoleRow = {
   case_role: string;
 };
 
+type ListFirstEventRow = {
+  case_id: string;
+  first_occurred_at: string | null;
+};
+
 function uniquePush<T>(list: T[], value: T): void {
   if (!list.includes(value)) list.push(value);
 }
@@ -120,31 +125,39 @@ export async function listCases(db: Db): Promise<CaseListItem[]> {
     .all<CaseRow>();
   const cases = (results ?? []).map(mapCase);
 
-  const [tagResult, stateResult, roleResult] = await Promise.all([
-    db
-      .prepare(
-        `SELECT cit.case_id, t.slug, t.label, cit.is_controlling
+  const [tagResult, stateResult, roleResult, firstEventResult] =
+    await Promise.all([
+      db
+        .prepare(
+          `SELECT cit.case_id, t.slug, t.label, cit.is_controlling
            FROM case_issue_tags cit
            JOIN issue_tags t ON t.id = cit.issue_tag_id
        ORDER BY cit.is_controlling DESC, t.label ASC`
-      )
-      .all<ListTagRow>(),
-    db
-      .prepare(
-        `SELECT cs.case_id, s.code
+        )
+        .all<ListTagRow>(),
+      db
+        .prepare(
+          `SELECT cs.case_id, s.code
            FROM case_states cs
            JOIN states s ON s.id = cs.state_id
        ORDER BY s.name ASC`
-      )
-      .all<ListStateRow>(),
-    db
-      .prepare(
-        `SELECT ce.case_id, ce.role AS case_role
+        )
+        .all<ListStateRow>(),
+      db
+        .prepare(
+          `SELECT ce.case_id, ce.role AS case_role
            FROM case_entities ce
        ORDER BY ce.case_id, ce.role ASC`
-      )
-      .all<ListRoleRow>()
-  ]);
+        )
+        .all<ListRoleRow>(),
+      db
+        .prepare(
+          `SELECT case_id, MIN(occurred_at) AS first_occurred_at
+           FROM docket_events
+       GROUP BY case_id`
+        )
+        .all<ListFirstEventRow>()
+    ]);
 
   const tagsByCase = new Map<
     string,
@@ -174,12 +187,18 @@ export async function listCases(db: Db): Promise<CaseListItem[]> {
     rolesByCase.set(row.case_id, list);
   }
 
+  const firstByCase = new Map<string, string | null>();
+  for (const row of firstEventResult.results ?? []) {
+    firstByCase.set(row.case_id, row.first_occurred_at);
+  }
+
   return cases.map((row) =>
     CaseListItemSchema.parse({
       ...row,
       listIssueTags: tagsByCase.get(row.id) ?? [],
       affectedStateCodes: statesByCase.get(row.id) ?? [],
-      entityRoles: rolesByCase.get(row.id) ?? []
+      entityRoles: rolesByCase.get(row.id) ?? [],
+      firstOccurredAt: firstByCase.get(row.id) ?? null
     })
   );
 }

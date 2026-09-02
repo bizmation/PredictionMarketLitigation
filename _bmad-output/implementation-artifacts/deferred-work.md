@@ -59,3 +59,7 @@
 - `listCases` `CaseListItemSchema.parse`s every assembled row in one pass; one invalid `case_role` 500s `GET /api/cases`. Same all-or-nothing parse as the other F1 list repos.
 - `/api/cases` (and the sibling F1 list fetches) have no timeout; a hung request leaves `listsReady` false so invalid `state` / `circuit` / `case` params are never stripped.
 
+## Deferred from: code review of 2-6-issue-map-synced-to-cases.md (2026-09-02)
+
+- Client `isCase` still uses `items.every(guard)`, so one invalid `/api/cases` item discards the whole list. Story 2.6 added `firstOccurredAt === null || typeof string` to that guard, so a mixed-deploy or cached payload missing the new field now fails the same all-or-nothing check. Same 2.5 blast radius; do not change the `every()` contract here.
+

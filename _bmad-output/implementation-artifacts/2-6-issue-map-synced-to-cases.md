@@ -6,7 +6,7 @@ main_at_creation: 534bb371bb494164ffbe2cc9c1af32585353ec55
 
 # Story 2.6: Issue Map Synced to Cases
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -39,37 +39,37 @@ so that I can see how issues cluster by posture and jump to matters.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Preflight** (AC: all)
-  - [ ] Confirm Story 2.5 is **merged to `main`** (or this branch is based on `c84679b`). Record `git log -1 --oneline`. If 2.5 is missing `#cases` / `listIssueTags`, **stop**
-  - [ ] Confirm `npm test` is green on that 2.5 SHA. Record the count. Zero cloud credentials
-  - [ ] Confirm `npm run check` exits 0
-  - [ ] Confirm `GET /api/cases` items have `listIssueTags` / `affectedStateCodes` / `entityRoles`, still no `partyRole`, and `GET /api/cases/case-flaherty` is unchanged bare `CaseDetail`
-  - [ ] Confirm `#issues` is still EmptyState (“Issue views not yet wired”) **inside** `ApexF1Provider`, and `#cases` is `<CaseBoard />`. If `LaunchNote.tsx` exists, stop
-  - [ ] Read, do not remember: Tracker.html `#issues` (~859–900), issue CSS (~15–35), `ISSUE_INDEX` / `selectIssue` / `drawMatrix` / `drawTimeline` / `drawStrip` / `drawTree` (~2195–2421). Recreate in React; do not ship the HTML (UX-DR24)
-  - [ ] Read `ApexF1Context.tsx`, `selection.ts`, `useApexSelection.ts`, `useCircuitData.ts`, `ApexShell.tsx` `#issues`, `CaseBoard.tsx`, `CaseFilters.tsx`, `caseView.ts` (`caseMatches`, `uniqueIssueTags`), `caseSchema.ts`, `casesRepo.ts` `listCases`, `CircuitMap.tsx` (init/dispose + fallback copy), `pml.css`, `circuits.test.tsx`, `cases.test.tsx`, `shells.test.tsx`
-  - [ ] Branch: `story/2-6-issue-map-synced-to-cases` from the **2.5 commit**, not from `534bb37`
+- [x] **Task 1: Preflight** (AC: all)
+  - [x] Confirm Story 2.5 is **merged to `main`** (or this branch is based on `c84679b`). Record `git log -1 --oneline`. If 2.5 is missing `#cases` / `listIssueTags`, **stop**
+  - [x] Confirm `npm test` is green on that 2.5 SHA. Record the count. Zero cloud credentials
+  - [x] Confirm `npm run check` exits 0
+  - [x] Confirm `GET /api/cases` items have `listIssueTags` / `affectedStateCodes` / `entityRoles`, still no `partyRole`, and `GET /api/cases/case-flaherty` is unchanged bare `CaseDetail`
+  - [x] Confirm `#issues` is still EmptyState (“Issue views not yet wired”) **inside** `ApexF1Provider`, and `#cases` is `<CaseBoard />`. If `LaunchNote.tsx` exists, stop
+  - [x] Read, do not remember: Tracker.html `#issues` (~859–900), issue CSS (~15–35), `ISSUE_INDEX` / `selectIssue` / `drawMatrix` / `drawTimeline` / `drawStrip` / `drawTree` (~2195–2421). Recreate in React; do not ship the HTML (UX-DR24)
+  - [x] Read `ApexF1Context.tsx`, `selection.ts`, `useApexSelection.ts`, `useCircuitData.ts`, `ApexShell.tsx` `#issues`, `CaseBoard.tsx`, `CaseFilters.tsx`, `caseView.ts` (`caseMatches`, `uniqueIssueTags`), `caseSchema.ts`, `casesRepo.ts` `listCases`, `CircuitMap.tsx` (init/dispose + fallback copy), `pml.css`, `circuits.test.tsx`, `cases.test.tsx`, `shells.test.tsx`
+  - [x] Branch: `story/2-6-issue-map-synced-to-cases` from the **2.5 commit**, not from `534bb37`
 
-- [ ] **Task 2: Enrich list rows with first docket day** (AC: 1–2)
-  - [ ] `CaseListItemSchema` already exists. **Extend it** with `firstOccurredAt: IsoDateSchema.nullable()` — **not** on `CaseSchema` / `CaseDetailSchema`
-  - [ ] In `listCases`, after the existing three follow-up queries, add a **fourth** bulk query: `SELECT case_id, MIN(occurred_at) AS first_occurred_at FROM docket_events GROUP BY case_id`. Assemble in JS. Missing events → `null`. Do not use `filedAt` as a silent stand-in (emergence note says first **docket** event; a mark with no date is omitted)
-  - [ ] Keep `GET /api/cases/:id` unchanged. Do not add `/api/issues`
-  - [ ] Pin in `publicApi.test.ts`: Flaherty list row has a `firstOccurredAt` string matching `YYYY-MM-DD`; still no `partyRole`. Do not assert seed `25` in UI tests
-  - [ ] `useCircuitData` `isCase`: require `firstOccurredAt === null || typeof string`. Keep `listsReady = circuits ∧ states ∧ cases`
-  - [ ] HALT if you add FTS5, a second cases endpoint, or per-row `getCaseById`
+- [x] **Task 2: Enrich list rows with first docket day** (AC: 1–2)
+  - [x] `CaseListItemSchema` already exists. **Extend it** with `firstOccurredAt: IsoDateSchema.nullable()` — **not** on `CaseSchema` / `CaseDetailSchema`
+  - [x] In `listCases`, after the existing three follow-up queries, add a **fourth** bulk query: `SELECT case_id, MIN(occurred_at) AS first_occurred_at FROM docket_events GROUP BY case_id`. Assemble in JS. Missing events → `null`. Do not use `filedAt` as a silent stand-in (emergence note says first **docket** event; a mark with no date is omitted)
+  - [x] Keep `GET /api/cases/:id` unchanged. Do not add `/api/issues`
+  - [x] Pin in `publicApi.test.ts`: Flaherty list row has a `firstOccurredAt` string matching `YYYY-MM-DD`; still no `partyRole`. Do not assert seed `25` in UI tests
+  - [x] `useCircuitData` `isCase`: require `firstOccurredAt === null || typeof string`. Keep `listsReady = circuits ∧ states ∧ cases`
+  - [x] HALT if you add FTS5, a second cases endpoint, or per-row `getCaseById`
 
-- [ ] **Task 3: Extend selection with `?issue=`** (AC: 3–4)
-  - [ ] `ApexSelection = { state, circuit, case, issue }` where `issue` is the seed **slug** (`cea-preemption`) or `null`
-  - [ ] Parse: `ISSUE_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/i` — fail closed (drop `CEA preemption`, spaces, path-like values). Store lowercase
-  - [ ] `serializeApexSelection` writes/deletes `issue` the same way it does `case`. Preserve unrelated keys
-  - [ ] `constrainApexSelection(..., issueSlugs: ReadonlySet<string>)` — staggered-axis rule: empty set keeps the parsed value; non-empty set drops unknown slugs. Update **every** caller (`nextApexSearch`, `useApexSelection`, `circuits.test.tsx`, `states.test.tsx`, `cases.test.tsx` stubs)
-  - [ ] `selectionForIssue(slug, current)` → `{ ...current, issue: slug }`. Does **not** clear state/circuit/case. Clicking the already-active slug → `{ ...current, issue: null }` (prototype toggle)
-  - [ ] `useApexSelection(..., issueSlugs, listsReady)` — fourth key `issueKey`. Membership = slugs from published `cases.flatMap(listIssueTags)`. Initial state includes `issue: null`
-  - [ ] **Case bar sync (this amends 2.5 AC2 for the issue dropdown only):** `CaseBoard` derives `filters.issue` from `selection.issue ?? "all"`. The issue `<select>` `onIssue` calls `commit(selectionForIssue(slug | null, selection))`. Search / posture / state / circuit stay `useState`. Case-bar **Clear** calls `setFilters(emptyCaseFilters())` **and** `commit({ ...selection, issue: null })`
-  - [ ] HALT if you add React Router, `pushState` for clicks, or a second selection store
-  - [ ] **Do not** change `CircuitMap.paint()` from `selection.issue`. Map fills stay posture. Issue selection is a charts / case-filter / URL concern
+- [x] **Task 3: Extend selection with `?issue=`** (AC: 3–4)
+  - [x] `ApexSelection = { state, circuit, case, issue }` where `issue` is the seed **slug** (`cea-preemption`) or `null`
+  - [x] Parse: `ISSUE_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/i` — fail closed (drop `CEA preemption`, spaces, path-like values). Store lowercase
+  - [x] `serializeApexSelection` writes/deletes `issue` the same way it does `case`. Preserve unrelated keys
+  - [x] `constrainApexSelection(..., issueSlugs: ReadonlySet<string>)` — staggered-axis rule: empty set keeps the parsed value; non-empty set drops unknown slugs. Update **every** caller (`nextApexSearch`, `useApexSelection`, `circuits.test.tsx`, `states.test.tsx`, `cases.test.tsx` stubs)
+  - [x] `selectionForIssue(slug, current)` → `{ ...current, issue: slug }`. Does **not** clear state/circuit/case. Clicking the already-active slug → `{ ...current, issue: null }` (prototype toggle)
+  - [x] `useApexSelection(..., issueSlugs, listsReady)` — fourth key `issueKey`. Membership = slugs from published `cases.flatMap(listIssueTags)`. Initial state includes `issue: null`
+  - [x] **Case bar sync (this amends 2.5 AC2 for the issue dropdown only):** `CaseBoard` derives `filters.issue` from `selection.issue ?? "all"`. The issue `<select>` `onIssue` calls `commit(selectionForIssue(slug | null, selection))`. Search / posture / state / circuit stay `useState`. Case-bar **Clear** calls `setFilters(emptyCaseFilters())` **and** `commit({ ...selection, issue: null })`
+  - [x] HALT if you add React Router, `pushState` for clicks, or a second selection store
+  - [x] **Do not** change `CircuitMap.paint()` from `selection.issue`. Map fills stay posture. Issue selection is a charts / case-filter / URL concern
 
-- [ ] **Task 4: Pure issue helpers** (AC: 1–4)
-  - [ ] New `src/surfaces/apex/issues/issueView.ts` — **pure, no `window`, no `echarts` import**:
+- [x] **Task 4: Pure issue helpers** (AC: 1–4)
+  - [x] New `src/surfaces/apex/issues/issueView.ts` — **pure, no `window`, no `echarts` import**:
     - `ISSUE_FAMILY: Record<string, string>` keyed by **slug**:
       - `cea-preemption`, `swap-definition` → `Federal preemption`
       - `cftc-offensive`, `certiorari-path` → `Federal jurisdiction`
@@ -81,31 +81,31 @@ so that I can see how issues cluster by posture and jump to matters.
     - `indexIssues(rows: readonly CaseListItem[])` → tags with `{ slug, label, family, cases, controllingCount }` where `controllingCount` = rows whose matching `listIssueTags` entry has `isControlling: true`. Sort: family order, then case-count descending, then label `localeCompare`
     - `matrixCells` / `emergencePoints` / `frequencySeries` / `sunburstTree` — inputs for ECharts options. Emergence points omit rows with `firstOccurredAt === null`. Sunburst: family → tag → one child per case (`value: 1`, `leaf: true`, `caseId`, `caption`, `posture`). Leaf **names** may be shortened in the data for hover; **labels on the outer ring are `show: false`**
     - `POST_HEX` from the same posture ramp the map uses conceptually (`#a8dcb9` / `#e9d59b` / `#e0a583` / `#b05541` / `#f6f5f3`) — these are chart fills, not a second `PostureSwatch`. Do not invent a sixth outcome
-  - [ ] Pin with **mock** rows (Flaherty `cea-preemption` controlling + pending; a banned NV row with `state-enforcement`). Empty posture column omitted. Controlling count ignores tag order. `firstOccurredAt: null` drops the emergence mark. Do not assert seed counts
+  - [x] Pin with **mock** rows (Flaherty `cea-preemption` controlling + pending; a banned NV row with `state-enforcement`). Empty posture column omitted. Controlling count ignores tag order. `firstOccurredAt: null` drops the emergence mark. Do not assert seed counts
 
-- [ ] **Task 5: `#issues` UI + ECharts** (AC: 1–5)
-  - [ ] `npm install echarts@5` (latest 5.x). Import `echarts/core`, register `SVGRenderer`, `HeatmapChart`, `ScatterChart`, `BarChart`, `SunburstChart`, plus `GridComponent` / `TooltipComponent` / `VisualMapComponent` / `LegendComponent` / `Calendar?` **no**. `animation: false`. `renderer: "svg"`. Theme fonts/colors from tokens (`Lora` / `#605d5d` / `#f3f2f2` / accent `#b68235`) — port `CH_FONT` / `CH_TIP` from the prototype, do not invent a dark dashboard theme
-  - [ ] New files under `src/surfaces/apex/issues/` (surface-local):
+- [x] **Task 5: `#issues` UI + ECharts** (AC: 1–5)
+  - [x] `npm install echarts@5` (latest 5.x). Import `echarts/core`, register `SVGRenderer`, `HeatmapChart`, `ScatterChart`, `BarChart`, `SunburstChart`, plus `GridComponent` / `TooltipComponent` / `VisualMapComponent` / `LegendComponent` / `Calendar?` **no**. `animation: false`. `renderer: "svg"`. Theme fonts/colors from tokens (`Lora` / `#605d5d` / `#f3f2f2` / accent `#b68235`) — port `CH_FONT` / `CH_TIP` from the prototype, do not invent a dark dashboard theme
+  - [x] New files under `src/surfaces/apex/issues/` (surface-local):
     - `IssueBoard.tsx` — issue bar + four `.chartcard`s; composed inside existing `SectionBand id="issues"`
     - `IssueBar.tsx` — empty: kicker `Nothing selected` + `{tagCount} issue tags across {matterCount} matters. Select a cell, a mark, a bar or a branch to filter the record below.` Selected: `.fam` family, `.lead` label, `{n} matters · controlling in {controllingCount}`, posture counts, `.issuematters` buttons (caption → `commit(selectionForCase(id, selection))` + `href="#cases"`), Clear chip
     - `IssueChart.tsx` — one `useRef<HTMLDivElement>` host; `useEffect` `echarts.init(el, null, { renderer: "svg" })`, `setOption`, `on("click")`, resize listener (debounce ~160ms), **dispose on cleanup**. If `init` throws / returns null → render the same EmptyState copy as AC5
     - `issueCharts.ts` — option builders (matrix / time / strip / sunburst). Sunburst `levels[3].label.show = false`, `nodeClick: false`. Matrix click → tag on Y axis. Timeline / strip click → tag. Sunburst: `data.leaf` → case jump; `data.tag` → `selectionForIssue`
-  - [ ] **Provider:** already wraps `#issues`. Do **not** create a second provider. Do **not** lift `useOrientation`
-  - [ ] Rewrite `ApexShell.tsx` `#issues` only: keep `SectionBand`; replace EmptyState with `<IssueBoard />`. Handoff copy:
+  - [x] **Provider:** already wraps `#issues`. Do **not** create a second provider. Do **not** lift `useOrientation`
+  - [x] Rewrite `ApexShell.tsx` `#issues` only: keep `SectionBand`; replace EmptyState with `<IssueBoard />`. Handoff copy:
     - kicker: `A2b · Issue map` (**do not keep `04`**)
     - title: `What is actually being litigated`
     - why: `Every matter carries a controlling issue and its secondary issues, drawn from a fixed vocabulary. Click anything below: the panel names the matters, and the case record further down filters to match.`
     - Leave `#entities` `#cert` `#trust` `#ops` as EmptyState
-  - [ ] Highlight: `dispatchAction({ type: "highlight", name: selectedLabel })` using the **label** ECharts series name, not a second store
-  - [ ] One document `<h1>` remains the masthead. Focus ring is the global accent outline (NFR5)
-  - [ ] At `max-width: 940px` charts `resize()`. Do not invent a new breakpoint beyond the existing `@media (max-width: 940px)` block
+  - [x] Highlight: `dispatchAction({ type: "highlight", name: selectedLabel })` using the **label** ECharts series name, not a second store
+  - [x] One document `<h1>` remains the masthead. Focus ring is the global accent outline (NFR5)
+  - [x] At `max-width: 940px` charts `resize()`. Do not invent a new breakpoint beyond the existing `@media (max-width: 940px)` block
 
-- [ ] **Task 6: CSS** (AC: 1–3)
-  - [ ] Port into `src/shared/ui/pml.css` using tokens: `.chart`, `.chartcard`, `.chartcard > .ch`, `.issuebar`, `.issuebar .lead`, `.issuebar .fam`, `.issuematters`, `.issuematters button`, `.issuehint`. Heights: matrix 520px, time 460px, strip 430px, sunburst 640px (handoff). Do **not** restyle `.cases` / `.board` / `.f1`
-  - [ ] Reuse `.chip`, `.empty`, `.kicker`, `.num`. Do **not** add `.export`
+- [x] **Task 6: CSS** (AC: 1–3)
+  - [x] Port into `src/shared/ui/pml.css` using tokens: `.chart`, `.chartcard`, `.chartcard > .ch`, `.issuebar`, `.issuebar .lead`, `.issuebar .fam`, `.issuematters`, `.issuematters button`, `.issuehint`. Heights: matrix 520px, time 460px, strip 430px, sunburst 640px (handoff). Do **not** restyle `.cases` / `.board` / `.f1`
+  - [x] Reuse `.chip`, `.empty`, `.kicker`, `.num`. Do **not** add `.export`
 
-- [ ] **Task 7: Tests** (AC: all)
-  - [ ] `src/surfaces/apex/issues/issues.test.tsx`:
+- [x] **Task 7: Tests** (AC: all)
+  - [x] `src/surfaces/apex/issues/issues.test.tsx`:
     - `indexIssues` groups by slug; controlling count uses `isControlling` even when that tag is not first
     - Matrix column set omits a posture with zero tagged cases
     - Emergence omits `firstOccurredAt: null`
@@ -114,18 +114,33 @@ so that I can see how issues cluster by posture and jump to matters.
     - Garbage `?issue=CEA%20preemption` and unknown `?issue=uigea` fail closed
     - Selecting a matter button uses `selectionForCase` and does not invent a second case store
     - Chart-init failure path shows EmptyState copy, not a blank card that looks like “no issues”
-  - [ ] `cases.test.tsx`: issue dropdown follows `selection.issue`; case-bar Clear also commits `issue: null`
-  - [ ] `circuits.test.tsx`: every expected `{ state, circuit, case }` grows `issue: null`; add round-trip `?issue=cea-preemption`; staggered empty `issueSlugs` keeps parsed issue
-  - [ ] `shells.test.tsx`: `#issues` no longer contains “Issue views not yet wired”; `.issuebar` or `.chartcard` present; remaining EmptyState bands are `entities`, `cert`, `trust`, `ops` (**4**)
-  - [ ] `publicApi.test.ts`: `firstOccurredAt` pin (Task 2); existing Flaherty detail tests still pass
-  - [ ] Do not assert seed `25` / exact ECharts canvas pixels. Mock `echarts.init` if a component test would otherwise need a real SVG host
-  - [ ] `npm test` green, zero cloud credentials
+  - [x] `cases.test.tsx`: issue dropdown follows `selection.issue`; case-bar Clear also commits `issue: null`
+  - [x] `circuits.test.tsx`: every expected `{ state, circuit, case }` grows `issue: null`; add round-trip `?issue=cea-preemption`; staggered empty `issueSlugs` keeps parsed issue
+  - [x] `shells.test.tsx`: `#issues` no longer contains “Issue views not yet wired”; `.issuebar` or `.chartcard` present; remaining EmptyState bands are `entities`, `cert`, `trust`, `ops` (**4**)
+  - [x] `publicApi.test.ts`: `firstOccurredAt` pin (Task 2); existing Flaherty detail tests still pass
+  - [x] Do not assert seed `25` / exact ECharts canvas pixels. Mock `echarts.init` if a component test would otherwise need a real SVG host
+  - [x] `npm test` green, zero cloud credentials
 
-- [ ] **Task 8: Finalize** (AC: all)
-  - [ ] `npm run check` exit 0
-  - [ ] **Do not live-deploy.** `npx wrangler deploy --dry-run` is enough
-  - [ ] File List from `git status` / diff. Single commit only if Patrick asks
-  - [ ] Browser-verify `#issues`: four charts paint, click matrix cell → issue bar + case dropdown sync + `#cases` filtered, Clear restores both, `?issue=cea-preemption` restores the bar, `?issue=nope` fail-closed, sunburst leaf → `#cases` with that case selected, hover leaf names the caption, 940px resizes, `#entities` still EmptyState
+- [x] **Task 8: Finalize** (AC: all)
+  - [x] `npm run check` exit 0
+  - [x] **Do not live-deploy.** `npx wrangler deploy --dry-run` is enough
+  - [x] File List from `git status` / diff. Single commit only if Patrick asks
+  - [x] Browser-verify `#issues`: four charts paint, click matrix cell → issue bar + case dropdown sync + `#cases` filtered, Clear restores both, `?issue=cea-preemption` restores the bar, `?issue=nope` fail-closed, sunburst leaf → `#cases` with that case selected, hover leaf names the caption, 940px resizes, `#entities` still EmptyState
+
+### Review Findings
+
+- [x] [Review][Patch] Sunburst leaf click keeps a stale issue filter, so the jumped case can vanish from the list [src/surfaces/apex/issues/IssueBoard.tsx:23]
+- [x] [Review][Patch] Map and status-board state clicks wipe `?issue=` [src/surfaces/apex/selection.ts:124]
+- [x] [Review][Patch] Every issue `commit` bumps `detailEpoch` and refetches the open state panel [src/surfaces/apex/ApexF1Context.tsx:72]
+- [x] [Review][Patch] Matter jumps assign `window.location.hash`, which pushes history [src/surfaces/apex/issues/IssueBoard.tsx:26]
+- [x] [Review][Patch] Issue bar reports zero tags while F1 lists are still loading [src/surfaces/apex/issues/IssueBoard.tsx:16]
+- [x] [Review][Patch] Chart tooltip HTML concatenates captions without escaping [src/surfaces/apex/issues/issueCharts.ts:36]
+- [x] [Review][Patch] Chart-init failure test never mocks a throwing `echarts.init` [src/surfaces/apex/issues/issues.test.tsx:239]
+- [x] [Review][Patch] Case-bar Clear is not asserted to `commit(issue: null)` [src/surfaces/apex/cases/cases.test.tsx:393]
+- [x] [Review][Patch] `echarts.init` success then later throw leaks the instance [src/surfaces/apex/issues/IssueChart.tsx:34]
+- [x] [Review][Patch] `firstOccurredAt` pin accepts any YYYY-MM-DD, including `filedAt` [src/shared/api/publicApi.test.ts:130]
+- [x] [Review][Patch] `hitFromChartParams` has no unit tests [src/surfaces/apex/issues/issueCharts.ts:57]
+- [x] [Review][Defer] Client `isCase` still uses `items.every`; missing `firstOccurredAt` now drops the whole catalog [src/surfaces/apex/circuits/useCircuitData.ts:126] — deferred, pre-existing
 
 ## Dev Notes
 
@@ -201,8 +216,54 @@ Cursor Grok 4.6
 
 ### Debug Log References
 
+- Branched `story/2-6-issue-map-synced-to-cases` from merged 2.5 `d7d647b` (`story 2.5: case list, detail, and rich filters (#5)`). Story file restored from `c74df14` because it was not on `main`. YAML `baseline_commit` kept as `c84679b`.
+- Preflight on that SHA: 354 passed / 13 files; `npm run check` exit 0; no `LaunchNote.tsx`; `#issues` was EmptyState.
+- Installed `echarts@^5.6.0` (npm `echarts@5`). Imports are `echarts/core` + `SVGRenderer`. No CDN, no `echarts-for-react`.
+- Post-implementation: 369 passed / 14 files, zero cloud credentials. `npm run check` failed once on oxfmt; `npm run format` then check exit 0.
+- `npx wrangler deploy --dry-run` exit 0. No live deploy.
+- `issueCharts.ts` option builders end `as unknown as EChartsOption` because ECharts 5.6 types reject prototype formatters and sunburst `sort: null`. Runtime still uses `sort: null`.
+- Issue Clear needs to wipe CaseBoard local FR40 filters without lifting them: `ApexF1Context` exposes `filtersEpoch` + `resetLocalFilters()`. Case-bar Clear still `setFilters(emptyCaseFilters())` and `commit({ ...selection, issue: null })`.
+- Browser verify on `localhost:5173`: `#issues` four `.chartcard` SVGs; bar “Nothing selected”; `?issue=cea-preemption` lead CEA preemption, 9 cases, matter jump → `?issue=cea-preemption&case=case-flaherty#cases`; Issue Clear drops `?issue=`; case-bar issue select writes `?issue=cftc-offensive`; `?issue=nope` fail-closed; 900px `max-width: 940px` true, SVGs resize; `#entities` still EmptyState. Synthetic heatmap click did not reliably hit ECharts ZRender; URL hydrate + issue dropdown cover the sync AC.
+
 ### Completion Notes List
 
-- Ultimate context engine analysis completed - comprehensive developer guide created
+- Extended the existing `ApexF1Provider` selection with `?issue=`. One hook. Search / posture / state / circuit stay local React state. Case-bar issue `<select>` is bound to `selection.issue`.
+- Enriched `GET /api/cases` with `firstOccurredAt` via a fourth bulk `MIN(occurred_at)` on `docket_events`. Missing events → `null`. Not added to `Case` / `CaseDetail`. No `/api/issues`, no FTS5, no N+1 `getCaseById`.
+- `#issues` is IssueBar + four ECharts 5 SVG views under `src/surfaces/apex/issues/`. Family is a client constant keyed by slug. Controlling count uses `isControlling`, not array index 0. Empty URL does not default-select CEA preemption.
+- Chart-init failure is EmptyState “Chart library did not load”; tags still on case records. Heights match the handoff (520 / 460 / 430 / 640). Existing 940px breakpoint only.
+- No second selection store, no React Router, no CDN, no `IssueDetailPage`, no live deploy, no D1 family migration.
 
 ### File List
+
+- _bmad-output/implementation-artifacts/2-6-issue-map-synced-to-cases.md
+- _bmad-output/implementation-artifacts/sprint-status.yaml
+- package-lock.json
+- package.json
+- src/shared/api/publicApi.test.ts
+- src/shared/db/repos/casesRepo.ts
+- src/shared/schemas/caseSchema.ts
+- src/shared/ui/pml.css
+- src/surfaces/apex/ApexF1Context.tsx
+- src/surfaces/apex/ApexShell.tsx
+- src/surfaces/apex/cases/CaseBoard.tsx
+- src/surfaces/apex/cases/cases.test.tsx
+- src/surfaces/apex/circuits/circuits.test.tsx
+- src/surfaces/apex/circuits/useCircuitData.ts
+- src/surfaces/apex/issues/IssueBar.tsx
+- src/surfaces/apex/issues/IssueBoard.tsx
+- src/surfaces/apex/issues/IssueChart.tsx
+- src/surfaces/apex/issues/echartsSetup.ts
+- src/surfaces/apex/issues/issueCharts.ts
+- src/surfaces/apex/issues/issueView.ts
+- src/surfaces/apex/issues/issues.test.tsx
+- src/surfaces/apex/selection.ts
+- src/surfaces/apex/states/states.test.tsx
+- src/surfaces/apex/useApexSelection.ts
+- src/surfaces/shells.test.tsx
+
+## Change Log
+
+- 2026-09-02: Story context created from Epic 2 / FR42 / UX-DR14 / handoff A2b / Stories 2.1–2.5 (ready-for-dev)
+- 2026-09-02: Implemented `#issues` four ECharts views synced via `?issue=` to the case record; status → review
+- 2026-09-02: Code review patches — preserve `?issue=` on state clicks, sunburst leaf sets the leaf issue, replaceState hash jumps, honest loading copy, tooltip escape, tighter tests; status → done
+

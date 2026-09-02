@@ -9,6 +9,7 @@ import type { Circuit } from "../../../shared/schemas/circuit";
 import type { State } from "../../../shared/schemas/state";
 import type { ApexF1Value } from "../ApexF1Context";
 import { ApexF1Stub } from "../ApexF1Context";
+import { clearedIssueSelection } from "../selection";
 import { CaseBoard } from "./CaseBoard";
 import { CaseDetailPanel } from "./CaseDetail";
 import { CaseList } from "./CaseList";
@@ -75,6 +76,7 @@ function caseRow(
     listIssueTags: [],
     affectedStateCodes: [],
     entityRoles: [],
+    firstOccurredAt: null,
     ...partial
   };
 }
@@ -132,11 +134,13 @@ function stub(partial: Partial<ApexF1Value> = {}): ApexF1Value {
     states: mockStates,
     cases: [flaherty, other],
     listsReady: true,
-    selection: { state: null, circuit: null, case: null },
+    selection: { state: null, circuit: null, case: null, issue: null },
     commit: () => undefined,
     statusFilter: "all",
     setStatusFilter: (() => undefined) as ApexF1Value["setStatusFilter"],
     detailEpoch: 0,
+    filtersEpoch: 0,
+    resetLocalFilters: () => undefined,
     ...partial
   };
 }
@@ -332,7 +336,12 @@ describe("CaseBoard", () => {
   it("marks the selected row and shows its caption in the panel", () => {
     const html = board(
       stub({
-        selection: { state: null, circuit: null, case: "case-flaherty" }
+        selection: {
+          state: null,
+          circuit: null,
+          case: "case-flaherty",
+          issue: null
+        }
       })
     );
     expect(html).toContain('aria-pressed="true"');
@@ -349,7 +358,12 @@ describe("CaseBoard", () => {
     const html = board(
       stub({
         cases: [flaherty],
-        selection: { state: null, circuit: null, case: "case-flaherty" }
+        selection: {
+          state: null,
+          circuit: null,
+          case: "case-flaherty",
+          issue: null
+        }
       })
     );
     const item = html.match(
@@ -358,6 +372,54 @@ describe("CaseBoard", () => {
     expect(item).toContain('class="sw pending"');
     expect(item).toContain("Pending — skeptical");
     expect(item).not.toContain('class="sw banned"');
+  });
+
+  it("binds the issue dropdown to selection.issue", () => {
+    const html = board(
+      stub({
+        selection: {
+          state: null,
+          circuit: null,
+          case: null,
+          issue: "cea-preemption"
+        }
+      })
+    );
+    expect(html).toMatch(
+      /<option selected="" value="cea-preemption"|<option value="cea-preemption" selected="">/
+    );
+    expect(html).toContain("1 of 2 cases");
+  });
+
+  it("marks Clear unpressed while an issue is selected", () => {
+    const html = board(
+      stub({
+        selection: {
+          state: null,
+          circuit: null,
+          case: null,
+          issue: "cea-preemption"
+        }
+      })
+    );
+    expect(html).toContain(">Clear</button>");
+    expect(html).toMatch(/aria-pressed="false"[^>]*>Clear</);
+  });
+
+  it("case-bar Clear commits issue: null and keeps the other axes", () => {
+    expect(
+      clearedIssueSelection({
+        state: "NJ",
+        circuit: "cir-3",
+        case: "case-flaherty",
+        issue: "cea-preemption"
+      })
+    ).toEqual({
+      state: "NJ",
+      circuit: "cir-3",
+      case: "case-flaherty",
+      issue: null
+    });
   });
 });
 
@@ -416,7 +478,8 @@ describe("CaseDetailPanel", () => {
         selection={{
           state: null,
           circuit: null,
-          case: "case-flaherty"
+          case: "case-flaherty",
+          issue: null
         }}
         commit={() => undefined}
         detail={detailMock}
@@ -440,7 +503,8 @@ describe("CaseDetailPanel", () => {
         selection={{
           state: null,
           circuit: null,
-          case: "case-flaherty"
+          case: "case-flaherty",
+          issue: null
         }}
         commit={() => undefined}
         detail={{ ...detailMock, docketEvents: [] }}

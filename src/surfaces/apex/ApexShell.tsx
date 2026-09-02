@@ -13,6 +13,7 @@ import {
 import { ApexF1Provider } from "./ApexF1Context";
 import { CaseBoard } from "./cases/CaseBoard";
 import { CircuitSplit } from "./circuits/CircuitSplit";
+import { IssueBoard } from "./issues/IssueBoard";
 import { CredibilityStrip } from "./orientation/CredibilityStrip";
 import { ExecutiveBrief } from "./orientation/ExecutiveBrief";
 import { KpiRow } from "./orientation/KpiRow";
@@ -115,17 +116,11 @@ export function ApexShell({ dev = false }: ApexShellProps) {
 
           <SectionBand
             id="issues"
-            kicker="04"
-            title="Issue map"
-            why="Which legal questions are actually driving outcomes, across every tracked matter."
+            kicker="A2b · Issue map"
+            title="What is actually being litigated"
+            why="Every matter carries a controlling issue and its secondary issues, drawn from a fixed vocabulary. Click anything below: the panel names the matters, and the case record further down filters to match."
           >
-            <EmptyState
-              title="Issue views not yet wired"
-              hint="Issue tags come from the case record."
-            >
-              Story 2.6 renders matrix, emergence, frequency, and family views
-              from the approved case issue tags.
-            </EmptyState>
+            <IssueBoard />
           </SectionBand>
 
           <SectionBand
