@@ -205,9 +205,13 @@ describe("public F1 API (story 2.1)", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       id: string;
+      reading: string;
+      methodNote: string;
       factors: Array<{ lead: string; explanation: string }>;
     };
     expect(body.id).toBe("current");
+    expect(body.reading).toBe("elevated");
+    expect(body.methodNote).toBeTruthy();
     expect(body.factors.length).toBeGreaterThan(0);
     expect(body.factors[0]).toEqual({
       lead: expect.any(String),

@@ -67,3 +67,8 @@
 
 - Entity tests pin `selectionFromEntityMatter` / `selectionForState` and static “Open case record” markup instead of clicking `commit`. Epic 2 UI tests are `renderToStaticMarkup` only; there is no click driver and Story 2.7 forbids a new npm dependency. Revisit if a later story adds a harness.
 
+## Deferred from: code review of 2-8-qualitative-cert-signal.md (2026-09-02)
+
+- Seed `methodNote` is now public `#cert` copy and still says the reading was “Seeded qualitatively from the Aug 9, 2026 case-law survey corpus (docs/research/)”. Story 2.8 was required to print D1 `methodNote` and not migrate; rewrite the seed sentence if the public gauge should not name a repo path.
+- Apex top-nav still labels `#cert` as “Cert signal” after the band title became “Certiorari likelihood”. The nav string is pre-2.8 chrome; this story only rewrote the SectionBand title.
+

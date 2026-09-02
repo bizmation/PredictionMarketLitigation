@@ -74,7 +74,7 @@ describe("ApexShell", () => {
 
   it("uses EmptyState for every unwired tracker band", () => {
     const html = apex();
-    const remaining = ["cert", "trust", "ops"];
+    const remaining = ["trust", "ops"];
     for (const id of remaining) {
       const section = html.match(
         new RegExp(`<section class="band" id="${id}"[\\s\\S]*?</section>`)
@@ -119,6 +119,13 @@ describe("ApexShell", () => {
     expect(entities).toContain("Platforms and parties");
     expect(entities).toContain("A3b · Entity record");
     expect(entities).toMatch(/class="(etabs|ent)"/);
+    const cert = html.match(
+      /<section class="band" id="cert"[\s\S]*?<\/section>/
+    )?.[0];
+    expect(cert).not.toContain("Signal view not yet wired");
+    expect(cert).toContain("Certiorari likelihood");
+    expect(cert).toContain("A4 · Qualitative signal");
+    expect(cert).toMatch(/class="(cert|certgauge)"/);
   });
 });
 
