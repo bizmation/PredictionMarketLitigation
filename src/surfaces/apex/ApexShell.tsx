@@ -12,6 +12,7 @@ import {
 } from "../../shared/ui";
 import { ApexF1Provider } from "./ApexF1Context";
 import { CaseBoard } from "./cases/CaseBoard";
+import { CertBoard } from "./cert/CertBoard";
 import { CircuitSplit } from "./circuits/CircuitSplit";
 import { EntityBoard } from "./entities/EntityBoard";
 import { IssueBoard } from "./issues/IssueBoard";
@@ -145,17 +146,11 @@ export function ApexShell({ dev = false }: ApexShellProps) {
 
         <SectionBand
           id="cert"
-          kicker="07"
-          title="Cert signal"
-          why="A qualitative reading of Supreme Court review — named factors, no model, no score."
+          kicker="A4 · Qualitative signal"
+          title="Certiorari likelihood"
+          why="Qualitative only. No market-derived number ships in v1 — the space below the reading is deliberately held open for one, with its methodology and its reflexivity caveat."
         >
-          <EmptyState
-            title="Signal view not yet wired"
-            hint="This is a reading, never a probability and never market-derived."
-          >
-            The qualitative seed reading is available through the API; Story 2.8
-            renders its five-step scale and named factors.
-          </EmptyState>
+          <CertBoard />
         </SectionBand>
 
         <SectionBand
