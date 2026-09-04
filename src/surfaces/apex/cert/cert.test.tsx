@@ -59,7 +59,9 @@ describe("CertBoard", () => {
     expect(html).toContain("not a probability");
     expect(html).toContain("Not shipped");
     expect(html).toContain("Mock appellate posture");
-    expect(html).toContain("Synthetic factor for tests, not a prototype essay.");
+    expect(html).toContain(
+      "Synthetic factor for tests, not a prototype essay."
+    );
     expect(html).toContain("Mock timing");
     expect(html).toContain("A second named factor so numbering is visible.");
     expect(html).toContain('class="fn">1');

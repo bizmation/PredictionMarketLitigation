@@ -31,7 +31,7 @@ const THUMBS_UP = (
 );
 
 const TERM_CHROME =
-  "The petition was docketed 28 July 2026; a conference this autumn would put argument in October Term 2026.";
+  "No certiorari petition is on the docket yet — New Jersey's deadline is 3 September 2026. A grant this autumn would put argument in October Term 2026.";
 
 type PollPanelProps = {
   results?: PollResults | null;

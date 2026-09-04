@@ -309,7 +309,8 @@ export default {
       });
     }
 
-    // Story 2.1 — public read-only F1 REST. After admin/agents guards so
+    // Story 2.1 — public F1 REST. Read-only until Story 2.9 added the one
+    // public mutation (POST /api/poll/votes). After admin/agents guards so
     // `/api/admin/*` cannot fall into the public router unguarded.
     const publicResponse = await handlePublicApi(request, env, pathname);
     if (publicResponse) return publicResponse;

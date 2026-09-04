@@ -113,7 +113,7 @@ describe("PollPanel", () => {
     const noTerm = renderToStaticMarkup(
       <PollPanel results={voted} status="success" />
     );
-    expect(noTerm).toContain("petition was docketed 28 July 2026");
+    expect(noTerm).toContain("No certiorari petition is on the docket yet");
     expect(noTerm).not.toContain("OT 2026%");
 
     const withTerm = renderToStaticMarkup(
