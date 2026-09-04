@@ -250,14 +250,6 @@ describe("public F1 API (story 2.1)", () => {
     });
   });
 
-  it("does not claim /api/poll/votes (story 2.9)", async () => {
-    const res = await worker.fetch!(get("/api/poll/votes"), testEnv);
-    expect(res.status).toBe(404);
-    expect(res.headers.get("content-type") ?? "").not.toContain(
-      "application/json"
-    );
-  });
-
   it("still 403s /api/admin/* and /agents/* (perimeter regression)", async () => {
     const anon = { ...testEnv, ACCESS_DEV_BYPASS: undefined } as Env;
     for (const path of ["/api/admin/ping", "/agents/ChatAgent"]) {
@@ -641,5 +633,169 @@ describe("us-atlas name join (story 2.3)", () => {
     for (const row of body.items) {
       expect(atlas.has(row.name)).toBe(true);
     }
+  });
+});
+
+/**
+ * Story 2.9 — the reader poll is the first public POST. These tests own the
+ * paths the 2.1/1.4 placeholders used to pin as "unclaimed" 404s.
+ */
+describe("reader poll (story 2.9)", () => {
+  let voteCookie: string | null = null;
+
+  function send(path: string, init?: RequestInit) {
+    return new Request(`https://pml.example.com${path}`, init);
+  }
+
+  function post(path: string, body: unknown, headers?: Record<string, string>) {
+    return send(path, {
+      method: "POST",
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json", ...headers }
+    });
+  }
+
+  it("returns an empty, no-store results envelope before any vote", async () => {
+    const res = await worker.fetch!(send("/api/poll/results"), testEnv);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toContain("no-store");
+    expect(await res.json()).toEqual({
+      voted: false,
+      mine: { cert: null, term: null },
+      total: 0,
+      cert: null,
+      terms: null
+    });
+  });
+
+  it("casts an anonymous vote with an HttpOnly cookie", async () => {
+    const res = await worker.fetch!(
+      post("/api/poll/votes", { cert: "yes" }),
+      testEnv
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toContain("no-store");
+    const setCookie = res.headers.get("set-cookie") ?? "";
+    expect(setCookie).toContain("pml_poll=");
+    expect(setCookie).toContain("HttpOnly");
+    voteCookie = setCookie.split(";")[0]!;
+    const body = (await res.json()) as { voted: boolean; total: number };
+    expect(body.voted).toBe(true);
+    expect(body.total).toBe(1);
+  });
+
+  it("rejects a change to the already-cast cert with 409", async () => {
+    const res = await worker.fetch!(
+      post("/api/poll/votes", { cert: "no" }, { cookie: voteCookie! }),
+      testEnv
+    );
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: "conflict" });
+  });
+
+  it("returns 200 idempotently for an unchanged re-vote", async () => {
+    const res = await worker.fetch!(
+      post("/api/poll/votes", { cert: "yes" }, { cookie: voteCookie! }),
+      testEnv
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { voted: boolean; total: number };
+    expect(body.voted).toBe(true);
+    expect(body.total).toBe(1);
+  });
+
+  it("reveals the split with a cookie and hides it without one", async () => {
+    const withCookie = await worker.fetch!(
+      send("/api/poll/results", { headers: { cookie: voteCookie! } }),
+      testEnv
+    );
+    const revealed = (await withCookie.json()) as {
+      voted: boolean;
+      total: number;
+      cert: { yes: number; no: number } | null;
+    };
+    expect(revealed.voted).toBe(true);
+    expect(revealed.total).toBe(1);
+    expect(revealed.cert).toEqual({ yes: 1, no: 0 });
+
+    const without = await worker.fetch!(send("/api/poll/results"), testEnv);
+    const hidden = (await without.json()) as {
+      voted: boolean;
+      total: number;
+      cert: null;
+    };
+    expect(hidden.voted).toBe(false);
+    expect(hidden.total).toBe(1);
+    expect(hidden.cert).toBeNull();
+  });
+
+  it("records a term on a follow-up POST and 409s a second, different term", async () => {
+    const first = await worker.fetch!(
+      post(
+        "/api/poll/votes",
+        { cert: "yes", term: "ot26" },
+        { cookie: voteCookie! }
+      ),
+      testEnv
+    );
+    expect(first.status).toBe(200);
+    const firstBody = (await first.json()) as {
+      voted: boolean;
+      mine: { cert: string; term: string | null };
+      terms: { ot26: number; ot27: number; ot28: number; later: number } | null;
+    };
+    expect(firstBody.voted).toBe(true);
+    expect(firstBody.mine).toEqual({ cert: "yes", term: "ot26" });
+    expect(firstBody.terms).toEqual({ ot26: 1, ot27: 0, ot28: 0, later: 0 });
+
+    const second = await worker.fetch!(
+      post(
+        "/api/poll/votes",
+        { cert: "yes", term: "ot27" },
+        { cookie: voteCookie! }
+      ),
+      testEnv
+    );
+    expect(second.status).toBe(409);
+    expect(await second.json()).toMatchObject({ code: "conflict" });
+
+    const results = await worker.fetch!(
+      send("/api/poll/results", { headers: { cookie: voteCookie! } }),
+      testEnv
+    );
+    const stored = (await results.json()) as {
+      mine: { term: string | null };
+      terms: { ot26: number; ot27: number; ot28: number; later: number } | null;
+    };
+    expect(stored.mine.term).toBe("ot26");
+    expect(stored.terms).toEqual({ ot26: 1, ot27: 0, ot28: 0, later: 0 });
+  });
+
+  it("rejects an oversized vote body with 400 before parsing it", async () => {
+    const res = await worker.fetch!(
+      send("/api/poll/votes", {
+        method: "POST",
+        body: "x".repeat(2048),
+        headers: { "content-type": "application/json" }
+      }),
+      testEnv
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ code: "bad_request" });
+  });
+
+  it("rejects GET on the votes path with 405 allow POST", async () => {
+    const res = await worker.fetch!(send("/api/poll/votes"), testEnv);
+    expect(res.status).toBe(405);
+    expect(res.headers.get("allow")).toBe("POST");
+  });
+
+  it("returns envelope 404 for unknown /api/poll routes", async () => {
+    const res = await worker.fetch!(send("/api/poll/nope"), testEnv);
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({
+      code: "not_found",
+      message: expect.any(String)
+    });
   });
 });

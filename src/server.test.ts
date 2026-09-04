@@ -375,16 +375,18 @@ describe("public routes stay public (AC5)", () => {
     expect(res.status).toBe(404); // no asset layer in the test pool
   });
 
-  it("leaves a public mutating endpoint untouched (story 2.9 poll votes)", async () => {
+  it("leaves a public mutating endpoint open (story 2.9 poll votes, AC5)", async () => {
     const res = await worker.fetch(
       get("/api/poll/votes", {
         method: "POST",
-        body: JSON.stringify({ choice: "grant" }),
+        body: JSON.stringify({ cert: "yes" }),
         headers: { "content-type": "application/json" }
       }),
       anon
     );
-    expect(res.status).toBe(404);
+    // Not 403: an anonymous vote is the whole point of the reader poll. It is
+    // also not a 404 anymore — story 2.9 owns this path. 200 is the success.
+    expect(res.status).toBe(200);
   });
 
   it("leaves the ops. surface untouched", async () => {
