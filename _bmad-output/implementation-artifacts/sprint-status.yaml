@@ -1,4 +1,4 @@
-﻿# generated: 2026-08-09
+# generated: 2026-08-09
 # last_updated: 2026-09-03
 # project: PML
 # project_key: NOKEY
@@ -13,8 +13,8 @@
 #   - done: All stories in epic completed
 #
 # Epic Status Transitions:
-#   - backlog â†’ in-progress: Automatically when first story is created (via create-story)
-#   - in-progress â†’ done: Manually when all stories reach 'done' status
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
 #
 # Story Status:
 #   - backlog: Story only exists in epic file
@@ -63,10 +63,10 @@ development_status:
   2-7-entity-ledger: done
   2-8-qualitative-cert-signal: done
   2-9-reader-cert-poll-tally-api: done
-  2-10-trust-furniture-donations-ops-handoff: ready-for-dev
+  2-10-trust-furniture-donations-ops-handoff: done
   epic-2-retrospective: optional
 
-  # Epic 3: Governed Daily Loop (Pipeline â†’ Gate â†’ Live)
+  # Epic 3: Governed Daily Loop (Pipeline → Gate → Live)
   epic-3: backlog
   3-1-run-draft-evidence-data-model: backlog
   3-2-ai-gateway-budget-envelope-role-model-config: backlog

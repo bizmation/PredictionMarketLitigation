@@ -196,6 +196,9 @@ section.band {
 .sec-head h2 {
   font-size: 30px;
   font-weight: 400;
+  /* Band titles can carry unbreakable tokens (ops.predictionmarketlitigation.com)
+     — let them wrap instead of forcing horizontal scroll on narrow viewports. */
+  overflow-wrap: anywhere;
 }
 .sec-head .why {
   margin-left: auto;
@@ -2251,12 +2254,81 @@ header.masthead h1 {
   }
 }
 
+/* ---- trust furniture (story 2.10) -------------------------
+   Ported from Tracker.html #trust / #ops. The correction panel is a
+   shell only — Story 4.5 adds the form fields and moderated queue. */
+.trust {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: var(--space-8);
+}
+.disclaimer {
+  border-left: 2px solid var(--color-accent);
+  padding-left: var(--space-4);
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--color-neutral-800);
+}
+.disclaimer p {
+  margin: 0 0 var(--space-3);
+}
+.disclaimer strong {
+  font-weight: 600;
+  color: var(--color-text);
+}
+.trust-ctas {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-top: var(--space-6);
+}
+.bizmation {
+  font-size: 12px;
+  color: var(--color-neutral-600);
+  margin-top: var(--space-4);
+}
+.corr {
+  border: 1px solid var(--color-neutral-700);
+  padding: var(--space-6);
+  /* Anchor target for the Corrections nav/footer links (#correct) — keep the
+     jump clear of the sticky topbar, same as section.band. */
+  scroll-margin-top: 62px;
+}
+.corr h3 {
+  font-size: 24px;
+  font-weight: 400;
+  margin: var(--space-2) 0 var(--space-4);
+}
+.corr p {
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--color-neutral-800);
+  margin: 0;
+}
+.opslink {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-6);
+  align-items: center;
+  border: 1px solid var(--color-neutral-700);
+  padding: var(--space-6);
+}
+.opslink p {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--color-neutral-800);
+  max-width: 62ch;
+  line-height: 1.6;
+}
+
 @media (max-width: 940px) {
   .f1,
   .board,
   .cases,
   .ent,
-  .cert {
+  .cert,
+  .trust,
+  .opslink {
     grid-template-columns: 1fr;
   }
   .detail {
