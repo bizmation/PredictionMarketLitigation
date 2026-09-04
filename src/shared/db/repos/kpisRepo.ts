@@ -52,12 +52,15 @@ export async function getKpis(db: Db): Promise<ApexKpis> {
          (SELECT COUNT(*) FROM circuits) AS circuits_total,
          (SELECT COUNT(*) FROM cases
            WHERE forum = 'federal-appellate' AND lifecycle = 'active') AS appeals_pending,
-         (SELECT MAX(updated_at) FROM (
-            SELECT updated_at FROM cases
-            UNION ALL SELECT updated_at FROM states
-            UNION ALL SELECT updated_at FROM circuits
-            UNION ALL SELECT updated_at FROM cert_signals
-         )) AS freshness,
+          (SELECT MAX(updated_at) FROM (
+             SELECT updated_at FROM cases
+             UNION ALL SELECT updated_at FROM states
+             UNION ALL SELECT updated_at FROM circuits
+             UNION ALL SELECT updated_at FROM cert_signals
+             -- docket_events drive /api/developments and case dockets; a bump
+             -- there (0003 did exactly that) must refresh the page-wide stamp.
+             UNION ALL SELECT updated_at FROM docket_events
+          )) AS freshness,
          (SELECT provenance_kind FROM cert_signals LIMIT 1) AS provenance_kind`
     )
     .first<KpiSummaryRow>();

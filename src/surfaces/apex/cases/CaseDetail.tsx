@@ -182,7 +182,7 @@ export function CaseDetailPanel({
         ) : null}
 
         <div className="detail-actions">
-          <a className="btn btn-ghost" href="#trust">
+          <a className="btn btn-ghost" href="#correct">
             Report an error
           </a>
         </div>

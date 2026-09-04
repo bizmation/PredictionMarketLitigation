@@ -36,7 +36,7 @@
 # - Source epics: _bmad-output/planning-artifacts/epics.md (35 stories, readiness punch list applied 2026-08-09)
 
 generated: 2026-08-09
-last_updated: 2026-09-03
+last_updated: 09-04-2026 10:37
 project: PML
 project_key: NOKEY
 tracking_system: file-system
@@ -64,7 +64,7 @@ development_status:
   2-8-qualitative-cert-signal: done
   2-9-reader-cert-poll-tally-api: done
   2-10-trust-furniture-donations-ops-handoff: done
-  epic-2-retrospective: optional
+  epic-2-retrospective: done
 
   # Epic 3: Governed Daily Loop (Pipeline → Gate → Live)
   epic-3: backlog
@@ -99,3 +99,75 @@ development_status:
   4-6-admin-feedback-moderation-github-issue: backlog
   4-7-trust-closure-donations-repo-cross-links: backlog
   epic-4-retrospective: optional
+action_items:
+  - id: "epic-2-retro-item-1-stand-up-build-predictionmarketlitigatio"
+    epic: 2
+    action: "Stand up build.predictionmarketlitigation.com staging: env.build in wrangler.jsonc
+      (Worker pml-build, own D1 pml-build), deploy:build script, post-deploy smoke
+      checklist, DNS record"
+    owner: "agent + Patrick"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-2-retro-2026-09-04.md"
+  - id: "epic-2-retro-item-2-fix-cross-story-honesty-defect-batch-pol"
+    epic: 2
+    action: "Fix cross-story honesty defect batch: poll docketed-28-July chrome vs
+      seed/masthead, KPI Of-fifty vs 51, freshness union add docket_events, issue-jump
+      scroll parity, Report-an-error CTAs #trust to #correct (+test pins), /api/administrivia
+      envelope 404, sunburst Other segment, stale server.ts read-only comment"
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-2-retro-2026-09-04.md"
+  - id: "epic-2-retro-item-3-decide-unknown-operational-status-ux-fil"
+    epic: 2
+    action: "Decide unknown operational-status UX (filter chips + KPI cell) then implement"
+    owner: "Patrick decides, agent fixes"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-2-retro-2026-09-04.md"
+  - id: "epic-2-retro-item-4-break-the-deferred-fragility-family-fail"
+    epic: 2
+    action: "Break the deferred fragility family: failed-vs-empty in useCircuitData,
+      per-row parse tolerance, fetch timeout, deep-link reconciliation"
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-2-retro-2026-09-04.md"
+  - id: "epic-2-retro-item-5-add-ci-github-actions-running-npm-run-ch"
+    epic: 2
+    action: "Add CI: GitHub Actions running npm run check + npm test on every PR"
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-2-retro-2026-09-04.md"
+  - id: "epic-2-retro-item-6-decide-click-test-harness-jsdom-testing"
+    epic: 2
+    action: "Decide click-test harness (jsdom/testing-library vs Playwright e2e) then
+      cover the 7 fetch hooks + URL selection hook"
+    owner: "Patrick decides, agent implements"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-2-retro-2026-09-04.md"
+  - id: "epic-2-retro-item-7-burn-down-the-patrick-decision-backlog-d"
+    epic: 2
+    action: "Burn down the Patrick decision backlog (donation URL, founder photo/LinkedIn,
+      issue family column, filter-in-URL, forum filter, entity deep-link, shortName,
+      seed cert essay, cert factor count)"
+    owner: "Patrick"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-2-retro-2026-09-04.md"
+  - id: "epic-2-retro-item-8-record-remote-d1-migration-state-apply-0"
+    epic: 2
+    action: "Record remote D1 migration state; apply 0005 to staging DB first with
+      runbook update"
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-2-retro-2026-09-04.md"
+  - id: "epic-2-retro-item-9-restore-locate-prd-md-into-planning-arti"
+    epic: 2
+    action: "Restore/locate prd.md into planning artifacts so story FR citations resolve"
+    owner: "Patrick"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-2-retro-2026-09-04.md"
+  - id: "epic-2-retro-item-10-standing-agreement-one-merged-pr-per-sto"
+    epic: 2
+    action: "Standing agreement: one merged PR per story before the next story is
+      contexted"
+    owner: "team"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-2-retro-2026-09-04.md"

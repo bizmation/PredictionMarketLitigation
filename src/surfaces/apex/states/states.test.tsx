@@ -368,8 +368,8 @@ describe("StateDetailPanel sources", () => {
     expect(html).toContain("Kalshi");
     expect(html).toContain("CFTC-registered event contracts.");
     expect(html).toContain('href="#cases"');
-    expect(html).toContain('href="#trust"');
-    expect(html).not.toContain("#correct");
+    expect(html).toContain('href="#correct"');
+    expect(html).not.toContain("#trust");
   });
 
   it("does not paint another state's platforms under the selected heading", () => {

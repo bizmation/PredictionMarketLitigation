@@ -24,6 +24,22 @@ function writeSelection(next: ApexSelection): void {
   window.history.replaceState(null, "", url);
 }
 
+/**
+ * Land on a band anchor: replaceState writes the hash but never scrolls, so
+ * scroll explicitly. Shared by every "jump to case record / board" action so
+ * the behavior cannot fork per band (retro X-5: the issue map silently didn't
+ * scroll while the entity ledger did).
+ */
+export function jumpToBand(id: "cases" | "states"): void {
+  const loc = globalThis.location;
+  const hist = globalThis.history;
+  if (!loc || !hist) return;
+  const url = `${loc.pathname}${loc.search}#${id}`;
+  hist.replaceState(null, "", url);
+  const node = globalThis.document?.getElementById(id);
+  node?.scrollIntoView?.({ block: "start" });
+}
+
 function setFromKey(key: string): Set<string> {
   return new Set(key === "" ? [] : key.split(","));
 }
