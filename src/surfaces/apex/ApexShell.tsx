@@ -22,6 +22,7 @@ import { KpiRow } from "./orientation/KpiRow";
 import { Masthead } from "./orientation/Masthead";
 import { useOrientation } from "./orientation/useOrientation";
 import { StateBoard } from "./states/StateBoard";
+import { PollPanel } from "./poll/PollPanel";
 
 /**
  * Apex — the litigation intelligence tracker.
@@ -85,7 +86,7 @@ export function ApexShell({ dev = false }: ApexShellProps) {
         <CredibilityStrip opsHref={opsHref} />
         <Masthead opsHref={opsHref} kpis={kpis} developments={developments}>
           <KpiRow kpis={kpis} />
-          {/* Story 2.9 inserts #poll here, between KPI and #brief */}
+          <PollPanel />
         </Masthead>
 
         <SectionBand

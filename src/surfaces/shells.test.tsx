@@ -185,6 +185,31 @@ describe("ApexShell orientation chrome (story 2.2)", () => {
   });
 });
 
+describe("ApexShell reader poll (story 2.9)", () => {
+  it("renders the poll under the KPIs, outside the cert gauge", () => {
+    const html = apex();
+    expect(html).toContain('id="poll"');
+    expect(html).toContain('class="poll"');
+    expect(html).toContain("Will the Supreme Court take it?");
+    expect(html).toContain("Reader poll");
+  });
+
+  it("keeps one h1, the cert gauge, and trust/ops EmptyStates intact", () => {
+    const html = apex();
+    expect(html.match(/<h1[\s>]/g)).toHaveLength(1);
+    const cert = html.match(
+      /<section class="band" id="cert"[\s\S]*?<\/section>/
+    )?.[0];
+    expect(cert).toMatch(/class="(cert|certgauge)"/);
+    for (const id of ["trust", "ops"]) {
+      const section = html.match(
+        new RegExp(`<section class="band" id="${id}"[\\s\\S]*?</section>`)
+      )?.[0];
+      expect(section).toContain('class="empty"');
+    }
+  });
+});
+
 describe("AdminShell", () => {
   it("links to both apex and ops.", () => {
     const html = admin();

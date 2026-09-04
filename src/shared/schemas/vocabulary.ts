@@ -186,3 +186,23 @@ export const CERT_READING_VALUES = [
 
 export const CertReadingSchema = z.enum(CERT_READING_VALUES);
 export type CertReading = z.infer<typeof CertReadingSchema>;
+
+/**
+ * Reader cert poll (Story 2.9). Unscientific, qualitative-adjacent engagement
+ * — deliberately a separate vocabulary from `CertReading`, which is the named
+ * human's editorial signal. These strings must match the CHECKs in
+ * migrations/0005_poll_votes.sql exactly.
+ */
+export const POLL_CERT_VALUES = ["yes", "no"] as const;
+
+export const PollCertSchema = z.enum(POLL_CERT_VALUES);
+export type PollCert = z.infer<typeof PollCertSchema>;
+
+/**
+ * The followed term, only meaningful if cert is granted. PRD glossary strings
+ * verbatim; the UI renders the human label ("OT 2026", "Later or never").
+ */
+export const POLL_TERM_VALUES = ["ot26", "ot27", "ot28", "later"] as const;
+
+export const PollTermSchema = z.enum(POLL_TERM_VALUES);
+export type PollTerm = z.infer<typeof PollTermSchema>;
