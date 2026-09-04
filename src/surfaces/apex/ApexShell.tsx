@@ -1,6 +1,5 @@
 import { surfaceHref } from "../../shared/lib/surface";
 import {
-  EmptyState,
   LastUpdated,
   ProvenanceLabel,
   SectionBand,
@@ -36,12 +35,18 @@ import { PollPanel } from "./poll/PollPanel";
  * the product and the governance record is the receipt — collapsing them would
  * dissolve the separation the whole two-site split exists to make.
  *
- * Remaining tracker bands are EmptyState until their stories wire them. That
- * is deliberate: an honest empty state naming its owning story beats a
- * plausible-looking mock that a reader could mistake for a finding.
+ * Every apex band is wired as of Story 2.10 — the last EmptyState is gone.
+ * Until a band's owning story wires it, it renders an honest EmptyState
+ * naming that story, never a plausible-looking mock a reader could mistake
+ * for a finding.
  */
 
 const REPO_URL = "https://github.com/bizmation/PredictionMarketLitigation";
+
+// FR39 — donations at launch. The real target is an open question (see the
+// story's Open Question 1); this is a clearly-marked placeholder, not a live
+// Ko-fi / Buy Me a Coffee / GitHub Sponsors URL.
+const DONATE_URL = "#coffee";
 
 type ApexShellProps = {
   /** True in local development — routes cross-surface links via ?surface=. */
@@ -60,6 +65,7 @@ export function ApexShell({ dev = false }: ApexShellProps) {
     { href: "#cases", label: "Cases" },
     { href: "#entities", label: "Entities" },
     { href: "#cert", label: "Cert signal" },
+    { href: "#correct", label: "Corrections" },
     { href: opsHref, label: "ops.", external: true },
     { href: REPO_URL, label: "Repo", external: true }
   ];
@@ -156,36 +162,80 @@ export function ApexShell({ dev = false }: ApexShellProps) {
 
         <SectionBand
           id="trust"
-          kicker="08"
-          title="Corrections"
-          why="Every published claim carries a primary source. Tell us where one is wrong."
+          kicker="A5 / A6 · Provenance"
+          title="How this page is made"
+          why="Every published claim carries a primary source, and the machinery that maintains it is open to inspection."
         >
-          <EmptyState
-            title="Correction form not yet open"
-            hint="Corrections queue for operator review before anything is filed publicly."
-          >
-            Submissions become a tracked correction with a reference you can
-            follow.
-          </EmptyState>
+          <div className="trust">
+            <div>
+              <div className="disclaimer">
+                <p>
+                  <strong>Not legal advice.</strong> This site publishes general
+                  legal information about pending litigation. Reading it creates
+                  no attorney-client relationship, and nothing here is a
+                  substitute for counsel licensed in your jurisdiction.
+                </p>
+                <p>
+                  <strong>Built by AI, approved by a human.</strong> Every claim
+                  on this page is a seeded, human-curated record. The autonomous
+                  pipeline and its Approval Gate ship in Epic 3 and are not live
+                  yet.
+                </p>
+                <p>
+                  <strong>Drafts are not here.</strong> Proposed changes will
+                  live in full on <a href={opsHref}>ops.</a>, labelled not live,
+                  once the pipeline ships.
+                </p>
+              </div>
+              <div className="trust-ctas">
+                <a className="btn btn-primary" href={opsHref}>
+                  See the receipts on ops.
+                </a>
+                <a
+                  className="btn btn-secondary"
+                  href={REPO_URL}
+                  rel="noopener noreferrer"
+                  target="_blank"
+                >
+                  Public repository
+                </a>
+                <a className="btn btn-ghost" href={DONATE_URL}>
+                  Buy me a coffee
+                </a>
+              </div>
+              <p className="bizmation">Powered by Bizmation.</p>
+            </div>
+
+            <div className="corr" id="correct">
+              <div className="kicker">A6 · Report a discrepancy</div>
+              <h3>Corrections welcome</h3>
+              <p>
+                Submissions are not open yet — corrections will be queued for
+                operator review before anything is filed publicly.
+              </p>
+            </div>
+          </div>
         </SectionBand>
 
         <SectionBand
           id="ops"
-          kicker="09"
-          title="How this is governed"
-          why="The pipeline that maintains this tracker publishes its own record, in full, next door."
+          kicker="The other half of the system"
+          title="ops.predictionmarketlitigation.com"
+          why="Transparency and governance live on ops., not here."
         >
-          <EmptyState
-            title="The governance record lives on ops."
-            hint="No login required."
-          >
-            The daily pipeline is not live yet. When it is, every run, draft,
-            approval and rejection will be published at{" "}
-            <a href={opsHref} rel="noopener">
-              ops.predictionmarketlitigation.com
+          <div className="opslink">
+            <p>
+              The run log, full evidence for every run, the pending drafts in
+              full text, the current approval mode and its audit trail, and the
+              nine-layer governance explainer will all live on{" "}
+              <a href={opsHref}>ops.</a> — no login. The daily pipeline is not
+              live yet; when it is, every run and draft will be published there,
+              labelled not live.
+            </p>
+            <a className="btn btn-primary" href={opsHref}>
+              Open ops. ↗
             </a>
-            , alongside the nine-layer explainer and the build journal.
-          </EmptyState>
+          </div>
         </SectionBand>
       </main>
 
@@ -193,7 +243,9 @@ export function ApexShell({ dev = false }: ApexShellProps) {
         label="PredictionMarketLitigation"
         links={[
           { href: opsHref, label: "ops.", external: true },
-          { href: REPO_URL, label: "Repo", external: true }
+          { href: REPO_URL, label: "Repository", external: true },
+          { href: "#correct", label: "Corrections" },
+          { href: DONATE_URL, label: "Support the project" }
         ]}
         note="General legal information — not legal advice."
       />

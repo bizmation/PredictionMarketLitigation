@@ -74,13 +74,8 @@ describe("ApexShell", () => {
 
   it("uses EmptyState for every unwired tracker band", () => {
     const html = apex();
-    const remaining = ["trust", "ops"];
-    for (const id of remaining) {
-      const section = html.match(
-        new RegExp(`<section class="band" id="${id}"[\\s\\S]*?</section>`)
-      )?.[0];
-      expect(section).toContain('class="empty"');
-    }
+    // All apex bands are now wired (Story 2.10). There are no remaining
+    // EmptyState tracker bands.
     const brief = html.match(
       /<section class="band" id="brief"[\s\S]*?<\/section>/
     )?.[0];
@@ -193,20 +188,52 @@ describe("ApexShell reader poll (story 2.9)", () => {
     expect(html).toContain("Will the Supreme Court take it?");
     expect(html).toContain("Reader poll");
   });
+});
 
-  it("keeps one h1, the cert gauge, and trust/ops EmptyStates intact", () => {
+describe("ApexShell trust furniture and ops handoff (story 2.10)", () => {
+  it("renders the trust furniture, ops handoff, and keeps the cert gauge intact", () => {
     const html = apex();
     expect(html.match(/<h1[\s>]/g)).toHaveLength(1);
     const cert = html.match(
       /<section class="band" id="cert"[\s\S]*?<\/section>/
     )?.[0];
     expect(cert).toMatch(/class="(cert|certgauge)"/);
-    for (const id of ["trust", "ops"]) {
-      const section = html.match(
-        new RegExp(`<section class="band" id="${id}"[\\s\\S]*?</section>`)
-      )?.[0];
-      expect(section).toContain('class="empty"');
-    }
+    // Trust furniture (AC1, AC2) — scoped to the trust band
+    const trustSection = html.match(
+      /<section class="band" id="trust"[\s\S]*?<\/section>/
+    )?.[0];
+    expect(trustSection).toContain("How this page is made");
+    expect(trustSection).toContain("Powered by Bizmation");
+    expect(trustSection).toContain("Not legal advice");
+    expect(trustSection).toContain("Corrections welcome");
+    expect(trustSection).toContain("Buy me a coffee");
+    expect(trustSection).toContain("Public repository");
+    expect(trustSection).toContain('id="correct"');
+    // No fake form, no fake tracking ID (AC2) — form elements in the shell,
+    // tracking ID anywhere on the page
+    expect(trustSection).not.toContain("<input");
+    expect(trustSection).not.toContain("<textarea");
+    expect(trustSection).not.toContain("<select");
+    expect(trustSection).not.toContain("<button");
+    expect(html).not.toContain("PML-C-");
+    // ops. handoff (AC5) — scoped to the ops band, with a real href
+    const opsSection = html.match(
+      /<section class="band" id="ops"[\s\S]*?<\/section>/
+    )?.[0];
+    expect(opsSection).toContain("Open ops.");
+    expect(opsSection).toContain("ops.predictionmarketlitigation.com");
+    expect(html).toContain('href="https://ops.predictionmarketlitigation.com"');
+    // Footer (AC2, AC3, AC4)
+    const footer = html.match(/<footer class="foot">[\s\S]*?<\/footer>/);
+    expect(footer).toBeDefined();
+    expect(footer![0]).toContain("Corrections");
+    expect(footer![0]).toContain("Support the project");
+    // No fake pipeline claims (v1 honesty)
+    expect(html).not.toContain("pending right now");
+    expect(html).not.toContain("two pending");
+    expect(html).not.toContain("Approval Gate cleared");
+    expect(opsSection).toContain("will all live on");
+    expect(opsSection).not.toContain(" all live on ops.");
   });
 });
 
