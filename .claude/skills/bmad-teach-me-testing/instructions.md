@@ -15,20 +15,12 @@ The Teach Me Testing workflow is a multi-session learning companion that teaches
 
 ### Starting Fresh
 
-```bash
-# From TEA module location
-cd /path/to/bmad-method-test-architecture-enterprise
+Invoke the skill directly:
 
-# Run the workflow
-bmad run teach-me-testing
-```
+- Claude Code, Cursor, Windsurf: `/bmad-teach-me-testing`
+- Codex: `$bmad-teach-me-testing`
 
-Or invoke through TEA agent menu:
-
-```bash
-bmad agent tea
-# Select [TMT] Teach Me Testing
-```
+Or activate the TEA agent (`/bmad-tea` or `$bmad-tea`) and select menu code `TMT`.
 
 ### Continuing Existing Progress
 
@@ -101,7 +93,7 @@ Complete all 7 sessions to receive your TEA Academy completion summary with:
 1. **Set aside dedicated time** - Each session requires focus (30-90 min)
 2. **Take notes** - Session notes are generated, but add your own insights
 3. **Apply immediately** - Practice concepts on your current project
-4. **Explore fragments** - Session 7 has 42 knowledge fragments to deep-dive
+4. **Explore fragments** - Session 7 has 59 knowledge fragments to deep-dive
 5. **Share with team** - Help others learn by sharing your experience
 
 ## Customization by Role

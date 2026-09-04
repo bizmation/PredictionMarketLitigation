@@ -181,7 +181,7 @@ average_score: { average_score }
 
 ### Learning Artifacts
 
-All session notes and progress tracking available at:
+Session notes are available at:
 `{test_artifacts}/tea-academy/{user_name}/`
 
 **Session Notes:**
@@ -206,7 +206,7 @@ All session notes and progress tracking available at:
 1. **Apply TEA to your project:** Start with Framework setup workflow
 2. **Run TEA workflows:** Test Design → ATDD/Automate → Test Review
 3. **Share knowledge:** Help team members through TEA Academy
-4. **Explore knowledge fragments:** 42 fragments for just-in-time learning
+4. **Explore knowledge fragments:** 59 fragments for just-in-time learning
 5. **Contribute improvements:** Share feedback on TEA methodology
 
 **TEA Resources:**
@@ -287,7 +287,7 @@ You've successfully completed the entire TEA Academy curriculum!
 - Apply risk-based testing (P0-P3 prioritization)
 - Implement architecture patterns (fixtures, network-first)
 - Maintain quality through Test Review and Trace
-- Explore 42 knowledge fragments as needed
+- Explore 59 knowledge fragments as needed
 
 **Next Steps:**
 
@@ -336,7 +336,7 @@ Workflow ends here. User can run the workflow again to re-take sessions or explo
 
 ## On Complete
 
-Run: `python3 {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} --key workflow.on_complete`
+Run: `uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} --project-root {project-root} --key workflow.on_complete`
 
 If the resolver succeeds and returns a non-empty `workflow.on_complete`, execute that value as the final terminal instruction before exiting.
 
