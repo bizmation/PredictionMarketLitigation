@@ -1,0 +1,37 @@
+name: CI
+
+# Epic 2 retro action item 5 — the Epic 1 lesson (Story 1.3's green claims
+# "neither reproduced") made structural: nothing lands without check + tests.
+#
+# Zero cloud credentials by design: the vitest workers pool runs the real
+# Worker against Miniflare D1 with the real migrations applied.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check (format + lint + typecheck)
+        run: npm run check
+
+      - name: Test (real Worker + Miniflare D1)
+        run: npm test
