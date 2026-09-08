@@ -121,6 +121,17 @@
   // create a SECOND database and write the id back into this file — and when
   // the deploy runs from Workers Builds, that write is not persisted to the
   // repo. Production would silently drift from source.
+  // Story 2.1 makes D1 canonical for the public F1 entities. `--local`
+  // (Miniflare simulation) is used for development and tests; the database
+  // below is the production store populated by Wrangler migrations.
+  //
+  // Created 2026-08-10 via the Cloudflare D1 API (name: pml, region: ENAM).
+  //
+  // Do NOT delete this block to "fix" a deploy error. Wrangler's automatic
+  // provisioning is on by default: a binding with no database_id makes it
+  // create a SECOND database and write the id back into this file — and when
+  // the deploy runs from Workers Builds, that write is not persisted to the
+  // repo. Production would silently drift from source.
   "d1_databases": [
     {
       "binding": "DB",
@@ -144,7 +155,80 @@
       "pattern": "ops.predictionmarketlitigation.com",
       "custom_domain": true
     }
-  ]
+  ],
+
+  // ── build.* STAGING (Epic 2 retro item 1, 2026-09-08) ───────────────────
+  //
+  // The single-environment decision above (story 1.5) explicitly reserved this
+  // escape hatch: "nothing stops a later story from reintroducing a staging
+  // environment the same way it was built the first time, if it's ever
+  // actually needed." Epic 3 is that moment — the pipeline needs somewhere to
+  // deploy and migrate that is not the production landing page or the
+  // production D1.
+  //
+  // `build.predictionmarketlitigation.com` serves the real app against its
+  // own `pml-build` D1. Production (`pml`, apex, `ops.`) is untouched by any
+  // `deploy:build`. Unlike the /preview rule, this is a separate hostname:
+  // the landing page never moves, so resolveSurface needs no base-path
+  // concept and `run_worker_first` carries over unchanged.
+  //
+  // Keys overridden at env level (name, workers_dev, preview_urls, routes,
+  // d1_databases) are exactly the non-inheritable or production-binding ones;
+  // everything else (main, assets, ai, durable_objects, migrations,
+  // observability, compatibility) inherits from the top level. Access on
+  // `/admin` is Worker-gated only here — same deliberate asymmetry as `ops.`
+  // (runbook §6); adding an edge gate is a Zero Trust dashboard step Patrick
+  // can take later.
+  "env": {
+    "build": {
+      "name": "pml-build",
+      "workers_dev": false,
+      "preview_urls": false,
+      // `durable_objects` and `ai` are NOT inherited by environments — without
+      // these the staging Worker would deploy with no AI binding and no DO
+      // (wrangler warns loudly; the deploy would not start).
+      "durable_objects": {
+        "bindings": [
+          {
+            "class_name": "ChatAgent",
+            "name": "ChatAgent"
+          }
+        ]
+      },
+      "ai": { "binding": "AI", "remote": true },
+      // Deployed from the ORIGINAL config (`wrangler deploy --config
+      // wrangler.jsonc -e build`), so assets must point at the built SPA
+      // output — the vite-plugin redirect that normally maps ../client does
+      // not apply here.
+      "assets": {
+        "directory": "./dist/client",
+        "not_found_handling": "single-page-application",
+        "run_worker_first": [
+          "/agents",
+          "/agents/*",
+          "/oauth",
+          "/oauth/*",
+          "/api",
+          "/api/*"
+        ]
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "pml-build",
+          // Created 2026-09-08 via `npx wrangler d1 create pml-build`.
+          "database_id": "9e83494a-016e-4bff-9e07-7fca3a159a83",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "routes": [
+        {
+          "pattern": "build.predictionmarketlitigation.com",
+          "custom_domain": true
+        }
+      ]
+    }
+  }
 
   // Story 2.1 owns the F1 D1 schema, seed, and read-only public API.
   // Story 3.2 — AI Gateway binding/credentials via Worker secrets (never committed)

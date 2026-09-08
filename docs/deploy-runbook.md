@@ -222,6 +222,31 @@ These live in `.env` (gitignored via `.gitignore:248`; **this repo is public**).
 | Environment | Worker | D1 | Domains | Deploy |
 |---|---|---|---|---|
 | local | — (miniflare, `--local`) | `pml` | `localhost:5173` | `npm run dev` |
+| **build (staging)** | `pml-build` | `pml-build` | `build.predictionmarketlitigation.com` | `npm run deploy:build` |
 | production | `pml` | `pml` | apex + `ops.` | `npm run deploy` |
 
-Single environment, single Worker name (`pml`) throughout — there is no `-production` suffix because there is nothing else to disambiguate from.
+---
+
+## build.* staging (Epic 2 retro item 1 — 2026-09-08)
+
+**Why it exists.** The story-1.5 single-environment decision explicitly reserved this: "nothing stops a later story from reintroducing a staging environment… if it's ever actually needed." Epic 3 is that moment — the governed pipeline needs somewhere to deploy, migrate, and run that is neither the production landing page nor the production D1. `build.` serves the real app against its own D1; production is untouched by any `deploy:build`.
+
+**What was stood up 2026-09-08:**
+
+| Step | Status |
+|---|---|
+| `npx wrangler d1 create pml-build` | ☑ id `9e83494a-016e-4bff-9e07-7fca3a159a83`, recorded in `wrangler.jsonc` `env.build` |
+| `env.build` block in `wrangler.jsonc` | ☑ name/workers_dev/preview_urls/routes/d1 overridden; everything else inherits |
+| `deploy:build` / `migrate:build` scripts | ☑ same load-bearing order as `deploy` (build → test-gate → migrate → deploy) |
+| Migrations on `pml-build` | see the deploy log below — `npm run migrate:build` applies `0001`–latest |
+| DNS | automatic — Custom Domains self-create the record (as they did for apex/`ops.` in §2); expect a propagation window before the first `200` |
+| Access on `/admin` | **Worker-gated only**, same deliberate asymmetry as `ops.` (§6). An edge gate is an optional Zero Trust dashboard step; the Worker-side `requireOperator` holds regardless. |
+
+**Rules of engagement:**
+
+1. **`npm run deploy:build` never touches production.** Worker name, D1, and hostname are all separate. The production `npm run deploy` warning about the landing page is unchanged — `build.*` is a different hostname entirely, so the landing-page hazard does not apply here.
+2. **Keep the test gate in the script.** Same reasoning as §5: `vite build && vitest run` ahead of the deploy is what makes the client-bundle secret scan mean anything. Do not simplify.
+3. **Record remote migration state here** as it lands — production D1 is still at `0001`–`0004`; `0005` (poll votes) and onward are staged on `pml-build` first, deliberately (retro V-2).
+4. **This is where Epic 3 work deploys.** Pipeline stories (3.2+) verify on `build.` before any production decision.
+
+
