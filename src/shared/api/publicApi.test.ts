@@ -3,6 +3,18 @@ import { describe, expect, it } from "vitest";
 
 import worker from "../../server";
 import { US_ATLAS_STATE_NAMES } from "../../surfaces/apex/circuits/atlasStateNames";
+import * as runsRepo from "../db/repos/runsRepo";
+import {
+  DRAFT_OUTCOME_VALUES,
+  RunDetailSchema,
+  RunSummarySchema
+} from "../schemas/run";
+import {
+  EVIDENCE_EVENT_VALUES,
+  RUN_MODE_VALUES,
+  RUN_ORIGIN_VALUES,
+  RUN_STATUS_VALUES
+} from "../schemas/vocabulary";
 
 /**
  * Story 2.1 — public F1 REST. Runs against Miniflare D1 with migrations
@@ -809,5 +821,265 @@ describe("reader poll (story 2.9)", () => {
       code: "not_found",
       message: expect.any(String)
     });
+  });
+});
+
+/**
+ * Story 3.1 — run records. Runs against the same Miniflare D1. Runs go in
+ * through `runsRepo.insertRun` (the function the pipeline will use), so the
+ * repo snake→camel mapping is exercised end-to-end; drafts/evidence fixtures
+ * are raw SQL because those repos are deliberately read-only this story (the
+ * projector/gate own their writes later). The FIRST test pins the empty state
+ * and must stay first — the later tests insert rows, and in-file order is the
+ * only isolation this suite has.
+ */
+describe("run records (story 3.1)", () => {
+  const TS_A = "2026-09-07T16:00:00.000Z"; // earlier run
+  const TS_B = "2026-09-08T16:00:00.000Z"; // later run, must sort first
+
+  type RunFixture = Parameters<typeof runsRepo.insertRun>[1];
+
+  function runInput(overrides: Partial<RunFixture> = {}): RunFixture {
+    return {
+      id: "run-20260908-dead",
+      origin: "scheduled",
+      mode: "hitl",
+      status: "published",
+      startedAt: TS_B,
+      completedAt: TS_B,
+      spendCents: 47,
+      spendCurrency: "USD",
+      budgetCents: 200,
+      scheduledFor: "2026-09-08",
+      ...overrides
+    };
+  }
+
+  it("lists an empty run log before any run exists", async () => {
+    const res = await worker.fetch!(get("/api/runs"), testEnv);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toContain("public, max-age=60");
+    const body = (await res.json()) as {
+      items: unknown[];
+      nextCursor?: string;
+    };
+    expect(body.items).toEqual([]);
+    expect(body).not.toHaveProperty("nextCursor");
+  });
+
+  it("lists runs newest-first by startedAt in camelCase after fixtures", async () => {
+    await runsRepo.insertRun(
+      testEnv.DB,
+      runInput({ id: "run-20260907-beef", startedAt: TS_A, completedAt: TS_A })
+    );
+    await runsRepo.insertRun(testEnv.DB, runInput());
+
+    const res = await worker.fetch!(get("/api/runs"), testEnv);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      items: Array<Record<string, unknown>>;
+    };
+    expect(body.items).toHaveLength(2);
+    expect(body.items[0]!.id).toBe("run-20260908-dead");
+    expect(body.items[1]!.id).toBe("run-20260907-beef");
+
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toMatch(
+      /started_at|completed_at|spend_cents|spend_currency|budget_cents|scheduled_for|run_id|target_entity|tier2_only|decided_at|decided_by|edited_body|payload_json|created_at|updated_at/
+    );
+    for (const item of body.items) {
+      expect(() => RunSummarySchema.parse(item)).not.toThrow();
+    }
+  });
+
+  it("returns run detail with drafts and evidence arrays", async () => {
+    await runsRepo.insertRun(
+      testEnv.DB,
+      runInput({
+        id: "run-20260907-c0de",
+        startedAt: TS_A,
+        completedAt: null,
+        status: "awaiting",
+        scheduledFor: null
+      })
+    );
+    await testEnv.DB.batch([
+      testEnv.DB.prepare(
+        `INSERT INTO drafts (id, run_id, target_entity_type, target_entity_id,
+            diff_json, body, tier2_only, confidence, eval_summary_json,
+            outcome, decided_at, decided_by, edited_body, created_at, updated_at)
+         VALUES ('draft-1', 'run-20260907-c0de', 'states', 'st-nv',
+            '{"posture":{"from":"untracked","to":"restricted"}}',
+            'Proposed update for Nevada.', 1, 61, NULL,
+            NULL, NULL, NULL, NULL,
+            '2026-09-07T16:05:00.000Z', '2026-09-07T16:05:00.000Z')`
+      ),
+      testEnv.DB.prepare(
+        `INSERT INTO evidence_events (id, run_id, seq, event, payload_json, created_at)
+         VALUES ('ev-0', 'run-20260907-c0de', 0, 'run.started', NULL,
+                 '2026-09-07T16:00:00.000Z'),
+                ('ev-1', 'run-20260907-c0de', 1, 'source.fetched',
+                 '{"source":"courtlistener"}', '2026-09-07T16:01:00.000Z')`
+      )
+    ]);
+
+    const res = await worker.fetch!(
+      get("/api/runs/run-20260907-c0de"),
+      testEnv
+    );
+    expect(res.status).toBe(200);
+    const body = RunDetailSchema.parse(await res.json());
+    expect(body.id).toBe("run-20260907-c0de");
+    expect(body.status).toBe("awaiting");
+    expect(body.completedAt).toBeNull();
+    expect(body.scheduledFor).toBeNull();
+    expect(body.drafts).toHaveLength(1);
+    expect(body.drafts[0]).toMatchObject({
+      id: "draft-1",
+      runId: "run-20260907-c0de",
+      targetEntityType: "states",
+      tier2Only: true,
+      confidence: 61,
+      outcome: null
+    });
+    expect(body.evidence).toHaveLength(2);
+    expect(body.evidence.map((e) => e.seq)).toEqual([0, 1]);
+    expect(body.evidence[1]!.payload).toEqual({ source: "courtlistener" });
+  });
+
+  it("keeps run detail scoped to its own drafts", async () => {
+    // A draft under a different run must never leak into this run's detail.
+    await testEnv.DB.prepare(
+      `INSERT INTO drafts (id, run_id, target_entity_type, target_entity_id,
+          diff_json, body, tier2_only, confidence, eval_summary_json,
+          outcome, decided_at, decided_by, edited_body, created_at, updated_at)
+       VALUES ('draft-foreign', 'run-20260907-beef', NULL, NULL, '{}',
+          'A draft belonging to another run.', 0, NULL, NULL,
+          NULL, NULL, NULL, NULL,
+          '2026-09-07T16:06:00.000Z', '2026-09-07T16:06:00.000Z')`
+    ).run();
+    const res = await worker.fetch!(
+      get("/api/runs/run-20260907-c0de"),
+      testEnv
+    );
+    expect(res.status).toBe(200);
+    const body = RunDetailSchema.parse(await res.json());
+    expect(body.drafts.map((d) => d.id)).toEqual(["draft-1"]);
+  });
+
+  it("404s an unknown run id with the error envelope", async () => {
+    const res = await worker.fetch!(get("/api/runs/run-nope"), testEnv);
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({
+      code: "not_found",
+      message: expect.any(String)
+    });
+  });
+
+  it("returns 400 for a malformed encoded run id", async () => {
+    const res = await worker.fetch!(get("/api/runs/%E0%A4%A"), testEnv);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      code: "bad_request",
+      message: "Malformed run ID."
+    });
+  });
+
+  it("rejects POST /api/runs with 405 and allow GET, HEAD", async () => {
+    const res = await worker.fetch!(
+      new Request("https://pml.example.com/api/runs", { method: "POST" }),
+      testEnv
+    );
+    expect(res.status).toBe(405);
+    expect(res.headers.get("allow")).toBe("GET, HEAD");
+  });
+
+  it("keeps vocabulary value-sets aligned across the three layers", async () => {
+    // Zod value-sets are the single source; this pins that the D1 CHECKs in
+    // 0006 accept exactly these strings, count the rows they touch, and
+    // reject known-bad lookalikes. The fixture row needs completedAt null so
+    // the `running` cross-field CHECK stays satisfied while statuses cycle.
+    await runsRepo.insertRun(
+      testEnv.DB,
+      runInput({ id: "run-20260907-f00d", startedAt: TS_A, completedAt: null })
+    );
+    for (const status of RUN_STATUS_VALUES) {
+      if (status === "published") continue;
+      await expect(
+        testEnv.DB.prepare("UPDATE runs SET status = ? WHERE id = ?")
+          .bind(status, "run-20260907-f00d")
+          .run()
+      ).resolves.toMatchObject({ meta: { changes: 1 } });
+    }
+    await expect(
+      testEnv.DB.prepare(
+        "UPDATE runs SET status = 'budget-stopped' WHERE id = ?"
+      )
+        .bind("run-20260907-f00d")
+        .run()
+    ).rejects.toThrow();
+    await expect(
+      testEnv.DB.prepare(
+        "UPDATE runs SET started_at = '2026-09-07T16:00:00.000' WHERE id = ?"
+      )
+        .bind("run-20260907-f00d")
+        .run()
+    ).rejects.toThrow();
+    await expect(
+      testEnv.DB.prepare("UPDATE runs SET origin = 'cron' WHERE id = ?")
+        .bind("run-20260907-f00d")
+        .run()
+    ).rejects.toThrow();
+    for (const origin of RUN_ORIGIN_VALUES) {
+      await expect(
+        testEnv.DB.prepare("UPDATE runs SET origin = ? WHERE id = ?")
+          .bind(origin, "run-20260907-f00d")
+          .run()
+      ).resolves.toMatchObject({ meta: { changes: 1 } });
+    }
+    for (const mode of RUN_MODE_VALUES) {
+      await expect(
+        testEnv.DB.prepare("UPDATE runs SET mode = ? WHERE id = ?")
+          .bind(mode, "run-20260907-f00d")
+          .run()
+      ).resolves.toMatchObject({ meta: { changes: 1 } });
+    }
+    await expect(
+      testEnv.DB.prepare("UPDATE runs SET mode = 'auto' WHERE id = ?")
+        .bind("run-20260907-f00d")
+        .run()
+    ).rejects.toThrow();
+    for (const event of EVIDENCE_EVENT_VALUES) {
+      await expect(
+        testEnv.DB.prepare(
+          "UPDATE evidence_events SET event = ? WHERE id = 'ev-0'"
+        )
+          .bind(event)
+          .run()
+      ).resolves.toMatchObject({ meta: { changes: 1 } });
+    }
+    await expect(
+      testEnv.DB.prepare(
+        "UPDATE evidence_events SET event = 'run.budget_stopped' WHERE id = 'ev-0'"
+      ).run()
+    ).rejects.toThrow();
+    // The gate decision trio moves together: outcome never flips without
+    // decided_at and decided_by. draft-1 starts with all three NULL.
+    for (const outcome of DRAFT_OUTCOME_VALUES) {
+      await expect(
+        testEnv.DB.prepare(
+          "UPDATE drafts SET outcome = ?, decided_at = ?, decided_by = ? WHERE id = 'draft-1'"
+        )
+          .bind(outcome, TS_A, "Patrick")
+          .run()
+      ).resolves.toMatchObject({ meta: { changes: 1 } });
+    }
+    await expect(
+      testEnv.DB.prepare(
+        "UPDATE drafts SET outcome = 'approve', decided_at = ?, decided_by = ? WHERE id = 'draft-1'"
+      )
+        .bind(TS_A, "Patrick")
+        .run()
+    ).rejects.toThrow();
   });
 });

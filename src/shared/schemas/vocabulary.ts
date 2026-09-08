@@ -206,3 +206,75 @@ export const POLL_TERM_VALUES = ["ot26", "ot27", "ot28", "later"] as const;
 
 export const PollTermSchema = z.enum(POLL_TERM_VALUES);
 export type PollTerm = z.infer<typeof PollTermSchema>;
+
+/**
+ * Run origin (Epic 3) — WHY one daily-loop Run happened. The Epic 1
+ * OriginFlag vocabulary verbatim; must match the CHECK in
+ * migrations/0006_run_draft_evidence.sql exactly. Multiple Runs may share a
+ * calendar date; a catch-up Run supplements, never replaces, the day's
+ * scheduled attempt.
+ */
+export const RUN_ORIGIN_VALUES = ["scheduled", "catch-up", "manual"] as const;
+
+export const RunOriginSchema = z.enum(RUN_ORIGIN_VALUES);
+export type RunOrigin = z.infer<typeof RunOriginSchema>;
+
+/**
+ * Run status (Epic 3) — the outcome of one Run. The Epic 1 RunStatusChip
+ * vocabulary verbatim (`published | awaiting | empty | failed | stopped |
+ * rejected`), plus `running` as the initial non-terminal state (recorded
+ * decision). Must match the CHECK in migrations/0006_run_draft_evidence.sql
+ * exactly. Empty, failed and budget-stopped Runs are first-class public
+ * records — silence must never be mistaken for "the harness didn't look".
+ */
+export const RUN_STATUS_VALUES = [
+  "running",
+  "published",
+  "awaiting",
+  "empty",
+  "failed",
+  "stopped",
+  "rejected"
+] as const;
+
+export const RunStatusSchema = z.enum(RUN_STATUS_VALUES);
+export type RunStatus = z.infer<typeof RunStatusSchema>;
+
+/**
+ * Run mode (Epic 3) — which Approval Gate mode was in force for the Run.
+ * The PRD glossary names the two modes "Human-in-the-Loop mode (default)" and
+ * "Autonomous mode ('YOLO')", and the architecture's locked orchestration
+ * pattern names the two gate paths `HITL` / `YOLO agent` — so the stored
+ * strings are `hitl | yolo`. Mode is frozen per Run: a later mode change
+ * cannot relabel already-recorded work. Must match the CHECK in
+ * migrations/0006_run_draft_evidence.sql exactly.
+ */
+export const RUN_MODE_VALUES = ["hitl", "yolo"] as const;
+
+export const RunModeSchema = z.enum(RUN_MODE_VALUES);
+export type RunMode = z.infer<typeof RunModeSchema>;
+
+/**
+ * Evidence event names (Epic 3) — dot.case names the public Evidence
+ * projection may record. Deliberately CLOSED per migration so the D1 CHECK
+ * stays truthful; later stories extend by adding a migration (0003
+ * precedent). Must match the CHECK in migrations/0006_run_draft_evidence.sql
+ * exactly.
+ */
+export const EVIDENCE_EVENT_VALUES = [
+  "run.started",
+  "run.completed",
+  "run.failed",
+  "run.stopped",
+  "run.empty",
+  "source.fetched",
+  "source.skipped",
+  "draft.created",
+  "guardrails.passed",
+  "guardrails.failed",
+  "gate.awaiting_approval",
+  "gate.decided"
+] as const;
+
+export const EvidenceEventTypeSchema = z.enum(EVIDENCE_EVENT_VALUES);
+export type EvidenceEventType = z.infer<typeof EvidenceEventTypeSchema>;
