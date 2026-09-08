@@ -11,12 +11,16 @@ import { getDb, type Db } from "../db/client";
 import * as casesRepo from "../db/repos/casesRepo";
 import * as certSignalRepo from "../db/repos/certSignalRepo";
 import * as circuitsRepo from "../db/repos/circuitsRepo";
+import * as draftsRepo from "../db/repos/draftsRepo";
 import * as entitiesRepo from "../db/repos/entitiesRepo";
+import * as evidenceRepo from "../db/repos/evidenceRepo";
 import * as kpisRepo from "../db/repos/kpisRepo";
 import * as pollVotesRepo from "../db/repos/pollVotesRepo";
+import * as runsRepo from "../db/repos/runsRepo";
 import * as statesRepo from "../db/repos/statesRepo";
 import { PollResultsSchema, PollVoteBodySchema } from "../schemas/poll";
 import type { PollResults, PollVote } from "../schemas/poll";
+import { RunDetailSchema } from "../schemas/run";
 
 /**
  * Public F1 REST router (Story 2.1), plus the reader poll (Story 2.9).
@@ -260,6 +264,31 @@ export async function handlePublicApi(
 
     if (pathname === "/api/developments") {
       return jsonList(await casesRepo.listRecentDevelopments(db));
+    }
+
+    // Story 3.1 — run records are read-only public stubs; the pipeline and
+    // the Approval Gate own every write (later stories).
+    if (pathname === "/api/runs") {
+      return jsonList(await runsRepo.listRuns(db));
+    }
+
+    {
+      const m = /^\/api\/runs\/([^/]+)$/.exec(pathname);
+      if (m) {
+        let id: string;
+        try {
+          id = decodeURIComponent(m[1]!);
+        } catch {
+          throw badRequest("Malformed run ID.");
+        }
+        const run = await runsRepo.getRunById(db, id);
+        if (!run) throw notFound(`Run '${id}' not found.`);
+        const [drafts, evidence] = await Promise.all([
+          draftsRepo.listByRun(db, id),
+          evidenceRepo.listByRun(db, id)
+        ]);
+        return jsonOk(RunDetailSchema.parse({ ...run, drafts, evidence }));
+      }
     }
 
     // Owned /api/* prefix with no matching route → envelope 404 (architecture).
