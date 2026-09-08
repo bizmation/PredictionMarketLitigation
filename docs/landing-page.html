@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Open source of record for U.S. prediction-market litigation. Built by AI, governed and approved by a human; corrections welcome.">
+<title>Prediction Market Litigation</title>
+<link rel="icon" href="/favicon.ico">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400&amp;family=Lora:ital,wght@0,400;0,500;0,600;1,400&amp;display=swap" rel="stylesheet">
+<style>
+:root{
+--color-bg:#f3f2f2;--color-surface:#eae9e9;--color-text:#201f1d;--color-accent:#b68235;
+--color-divider:color-mix(in srgb,#201f1d 16%,transparent);
+--color-neutral-100:#f8f4f4;--color-neutral-200:#eae7e7;--color-neutral-300:#d7d3d3;--color-neutral-400:#bab6b6;--color-neutral-500:#9b9797;--color-neutral-600:#7d7979;--color-neutral-700:#605d5d;--color-neutral-800:#444141;--color-neutral-900:#2d2b2b;
+--color-accent-100:#fff3e4;--color-accent-200:#ffe3bf;--color-accent-300:#facb8d;--color-accent-400:#e1ad66;--color-accent-500:#c28d41;--color-accent-600:#a06f24;--color-accent-700:#7d5411;--color-accent-800:#5a3b0a;--color-accent-900:#3a270d;
+--font-heading:"Cormorant Garamond",Georgia,serif;--font-heading-weight:600;--font-body:"Lora",Georgia,serif;
+--space-1:4.6px;--space-2:9.2px;--space-3:13.8px;--space-4:18.4px;--space-6:27.6px;--space-8:36.8px;
+--radius-md:4px;
+}
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body);font-size:15px;line-height:1.55}
+a{color:var(--color-accent-700);text-underline-offset:3px;text-decoration-thickness:1px}
+a:hover{color:var(--color-accent-600)}
+h1,h2,h3,h4{font-family:var(--font-heading);font-weight:var(--font-heading-weight);margin:0}
+:focus-visible{outline:2px solid var(--color-accent);outline-offset:2px}
+html{scroll-behavior:smooth}
+img{max-width:100%}
+@media (max-width:960px){
+  div[style*="grid-template-columns"]{grid-template-columns:1fr !important}
+  h1{font-size:40px !important;max-width:none !important}
+  h2{font-size:26px !important}
+  p[style*="text-align:right"]{text-align:left !important;margin-left:0 !important;max-width:none !important}
+  section > div, header{padding-left:18px !important;padding-right:18px !important}
+  nav{gap:12px !important;row-gap:6px !important}
+}
+@media (max-width:640px){
+  h1{font-size:32px !important}
+  [style*="font-size:26px"]{font-size:21px !important}
+  [style*="font-size:22px"]{font-size:18px !important}
+}
+section[id],div[id]{scroll-margin-top:86px}
+</style>
+
+</head>
+<body>
+
+
+
+<div style="background:var(--color-bg)">
+
+  <div style="border-bottom:1px solid var(--color-divider);background:var(--color-bg);position:sticky;top:0;z-index:30">
+    <div style="max-width:1220px;margin:0 auto;padding:0 var(--space-6);display:flex;align-items:center;gap:var(--space-6);height:62px">
+      <div style="font-family: var(--font-heading); font-size: 28px; white-space: nowrap; font-weight: 800">Prediction<em style="font-style: normal; color: var(--color-accent-700); font-size: 32px;">Market</em>Litigation</div>
+      <nav style="display:flex;gap:var(--space-4);margin-left:auto;align-items:center;flex-wrap:wrap">
+        <a href="#why" style="font-size:13px;text-decoration:none;color:var(--color-neutral-800);padding:4px 0">Project Overview</a>
+        <a href="#features" style="font-size:13px;text-decoration:none;color:var(--color-neutral-800);padding:4px 0">Project Output</a><a href="#governance" style="font-size:13px;text-decoration:none;color:var(--color-neutral-800);padding:4px 0">AI Governance</a>
+        
+        <a href="/tracker" style="font-size:13px;text-decoration:none;color:var(--color-neutral-800);padding:4px 0">Tracker ↗</a>
+        <a href="#ops" style="font-size:13px;text-decoration:none;color:var(--color-neutral-800);padding:4px 0">ops. ↗</a>
+        <a href="https://buymeacoffee.com/bizmation" style="font-size:12px;text-decoration:none;border:1px solid var(--color-accent-600);color:var(--color-accent-700);padding:4px 10px;margin-left:var(--space-2)" target="_blank" rel="noopener noreferrer">Buy me a coffee</a>
+      </nav>
+    </div>
+  </div>
+
+  <div style="border-bottom:1px solid var(--color-divider);background:var(--color-neutral-100)">
+    <div style="max-width:1220px;margin:0 auto;padding:6px var(--space-6);display:flex;gap:var(--space-3) var(--space-4);align-items:center;flex-wrap:wrap;font-size:12px;color:var(--color-neutral-800)">
+      <span style="font-size: 16px; letter-spacing: .08em; text-transform: uppercase; padding: 2px 8px; border: 1px solid var(--color-accent-600); color: var(--color-accent-700); background: var(--color-accent-100); white-space: nowrap">⚠ General legal information — not legal advice</span>
+      <span style="color:var(--color-neutral-400)">·</span>
+      <span style="flex: 1 1 22ch; min-width: 0; font-weight: 700">AI researched, written and published autonomously — every decision and its evidence is public; human corrections welcome.&nbsp;</span>
+      <span style="color:var(--color-neutral-400)">·</span>
+      
+      <span style="color:var(--color-neutral-400)">·</span>
+      
+    </div>
+  </div>
+
+  <!-- WHO -->
+  <section id="who" style="border-bottom:1px solid var(--color-divider);background:#201f1d;color:#f3f2f2">
+    <div style="max-width:1220px;margin:0 auto;padding:var(--space-6);display:grid;grid-template-columns:auto 1fr auto;gap:var(--space-6);align-items:center">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:var(--space-3)">
+        <span style="width:140px;height:140px;padding:3px;background:#2d2b2b;border:1px solid var(--color-accent-700);line-height:0;display:block">
+          <img src="assets/patrick-bland.jpg" alt="Patrick Bland" style="width:100%;height:100%;object-fit:cover;object-position:50% 20%;display:block;filter:saturate(.82) sepia(.06) contrast(1.02)">
+        </span>
+        <a href="https://bizmation.com" target="_blank" rel="noopener" style="display:block;line-height:0">
+          <img src="assets/bizmation-logo.png" alt="Bizmation" style="height:44px;width:auto;display:block">
+        </a>
+      </div>
+      <div>
+        <div style="font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--color-accent-300)">A Bizmation project · who is behind this</div>
+        <div style="font-family:var(--font-heading);font-size:26px;line-height:1.2;margin-top:2px;color:#f8f4f4">Patrick Bland</div>
+        
+        <div style="font-size:12.5px;color:var(--color-neutral-400)">About Me&nbsp;</div><p style="font-size:14px;line-height:1.65;margin:var(--space-2) 0 var(--space-2);color:var(--color-neutral-300);max-width:96ch;text-wrap:pretty">I am a Gaming Industry CTO, 20+ year technologist, and recovering attorney building the agent tooling this site runs on. I wrote the <b>Caddyshack themed nine-layer AI governance framework</b> the project implements, sets the policy the agent publishes under, and publishes every override he makes with its reason. <br><br>The main goal is for this project is to see how close we can dial in the "truth" of the content in an open, public forum. There is so much noise around "agents" - this is designed to be concrete and tangible.&nbsp;<br><br>Regulators, attorneys, technologists -- get some clarity on how this AI governance tooling stuff works if you're not exposed to this on a daily basis.&nbsp;<br><br>We're all going to learn something from this! If you happen to be an expert in any of these layers, feel free to reach out!&nbsp;</p>
+        <div style="display:flex;gap:var(--space-4);flex-wrap:wrap;align-items:center">
+          <a href="https://www.linkedin.com/in/patrickbland/" target="_blank" rel="noopener" style="font-size:12.5px;color:var(--color-accent-300)">LinkedIn ↗</a>
+          <a href="https://bizmation.com" target="_blank" rel="noopener" style="font-size:12.5px;color:var(--color-accent-300)">bizmation.com ↗</a>
+        </div>
+      </div>
+      <a href="https://www.linkedin.com/pulse/ai-governance-caddyshack-gopher-fault-lines-patrick-bland-pkcae" target="_blank" rel="noopener" style="display:block;text-decoration:none;border:1px solid var(--color-accent-700);background:#2d2b2b;max-width:340px;justify-self:end">
+        <img src="assets/gopher-fault-lines.png" alt="AI Governance, the Gopher, and Earth's Infrastructure — a Caddyshack inspired analogy for the AI control plane" style="width:100%;height:auto;display:block">
+        <span style="display:block;padding:10px 14px;font-size:11.5px;line-height:1.5;color:var(--color-accent-300)">Read the framework this project implements — <span style="text-decoration:underline;text-underline-offset:3px">AI Governance, the Gopher, and Earth's Infrastructure ↗</span></span>
+      </a>
+    </div>
+  </section>
+
+  <!-- WHY -->
+  <section id="why" style="padding:var(--space-8) 0">
+    <div style="max-width:1220px;margin:0 auto;padding:0 var(--space-6)">
+      <div style="font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--color-accent-700);margin-bottom:var(--space-4)">PROJECT OVERVIEW - 4 REASONS WHY THIS EXISTS</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-8);align-items:start">
+        <div style="border-top:1px solid var(--color-neutral-700);padding-top:var(--space-4)">
+          <div style="display:flex;align-items:baseline;gap:var(--space-3)">
+            <span style="font-family:var(--font-heading);font-size:34px;font-weight:400;line-height:1;color:oklch(0.42 0.09 155);font-feature-settings:'tnum'">1</span>
+            <h3 style="font-size:26px;font-weight:400;line-height:1.15">The most interesting unsettled question in U.S. gaming law</h3>
+          </div>
+          <p style="font-family:var(--font-heading);font-size:22px;line-height:1.3;font-weight:400;border-left:3px solid oklch(0.52 0.10 155);background:oklch(0.95 0.03 150);color:oklch(0.34 0.09 155);padding:var(--space-3) var(--space-4);margin:var(--space-4) 0;text-wrap:pretty">A federally licensed exchange sells contracts on who wins Sunday's game. Forty-one state attorneys general told the CFTC that's a bet. Congress never said which one is right.</p>
+          <p style="font-size:15px;line-height:1.72;margin:0 0 var(--space-3);text-wrap:pretty">One court of appeals has answered on the merits, and one district court has entered final judgment the other way. Everything else is preliminary — dozens of orders, moving most weeks, in opposite directions, with the Supreme Court not yet asked.</p>
+          <ul style="list-style:none;margin:0;padding:0">
+            <li style="font-size:14px;line-height:1.6;padding:var(--space-2) 0 var(--space-2) var(--space-4);border-bottom:1px solid var(--color-divider);position:relative;text-wrap:pretty"><span style="position:absolute;left:2px;top:15px;width:5px;height:5px;background:var(--color-accent)"></span><strong>The answer depends on the courthouse.</strong> One appellate ruling says preempted; Utah, New York, Wisconsin, Ohio, Maryland, Massachusetts, Washington and Nevada say otherwise.</li>
+            <li style="font-size:14px;line-height:1.6;padding:var(--space-2) 0 var(--space-2) var(--space-4);border-bottom:1px solid var(--color-divider);position:relative;text-wrap:pretty"><span style="position:absolute;left:2px;top:15px;width:5px;height:5px;background:var(--color-accent)"></span><strong>It changes most weeks.</strong> Eighteen states have active legal proceedings as of 9 August 2026 — with new court orders entering most weeks.</li>
+            <li style="font-size:14px;line-height:1.6;padding:var(--space-2) 0 var(--space-2) var(--space-4);position:relative;text-wrap:pretty"><span style="position:absolute;left:2px;top:15px;width:5px;height:5px;background:var(--color-accent)"></span><strong>Nobody publishes the compliance answer with the order behind it.</strong> The trade press reports the headline; the dockets sit behind PACER.</li>
+          </ul>
+        </div>
+
+        <div style="border-top:1px solid var(--color-neutral-700);padding-top:var(--space-4)">
+          <div style="display:flex;align-items:baseline;gap:var(--space-3)">
+            <span style="font-family:var(--font-heading);font-size:34px;font-weight:400;line-height:1;color:var(--color-accent-700);font-feature-settings:'tnum'">2</span>
+            <h3 style="font-size:26px;font-weight:400;line-height:1.15">An agent you can actually audit — built by a CTO who is also a lawyer</h3>
+          </div>
+          <p style="font-family:var(--font-heading);font-size:22px;line-height:1.3;font-weight:400;border-left:3px solid var(--color-accent-600);background:var(--color-accent-100);color:var(--color-accent-800);padding:var(--space-3) var(--space-4);margin:var(--space-4) 0;text-wrap:pretty">Anyone can claim their AI is trustworthy. This one publishes the work: the dashboard is open, and so is the repo.</p>
+          <p style="font-size:15px;line-height:1.72;margin:0 0 var(--space-3);text-wrap:pretty">A domain where a wrong citation has consequences is the honest test. The agent researches and publishes on its own — and everything it decided along the way is readable by anyone, without a login.</p>
+          <ul style="list-style:none;margin:0;padding:0">
+            <li style="font-size:14px;line-height:1.6;padding:var(--space-2) 0 var(--space-2) var(--space-4);border-bottom:1px solid var(--color-divider);position:relative;text-wrap:pretty"><span style="position:absolute;left:2px;top:15px;width:5px;height:5px;background:var(--color-accent)"></span><strong>How each decision was made.</strong> Sources read, leads rejected and the reasoning at every step — on the public ops. dashboard.</li>
+            <li style="font-size:14px;line-height:1.6;padding:var(--space-2) 0 var(--space-2) var(--space-4);border-bottom:1px solid var(--color-divider);position:relative;text-wrap:pretty"><span style="position:absolute;left:2px;top:15px;width:5px;height:5px;background:var(--color-accent)"></span><strong>Where a human intervened.</strong> Every override and its reason, published — so you can judge how often, and about what.</li>
+            <li style="font-size:14px;line-height:1.6;padding:var(--space-2) 0 var(--space-2) var(--space-4);border-bottom:1px solid var(--color-divider);position:relative;text-wrap:pretty"><span style="position:absolute;left:2px;top:15px;width:5px;height:5px;background:var(--color-accent)"></span><strong>Whether the citations hold up.</strong> Every claim links to a Tier-1 source; trade press is a lead, never the citation of record.</li>
+            <li style="font-size:14px;line-height:1.6;padding:var(--space-2) 0 var(--space-2) var(--space-4);position:relative;text-wrap:pretty"><span style="position:absolute;left:2px;top:15px;width:5px;height:5px;background:var(--color-accent)"></span><strong>Open source, end to end.</strong> The pipeline, the prompts and the surfaces are in the repo — fork it, or check the work.</li>
+          </ul>
+          <div style="display:flex;gap:var(--space-3);flex-wrap:wrap;margin-top:var(--space-4)">
+            <a href="#ops" style="display:inline-flex;align-items:center;text-decoration:none;font-family:var(--font-heading);font-weight:600;font-size:14px;color:var(--color-accent);border:1px solid var(--color-accent);padding:var(--space-2) 16.5px;border-radius:var(--radius-md)">Open the ops. dashboard ↗</a>
+            <a href="https://github.com/bizmation/PredictionMarketLitigation" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;text-decoration:none;font-family:var(--font-heading);font-weight:600;font-size:14px;color:var(--color-text);border:1px solid var(--color-divider);padding:var(--space-2) 16.5px;border-radius:var(--radius-md)">Source on GitHub ↗</a>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-8);align-items:start;margin-top:var(--space-8)">
+        <div style="border-top:1px solid var(--color-neutral-700);padding-top:var(--space-4)">
+          <div style="display:flex;align-items:baseline;gap:var(--space-3)">
+            <span style="font-family:var(--font-heading);font-size:34px;font-weight:400;line-height:1;color:oklch(0.45 0.09 78);font-feature-settings:'tnum'">3</span>
+            <h3 style="font-size:26px;font-weight:400;line-height:1.15">Open source. Visible pipeline. Citations first.</h3>
+          </div>
+          <p style="font-family:var(--font-heading);font-size:22px;line-height:1.3;font-weight:400;border-left:3px solid oklch(0.58 0.10 78);background:oklch(0.95 0.04 88);color:oklch(0.38 0.09 78);padding:var(--space-3) var(--space-4);margin:var(--space-4) 0;text-wrap:pretty">Trust is a product feature — not a marketing claim. If you cannot see how a finding got made, it does not belong here.</p>
+          <dl style="margin:0;display:grid;grid-template-columns:auto 1fr;gap:0;border-top:1px solid var(--color-divider)">
+            <dt style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-700);padding:var(--space-3) var(--space-4) var(--space-3) 0;border-bottom:1px solid var(--color-divider);white-space:nowrap">Open source</dt>
+            <dd style="margin:0;font-size:14px;line-height:1.6;padding:var(--space-3) 0;border-bottom:1px solid var(--color-divider);text-wrap:pretty">Code, methodology and the governance record are public. Fork it, critique it, build on it.</dd>
+            <dt style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-700);padding:var(--space-3) var(--space-4) var(--space-3) 0;border-bottom:1px solid var(--color-divider);white-space:nowrap">Citations</dt>
+            <dd style="margin:0;font-size:14px;line-height:1.6;padding:var(--space-3) 0;border-bottom:1px solid var(--color-divider);text-wrap:pretty">Citations are first-class. Tier-1 primary sources are required; unverified claims do not ship.</dd>
+            <dt style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-700);padding:var(--space-3) var(--space-4) var(--space-3) 0;border-bottom:1px solid var(--color-divider);white-space:nowrap">Trust rating</dt>
+            <dd style="margin:0;font-size:14px;line-height:1.6;padding:var(--space-3) 0;border-bottom:1px solid var(--color-divider);text-wrap:pretty">Each published article exposes how it was produced: model path, confidence posture, gate decision and the evidence packet on <em style="font-style:italic">ops.</em></dd>
+            <dt style="font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-700);padding:var(--space-3) var(--space-4) var(--space-3) 0;border-bottom:1px solid var(--color-divider);white-space:nowrap">Reuse</dt>
+            <dd style="margin:0;font-size:14px;line-height:1.6;padding:var(--space-3) 0;border-bottom:1px solid var(--color-divider);text-wrap:pretty">Anyone can use this however they want. Transparency is the point.</dd>
+          </dl>
+        </div>
+
+        <div style="border-top:1px solid var(--color-neutral-700);padding-top:var(--space-4)">
+          <div style="display:flex;align-items:baseline;gap:var(--space-3)">
+            <span style="font-family:var(--font-heading);font-size:34px;font-weight:400;line-height:1;color:oklch(0.42 0.08 250);font-feature-settings:'tnum'">4</span>
+            <h3 style="font-size:26px;font-weight:400;line-height:1.15">We're building the layers in public</h3>
+          </div>
+          <p style="font-family:var(--font-heading);font-size:22px;line-height:1.3;font-weight:400;border-left:3px solid oklch(0.55 0.09 250);background:oklch(0.95 0.028 250);color:oklch(0.34 0.08 250);padding:var(--space-3) var(--space-4);margin:var(--space-4) 0;text-wrap:pretty">Core. Mantle. Crust. Fault lines. A series — not an overnight launch.</p>
+          <p style="font-size:15px;line-height:1.72;margin:0 0 var(--space-3);text-wrap:pretty">Trustworthy agents are not a single product drop. They are an AI control plane — inference at the core, real-time policy in the mantle, evidence and GRC in the crust — with fault lines where systems usually fail silently.</p>
+          <p style="font-size:15px;line-height:1.72;margin:0 0 var(--space-3);text-wrap:pretty">I wrote that framing here: <a href="https://www.linkedin.com/pulse/ai-governance-caddyshack-gopher-fault-lines-patrick-bland-pkcae" target="_blank" rel="noopener">AI Governance, the Gopher, and Fault Lines</a>.</p>
+          <p style="font-size:15px;line-height:1.72;margin:0 0 var(--space-4);text-wrap:pretty">PML is the progressive build of those layers against a real legal domain. Expect LinkedIn posts and the <em style="font-style:italic">ops.</em> journal as each layer ships.</p>
+          <div style="display:flex;gap:var(--space-3);flex-wrap:wrap">
+            <a href="#governance" style="display:inline-flex;align-items:center;text-decoration:none;font-family:var(--font-heading);font-weight:600;font-size:14px;color:var(--color-accent);border:1px solid var(--color-accent);padding:var(--space-2) 16.5px;border-radius:var(--radius-md)">See the nine layers</a>
+            <a href="https://www.linkedin.com/in/patrickbland/" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;text-decoration:none;font-family:var(--font-heading);font-weight:600;font-size:14px;color:var(--color-text);border:1px solid var(--color-divider);padding:var(--space-2) 16.5px;border-radius:var(--radius-md)">Follow the build ↗</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- HERO -->
+  <header style="max-width:1220px;margin:0 auto;padding:var(--space-8) var(--space-6) var(--space-6);border-top:1px solid var(--color-divider)">
+    <div style="font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--color-accent-700)">The record itself</div>
+    <h1 style="font-size:58px;font-weight:400;line-height:1.04;max-width:20ch;margin-top:var(--space-3)">An open source of record for prediction-market litigation.</h1>
+    <div style="display:grid;grid-template-columns:1.15fr 1fr;gap:var(--space-8);align-items:start;margin-top:var(--space-4)">
+      <div>
+        <p style="font-family:var(--font-heading);font-size:26px;font-weight:400;line-height:1.34;margin:0;border-left:2px solid var(--color-accent);padding-left:var(--space-4);text-wrap:pretty">Right now the answer to “is this legal here?” depends on which courthouse you ask, and nobody publishes it with the order behind it. This project does — and shows its work.</p>
+        <p style="font-size:16.5px;line-height:1.62;margin-top:var(--space-4);color:var(--color-neutral-800);text-wrap:pretty">Every U.S. matter where a CFTC-licensed prediction market meets state gambling law: the posture of each state, the controlling case, the issues in dispute, and a primary source for every claim. Maintained by an autonomous agent pipeline that may research, draft, propose, and publish to the website. The critical factor is showing the trust and reliability of the publish, and that's what the ops and transparency part of the project is here to do.&nbsp;</p>
+        <div style="display:flex;gap:var(--space-3);flex-wrap:wrap;margin-top:var(--space-6)">
+          <a href="/tracker" style="display:inline-flex;align-items:center;text-decoration:none;font-family:var(--font-heading);font-weight:600;font-size:14px;color:var(--color-accent-100);background:var(--color-accent-700);border:1px solid var(--color-accent-700);padding:var(--space-2) 16.5px;border-radius:var(--radius-md)">Open the tracker ↗</a>
+          
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;border-top:2px solid var(--color-accent-600);border-left:1px solid var(--color-divider)">
+        <div style="padding:var(--space-4);border-right:1px solid var(--color-divider);border-bottom:1px solid var(--color-divider);background:oklch(0.95 0.03 150)">
+          <b style="display:block;font-family:var(--font-heading);font-size:36px;font-weight:400;line-height:1;font-feature-settings:'tnum';color:oklch(0.42 0.09 155)">18</b>
+          <span style="display:block;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--color-neutral-700);margin-top:6px">States with active proceedings</span>
+        </div>
+        <div style="padding:var(--space-4);border-right:1px solid var(--color-divider);border-bottom:1px solid var(--color-divider);background:var(--color-accent-100)">
+          <b style="display:block;font-family:var(--font-heading);font-size:36px;font-weight:400;line-height:1;font-feature-settings:'tnum';color:var(--color-accent-700)">18</b>
+          <span style="display:block;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--color-neutral-700);margin-top:6px">Controlling matters · one per state</span>
+        </div>
+        <div style="padding:var(--space-4);border-right:1px solid var(--color-divider);border-bottom:1px solid var(--color-divider);background:oklch(0.94 0.045 55)">
+          <b style="display:block;font-family:var(--font-heading);font-size:36px;font-weight:400;line-height:1;font-feature-settings:'tnum';color:oklch(0.46 0.12 42)">1</b>
+          <span style="display:block;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--color-neutral-700);margin-top:6px">Federal circuit merits ruling<small style="display:block;font-size:9.5px;letter-spacing:.02em;text-transform:none;color:var(--color-neutral-600);margin-top:3px">4th, 6th &amp; 9th pending</small></span>
+        </div>
+        <div style="padding:var(--space-4);border-right:1px solid var(--color-divider);border-bottom:1px solid var(--color-divider);background:oklch(0.95 0.04 88)">
+          <b style="display:block;font-family:var(--font-heading);font-size:36px;font-weight:400;line-height:1;font-feature-settings:'tnum';color:oklch(0.45 0.09 78)">9</b>
+          <span style="display:block;font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--color-neutral-700);margin-top:6px">States sued by the CFTC</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- FEATURES -->
+  <section id="features" style="border-top:1px solid var(--color-divider);padding:var(--space-8) 0">
+    <div style="max-width:1220px;margin:0 auto;padding:0 var(--space-6)">
+      <div style="display:flex;align-items:baseline;gap:var(--space-4);margin-bottom:var(--space-4)">
+        <div>
+          <div style="font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--color-accent-700)">What it produces</div>
+          <h2 style="font-size:30px;font-weight:400">Several ways to read the same record</h2>
+        </div>
+        <p style="margin-left:auto;font-size:13px;color:var(--color-neutral-700);max-width:46ch;text-align:right;line-height:1.55">These will be the features of the website once it gets going</p>
+      </div>
+
+      <div style="border:2px solid var(--color-accent-600);background:var(--color-accent-100);padding:var(--space-4) var(--space-6);margin-bottom:var(--space-6)">
+        <div style="font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--color-accent-700);font-weight:600">⚠ Dry run — not yet governed</div>
+        <p style="margin:var(--space-2) 0 0;font-size:15px;line-height:1.65;font-weight:600;text-wrap:pretty">Everything below is the outcome this platform is being built to deliver. It has <em style="font-style: normal; text-decoration-line: underline; text-decoration-thickness: initial; text-decoration-style: initial; text-decoration-color: var(--color-accent-600); text-underline-offset: 3px;">not</em> been through the governance process. This is the first dry run of the earliest agents — sourcing the material and reviewing it, with no policy enforcement, no evaluation gates and no publish controls applied. Treat it as a demonstration of the shape of the output, not as a verified record.<br><br>Open the tracker to see a demo in action!&nbsp;</p>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--color-divider);border:1px solid var(--color-divider)">
+        <div style="background:var(--color-bg);padding:var(--space-6)">
+          <div style="font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:oklch(0.42 0.09 155)">Case digest</div>
+          <h3 style="font-size:21px;font-weight:400;margin-top:var(--space-2)">Every matter, one record</h3>
+          <p style="font-size:14px;line-height:1.65;color:var(--color-neutral-800);margin:var(--space-2) 0 0;text-wrap:pretty">Caption, court, docket number, posture and a written digest of what the court actually held — with the docket beneath it, most recent first, each entry linked to its primary source.</p>
+        </div>
+        <div style="background:var(--color-bg);padding:var(--space-6)">
+          <div style="font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--color-accent-700)">Issue analysis</div>
+          <h3 style="font-size:21px;font-weight:400;margin-top:var(--space-2)">Which theories win, and where</h3>
+          <p style="font-size:14px;line-height:1.65;color:var(--color-neutral-800);margin:var(--space-2) 0 0;text-wrap:pretty">Each matter tagged to an issue vocabulary — preemption, swap definition, state gaming acts, tribal and consumer theories — then counted by outcome, so you can see what is pleaded everywhere and what actually loses.</p>
+        </div>
+        <div style="background:var(--color-bg);padding:var(--space-6)">
+          <div style="font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:oklch(0.46 0.12 42)">Issue timeline</div>
+          <h3 style="font-size:21px;font-weight:400;margin-top:var(--space-2)">When each issue entered the record</h3>
+          <p style="font-size:14px;line-height:1.65;color:var(--color-neutral-800);margin:var(--space-2) 0 0;text-wrap:pretty">One mark per matter at its first docket event, coloured by posture today — the arrival order of the arguments, which is how you spot a theory spreading between circuits.</p>
+        </div>
+        <div style="background:var(--color-bg);padding:var(--space-6)">
+          <div style="font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:oklch(0.45 0.09 78)">State board</div>
+          <h3 style="font-size:21px;font-weight:400;margin-top:var(--space-2)">Posture by state and circuit</h3>
+          <p style="font-size:14px;line-height:1.65;color:var(--color-neutral-800);margin:var(--space-2) 0 0;text-wrap:pretty">The controlling answer in each state, the circuit it sits under, and what is untracked — shown as a map and as a sortable board with the controlling case named.</p>
+        </div>
+        <div style="background:var(--color-bg);padding:var(--space-6)">
+          <div style="font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--color-accent-700)">Entity view</div>
+          <h3 style="font-size:21px;font-weight:400;margin-top:var(--space-2)">Who is actually bound</h3>
+          <p style="font-size:14px;line-height:1.65;color:var(--color-neutral-800);margin:var(--space-2) 0 0;text-wrap:pretty">The record re-cut by party — exchange, regulator, tribe, state — because an order binds an entity, not a market. Read it the way an injunction reads.</p>
+        </div>
+        <div style="background:var(--color-bg);padding:var(--space-6)">
+          <div style="font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:oklch(0.42 0.09 155)">Cert signal</div>
+          <h3 style="font-size:21px;font-weight:400;margin-top:var(--space-2)">What would take this to the Court</h3>
+          <p style="font-size:14px;line-height:1.65;color:var(--color-neutral-800);margin:var(--space-2) 0 0;text-wrap:pretty">The split as it stands, the deadlines on file, and the conditions that would make review likely — tracked as the docket moves rather than asserted once.</p>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-6);margin-top:var(--space-6)">
+        <figure style="margin:0;border:1px solid var(--color-divider);background:var(--color-neutral-100)">
+          <img src="assets/fig-map.png" alt="Map of the United States shaded by litigation posture" style="width:100%;height:auto;display:block;border-bottom:1px solid var(--color-divider)">
+          <figcaption style="padding:var(--space-3) var(--space-4)">
+            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:oklch(0.45 0.09 78)">State board · sample output</div>
+            <div style="font-family:var(--font-heading);font-size:20px;margin-top:2px">The split, as geography</div>
+            <p style="font-size:12.5px;line-height:1.55;color:var(--color-neutral-800);margin:4px 0 0;text-wrap:pretty">Real state topology, real posture data, circuit boundaries drawn over. Untracked states are dashed — absence of a finding is not a finding of legality.</p>
+          </figcaption>
+        </figure>
+        <figure style="margin:0;border:1px solid var(--color-divider);background:var(--color-neutral-100)">
+          <img src="assets/fig-doctrine.png" alt="Matrix of issue tags against outcomes" style="width:100%;height:auto;display:block;border-bottom:1px solid var(--color-divider)">
+          <figcaption style="padding:var(--space-3) var(--space-4)">
+            <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--color-accent-700)">Issue analysis · sample output</div>
+            <div style="font-family:var(--font-heading);font-size:20px;margin-top:2px">The split, as doctrine</div>
+            <p style="font-size:12.5px;line-height:1.55;color:var(--color-neutral-800);margin:4px 0 0;text-wrap:pretty">Eighteen issue tags across nineteen matters. Counts of tracked cases — never a prediction, never market-derived.</p>
+          </figcaption>
+        </figure>
+      </div>
+
+      <div style="display:flex;gap:var(--space-3);flex-wrap:wrap;margin-top:var(--space-6)">
+        <a href="/tracker" style="display:inline-flex;align-items:center;text-decoration:none;font-family:var(--font-heading);font-weight:600;font-size:14px;color:var(--color-accent-100);background:var(--color-accent-700);border:1px solid var(--color-accent-700);padding:var(--space-2) 16.5px;border-radius:var(--radius-md)">Open the tracker ↗</a>
+        <a href="#governance" style="display:inline-flex;align-items:center;text-decoration:none;font-family:var(--font-heading);font-weight:600;font-size:14px;color:var(--color-text);border:1px solid var(--color-divider);padding:var(--space-2) 16.5px;border-radius:var(--radius-md)">How it will be governed</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- GOVERNANCE INFOGRAPHIC -->
+  <section id="governance" style="border-top:1px solid var(--color-divider);padding:var(--space-8) 0">
+    <div style="max-width:1220px;margin:0 auto;padding:0 var(--space-6)">
+      <div style="display:flex;align-items:baseline;gap:var(--space-4);margin-bottom:var(--space-6)">
+        <div>
+          <div style="font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--color-accent-700)">HOW IT IS GOVERNED</div>
+          <h2 style="font-size:30px;font-weight:400">The litigation is the subject; the governance is the message</h2>
+        </div>
+        <p style="margin-left:auto;font-size:13px;color:var(--color-neutral-700);max-width:46ch;text-align:right;line-height:1.55">Built on the nine-layer model Patrick published — governance read as the layers of the Earth, with the fault lines at the seams.</p>
+      </div>
+
+      <div style="font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--color-neutral-600);margin-bottom:var(--space-2)">Published with every change</div>
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);border-top:2px solid var(--color-accent-600);border-left:1px solid var(--color-divider);margin-bottom:var(--space-8)">
+        <div style="padding:var(--space-3) var(--space-4);border-right:1px solid var(--color-divider);border-bottom:1px solid var(--color-divider);background:oklch(0.95 0.03 150)">
+          <div style="font-family:var(--font-heading);font-size:18px;margin-top:4px;color:oklch(0.42 0.09 155)">What it read</div>
+          <p style="font-size:12.5px;line-height:1.55;color:var(--color-neutral-800);margin:4px 0 0">Every source fetched, with its tier.</p>
+        </div>
+        <div style="padding:var(--space-3) var(--space-4);border-right:1px solid var(--color-divider);border-bottom:1px solid var(--color-divider);background:oklch(0.94 0.045 55)">
+          <div style="font-family:var(--font-heading);font-size:18px;margin-top:4px;color:oklch(0.46 0.12 42)">What it rejected</div>
+          <p style="font-size:12.5px;line-height:1.55;color:var(--color-neutral-800);margin:4px 0 0">Leads dropped, and the reason each was dropped.</p>
+        </div>
+        <div style="padding:var(--space-3) var(--space-4);border-right:1px solid var(--color-divider);border-bottom:1px solid var(--color-divider);background:oklch(0.95 0.04 88)">
+          <div style="font-family:var(--font-heading);font-size:18px;margin-top:4px;color:oklch(0.45 0.09 78)">Checks &amp; scores</div>
+          <p style="font-size:12.5px;line-height:1.55;color:var(--color-neutral-800);margin:4px 0 0">Which evals ran, what they returned — or “not run”, said plainly.</p>
+        </div>
+        <div style="padding:var(--space-3) var(--space-4);border-right:1px solid var(--color-divider);border-bottom:1px solid var(--color-divider);background:var(--color-accent-100)">
+          <div style="font-family:var(--font-heading);font-size:18px;margin-top:4px;color:var(--color-accent-700)">Spend &amp; steps</div>
+          <p style="font-size:12.5px;line-height:1.55;color:var(--color-neutral-800);margin:4px 0 0">Model, prompt version and cost, step by step.</p>
+        </div>
+        <div style="padding:var(--space-3) var(--space-4);border-right:1px solid var(--color-divider);border-bottom:1px solid var(--color-divider);background:oklch(0.95 0.025 250)">
+          <div style="font-family:var(--font-heading);font-size:18px;margin-top:4px;color:oklch(0.42 0.08 250)">The diff</div>
+          <p style="font-size:12.5px;line-height:1.55;color:var(--color-neutral-800);margin:4px 0 0">Before and after, word for word, on the live record.</p>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:auto 1fr;gap:var(--space-8);align-items:center">
+        <div style="width:420px;height:420px;position:relative;display:flex;align-items:center;justify-content:center;border:1px solid var(--color-divider);background:var(--color-neutral-100)">
+          <div style="width:360px;height:360px;border-radius:50%;border:1px solid var(--color-neutral-700);background:var(--color-accent-100);display:flex;align-items:center;justify-content:center;position:relative">
+            <span style="position:absolute;top:12px;left:50%;transform:translateX(-50%);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--color-neutral-700)">Crust · 7–9</span>
+            <div style="width:250px;height:250px;border-radius:50%;border:1px solid var(--color-neutral-700);background:var(--color-accent-200);display:flex;align-items:center;justify-content:center;position:relative">
+              <span style="position:absolute;top:10px;left:50%;transform:translateX(-50%);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--color-accent-800)">Mantle · 2–6</span>
+              <div style="width:118px;height:118px;border-radius:50%;border:1px solid var(--color-accent-700);background:var(--color-accent-400);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center">
+                <span style="font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--color-accent-900)">Core · 1</span>
+                <span style="font-family:var(--font-heading);font-size:19px;line-height:1.15;margin-top:2px;color:var(--color-accent-900)">Inference</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4) var(--space-6)">
+            <div>
+              <div style="font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--color-accent-800);border-bottom:1px solid var(--color-divider);padding-bottom:4px;margin-bottom:var(--space-2)">Core — where models run</div>
+              <div style="font-size:13.5px;line-height:1.6"><strong>1 · Inference serving.</strong> Always running, rarely looked at directly.</div>
+              <div style="font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--color-accent-800);border-bottom:1px solid var(--color-divider);padding-bottom:4px;margin:var(--space-4) 0 var(--space-2)">Mantle — enforced in real time</div>
+              <div style="font-size:13.5px;line-height:1.6"><strong>2 · Gateway</strong> — one front door for keys, budgets, audit.<br><strong>3 · Guardrails</strong> — injection, PII, output validation.<br><strong>4 · Action policy</strong> — what the agent may publish is enumerated, and enforced.<br><strong>5 · Orchestration</strong> — steps, retries, and the reasoning recorded at each one.<br><strong>6 · Identity &amp; scoped access</strong> — agents as first-class identities.</div>
+            </div>
+            <div>
+              <div style="font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--color-accent-800);border-bottom:1px solid var(--color-divider);padding-bottom:4px;margin-bottom:var(--space-2)">Crust — the part everyone can see</div>
+              <div style="font-size:13.5px;line-height:1.6"><strong>7 · Observability, evals, prompts</strong> — traced, versioned, scored.<br><strong>8 · Lineage &amp; provenance</strong> — source to output, frozen at publish.<br><strong>9 · GRC</strong> — mode, thresholds and overrides, audited in public.</div>
+              <div style="border:1px solid var(--color-neutral-700);padding:var(--space-3) var(--space-4);margin-top:var(--space-4);background:var(--color-neutral-100)">
+                <div style="font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--color-neutral-700)">The fault lines</div>
+                <p style="font-size:13px;line-height:1.6;margin:6px 0 0;text-wrap:pretty">Earthquakes happen at boundaries, not inside layers. Every handoff is a seam — so this project instruments them and publishes what it sees. <a href="https://www.linkedin.com/pulse/ai-governance-caddyshack-gopher-fault-lines-patrick-bland-pkcae" target="_blank" rel="noopener">Read the framework ↗</a></p>
+              </div>
+            </div>
+          </div>
+
+          <div id="ops" style="display:grid;grid-template-columns:1fr auto;gap:var(--space-6);align-items:center;border:1px solid var(--color-neutral-700);padding:var(--space-4) var(--space-6);background:var(--color-neutral-100);margin-top:var(--space-6)">
+            <p style="margin:0;font-size:13.5px;color:var(--color-neutral-800);line-height:1.6;text-wrap:pretty">The agent publishes on its own. Every run ships with the reasoning behind it: what it read, what it rejected and why, which checks ran and what they scored, what it spent, and a full before/after diff — including the runs that changed nothing. Anything a human overrides is published too, with the reason.</p>
+            <a href="#ops" style="display:inline-flex;align-items:center;text-decoration:none;font-family:var(--font-heading);font-weight:600;font-size:14px;color:var(--color-accent);border:1px solid var(--color-accent);padding:var(--space-2) 16.5px;border-radius:var(--radius-md);white-space:nowrap">Open ops. ↗</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CORRECTIONS -->
+  <section style="border-top:1px solid var(--color-divider);padding:var(--space-8) 0 var(--space-6)">
+    <div style="max-width:1220px;margin:0 auto;padding:0 var(--space-6);display:grid;grid-template-columns:1fr 1fr;gap:var(--space-8);align-items:start">
+      <div>
+        <div style="font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--color-accent-700)">Corrections</div>
+        <div style="font-family:var(--font-heading);font-size:22px;line-height:1.2;margin-top:2px">Tell us where a claim is wrong</div>
+        <p style="font-size:13.5px;line-height:1.7;margin:var(--space-3) 0 0;color:var(--color-neutral-800);text-wrap:pretty">Corrections open a public GitHub issue and enter the pipeline as evidence. You can follow the run that answers it — including the reasoning that accepted or rejected your point. Anonymous filing supported.</p>
+        <div style="display:flex;gap:var(--space-3);flex-wrap:wrap;margin-top:var(--space-3)">
+          <a href="https://github.com/bizmation/PredictionMarketLitigation/issues/new" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;text-decoration:none;font-family:var(--font-heading);font-weight:600;font-size:14px;color:var(--color-accent);border:1px solid var(--color-accent);padding:var(--space-2) 16.5px;border-radius:var(--radius-md)">File a correction</a>
+          <a href="https://github.com/bizmation/PredictionMarketLitigation" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;text-decoration:none;font-family:var(--font-heading);font-weight:600;font-size:14px;color:var(--color-text);border:1px solid var(--color-divider);padding:var(--space-2) 16.5px;border-radius:var(--radius-md)">Source on GitHub ↗</a>
+        </div>
+      </div>
+      <div style="border-left:2px solid var(--color-accent-600);padding-left:var(--space-6)">
+        <div style="font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--color-accent-700)">Status of this build</div>
+        <p style="font-size:13.5px;line-height:1.7;margin:var(--space-3) 0 0;color:var(--color-neutral-800);text-wrap:pretty">The published record you can browse today came out of an ungoverned dry run: sourcing and review only, no policy enforcement or publish controls. The governance layers described above are what it is being moved onto next — and every step of that move will be published too.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer style="border-top:1px solid var(--color-divider);padding:var(--space-6) 0 var(--space-8);font-size:12.5px;color:var(--color-neutral-700)">
+    <div style="max-width:1220px;margin:0 auto;padding:0 var(--space-6);display:flex;gap:var(--space-6);flex-wrap:wrap;align-items:baseline">
+      <span style="font-family:var(--font-heading);font-size:16px;color:var(--color-text)">PredictionMarketLitigation</span>
+      <a href="#ops" style="color:var(--color-neutral-800)">ops. ↗</a>
+      <a href="https://github.com/bizmation/PredictionMarketLitigation" target="_blank" rel="noopener" style="color:var(--color-neutral-800)">Repo ↗</a>
+      <a href="https://github.com/bizmation/PredictionMarketLitigation/issues/new" target="_blank" rel="noopener" style="color:var(--color-neutral-800)">Report an error</a>
+      <span style="margin-left:auto">General legal information — not legal advice.</span>
+    </div>
+  </footer>
+</div>
+
+
+
+<script>
+(function () {
+  const nav = document.querySelector("nav");
+  if (!nav) return;
+  const skip = new Set(["#ops", "#coffee", "#repo", "#corrections"]);
+  const links = Array.from(nav.querySelectorAll('a[href^="#"]')).filter(a => {
+    const href = a.getAttribute("href");
+    if (skip.has(href)) return false;
+    const el = document.getElementById(href.slice(1));
+    if (!el) return false;
+    a._target = el;
+    a.style.borderBottom = "2px solid transparent";
+    a.style.transition = "color .15s, border-color .15s";
+    return true;
+  });
+  if (!links.length) return;
+  const ordered = links.slice().sort((a, b) =>
+    a._target.compareDocumentPosition(b._target) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1);
+  const apply = () => {
+    const line = 96;
+    let active = null;
+    ordered.forEach(a => { if (a._target.getBoundingClientRect().top <= line) active = a; });
+    const doc = document.documentElement;
+    if (window.innerHeight + window.scrollY >= doc.scrollHeight - 4) active = ordered[ordered.length - 1];
+    links.forEach(a => {
+      const on = a === active;
+      a.style.color = on ? "var(--color-accent-800)" : "var(--color-neutral-800)";
+      a.style.borderBottomColor = on ? "var(--color-accent-600)" : "transparent";
+      a.style.borderBottomWidth = "2px";
+      a.style.fontWeight = on ? "600" : "400";
+      a.style.background = on ? "var(--color-accent-100)" : "transparent";
+      a.style.padding = "4px 8px";
+      if (on) a.setAttribute("aria-current", "true"); else a.removeAttribute("aria-current");
+    });
+  };
+  window.addEventListener("scroll", () => requestAnimationFrame(apply), { passive: true });
+  window.addEventListener("resize", apply);
+  apply();
+})();
+</script>
+
+</body>
+</html>
