@@ -250,6 +250,18 @@ describe("public F1 API (story 2.1)", () => {
     });
   });
 
+  it("returns the owned envelope 404 for the reserved administrivia prefix", async () => {
+    // Story 4.5 owns this path — still unmatched, but the /api/* envelope,
+    // not the outer plain-text 404 (retro X-7).
+    const res = await worker.fetch!(get("/api/administrivia"), testEnv);
+    expect(res.status).toBe(404);
+    expect(res.headers.get("content-type")).toContain("application/json");
+    expect(await res.json()).toEqual({
+      code: "not_found",
+      message: expect.any(String)
+    });
+  });
+
   it("still 403s /api/admin/* and /agents/* (perimeter regression)", async () => {
     const anon = { ...testEnv, ACCESS_DEV_BYPASS: undefined } as Env;
     for (const path of ["/api/admin/ping", "/agents/ChatAgent"]) {

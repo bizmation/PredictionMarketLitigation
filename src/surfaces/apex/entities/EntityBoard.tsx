@@ -8,19 +8,12 @@ import {
   selectionForState,
   type ApexSelection
 } from "../selection";
+import { jumpToBand } from "../useApexSelection";
 import { EntityDetail } from "./EntityDetail";
 import { EntityTabs } from "./EntityTabs";
 import { useEntityLedger, type LedgerStatus } from "./useEntityLedger";
 
-export function jumpToBand(id: "cases" | "states"): void {
-  const loc = globalThis.location;
-  const hist = globalThis.history;
-  if (!loc || !hist) return;
-  const url = `${loc.pathname}${loc.search}#${id}`;
-  hist.replaceState(null, "", url);
-  const node = globalThis.document?.getElementById(id);
-  node?.scrollIntoView?.({ block: "start" });
-}
+export { jumpToBand };
 
 /** IssueBoard hides until listsReady; the ledger can paint earlier. Do not commit. */
 export function commitEntityJump(

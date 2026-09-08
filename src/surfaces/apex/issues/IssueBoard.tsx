@@ -7,6 +7,7 @@ import {
   selectionForIssue,
   type ApexSelection
 } from "../selection";
+import { jumpToBand } from "../useApexSelection";
 import { IssueBar } from "./IssueBar";
 import { IssueChart } from "./IssueChart";
 import {
@@ -17,11 +18,6 @@ import {
   type IssueChartHit
 } from "./issueCharts";
 import { indexIssues, matrixPostureColumns } from "./issueView";
-
-function jumpToCases(): void {
-  const url = `${window.location.pathname}${window.location.search}#cases`;
-  window.history.replaceState(null, "", url);
-}
 
 export function selectionFromIssueHit(
   hit: IssueChartHit,
@@ -51,12 +47,12 @@ export function IssueBoard() {
     const next = selectionFromIssueHit(hit, selection);
     if (!next) return;
     commit(next);
-    if (hit.kind === "case") jumpToCases();
+    if (hit.kind === "case") jumpToBand("cases");
   }
 
   function onJump(caseId: string) {
     commit(selectionForCase(caseId, selection));
-    jumpToCases();
+    jumpToBand("cases");
   }
 
   function onClear() {
@@ -149,8 +145,9 @@ export function IssueBoard() {
         <div className="ch">
           <span className="kicker">Issue families</span>
           <span className="note">
-            The vocabulary itself: five families, the tags inside each, and one
-            segment per matter on the outer ring — hover a segment to name it.
+            The vocabulary itself: the issue families, the tags inside each, and
+            one segment per matter on the outer ring — hover a segment to name
+            it.
           </span>
         </div>
         <IssueChart

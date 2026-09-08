@@ -78,7 +78,7 @@ export function StateDetailPanel({
         <div className="dbody">
           <p>{UNTRACKED_COPY}</p>
           <div className="detail-actions">
-            <a className="btn btn-ghost" href="#trust">
+            <a className="btn btn-ghost" href="#correct">
               Report an error
             </a>
           </div>
@@ -216,7 +216,7 @@ export function StateDetailPanel({
               Open case record
             </a>
           ) : null}
-          <a className="btn btn-ghost" href="#trust">
+          <a className="btn btn-ghost" href="#correct">
             Report an error
           </a>
         </div>

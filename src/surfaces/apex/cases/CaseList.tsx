@@ -43,7 +43,7 @@ export function CaseList({
         <p>
           Nothing in the record fits those terms. That is a statement about this
           filter, not about the litigation — widen it, or{" "}
-          <a href="#trust">tell us what is missing</a>.
+          <a href="#correct">tell us what is missing</a>.
         </p>
       </div>
     );

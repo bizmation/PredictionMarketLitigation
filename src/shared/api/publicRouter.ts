@@ -190,8 +190,9 @@ export async function handlePublicApi(
     return null;
   }
   if (isReservedPublicPath(pathname)) {
-    // Story 4.5 owns /api/administrivia — keep returning unmatched so it 404s.
-    return null;
+    // Story 4.5 owns /api/administrivia — still unmatched, but the owned
+    // /api/* envelope 404, not the outer plain-text response (retro X-7).
+    return jsonError(notFound());
   }
 
   // Story 2.9 — poll routes are handled before the GET/HEAD-only guard because

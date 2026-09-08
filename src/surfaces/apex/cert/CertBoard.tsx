@@ -92,6 +92,9 @@ export function CertBoard({
       </div>
       <div>
         <div className="kicker">Factors named in this reading</div>
+        {/* list-style:none strips list semantics in Safari/VoiceOver — the
+            role is deliberate, not redundant (2.8 review fix). */}
+        {/* oxlint-disable-next-line jsx-a11y/no-redundant-roles */}
         <ul className="factors" role="list">
           {signal.factors.map((factor, index) => (
             <li key={`${index}-${factor.lead}`}>

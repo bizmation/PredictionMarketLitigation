@@ -464,7 +464,7 @@ describe("CaseList empty states", () => {
       />
     );
     expect(html).toContain("No case matches");
-    expect(html).toContain("#trust");
+    expect(html).toContain("#correct");
   });
 });
 

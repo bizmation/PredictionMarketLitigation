@@ -179,33 +179,55 @@ export function shortCaption(caption: string): string {
 
 const FAM_TINT = ["#e1ad66", "#c9b48c", "#b8a08e", "#c2a26b", "#ad9c85"];
 
+function familyNode(
+  family: string,
+  members: readonly IndexedIssue[],
+  tint: string
+): SunburstNode {
+  return {
+    name: family,
+    itemStyle: { color: tint },
+    children: members.map((tag) => ({
+      name: tag.label,
+      slug: tag.slug,
+      tag: true,
+      itemStyle: { color: "#f0e6d4" },
+      children: tag.cases.map((row) => ({
+        name: shortCaption(row.caption),
+        value: 1,
+        leaf: true,
+        caseId: row.id,
+        caption: row.caption,
+        slug: tag.slug,
+        posture: row.posture,
+        itemStyle: { color: POST_HEX[row.posture] }
+      }))
+    }))
+  };
+}
+
 export function sunburstTree(tags: readonly IndexedIssue[]): SunburstNode[] {
-  return FAMILY_ORDER.flatMap((family, fi) => {
+  const nodes = FAMILY_ORDER.flatMap((family, fi) => {
     const members = tags.filter((tag) => tag.family === family);
-    if (members.length === 0) return [];
-    return [
-      {
-        name: family,
-        itemStyle: { color: FAM_TINT[fi % FAM_TINT.length]! },
-        children: members.map((tag) => ({
-          name: tag.label,
-          slug: tag.slug,
-          tag: true,
-          itemStyle: { color: "#f0e6d4" },
-          children: tag.cases.map((row) => ({
-            name: shortCaption(row.caption),
-            value: 1,
-            leaf: true,
-            caseId: row.id,
-            caption: row.caption,
-            slug: tag.slug,
-            posture: row.posture,
-            itemStyle: { color: POST_HEX[row.posture] }
-          }))
-        }))
-      }
-    ];
+    return members.length === 0
+      ? []
+      : [familyNode(family, members, FAM_TINT[fi % FAM_TINT.length]!)];
   });
+  // Tags outside the family map still render — the vocabulary lives in D1,
+  // and a new slug must not silently vanish from this one view (retro X-8).
+  const orphans = tags.filter(
+    (tag) => !(FAMILY_ORDER as readonly string[]).includes(tag.family)
+  );
+  if (orphans.length > 0) {
+    nodes.push(
+      familyNode(
+        "Other",
+        orphans,
+        FAM_TINT[FAMILY_ORDER.length % FAM_TINT.length]!
+      )
+    );
+  }
+  return nodes;
 }
 
 export function issueBarCopy(

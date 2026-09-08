@@ -24,7 +24,9 @@ export function KpiRow({ kpis }: KpiRowProps) {
         <b>{figure(kpis?.statesTracked)}</b>
         <span className="k">States tracked</span>
         <span className="sub">
-          Of fifty. The rest have no tracked activity.
+          {kpis
+            ? `Of ${kpis.statesTotal}. The rest have no tracked activity.`
+            : "The rest of the union has no tracked activity."}
         </span>
       </li>
       <li className="kpi">
