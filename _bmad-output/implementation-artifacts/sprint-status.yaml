@@ -36,7 +36,7 @@
 # - Source epics: _bmad-output/planning-artifacts/epics.md (35 stories, readiness punch list applied 2026-08-09)
 
 generated: 2026-08-09
-last_updated: 09-04-2026 10:37
+last_updated: 09-08-2026 09:11
 project: PML
 project_key: NOKEY
 tracking_system: file-system
@@ -53,7 +53,7 @@ development_status:
   epic-1-retrospective: optional
 
   # Epic 2: Litigation Intelligence Tracker (Apex)
-  epic-2: in-progress
+  epic-2: done
   2-1-f1-data-model-apis-case-law-seed: done
   2-2-apex-orientation-chrome: done
   2-3-circuit-split-heat-map: done
@@ -115,7 +115,7 @@ action_items:
       scroll parity, Report-an-error CTAs #trust to #correct (+test pins), /api/administrivia
       envelope 404, sunburst Other segment, stale server.ts read-only comment"
     owner: "agent"
-    status: open
+    status: done
     ref: "_bmad-output/implementation-artifacts/epic-2-retro-2026-09-04.md"
   - id: "epic-2-retro-item-3-decide-unknown-operational-status-ux-fil"
     epic: 2
@@ -134,7 +134,7 @@ action_items:
     epic: 2
     action: "Add CI: GitHub Actions running npm run check + npm test on every PR"
     owner: "agent"
-    status: open
+    status: done
     ref: "_bmad-output/implementation-artifacts/epic-2-retro-2026-09-04.md"
   - id: "epic-2-retro-item-6-decide-click-test-harness-jsdom-testing"
     epic: 2
