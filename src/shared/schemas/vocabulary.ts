@@ -278,3 +278,21 @@ export const EVIDENCE_EVENT_VALUES = [
 
 export const EvidenceEventTypeSchema = z.enum(EVIDENCE_EVENT_VALUES);
 export type EvidenceEventType = z.infer<typeof EvidenceEventTypeSchema>;
+
+/**
+ * Gateway role (Epic 3) — the named callers admitted through the single AI
+ * gateway front door. `gateway.complete({ role })` resolves a model from the
+ * versioned role→model config by one of these; there is no free-form string
+ * path. The four roles match the architecture's locked orchestration pattern
+ * (orchestrator / drafter / reviewer / yolo). Must match the CHECK in
+ * migrations/0007_gateway_config.sql exactly.
+ */
+export const GATEWAY_ROLE_VALUES = [
+  "orchestrator",
+  "drafter",
+  "reviewer",
+  "yolo"
+] as const;
+
+export const GatewayRoleSchema = z.enum(GATEWAY_ROLE_VALUES);
+export type GatewayRole = z.infer<typeof GatewayRoleSchema>;

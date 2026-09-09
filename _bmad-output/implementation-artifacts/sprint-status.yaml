@@ -69,7 +69,7 @@ development_status:
   # Epic 3: Governed Daily Loop (Pipeline → Gate → Live)
   epic-3: in-progress
   3-1-run-draft-evidence-data-model: review
-  3-2-ai-gateway-budget-envelope-role-model-config: backlog
+  3-2-ai-gateway-budget-envelope-role-model-config: review
   3-3-daily-run-workflow-empty-runs: backlog
   3-4-source-monitoring-draft-packaging: backlog
   3-5-drafter-reviewer-disagreement-flag: backlog

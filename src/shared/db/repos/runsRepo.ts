@@ -10,8 +10,9 @@ import type { Db } from "../client";
 /**
  * Story 3.1 — `runs` repo. Snake_case rows in (via `?` binds only),
  * camelCase Zod-mapped domain objects out. `insertRun` exists for test
- * fixtures and the future pipeline write path (3.3); the public API is
- * read-only — no repo function mutates a Run once inserted.
+ * fixtures and the pipeline write path (3.3); the public API is read-only.
+ * Story 3.2 added the two budget-stop mutations: `markStopped` (Run → stopped)
+ * and `bumpSpend` (spend accrual), exercised only by the gateway.
  */
 
 type RunRow = {
@@ -109,4 +110,37 @@ export async function getRunById(
     .bind(id)
     .first<RunRow>();
   return row ? mapRun(row) : null;
+}
+
+/**
+ * Story 3.2 — budget-stop side effect. Marks the Run `stopped` (the D1 value;
+ * "budget-stopped" is a UI label only) and stamps a completion time. The
+ * timestamp is supplied by the caller so this stays a pure `?`-bind UPDATE.
+ */
+export async function markStopped(
+  db: Db,
+  runId: string,
+  completedAt: string
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE runs SET status = 'stopped', completed_at = ? WHERE id = ?`
+    )
+    .bind(completedAt, runId)
+    .run();
+}
+
+/**
+ * Story 3.2 — spend accrual. Adds recorded cents to the Run's `spend_cents`
+ * (money is integer cents; the D1 CHECK guards non-negative integers).
+ */
+export async function bumpSpend(
+  db: Db,
+  runId: string,
+  cents: number
+): Promise<void> {
+  await db
+    .prepare(`UPDATE runs SET spend_cents = spend_cents + ? WHERE id = ?`)
+    .bind(cents, runId)
+    .run();
 }
