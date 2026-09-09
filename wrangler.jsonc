@@ -107,8 +107,31 @@
     {
       "new_sqlite_classes": ["ChatAgent"],
       "tag": "v1"
+    },
+    {
+      // Story 3.3 — the DailyRunWorkflow's underlying Durable Object. Workflows
+      // register classes under `new_classes` (not `new_sqlite_classes`).
+      "new_classes": ["DailyRunWorkflow"],
+      "tag": "v2"
     }
   ],
+  // Story 3.3 — the first Workflow binding. `DailyRunWorkflow` is the daily
+  // harness; the cron schedule (dual-UTC + ET-hour guard) is NOT declared here
+  // — the guard lives in the workflow, and the crons are applied at deploy via
+  // the schedule (see docs/deploy-runbook.md §build).
+  "workflows": [
+    {
+      "name": "daily-run",
+      "binding": "DAILY_RUN",
+      "class_name": "DailyRunWorkflow"
+    }
+  ],
+  // Story 3.3 — dual-UTC crons + ET-hour guard. Noon ET is 16:00Z (EDT) or
+  // 17:00Z (EST); both fire hourly, and DailyRunWorkflow's `isRunTime()` guard
+  // acts only on the one that is actually noon in America/New_York.
+  "triggers": {
+    "crons": ["0 16 * * *", "0 17 * * *"]
+  },
 
   // Story 2.1 makes D1 canonical for the public F1 entities. `--local`
   // (Miniflare simulation) is used for development and tests; the database

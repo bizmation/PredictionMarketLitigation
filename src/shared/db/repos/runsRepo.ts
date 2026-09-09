@@ -144,3 +144,46 @@ export async function bumpSpend(
     .bind(cents, runId)
     .run();
 }
+
+/**
+ * Story 3.3 — find an existing scheduled Run for a calendar date (same-Run-ID
+ * resume). The run id is deterministic `run-YYYYMMDD-xxxx` from the date, but
+ * the 4-hex suffix makes a straight suffix-less lookup ambiguous across
+ * same-day runs of differing origin — so resume keys on `(scheduled_for,
+ * origin)` instead, which is exactly what the workflow knows.
+ */
+export async function findRunForDate(
+  db: Db,
+  scheduledFor: string,
+  origin: RunOrigin
+): Promise<RunSummary | null> {
+  const row = await db
+    .prepare(
+      `SELECT ${RUN_COLUMNS} FROM runs
+        WHERE scheduled_for = ? AND origin = ?
+        ORDER BY started_at DESC LIMIT 1`
+    )
+    .bind(scheduledFor, origin)
+    .first<RunRow>();
+  return row ? mapRun(row) : null;
+}
+
+/**
+ * Story 3.3 — complete a Run to a terminal status (empty/failed/published),
+ * stamping `completed_at`. Idempotent by design: only a `running` Run moves.
+ */
+export async function completeRun(
+  db: Db,
+  runId: string,
+  status: RunStatus,
+  completedAt: string
+): Promise<boolean> {
+  const res = await db
+    .prepare(
+      `UPDATE runs SET status = ?, completed_at = ?
+        WHERE id = ? AND status = 'running'`
+    )
+    .bind(status, completedAt, runId)
+    .run();
+  return res.meta.changes > 0;
+}
