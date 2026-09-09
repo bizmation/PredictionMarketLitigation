@@ -1,11 +1,20 @@
+import { z } from "zod";
+
+import { IsoUtcSchema } from "../../schemas/common";
+import {
+  DraftRecordSchema,
+  EvalSummarySchema,
+  type DraftRecord,
+  type EvalSummary
+} from "../../schemas/run";
 import { asBool, type Db } from "../client";
-import { DraftRecordSchema, type DraftRecord } from "../../schemas/run";
 
 /**
  * Story 3.1 — `drafts` repo. Snake_case rows in (via `?` binds only),
  * camelCase Zod-mapped domain objects out. `insertDraft` uses
  * `INSERT OR IGNORE` so a Workflow `step.do` retry with a deterministic
- * draft id does not throw or duplicate the row.
+ * draft id does not throw or duplicate the row. Story 3.5 adds
+ * `applyDraftReview` (validate-before-UPDATE) for the drafter overwrite + eval.
  */
 
 type DraftRow = {
@@ -25,6 +34,10 @@ type DraftRow = {
   created_at: string;
   updated_at: string;
 };
+
+const DRAFT_COLUMNS = `id, run_id, target_entity_type, target_entity_id, diff_json,
+              body, tier2_only, confidence, eval_summary_json, outcome,
+              decided_at, decided_by, edited_body, created_at, updated_at`;
 
 function mapDraft(row: DraftRow): DraftRecord {
   return DraftRecordSchema.parse({
@@ -50,15 +63,20 @@ function mapDraft(row: DraftRow): DraftRecord {
 export async function listByRun(db: Db, runId: string): Promise<DraftRecord[]> {
   const { results } = await db
     .prepare(
-      `SELECT id, run_id, target_entity_type, target_entity_id, diff_json,
-              body, tier2_only, confidence, eval_summary_json, outcome,
-              decided_at, decided_by, edited_body, created_at, updated_at
-         FROM drafts WHERE run_id = ?
+      `SELECT ${DRAFT_COLUMNS} FROM drafts WHERE run_id = ?
         ORDER BY created_at ASC, id ASC`
     )
     .bind(runId)
     .all<DraftRow>();
   return (results ?? []).map(mapDraft);
+}
+
+export async function getById(db: Db, id: string): Promise<DraftRecord | null> {
+  const row = await db
+    .prepare(`SELECT ${DRAFT_COLUMNS} FROM drafts WHERE id = ?`)
+    .bind(id)
+    .first<DraftRow>();
+  return row ? mapDraft(row) : null;
 }
 
 export async function insertDraft(
@@ -72,7 +90,7 @@ export async function insertDraft(
     body: string;
     tier2Only: boolean;
     confidence: number | null;
-    evalSummary: unknown;
+    evalSummary: EvalSummary | null;
     createdAt: string;
   }
 ): Promise<DraftRecord> {
@@ -112,6 +130,65 @@ export async function insertDraft(
       record.evalSummary == null ? null : JSON.stringify(record.evalSummary),
       record.createdAt,
       record.updatedAt
+    )
+    .run();
+  return record;
+}
+
+const DraftReviewPatchSchema = z
+  .object({
+    id: z.string().min(1),
+    body: z.string().min(1),
+    diff: z.unknown(),
+    confidence: z.number().int().min(0).max(100).nullable(),
+    evalSummary: EvalSummarySchema,
+    updatedAt: IsoUtcSchema
+  })
+  .strict();
+
+/**
+ * Story 3.5 — persist the drafter overwrite + reviewer eval in one UPDATE.
+ * Validate-before-write: merge onto the existing row and parse the full
+ * DraftRecord so a CHECK-passing but schema-invalid row cannot land.
+ */
+export async function applyDraftReview(
+  db: Db,
+  input: {
+    id: string;
+    body: string;
+    diff: unknown;
+    confidence: number | null;
+    evalSummary: EvalSummary;
+    updatedAt: string;
+  }
+): Promise<DraftRecord> {
+  const patch = DraftReviewPatchSchema.parse(input);
+  const existing = await getById(db, patch.id);
+  if (!existing) {
+    throw new Error(`Draft ${patch.id} not found.`);
+  }
+  const record = DraftRecordSchema.parse({
+    ...existing,
+    body: patch.body,
+    diff: patch.diff,
+    confidence: patch.confidence,
+    evalSummary: patch.evalSummary,
+    updatedAt: patch.updatedAt
+  });
+  await db
+    .prepare(
+      `UPDATE drafts
+          SET body = ?, diff_json = ?, confidence = ?, eval_summary_json = ?,
+              updated_at = ?
+        WHERE id = ?`
+    )
+    .bind(
+      record.body,
+      JSON.stringify(record.diff),
+      record.confidence,
+      JSON.stringify(record.evalSummary),
+      record.updatedAt,
+      record.id
     )
     .run();
   return record;

@@ -1,10 +1,13 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it, vi } from "vitest";
 
-import * as runsRepo from "../../shared/db/repos/runsRepo";
+import * as draftsRepo from "../../shared/db/repos/draftsRepo";
 import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
+import * as runsRepo from "../../shared/db/repos/runsRepo";
+import type { GatewayDeps, LlmProvider } from "../ai/gateway";
 import { kickDailyRun } from "./dailyRun";
 import {
+  afterPackaging,
   completeDailyStep,
   ensureRun,
   finishEmpty,
@@ -227,5 +230,172 @@ describe("completeDailyStep (story 3.3/3.4)", () => {
     expect(
       evidence.filter((e) => e.event === "run.failed").map((e) => e.payload)
     ).toContainEqual({ reason: "error" });
+  });
+});
+
+describe("afterPackaging (story 3.5)", () => {
+  const NOW = "2026-09-22T16:00:00.000Z";
+  const twoDrafts: Record<string, SourceCheck> = {
+    "CFTC press": () => [
+      {
+        entities: [
+          {
+            type: "states",
+            id: "st-nv",
+            diff: { operationalStatus: { from: "go", to: "restricted" } },
+            body: "Nevada restricted.",
+            confidence: 80
+          },
+          {
+            type: "states",
+            id: "st-ca",
+            diff: { operationalStatus: { from: "go", to: "restricted" } },
+            body: "California restricted.",
+            confidence: 80
+          }
+        ]
+      }
+    ]
+  };
+  const oneDraft: Record<string, SourceCheck> = {
+    "CFTC press": () => [
+      {
+        entities: [
+          {
+            type: "states",
+            id: "st-nv",
+            diff: { operationalStatus: { from: "go", to: "restricted" } },
+            body: "Nevada restricted.",
+            confidence: 80
+          }
+        ]
+      }
+    ]
+  };
+
+  async function seedRoles() {
+    await testEnv.DB.prepare(
+      `INSERT INTO gateway_config (id, version, roles_json, default_budget_cents, updated_at)
+       VALUES ('current', 1, ?, 100, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         roles_json = excluded.roles_json,
+         default_budget_cents = excluded.default_budget_cents,
+         updated_at = excluded.updated_at`
+    )
+      .bind(
+        JSON.stringify({
+          drafter: { provider: "fake", model: "drafter-v1" },
+          reviewer: { provider: "fake", model: "reviewer-v1" }
+        }),
+        NOW
+      )
+      .run();
+  }
+
+  function fakeProvider(
+    script: Array<{ text?: string; costCents?: number }> = []
+  ): LlmProvider & { count: () => number } {
+    let calls = 0;
+    return {
+      name: "fake",
+      count: () => calls,
+      complete: async () => {
+        const step = script[calls];
+        calls += 1;
+        return {
+          text:
+            step?.text ??
+            JSON.stringify({
+              body: "Drafter overwrite.",
+              diff: { operationalStatus: { from: "go", to: "restricted" } }
+            }),
+          inputTokens: 1,
+          outputTokens: 1,
+          costCents: step?.costCents ?? 0
+        };
+      }
+    };
+  }
+
+  function deps(provider: LlmProvider): GatewayDeps {
+    return { db: testEnv.DB, provider, now: () => NOW };
+  }
+
+  it("skips LLM and completes empty when draftCount is 0", async () => {
+    const date = "2026-09-22";
+    await ensureRun(testEnv.DB, "scheduled", date);
+    const id = runIdFor(date, "scheduled");
+    await seedRoles();
+    const packaged = await monitorAndPackage(testEnv.DB, id);
+    const provider = fakeProvider();
+    await afterPackaging(testEnv.DB, id, packaged, deps(provider));
+    expect(packaged.draftCount).toBe(0);
+    expect(provider.count()).toBe(0);
+    expect((await runsRepo.getRunById(testEnv.DB, id))?.status).toBe("empty");
+  });
+
+  it("reviews material Drafts then completes awaiting", async () => {
+    const date = "2026-09-23";
+    await ensureRun(testEnv.DB, "scheduled", date);
+    const id = runIdFor(date, "scheduled");
+    await seedRoles();
+    const packaged = await monitorAndPackage(testEnv.DB, id, oneDraft);
+    const provider = fakeProvider([
+      {
+        text: JSON.stringify({
+          body: "Drafter overwrite.",
+          diff: { operationalStatus: { from: "go", to: "restricted" } }
+        })
+      },
+      {
+        text: JSON.stringify({
+          confidence: 72,
+          citationCompleteness: 90,
+          notes: "ok",
+          disagrees: false,
+          disagreement: ""
+        })
+      }
+    ]);
+    await afterPackaging(testEnv.DB, id, packaged, deps(provider));
+    expect(provider.count()).toBe(2);
+    const drafts = await draftsRepo.listByRun(testEnv.DB, id);
+    expect(drafts[0]?.body).toBe("Drafter overwrite.");
+    expect(drafts[0]?.evalSummary?.status).toBe("ok");
+    expect((await runsRepo.getRunById(testEnv.DB, id))?.status).toBe(
+      "awaiting"
+    );
+  });
+
+  it("does not complete awaiting after a budget-stop", async () => {
+    const date = "2026-09-24";
+    await ensureRun(testEnv.DB, "scheduled", date);
+    const id = runIdFor(date, "scheduled");
+    await testEnv.DB.prepare("UPDATE runs SET budget_cents = 50 WHERE id = ?")
+      .bind(id)
+      .run();
+    await seedRoles();
+    const packaged = await monitorAndPackage(testEnv.DB, id, twoDrafts);
+    expect(packaged.draftCount).toBe(2);
+    const provider = fakeProvider([
+      {
+        text: JSON.stringify({
+          body: "Drafter overwrite.",
+          diff: { operationalStatus: { from: "go", to: "restricted" } }
+        }),
+        costCents: 50
+      }
+    ]);
+    await afterPackaging(testEnv.DB, id, packaged, deps(provider));
+    expect(provider.count()).toBe(1);
+    expect((await runsRepo.getRunById(testEnv.DB, id))?.status).toBe("stopped");
+    const evidence = await evidenceRepo.listByRun(testEnv.DB, id);
+    expect(evidence.some((e) => e.event === "gate.awaiting_approval")).toBe(
+      false
+    );
+    const drafts = await draftsRepo.listByRun(testEnv.DB, id);
+    expect(drafts.every((d) => d.evalSummary?.status === "evals_not_run")).toBe(
+      true
+    );
   });
 });

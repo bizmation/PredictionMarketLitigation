@@ -2,6 +2,8 @@ import type { Db } from "../../shared/db/client";
 import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import type { RunOrigin } from "../../shared/schemas/vocabulary";
+import { draftAndReview } from "../agents/draftAndReview";
+import type { GatewayDeps } from "../ai/gateway";
 import {
   evidenceId,
   runConnector,
@@ -130,4 +132,25 @@ export async function monitorAndPackage(
     if (result.failed) anyFailure = true;
   }
   return { draftCount, anyFailure };
+}
+
+/**
+ * Post-packaging control flow: empty Runs complete with no LLM.
+ * Material Runs run draft-and-review, then `completeDailyStep` only if
+ * the Run is still `running` (budget-stop already marked `stopped`).
+ */
+export async function afterPackaging(
+  db: Db,
+  runId: string,
+  result: { draftCount: number; anyFailure: boolean },
+  gatewayDeps: GatewayDeps
+): Promise<void> {
+  if (result.draftCount === 0) {
+    await completeDailyStep(db, runId, result);
+    return;
+  }
+  await draftAndReview(db, runId, gatewayDeps);
+  const run = await runsRepo.getRunById(db, runId);
+  if (!run || run.status !== "running") return;
+  await completeDailyStep(db, runId, result);
 }

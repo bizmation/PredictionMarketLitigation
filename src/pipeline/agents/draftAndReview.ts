@@ -1,0 +1,310 @@
+import { z } from "zod";
+
+import type { Db } from "../../shared/db/client";
+import * as draftsRepo from "../../shared/db/repos/draftsRepo";
+import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
+import type {
+  DraftRecord,
+  EvalSummary,
+  IneligibleReason
+} from "../../shared/schemas/run";
+import { complete, GatewayError, type GatewayDeps } from "../ai/gateway";
+import { evidenceId } from "../connectors/connector";
+
+/**
+ * Story 3.5 — drafter then reviewer per Draft.
+ *
+ * Agents call `gateway.complete({ role })` only. Prompts live here, not in
+ * the workflow. YOLO does not run. Workflow retries skip a Draft whose
+ * `evalSummary` is already set.
+ */
+
+/** Versioned auto-approve floor until 3.13 makes it operator-configurable. */
+export const AUTO_APPROVE_CONFIDENCE_THRESHOLD = 70;
+
+const DrafterOutputSchema = z
+  .object({
+    body: z.string().min(1),
+    diff: z.record(z.string(), z.object({ from: z.unknown(), to: z.unknown() }))
+  })
+  .passthrough();
+
+const ReviewerOutputSchema = z
+  .object({
+    confidence: z.number().int().min(0).max(100),
+    citationCompleteness: z.number().int().min(0).max(100),
+    notes: z.string(),
+    disagrees: z.boolean().optional(),
+    disagreement: z.string().optional()
+  })
+  .passthrough();
+
+const PER_DRAFT_GATEWAY_CODES = new Set([
+  "provider_error",
+  "gateway_not_configured",
+  "role_not_configured",
+  "run_not_found",
+  "unknown_role"
+]);
+
+export interface DraftAndReviewResult {
+  budgetStopped: boolean;
+}
+
+function nowIso(deps: GatewayDeps): string {
+  return deps.now?.() ?? new Date().toISOString();
+}
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text.trim());
+  } catch {
+    return undefined;
+  }
+}
+
+function parseDrafter(text: string): {
+  body: string;
+  diff: Record<string, { from: unknown; to: unknown }>;
+} | null {
+  const parsed = DrafterOutputSchema.safeParse(parseJson(text));
+  if (!parsed.success) return null;
+  if (parsed.data.body.trim().length === 0) return null;
+  return { body: parsed.data.body, diff: parsed.data.diff };
+}
+
+function ineligibleFor(
+  draft: DraftRecord,
+  status: EvalSummary["status"],
+  confidence: number | null
+): IneligibleReason[] {
+  const reasons: IneligibleReason[] = [];
+  if (draft.tier2Only) reasons.push("tier2_only");
+  if (confidence != null && confidence < AUTO_APPROVE_CONFIDENCE_THRESHOLD) {
+    reasons.push("below_threshold");
+  }
+  if (status === "eval_fail") reasons.push("eval_fail");
+  if (status === "evals_not_run") reasons.push("evals_not_run");
+  return reasons;
+}
+
+function evalsNotRunSummary(draft: DraftRecord): EvalSummary {
+  return {
+    status: "evals_not_run",
+    basis: "evals not run",
+    citationCompleteness: null,
+    disagreement: { flagged: false, description: null },
+    ineligible: ineligibleFor(draft, "evals_not_run", null)
+  };
+}
+
+function evalFailSummary(
+  draft: DraftRecord,
+  args: {
+    basis: string;
+    citationCompleteness: number | null;
+    confidence: number | null;
+  }
+): EvalSummary {
+  return {
+    status: "eval_fail",
+    basis: args.basis,
+    citationCompleteness: args.citationCompleteness,
+    disagreement: { flagged: false, description: null },
+    ineligible: ineligibleFor(draft, "eval_fail", args.confidence)
+  };
+}
+
+function drafterPrompt(draft: DraftRecord): string {
+  return [
+    "You are the drafter for a litigation-tracker Draft.",
+    "Return ONLY JSON with this shape (no markdown):",
+    '{"body": string, "diff": {"<field>": {"from": unknown, "to": unknown}}}',
+    "",
+    `Target entity: ${draft.targetEntityType ?? "null"} / ${draft.targetEntityId ?? "null"}`,
+    `Tier-2 only: ${draft.tier2Only ? "true" : "false"}`,
+    "Packaging shell body:",
+    draft.body,
+    "Packaging shell diff:",
+    JSON.stringify(draft.diff)
+  ].join("\n");
+}
+
+function reviewerPrompt(
+  draft: DraftRecord,
+  body: string,
+  diff: unknown
+): string {
+  return [
+    "You are the reviewer for a litigation-tracker Draft.",
+    "Return ONLY JSON with this shape (no markdown):",
+    '{"confidence":0-100,"citationCompleteness":0-100,"notes":string,"disagrees":boolean,"disagreement":string}',
+    "confidence and citationCompleteness are integers 0-100.",
+    "notes is the public basis for the score.",
+    "Set disagrees true only when you materially disagree with the drafter; then disagreement is a short description.",
+    'If you agree, disagrees is false and disagreement is "".',
+    "",
+    `Target entity: ${draft.targetEntityType ?? "null"} / ${draft.targetEntityId ?? "null"}`,
+    `Tier-2 only: ${draft.tier2Only ? "true" : "false"}`,
+    "Draft body:",
+    body,
+    "Proposed diff:",
+    JSON.stringify(diff)
+  ].join("\n");
+}
+
+function isBudgetStopped(err: unknown): boolean {
+  return err instanceof GatewayError && err.code === "budget_stopped";
+}
+
+function isPerDraftGatewayError(err: unknown): boolean {
+  return err instanceof GatewayError && PER_DRAFT_GATEWAY_CODES.has(err.code);
+}
+
+async function persist(
+  db: Db,
+  draft: DraftRecord,
+  args: {
+    body: string;
+    diff: unknown;
+    confidence: number | null;
+    evalSummary: EvalSummary;
+    createdAt: string;
+  }
+): Promise<void> {
+  await evidenceRepo.appendEvent(db, {
+    id: evidenceId(draft.runId, "draft.evaluated", draft.id),
+    runId: draft.runId,
+    event: "draft.evaluated",
+    payload: {
+      draftId: draft.id,
+      disagreement: args.evalSummary.disagreement
+    },
+    createdAt: args.createdAt
+  });
+  await draftsRepo.applyDraftReview(db, {
+    id: draft.id,
+    body: args.body,
+    diff: args.diff,
+    confidence: args.confidence,
+    evalSummary: args.evalSummary,
+    updatedAt: args.createdAt
+  });
+}
+
+function scoreReviewer(
+  draft: DraftRecord,
+  text: string
+): {
+  confidence: number | null;
+  evalSummary: EvalSummary;
+} {
+  const parsed = ReviewerOutputSchema.safeParse(parseJson(text));
+  if (!parsed.success) {
+    return {
+      confidence: null,
+      evalSummary: evalFailSummary(draft, {
+        basis: "eval-fail",
+        citationCompleteness: null,
+        confidence: null
+      })
+    };
+  }
+  const disagrees = parsed.data.disagrees === true;
+  const disagreement = (parsed.data.disagreement ?? "").trim();
+  if (disagrees && disagreement.length === 0) {
+    return {
+      confidence: parsed.data.confidence,
+      evalSummary: evalFailSummary(draft, {
+        basis: parsed.data.notes || "eval-fail",
+        citationCompleteness: parsed.data.citationCompleteness,
+        confidence: parsed.data.confidence
+      })
+    };
+  }
+  const flagged = disagrees;
+  return {
+    confidence: parsed.data.confidence,
+    evalSummary: {
+      status: "ok",
+      basis: parsed.data.notes,
+      citationCompleteness: parsed.data.citationCompleteness,
+      disagreement: {
+        flagged,
+        description: flagged ? disagreement : null
+      },
+      ineligible: ineligibleFor(draft, "ok", parsed.data.confidence)
+    }
+  };
+}
+
+/**
+ * Per Draft: skip if `evalSummary` is already set; drafter then reviewer;
+ * apply review; write `draft.evaluated`. Per-Draft gateway errors mark that
+ * Draft `evals_not_run` and continue. `budget_stopped` stops further calls
+ * and marks remaining Drafts `evals_not_run`.
+ */
+export async function draftAndReview(
+  db: Db,
+  runId: string,
+  gatewayDeps: GatewayDeps
+): Promise<DraftAndReviewResult> {
+  const drafts = (await draftsRepo.listByRun(db, runId)).filter(
+    (draft) => draft.evalSummary == null
+  );
+  for (let i = 0; i < drafts.length; i++) {
+    const draft = drafts[i]!;
+    let body = draft.body;
+    let diff: unknown = draft.diff;
+    try {
+      const drafter = await complete(gatewayDeps, {
+        role: "drafter",
+        runId,
+        prompt: drafterPrompt(draft)
+      });
+      const overwritten = parseDrafter(drafter.text);
+      if (overwritten) {
+        body = overwritten.body;
+        diff = overwritten.diff;
+      }
+      const reviewer = await complete(gatewayDeps, {
+        role: "reviewer",
+        runId,
+        prompt: reviewerPrompt(draft, body, diff)
+      });
+      const scored = scoreReviewer(draft, reviewer.text);
+      await persist(db, draft, {
+        body,
+        diff,
+        confidence: scored.confidence,
+        evalSummary: scored.evalSummary,
+        createdAt: nowIso(gatewayDeps)
+      });
+    } catch (err) {
+      const timestamp = nowIso(gatewayDeps);
+      await persist(db, draft, {
+        body,
+        diff,
+        confidence: null,
+        evalSummary: evalsNotRunSummary(draft),
+        createdAt: timestamp
+      });
+      const stopFurther = isBudgetStopped(err) || !isPerDraftGatewayError(err);
+      if (stopFurther) {
+        for (let j = i + 1; j < drafts.length; j++) {
+          const remaining = drafts[j]!;
+          await persist(db, remaining, {
+            body: remaining.body,
+            diff: remaining.diff,
+            confidence: null,
+            evalSummary: evalsNotRunSummary(remaining),
+            createdAt: timestamp
+          });
+        }
+        if (isBudgetStopped(err)) return { budgetStopped: true };
+        throw err;
+      }
+    }
+  }
+  return { budgetStopped: false };
+}
