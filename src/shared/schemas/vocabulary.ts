@@ -296,3 +296,6 @@ export const GATEWAY_ROLE_VALUES = [
 
 export const GatewayRoleSchema = z.enum(GATEWAY_ROLE_VALUES);
 export type GatewayRole = z.infer<typeof GatewayRoleSchema>;
+
+/** IANA zone the daily Run is scheduled in (Epic 3); noon ET is the run hour. */
+export const RUN_SCHEDULE_TIMEZONE = "America/New_York";

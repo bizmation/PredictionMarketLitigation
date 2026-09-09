@@ -319,5 +319,16 @@ export default {
       (await routeAgentRequest(request, env)) ||
       new Response("Not found", { status: 404 })
     );
+  },
+  // Story 3.3 — the dual-UTC crons fire here; each kicks the daily harness for
+  // today's date. `DailyRunWorkflow`'s ET-hour guard drops the off-hour twin.
+  async scheduled(_controller: ScheduledController, env: Env) {
+    const workflow = env.DAILY_RUN;
+    if (!workflow) return;
+    const today = new Date().toISOString().slice(0, 10);
+    await workflow.create({
+      params: { origin: "scheduled", scheduledFor: today },
+      id: `daily-${today}`
+    });
   }
 } satisfies ExportedHandler<Env>;
