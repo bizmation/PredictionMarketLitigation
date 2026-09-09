@@ -61,3 +61,59 @@ export async function listByRun(db: Db, runId: string): Promise<DraftRecord[]> {
     .all<DraftRow>();
   return (results ?? []).map(mapDraft);
 }
+
+export async function insertDraft(
+  db: Db,
+  input: {
+    id: string;
+    runId: string;
+    targetEntityType: string | null;
+    targetEntityId: string | null;
+    diff: unknown;
+    body: string;
+    tier2Only: boolean;
+    confidence: number | null;
+    evalSummary: unknown;
+    createdAt: string;
+  }
+): Promise<DraftRecord> {
+  const record = DraftRecordSchema.parse({
+    id: input.id,
+    runId: input.runId,
+    targetEntityType: input.targetEntityType,
+    targetEntityId: input.targetEntityId,
+    diff: input.diff,
+    body: input.body,
+    tier2Only: input.tier2Only,
+    confidence: input.confidence,
+    evalSummary: input.evalSummary,
+    outcome: null,
+    decidedAt: null,
+    decidedBy: null,
+    editedBody: null,
+    createdAt: input.createdAt,
+    updatedAt: input.createdAt
+  });
+  await db
+    .prepare(
+      `INSERT INTO drafts (id, run_id, target_entity_type, target_entity_id,
+          diff_json, body, tier2_only, confidence, eval_summary_json,
+          outcome, decided_at, decided_by, edited_body, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)`
+    )
+    .bind(
+      record.id,
+      record.runId,
+      record.targetEntityType,
+      record.targetEntityId,
+      JSON.stringify(record.diff),
+      record.body,
+      record.tier2Only ? 1 : 0,
+      record.confidence,
+      record.evalSummary == null ? null : JSON.stringify(record.evalSummary),
+      record.createdAt,
+      record.updatedAt
+    )
+    .run();
+  return record;
+}
