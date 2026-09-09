@@ -5,7 +5,13 @@ import {
 } from "cloudflare:workers";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import type { RunOrigin } from "../../shared/schemas/vocabulary";
-import { ensureRun, finishEmpty } from "./dailyRunSteps";
+import {
+  ensureRun,
+  finishAwaiting,
+  finishEmpty,
+  finishFailed,
+  monitorAndPackage
+} from "./dailyRunSteps";
 import { isRunTime } from "./schedule";
 
 export interface DailyRunParams {
@@ -28,7 +34,10 @@ export class DailyRunWorkflow extends WorkflowEntrypoint<Env, DailyRunParams> {
     await step.do("run-daily-step", async () => {
       const run = await runsRepo.findRunForDate(db, scheduledFor, origin);
       if (!run || run.status !== "running") return;
-      await finishEmpty(db, run.id);
+      const { draftCount, anyFailure } = await monitorAndPackage(db, run.id);
+      if (anyFailure) await finishFailed(db, run.id);
+      else if (draftCount > 0) await finishAwaiting(db, run.id, draftCount);
+      else await finishEmpty(db, run.id);
     });
   }
 }

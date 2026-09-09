@@ -2,6 +2,12 @@ import type { Db } from "../../shared/db/client";
 import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import type { RunOrigin } from "../../shared/schemas/vocabulary";
+import {
+  runConnector,
+  stubCheck,
+  type SourceCheck
+} from "../connectors/connector";
+import { POLL_SOURCES } from "../connectors/sources";
 
 export function runIdFor(scheduledFor: string, origin: RunOrigin): string {
   const suffix: Record<RunOrigin, string> = {
@@ -53,4 +59,41 @@ export async function finishEmpty(db: Db, runId: string): Promise<void> {
     payload: { drafts: 0 },
     createdAt: now
   });
+}
+
+export async function finishAwaiting(
+  db: Db,
+  runId: string,
+  draftCount: number
+): Promise<void> {
+  const now = new Date().toISOString();
+  const changed = await runsRepo.completeRun(db, runId, "awaiting", now);
+  if (!changed) return;
+  await evidenceRepo.appendEvent(db, {
+    id: crypto.randomUUID(),
+    runId,
+    event: "gate.awaiting_approval",
+    payload: { drafts: draftCount },
+    createdAt: now
+  });
+}
+
+export async function finishFailed(db: Db, runId: string): Promise<void> {
+  await runsRepo.completeRun(db, runId, "failed", new Date().toISOString());
+}
+
+export async function monitorAndPackage(
+  db: Db,
+  runId: string,
+  checks: Record<string, SourceCheck> = {}
+): Promise<{ draftCount: number; anyFailure: boolean }> {
+  let draftCount = 0;
+  let anyFailure = false;
+  for (const source of POLL_SOURCES) {
+    const check = checks[source.name] ?? stubCheck;
+    const result = await runConnector(db, runId, source, check);
+    draftCount += result.draftCount;
+    if (result.failed) anyFailure = true;
+  }
+  return { draftCount, anyFailure };
 }
