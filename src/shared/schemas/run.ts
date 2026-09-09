@@ -74,12 +74,57 @@ export const DRAFT_OUTCOME_VALUES = ["approved", "edited", "rejected"] as const;
 const DraftOutcomeSchema = z.enum(DRAFT_OUTCOME_VALUES);
 
 /**
+ * FR17 ineligibility reasons persisted on a Draft for later auto-approve
+ * policy (3.13). Closed set — 3.5 records the inputs; it does not enforce
+ * the gate.
+ */
+export const INELIGIBLE_REASON_VALUES = [
+  "tier2_only",
+  "below_threshold",
+  "eval_fail",
+  "evals_not_run"
+] as const;
+
+export const IneligibleReasonSchema = z.enum(INELIGIBLE_REASON_VALUES);
+export type IneligibleReason = z.infer<typeof IneligibleReasonSchema>;
+
+export const EVAL_STATUS_VALUES = ["ok", "eval_fail", "evals_not_run"] as const;
+
+export const EvalStatusSchema = z.enum(EVAL_STATUS_VALUES);
+export type EvalStatus = z.infer<typeof EvalStatusSchema>;
+
+/**
+ * Reviewer eval payload (Story 3.5). `status` is always explicit after
+ * draft-and-review (`ok` | `eval_fail` | `evals_not_run`); `null` on the
+ * Draft is only the pre-review packaging shell. `basis` is the public
+ * reviewer notes (or an explicit "evals not run" / "eval-fail" string).
+ * `disagreement.flagged` is true only when the reviewer declared dissent
+ * with a non-empty description.
+ */
+export const EvalSummarySchema = z
+  .object({
+    status: EvalStatusSchema,
+    basis: z.string(),
+    citationCompleteness: z.number().int().min(0).max(100).nullable(),
+    disagreement: z
+      .object({
+        flagged: z.boolean(),
+        description: z.string().min(1).nullable()
+      })
+      .strict(),
+    ineligible: z.array(IneligibleReasonSchema)
+  })
+  .strict();
+
+export type EvalSummary = z.infer<typeof EvalSummarySchema>;
+
+/**
  * A Draft record as the public sees it (pending Drafts are public on `ops.`
- * while never live F1). `diff` and `evalSummary` are JSON values stored in
- * `diff_json`/`eval_summary_json`; their internal shape is owned by stories
- * 3.4/3.11 and deliberately not pinned here yet. `body` is the original
- * agent text and is never mutated — an operator edit lands in `editedBody`,
- * preserving the public before/after diff.
+ * while never live F1). `diff` is the proposed field diff (shape owned by
+ * 3.4/3.11). After 3.5, `body` is the drafter's original agent text — the
+ * connector packaging shell is overwritten; operator edits still land in
+ * `editedBody`, preserving the public before/after diff. `evalSummary` is
+ * null only before draft-and-review.
  */
 export const DraftRecordSchema = z
   .object({
@@ -91,7 +136,7 @@ export const DraftRecordSchema = z
     body: z.string().min(1),
     tier2Only: z.boolean(),
     confidence: z.number().int().min(0).max(100).nullable(),
-    evalSummary: z.unknown().nullable(),
+    evalSummary: EvalSummarySchema.nullable(),
     outcome: DraftOutcomeSchema.nullable(),
     decidedAt: IsoUtcSchema.nullable(),
     decidedBy: z.string().min(1).nullable(),

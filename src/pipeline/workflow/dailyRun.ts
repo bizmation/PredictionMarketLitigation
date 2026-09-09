@@ -6,7 +6,12 @@ import {
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import type { RunOrigin } from "../../shared/schemas/vocabulary";
 import {
-  completeDailyStep,
+  createWorkersAiProvider,
+  type GatewayDeps,
+  type LlmProvider
+} from "../ai/gateway";
+import {
+  afterPackaging,
   ensureRun,
   finishFailed,
   monitorAndPackage
@@ -45,6 +50,15 @@ export async function kickDailyRun(
   }
 }
 
+function gatewayDepsFromEnv(env: Env, db: GatewayDeps["db"]): GatewayDeps {
+  // Tests omit the AI binding; complete() then throws gateway_not_configured
+  // and draftAndReview marks that Draft evals_not_run (per-Draft catch).
+  return {
+    db,
+    provider: createWorkersAiProvider(env) as LlmProvider
+  };
+}
+
 export class DailyRunWorkflow extends WorkflowEntrypoint<Env, DailyRunParams> {
   async run(
     event: WorkflowEvent<DailyRunParams>,
@@ -54,14 +68,50 @@ export class DailyRunWorkflow extends WorkflowEntrypoint<Env, DailyRunParams> {
     const db = this.env.DB;
 
     await step.do("attach-run", () => ensureRun(db, origin, scheduledFor));
-    await step.do("run-daily-step", async () => {
+
+    const packaged = await step.do("run-daily-step", async () => {
       const run = await runsRepo.findRunForDate(db, scheduledFor, origin);
-      if (!run || run.status !== "running") return;
+      if (!run || run.status !== "running") {
+        return { skip: true as const };
+      }
       try {
         const result = await monitorAndPackage(db, run.id);
-        await completeDailyStep(db, run.id, result);
+        if (result.draftCount === 0) {
+          await afterPackaging(
+            db,
+            run.id,
+            result,
+            gatewayDepsFromEnv(this.env, db)
+          );
+        }
+        return {
+          skip: false as const,
+          runId: run.id,
+          draftCount: result.draftCount,
+          anyFailure: result.anyFailure
+        };
       } catch {
         await finishFailed(db, run.id);
+        return { skip: true as const };
+      }
+    });
+
+    if (packaged.skip) return;
+    if (packaged.draftCount === 0) return;
+
+    await step.do("draft-and-review", async () => {
+      try {
+        await afterPackaging(
+          db,
+          packaged.runId,
+          {
+            draftCount: packaged.draftCount,
+            anyFailure: packaged.anyFailure
+          },
+          gatewayDepsFromEnv(this.env, db)
+        );
+      } catch {
+        await finishFailed(db, packaged.runId);
       }
     });
   }
