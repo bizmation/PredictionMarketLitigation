@@ -19,6 +19,9 @@ import {
   requireOperator
 } from "./shared/lib/adminGuard";
 import { handlePublicApi } from "./shared/api/publicRouter";
+import { DailyRunWorkflow, kickDailyRun } from "./pipeline/workflow/dailyRun";
+
+export { DailyRunWorkflow };
 
 export class ChatAgent extends AIChatAgent<Env> {
   maxPersistedMessages = 100;
@@ -320,15 +323,10 @@ export default {
       new Response("Not found", { status: 404 })
     );
   },
-  // Story 3.3 — the dual-UTC crons fire here; each kicks the daily harness for
-  // today's date. `DailyRunWorkflow`'s ET-hour guard drops the off-hour twin.
-  async scheduled(_controller: ScheduledController, env: Env) {
-    const workflow = env.DAILY_RUN;
-    if (!workflow) return;
-    const today = new Date().toISOString().slice(0, 10);
-    await workflow.create({
-      params: { origin: "scheduled", scheduledFor: today },
-      id: `daily-${today}`
-    });
+  // Story 3.3 — dual-UTC crons (16:00Z / 17:00Z). kickDailyRun applies the
+  // ET-hour guard BEFORE create so the off-hour twin never occupies the
+  // deterministic instance id.
+  async scheduled(controller: ScheduledController, env: Env) {
+    await kickDailyRun(env.DAILY_RUN, new Date(controller.scheduledTime));
   }
 } satisfies ExportedHandler<Env>;

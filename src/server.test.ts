@@ -20,6 +20,39 @@ describe("worker module", () => {
     expect(worker).toBeDefined();
     expect(typeof worker.fetch).toBe("function");
   });
+
+  it("exports DailyRunWorkflow from the Worker entrypoint", async () => {
+    const mod = await import("./server");
+    expect(mod.DailyRunWorkflow).toBeDefined();
+    expect(typeof worker.scheduled).toBe("function");
+  });
+
+  it("scheduled kicks the daily run only at noon ET", async () => {
+    const create = vi.fn().mockResolvedValue({ id: "daily-2026-01-15" });
+    const envWithWorkflow = { ...env, DAILY_RUN: { create } } as unknown as Env;
+    const controller = {
+      scheduledTime: Date.parse("2026-01-15T17:00:00.000Z"),
+      cron: "0 17 * * *",
+      noRetry() {}
+    } as ScheduledController;
+
+    await worker.scheduled(controller, envWithWorkflow);
+    expect(create).toHaveBeenCalledWith({
+      params: { origin: "scheduled", scheduledFor: "2026-01-15" },
+      id: "daily-2026-01-15"
+    });
+
+    create.mockClear();
+    await worker.scheduled(
+      {
+        ...controller,
+        scheduledTime: Date.parse("2026-01-15T16:00:00.000Z"),
+        cron: "0 16 * * *"
+      } as ScheduledController,
+      envWithWorkflow
+    );
+    expect(create).not.toHaveBeenCalled();
+  });
 });
 
 function get(path: string, init?: RequestInit) {

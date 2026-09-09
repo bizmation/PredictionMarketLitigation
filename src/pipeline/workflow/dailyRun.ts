@@ -6,17 +6,43 @@ import {
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import type { RunOrigin } from "../../shared/schemas/vocabulary";
 import {
+  completeDailyStep,
   ensureRun,
-  finishAwaiting,
-  finishEmpty,
   finishFailed,
   monitorAndPackage
 } from "./dailyRunSteps";
-import { isRunTime } from "./schedule";
+import { etCalendarDate, isRunTime } from "./schedule";
 
 export interface DailyRunParams {
   origin: RunOrigin;
   scheduledFor: string;
+}
+
+/** Narrow enough for tests to stub without a real Workflow binding. */
+export interface DailyRunCreateBinding {
+  create: (options: { params: DailyRunParams; id: string }) => Promise<unknown>;
+}
+
+/**
+ * Cron entry: only the noon-ET twin creates an instance. Duplicate `create`
+ * (same-day retry, or a delayed twin) is a no-op — Workflow ids are unique
+ * even after completion.
+ */
+export async function kickDailyRun(
+  workflow: DailyRunCreateBinding | undefined,
+  at: Date
+): Promise<void> {
+  if (!workflow) return;
+  if (!isRunTime(at)) return;
+  const scheduledFor = etCalendarDate(at);
+  try {
+    await workflow.create({
+      params: { origin: "scheduled", scheduledFor },
+      id: `daily-${scheduledFor}`
+    });
+  } catch {
+    // Instance id already used (completed or running). Same-day idempotent.
+  }
 }
 
 export class DailyRunWorkflow extends WorkflowEntrypoint<Env, DailyRunParams> {
@@ -27,17 +53,16 @@ export class DailyRunWorkflow extends WorkflowEntrypoint<Env, DailyRunParams> {
     const { origin, scheduledFor } = event.payload;
     const db = this.env.DB;
 
-    await step.do("attach-run", () => {
-      if (origin === "scheduled" && !isRunTime()) return Promise.resolve();
-      return ensureRun(db, origin, scheduledFor);
-    });
+    await step.do("attach-run", () => ensureRun(db, origin, scheduledFor));
     await step.do("run-daily-step", async () => {
       const run = await runsRepo.findRunForDate(db, scheduledFor, origin);
       if (!run || run.status !== "running") return;
-      const { draftCount, anyFailure } = await monitorAndPackage(db, run.id);
-      if (anyFailure) await finishFailed(db, run.id);
-      else if (draftCount > 0) await finishAwaiting(db, run.id, draftCount);
-      else await finishEmpty(db, run.id);
+      try {
+        const result = await monitorAndPackage(db, run.id);
+        await completeDailyStep(db, run.id, result);
+      } catch {
+        await finishFailed(db, run.id);
+      }
     });
   }
 }

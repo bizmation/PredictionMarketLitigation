@@ -3,6 +3,7 @@ import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import type { RunOrigin } from "../../shared/schemas/vocabulary";
 import {
+  evidenceId,
   runConnector,
   stubCheck,
   type SourceCheck
@@ -24,23 +25,28 @@ export async function ensureRun(
   scheduledFor: string
 ): Promise<void> {
   const existing = await runsRepo.findRunForDate(db, scheduledFor, origin);
-  if (existing) return;
   const now = new Date().toISOString();
-  const id = runIdFor(scheduledFor, origin);
-  await runsRepo.insertRun(db, {
-    id,
-    origin,
-    mode: "hitl",
-    status: "running",
-    startedAt: now,
-    completedAt: null,
-    spendCents: 0,
-    spendCurrency: "USD",
-    budgetCents: null,
-    scheduledFor
-  });
+  const id = existing?.id ?? runIdFor(scheduledFor, origin);
+  if (!existing) {
+    try {
+      await runsRepo.insertRun(db, {
+        id,
+        origin,
+        mode: "hitl",
+        status: "running",
+        startedAt: now,
+        completedAt: null,
+        spendCents: 0,
+        spendCurrency: "USD",
+        budgetCents: null,
+        scheduledFor
+      });
+    } catch {
+      // Same-id retry/race: the row is already there; still backfill evidence.
+    }
+  }
   await evidenceRepo.appendEvent(db, {
-    id: crypto.randomUUID(),
+    id: evidenceId(id, "run.started"),
     runId: id,
     event: "run.started",
     payload: { origin, scheduledFor },
@@ -50,10 +56,9 @@ export async function ensureRun(
 
 export async function finishEmpty(db: Db, runId: string): Promise<void> {
   const now = new Date().toISOString();
-  const changed = await runsRepo.completeRun(db, runId, "empty", now);
-  if (!changed) return;
+  await runsRepo.completeRun(db, runId, "empty", now);
   await evidenceRepo.appendEvent(db, {
-    id: crypto.randomUUID(),
+    id: evidenceId(runId, "run.empty"),
     runId,
     event: "run.empty",
     payload: { drafts: 0 },
@@ -67,10 +72,9 @@ export async function finishAwaiting(
   draftCount: number
 ): Promise<void> {
   const now = new Date().toISOString();
-  const changed = await runsRepo.completeRun(db, runId, "awaiting", now);
-  if (!changed) return;
+  await runsRepo.completeRun(db, runId, "awaiting", now);
   await evidenceRepo.appendEvent(db, {
-    id: crypto.randomUUID(),
+    id: evidenceId(runId, "gate.awaiting_approval"),
     runId,
     event: "gate.awaiting_approval",
     payload: { drafts: draftCount },
@@ -79,7 +83,37 @@ export async function finishAwaiting(
 }
 
 export async function finishFailed(db: Db, runId: string): Promise<void> {
-  await runsRepo.completeRun(db, runId, "failed", new Date().toISOString());
+  const now = new Date().toISOString();
+  await runsRepo.completeRun(db, runId, "failed", now);
+  await evidenceRepo.appendEvent(db, {
+    id: evidenceId(runId, "run.failed"),
+    runId,
+    event: "run.failed",
+    payload: { reason: "error" },
+    createdAt: now
+  });
+}
+
+/**
+ * Close a daily step. Drafts always take the gate path (`awaiting`) — a
+ * sibling connector error is recorded as `run.failed` evidence by the
+ * connector and must not mark the Run `empty` or strand drafts on `failed`.
+ * Zero drafts + a connector/step error → `failed`.
+ */
+export async function completeDailyStep(
+  db: Db,
+  runId: string,
+  result: { draftCount: number; anyFailure: boolean }
+): Promise<void> {
+  if (result.draftCount > 0) {
+    await finishAwaiting(db, runId, result.draftCount);
+    return;
+  }
+  if (result.anyFailure) {
+    await finishFailed(db, runId);
+    return;
+  }
+  await finishEmpty(db, runId);
 }
 
 export async function monitorAndPackage(

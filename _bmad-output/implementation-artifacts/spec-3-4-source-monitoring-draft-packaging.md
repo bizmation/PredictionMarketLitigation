@@ -77,6 +77,18 @@ context:
 
 ## Implementation Notes
 
+### Review Findings
+
+Code review of `bfcdf6e..dd503d2` (2026-09-09), with story 3.3.
+
+- [x] [Review][Patch] Empty live poll must not record `not wired` — only `stubCheck` uses that reason [`src/pipeline/connectors/connector.ts`]
+- [x] [Review][Patch] Drafts + a failed sibling connector complete `awaiting` (never `empty`/`failed` with no gate path); zero-draft failure still `failed` [`src/pipeline/workflow/dailyRunSteps.ts`]
+- [x] [Review][Patch] Assert `source.fetched` / `draft.created`, Run status `awaiting`/`failed`, and double-package idempotency [`src/pipeline/connectors/connector.test.ts`]
+- [x] [Review][Patch] Pad fixture run ids to 4 hex [`src/pipeline/connectors/connector.test.ts`]
+- [x] [Review][Defer] Connector timeout / non-array `SourceCheck` results [`src/pipeline/connectors/connector.ts`] — deferred: no live HTTP this story; cheap array guards ship with the patch, hangs wait for real fetches
+
+Rejected: separate `packageDrafts.ts` file required (inlined packaging matches the I/O matrix).
+
 ## Spec Change Log
 
 ## Review Triage Log
