@@ -50,9 +50,10 @@ export async function listByRun(
 
 /**
  * Story 3.3 — the harness's evidence write path (3.1 left this repo read-only).
- * Appends one event with the next per-run `seq` in a single statement; the
- * `UNIQUE(run_id, seq)` index from 0006 guards the ordering under concurrent
- * writers by failing the INSERT rather than silently duplicating a seq.
+ * Appends one event with the next per-run `seq` in a single statement.
+ * `INSERT OR IGNORE` makes Workflow `step.do` retries idempotent when the
+ * caller uses a deterministic `id`; the `UNIQUE(run_id, seq)` index still
+ * drops a colliding seq rather than duplicating it.
  */
 export async function appendEvent(
   db: Db,
@@ -74,7 +75,7 @@ export async function appendEvent(
   });
   await db
     .prepare(
-      `INSERT INTO evidence_events (id, run_id, seq, event, payload_json, created_at)
+      `INSERT OR IGNORE INTO evidence_events (id, run_id, seq, event, payload_json, created_at)
        VALUES (?, ?, (
          SELECT COALESCE(MAX(seq), -1) + 1 FROM evidence_events WHERE run_id = ?
        ), ?, ?, ?)`

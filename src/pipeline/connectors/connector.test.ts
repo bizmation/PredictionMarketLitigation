@@ -4,14 +4,16 @@ import { describe, expect, it } from "vitest";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import * as draftsRepo from "../../shared/db/repos/draftsRepo";
 import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
+import { POLL_SOURCES } from "./sources";
 import { monitorAndPackage } from "../workflow/dailyRunSteps";
 import type { SourceCheck } from "./connector";
 
 const testEnv = env as Env;
-const NOW = "2026-09-08T16:00:00.000Z";
+const NOW = "2026-09-20T16:00:00.000Z";
+let seq = 0xa00;
 
 async function newRun(): Promise<string> {
-  const id = `run-20260908-${Math.random().toString(16).slice(2, 6)}`;
+  const id = `run-20260920-${(seq++).toString(16).padStart(4, "0")}`;
   await runsRepo.insertRun(testEnv.DB, {
     id,
     origin: "scheduled",
@@ -22,7 +24,7 @@ async function newRun(): Promise<string> {
     spendCents: 0,
     spendCurrency: "USD",
     budgetCents: null,
-    scheduledFor: "2026-09-08"
+    scheduledFor: "2026-09-20"
   });
   return id;
 }
@@ -63,6 +65,12 @@ const oneTier2: Record<string, SourceCheck> = {
     }
   ]
 };
+const wiredEmpty: Record<string, SourceCheck> = {
+  CourtListener: () => [],
+  "CFTC press": () => [],
+  "SCOTUS docket": () => [],
+  "Legal news leads": () => []
+};
 
 describe("source monitoring & draft packaging (story 3.4)", () => {
   it("records source.skipped per connector and returns zero drafts when all are stubs", async () => {
@@ -73,7 +81,7 @@ describe("source monitoring & draft packaging (story 3.4)", () => {
 
     const evidence = await evidenceRepo.listByRun(testEnv.DB, runId);
     const skipped = evidence.filter((e) => e.event === "source.skipped");
-    expect(skipped.length).toBeGreaterThan(0);
+    expect(skipped).toHaveLength(POLL_SOURCES.length);
     expect(skipped[0]?.payload).toMatchObject({ reason: "not wired" });
     const drafts = await draftsRepo.listByRun(testEnv.DB, runId);
     expect(drafts).toHaveLength(0);
@@ -97,6 +105,26 @@ describe("source monitoring & draft packaging (story 3.4)", () => {
     expect(drafts[0]?.diff).toEqual({
       operationalStatus: { from: "go", to: "restricted" }
     });
+
+    const evidence = await evidenceRepo.listByRun(testEnv.DB, runId);
+    expect(evidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "source.fetched",
+          payload: expect.objectContaining({
+            source: "CFTC press",
+            itemCount: 1
+          })
+        }),
+        expect.objectContaining({
+          event: "draft.created",
+          payload: expect.objectContaining({
+            entityType: "states",
+            entityId: "st-nv"
+          })
+        })
+      ])
+    );
   });
 
   it("marks a Tier-2 change tier2Only", async () => {
@@ -119,5 +147,31 @@ describe("source monitoring & draft packaging (story 3.4)", () => {
       tier: "tier1",
       reason: "error"
     });
+  });
+
+  it("records a wired empty poll as no material change, not not-wired", async () => {
+    const runId = await newRun();
+    await monitorAndPackage(testEnv.DB, runId, wiredEmpty);
+    const skipped = (await evidenceRepo.listByRun(testEnv.DB, runId)).filter(
+      (e) => e.event === "source.skipped"
+    );
+    expect(skipped.length).toBe(POLL_SOURCES.length);
+    expect(
+      skipped.every(
+        (e) => (e.payload as { reason: string }).reason === "no material change"
+      )
+    ).toBe(true);
+  });
+
+  it("does not duplicate drafts when packaging is run twice (step retry)", async () => {
+    const runId = await newRun();
+    await monitorAndPackage(testEnv.DB, runId, oneMaterial);
+    await monitorAndPackage(testEnv.DB, runId, oneMaterial);
+    const drafts = await draftsRepo.listByRun(testEnv.DB, runId);
+    expect(drafts).toHaveLength(1);
+    const created = (await evidenceRepo.listByRun(testEnv.DB, runId)).filter(
+      (e) => e.event === "draft.created"
+    );
+    expect(created).toHaveLength(1);
   });
 });

@@ -53,6 +53,10 @@
       "new_sqlite_classes": ["ChatAgent"],
       "tag": "v1"
     }
+    // DailyRunWorkflow is exported from src/server.ts for production. Do NOT
+    // add `workflows` / v2 `new_classes` here: vitest-pool-workers injects the
+    // class_name itself and a second export is `Identifier already been declared`.
+    // Scheduled-handler tests inject a fake `env.DAILY_RUN`.
   ],
   "d1_databases": [
     {

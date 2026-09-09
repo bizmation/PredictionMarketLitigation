@@ -2,11 +2,10 @@ import { asBool, type Db } from "../client";
 import { DraftRecordSchema, type DraftRecord } from "../../schemas/run";
 
 /**
- * Story 3.1 — `drafts` repo. Read-only public projection of pending and
- * decided Drafts; the gate (3.10/3.11) owns every future write. Snake_case
- * rows in (via `?` binds only), camelCase Zod-mapped domain objects out.
- * `diff_json` / `eval_summary_json` are parsed to JSON values here, exactly
- * like `certSignalRepo` parses `factors_json`.
+ * Story 3.1 — `drafts` repo. Snake_case rows in (via `?` binds only),
+ * camelCase Zod-mapped domain objects out. `insertDraft` uses
+ * `INSERT OR IGNORE` so a Workflow `step.do` retry with a deterministic
+ * draft id does not throw or duplicate the row.
  */
 
 type DraftRow = {
@@ -96,7 +95,7 @@ export async function insertDraft(
   });
   await db
     .prepare(
-      `INSERT INTO drafts (id, run_id, target_entity_type, target_entity_id,
+      `INSERT OR IGNORE INTO drafts (id, run_id, target_entity_type, target_entity_id,
           diff_json, body, tier2_only, confidence, eval_summary_json,
           outcome, decided_at, decided_by, edited_body, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)`

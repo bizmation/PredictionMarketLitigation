@@ -76,6 +76,15 @@
 
 - **Unthrottled anonymous INSERT endpoint allows ballot stuffing.** `POST /api/poll/votes` mints a fresh `crypto.randomUUID()` token per cookieless request and inserts unconditionally; a script can insert unbounded rows and inflate the public tally. — **ACCEPTED (Patrick, 2026-09-03):** it is an unscientific reader poll, and the identity options that would stop stuffing (IP columns, fingerprinting, reader accounts) are all forbidden by FR44/A7/NFR11. Revisit only if stuffing becomes visible; a Cloudflare rate-limit rule on the path is the no-code lever if it does.
 
+## Deferred from: code review of spec-3-3-daily-run-workflow-empty-runs.md (2026-09-09)
+
+- Persist FR27 `next_run_at` + timezone on a run or config row so 3.7 can render "next run" without recomputation. `nextRunAtUtc` / `RUN_SCHEDULE_TIMEZONE` exist; nothing writes them. Story 3.3 task allowed deferral to 3.7.
+- Catch-up / manual Runs have `ensureRun` origins but no production trigger. 3.12 owns operator loop controls.
+
+## Deferred from: code review of spec-3-4-source-monitoring-draft-packaging.md (2026-09-09)
+
+- Live connector hang / timeout: stubs return immediately; add a deadline when HTTP fetches land.
+
 ## Deferred from: code review of 2-10-trust-furniture-donations-ops-handoff.md (2026-09-03)
 
 - **Donation placeholder is a silent dead anchor.** `DONATE_URL = "#coffee"` matches no element, so "Buy me a coffee" (trust CTA) and "Support the project" (footer) do nothing on click with no reader-visible hint. — **DEFERRED (Patrick, 2026-09-03):** pending his choice of donation service (Story 2.10 Open Question 1). When the service is picked, wire the real URL and decide whether the CTAs need a visible "donations not open yet" treatment in the meantime.

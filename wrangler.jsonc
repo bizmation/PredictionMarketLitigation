@@ -116,9 +116,9 @@
     }
   ],
   // Story 3.3 — the first Workflow binding. `DailyRunWorkflow` is the daily
-  // harness; the cron schedule (dual-UTC + ET-hour guard) is NOT declared here
-  // — the guard lives in the workflow, and the crons are applied at deploy via
-  // the schedule (see docs/deploy-runbook.md §build).
+  // harness; the class MUST be exported from `src/server.ts` (wrangler `main`).
+  // The ET-hour guard lives in `kickDailyRun` (scheduled handler), not inside
+  // the workflow, so an off-hour twin never creates a completed instance id.
   "workflows": [
     {
       "name": "daily-run",
@@ -127,8 +127,9 @@
     }
   ],
   // Story 3.3 — dual-UTC crons + ET-hour guard. Noon ET is 16:00Z (EDT) or
-  // 17:00Z (EST); both fire hourly, and DailyRunWorkflow's `isRunTime()` guard
-  // acts only on the one that is actually noon in America/New_York.
+  // 17:00Z (EST). Both fire; `kickDailyRun` acts only when the America/New_York
+  // hour is noon. `triggers` is inheritable; `workflows` is not — env.build
+  // repeats the workflows binding.
   "triggers": {
     "crons": ["0 16 * * *", "0 17 * * *"]
   },
@@ -219,6 +220,16 @@
         ]
       },
       "ai": { "binding": "AI", "remote": true },
+      "workflows": [
+        {
+          "name": "daily-run",
+          "binding": "DAILY_RUN",
+          "class_name": "DailyRunWorkflow"
+        }
+      ],
+      "triggers": {
+        "crons": ["0 16 * * *", "0 17 * * *"]
+      },
       // Deployed from the ORIGINAL config (`wrangler deploy --config
       // wrangler.jsonc -e build`), so assets must point at the built SPA
       // output — the vite-plugin redirect that normally maps ../client does

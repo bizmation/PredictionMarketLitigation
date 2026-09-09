@@ -85,6 +85,27 @@ context:
 
 ## Implementation Notes
 
+### Review Findings
+
+Code review of `bfcdf6e..dd503d2` (2026-09-09). Layers: Blind Hunter, Edge Case Hunter, Verification Gap, Acceptance Auditor.
+
+- [x] [Review][Patch] Export `DailyRunWorkflow` from the Worker entrypoint [`src/server.ts`]
+- [x] [Review][Patch] Guard ET-hour and catch duplicate instance id before `workflow.create` [`src/server.ts` scheduled]
+- [x] [Review][Patch] Copy `workflows` into `env.build` (non-inheritable) [`wrangler.jsonc`]
+- [x] [Review][Patch] Mirror Workflow binding in tests via injected `DAILY_RUN` (vitest-pool double-declares if `workflows` is in `wrangler.test.jsonc`) [`wrangler.test.jsonc`]
+- [x] [Review][Patch] Terminalize a thrown daily step as `failed` + `run.failed` [`src/pipeline/workflow/dailyRun.ts`]
+- [x] [Review][Patch] Extract `completeDailyStep` and test awaiting/failed completion [`src/pipeline/workflow/dailyRunSteps.ts`]
+- [x] [Review][Patch] Deterministic draft/evidence ids + INSERT OR IGNORE so `step.do` retry does not duplicate [`src/pipeline/connectors/connector.ts`]
+- [x] [Review][Patch] `finishFailed` writes evidence; finish helpers still write if complete already committed [`src/pipeline/workflow/dailyRunSteps.ts`]
+- [x] [Review][Patch] `scheduledFor` from America/New_York calendar date of `scheduledTime` [`src/pipeline/workflow/schedule.ts`]
+- [x] [Review][Patch] Dual-cron comments match 16:00Z/17:00Z (not hourly); `isRunTime` comment matches hour equality [`wrangler.jsonc`, `schedule.ts`]
+- [x] [Review][Patch] `timezoneOffsetMs` includes seconds so `nextRunAtUtc` is exact [`src/pipeline/workflow/schedule.ts`]
+- [x] [Review][Patch] Tests: off-hour twins, `kickDailyRun`, `worker.scheduled`, class export [`src/pipeline/workflow/dailyRun.test.ts`, `src/server.test.ts`]
+- [x] [Review][Defer] Persist FR27 `next_run_at` + timezone on a run/config row [`src/pipeline/workflow/schedule.ts`] — deferred: story 3.3 task allowed deferral to 3.7 display; `nextRunAtUtc` stays the computation
+- [x] [Review][Defer] Catch-up/manual production trigger seam [`src/server.ts`] — deferred: `ensureRun` already supports the origins; 3.12 owns loop controls
+
+Rejected: missing `packageDrafts.ts` file (packaging in `runConnector` is the same seam); "awaiting resume does not resume" (intentional same-id no-op); unreachable `SourceCheck` hang/omitted payload (no live fetch this story); hourly-cron rewrite of the locked dual-UTC 16/17 design (comment-only).
+
 ## Spec Change Log
 
 ## Review Triage Log

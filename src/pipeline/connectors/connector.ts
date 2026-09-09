@@ -26,20 +26,32 @@ export interface ConnectorResult {
   failed: boolean;
 }
 
+export function evidenceId(runId: string, ...parts: string[]): string {
+  return ["e", runId, ...parts].join(":");
+}
+
+export function draftId(
+  runId: string,
+  sourceName: string,
+  entityType: string,
+  entityId: string
+): string {
+  return ["d", runId, sourceName, entityType, entityId].join(":");
+}
+
 export async function runConnector(
   db: Db,
   runId: string,
   source: PollSource,
-  check: SourceCheck,
-  newId: () => string = () => crypto.randomUUID()
+  check: SourceCheck
 ): Promise<ConnectorResult> {
   const now = new Date().toISOString();
-  let items: SourceItem[];
+  let items: unknown;
   try {
     items = await check(source);
   } catch {
     await evidenceRepo.appendEvent(db, {
-      id: newId(),
+      id: evidenceId(runId, "run.failed", source.name),
       runId,
       event: "run.failed",
       payload: { connector: source.name, tier: source.tier, reason: "error" },
@@ -48,34 +60,51 @@ export async function runConnector(
     return { draftCount: 0, failed: true };
   }
 
-  if (items.length === 0) {
+  if (!Array.isArray(items)) {
     await evidenceRepo.appendEvent(db, {
-      id: newId(),
+      id: evidenceId(runId, "run.failed", source.name),
+      runId,
+      event: "run.failed",
+      payload: { connector: source.name, tier: source.tier, reason: "error" },
+      createdAt: now
+    });
+    return { draftCount: 0, failed: true };
+  }
+
+  const sourceItems = items as SourceItem[];
+  if (sourceItems.length === 0) {
+    await evidenceRepo.appendEvent(db, {
+      id: evidenceId(runId, "source.skipped", source.name),
       runId,
       event: "source.skipped",
-      payload: { source: source.name, tier: source.tier, reason: "not wired" },
+      payload: {
+        source: source.name,
+        tier: source.tier,
+        reason: check === stubCheck ? "not wired" : "no material change"
+      },
       createdAt: now
     });
     return { draftCount: 0, failed: false };
   }
 
   await evidenceRepo.appendEvent(db, {
-    id: newId(),
+    id: evidenceId(runId, "source.fetched", source.name),
     runId,
     event: "source.fetched",
     payload: {
       source: source.name,
       tier: source.tier,
-      itemCount: items.length
+      itemCount: sourceItems.length
     },
     createdAt: now
   });
 
   let draftCount = 0;
-  for (const item of items) {
-    for (const entity of item.entities) {
+  for (const item of sourceItems) {
+    const entities = Array.isArray(item?.entities) ? item.entities : [];
+    for (const entity of entities) {
       await insertDraft(db, {
-        id: newId(),
+        id: draftId(runId, source.name, entity.type, entity.id),
         runId,
         targetEntityType: entity.type,
         targetEntityId: entity.id,
@@ -87,7 +116,13 @@ export async function runConnector(
         createdAt: now
       });
       await evidenceRepo.appendEvent(db, {
-        id: newId(),
+        id: evidenceId(
+          runId,
+          "draft.created",
+          source.name,
+          entity.type,
+          entity.id
+        ),
         runId,
         event: "draft.created",
         payload: {
