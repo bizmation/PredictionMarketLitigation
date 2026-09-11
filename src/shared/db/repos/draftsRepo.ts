@@ -146,22 +146,23 @@ const DraftReviewPatchSchema = z
   })
   .strict();
 
+type DraftReviewInput = {
+  id: string;
+  body: string;
+  diff: unknown;
+  confidence: number | null;
+  evalSummary: EvalSummary;
+  updatedAt: string;
+};
+
 /**
- * Story 3.5 — persist the drafter overwrite + reviewer eval in one UPDATE.
- * Validate-before-write: merge onto the existing row and parse the full
- * DraftRecord so a CHECK-passing but schema-invalid row cannot land.
+ * Statement form so story 3.5 can `db.batch` this UPDATE with `draft.evaluated`.
+ * Validates and loads the row before returning the statement (no write yet).
  */
-export async function applyDraftReview(
+export async function applyDraftReviewStmt(
   db: Db,
-  input: {
-    id: string;
-    body: string;
-    diff: unknown;
-    confidence: number | null;
-    evalSummary: EvalSummary;
-    updatedAt: string;
-  }
-): Promise<DraftRecord> {
+  input: DraftReviewInput
+): Promise<D1PreparedStatement> {
   const patch = DraftReviewPatchSchema.parse(input);
   const existing = await getById(db, patch.id);
   if (!existing) {
@@ -175,7 +176,7 @@ export async function applyDraftReview(
     evalSummary: patch.evalSummary,
     updatedAt: patch.updatedAt
   });
-  await db
+  return db
     .prepare(
       `UPDATE drafts
           SET body = ?, diff_json = ?, confidence = ?, eval_summary_json = ?,
@@ -189,7 +190,22 @@ export async function applyDraftReview(
       JSON.stringify(record.evalSummary),
       record.updatedAt,
       record.id
-    )
-    .run();
+    );
+}
+
+/**
+ * Story 3.5 — persist the drafter overwrite + reviewer eval in one UPDATE.
+ * Validate-before-write: merge onto the existing row and parse the full
+ * DraftRecord so a CHECK-passing but schema-invalid row cannot land.
+ */
+export async function applyDraftReview(
+  db: Db,
+  input: DraftReviewInput
+): Promise<DraftRecord> {
+  await (await applyDraftReviewStmt(db, input)).run();
+  const record = await getById(db, input.id);
+  if (!record) {
+    throw new Error(`Draft ${input.id} not found.`);
+  }
   return record;
 }

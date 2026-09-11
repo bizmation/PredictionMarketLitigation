@@ -172,23 +172,46 @@ async function persist(
     createdAt: string;
   }
 ): Promise<void> {
-  await evidenceRepo.appendEvent(db, {
-    id: evidenceId(draft.runId, "draft.evaluated", draft.id),
-    runId: draft.runId,
-    event: "draft.evaluated",
-    payload: {
-      draftId: draft.id,
-      disagreement: args.evalSummary.disagreement
-    },
-    createdAt: args.createdAt
-  });
-  await draftsRepo.applyDraftReview(db, {
+  // Load/validate the Draft UPDATE first so a missing row throws before any
+  // write. Then batch the evidence insert with the UPDATE so a Workflow retry
+  // sees both rows or neither — INSERT OR IGNORE must not freeze a stale
+  // FR29 payload while evalSummary is still null.
+  const reviewStmt = await draftsRepo.applyDraftReviewStmt(db, {
     id: draft.id,
     body: args.body,
     diff: args.diff,
     confidence: args.confidence,
     evalSummary: args.evalSummary,
     updatedAt: args.createdAt
+  });
+  await db.batch([
+    evidenceRepo.appendEventStmt(db, {
+      id: evidenceId(draft.runId, "draft.evaluated", draft.id),
+      runId: draft.runId,
+      event: "draft.evaluated",
+      payload: {
+        draftId: draft.id,
+        disagreement: args.evalSummary.disagreement
+      },
+      createdAt: args.createdAt
+    }),
+    reviewStmt
+  ]);
+}
+
+async function persistEvalsNotRun(
+  db: Db,
+  draft: DraftRecord,
+  body: string,
+  diff: unknown,
+  createdAt: string
+): Promise<void> {
+  await persist(db, draft, {
+    body,
+    diff,
+    confidence: null,
+    evalSummary: evalsNotRunSummary(draft),
+    createdAt
   });
 }
 
@@ -282,26 +305,32 @@ export async function draftAndReview(
       });
     } catch (err) {
       const timestamp = nowIso(gatewayDeps);
-      await persist(db, draft, {
-        body,
-        diff,
-        confidence: null,
-        evalSummary: evalsNotRunSummary(draft),
-        createdAt: timestamp
-      });
-      const stopFurther = isBudgetStopped(err) || !isPerDraftGatewayError(err);
+      let persistFailed = false;
+      try {
+        await persistEvalsNotRun(db, draft, body, diff, timestamp);
+      } catch {
+        persistFailed = true;
+      }
+      const stopFurther =
+        persistFailed || isBudgetStopped(err) || !isPerDraftGatewayError(err);
       if (stopFurther) {
         for (let j = i + 1; j < drafts.length; j++) {
           const remaining = drafts[j]!;
-          await persist(db, remaining, {
-            body: remaining.body,
-            diff: remaining.diff,
-            confidence: null,
-            evalSummary: evalsNotRunSummary(remaining),
-            createdAt: timestamp
-          });
+          try {
+            await persistEvalsNotRun(
+              db,
+              remaining,
+              remaining.body,
+              remaining.diff,
+              timestamp
+            );
+          } catch {
+            // Stamp as many remaining Drafts as the DB will take.
+          }
         }
-        if (isBudgetStopped(err)) return { budgetStopped: true };
+        if (isBudgetStopped(err) && !persistFailed) {
+          return { budgetStopped: true };
+        }
         throw err;
       }
     }

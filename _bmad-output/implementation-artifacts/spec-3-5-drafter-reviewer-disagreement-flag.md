@@ -89,6 +89,36 @@ context:
 - Given Tier-2-only, below-threshold, eval-fail, or evals-not-run, when the Draft is persisted, then `evalSummary.ineligible` lists that reason
 - Given the reviewer cannot be scored, when the step finishes, then the badge state is explicit `evals not run` or `eval-fail`, never a blank `evalSummary`
 
+### Review Findings
+
+Code review of `7c3a8fa..aa4780e` (2026-09-10). Layers: Blind Hunter, Edge Case Hunter, Verification Gap, Acceptance Auditor.
+
+- [x] [Review][Patch] Persist `draft.evaluated` and the Draft UPDATE atomically so a Workflow retry cannot freeze a stale FR29 payload [`src/pipeline/agents/draftAndReview.ts:164-193`]
+- [x] [Review][Patch] If persist throws in the per-Draft catch, still stamp remaining Drafts `evals_not_run` and rethrow [`src/pipeline/agents/draftAndReview.ts:283-306`]
+- [x] [Review][Patch] Drive `DailyRunWorkflow.run` sequencing from tests so omitting `draft-and-review` or the empty `afterPackaging` call fails [`src/pipeline/workflow/dailyRun.ts:72-116`]
+- [x] [Review][Patch] Pin `afterPackaging` zero-draft + connector failure as `failed`, not `empty` [`src/pipeline/workflow/dailyRun.test.ts:324-335`]
+- [x] [Review][Patch] Assert `draft.evaluated` on eval_fail and evals_not_run persist paths [`src/pipeline/agents/draftAndReview.test.ts:229-352`]
+
+Rejected:
+- `false` 0008 drops 0006's non-empty evidence id CHECK (blind+edge+acceptance) — at the 3.5 baseline, 0006 was `id TEXT PRIMARY KEY NOT NULL` with no trim CHECK; 0008 matches that rebuild. The CHECK on current working-tree 0006 is later uncommitted work.
+- `false` persist should not write `draft.evaluated` for `evals_not_run` — persist is the evaluation record; `evalSummary.status` on the Draft distinguishes not-run; the spec's public expose is Draft fields plus this event.
+- `low` `draft.evaluated` payload omits status/ineligible/confidence — GET already returns `evalSummary` on Drafts; adding payload fields is new public surface 3.8 can join.
+- `false` `eval_fail` from empty disagreement still stores reviewer `confidence` — `ineligibleFor` needs that integer for `below_threshold`; `evalSummary.status` is already `eval_fail`.
+- `false` `run_not_found` / `unknown_role` in the per-Draft continue set — `unknown_role` is not thrown by this caller; extra continue codes keep `awaiting` instead of stranding on `failed`.
+- `low` `GatewayDeps.provider` is non-nullable so production casts `createWorkersAiProvider` — `complete()` already throws `gateway_not_configured` when the provider is missing.
+- `false` GET `/api/runs/:id` never round-trips `EvalSummary` — the router already maps through `DraftRecordSchema`; no failing round-trip was shown.
+- `low` no repo tests for `applyDraftReview` / `getById` — those writes are exercised through `draftAndReview.test.ts`.
+- `false` one fixture omits both scorer fields — `ReviewerOutputSchema` fails the same way if either field is missing.
+- `low` no drafter-success + reviewer `role_not_configured` case — same per-Draft catch as the tested `provider_error` path; catch persist keeps the in-memory overwrite.
+- `low` `EvalSummarySchema` does not encode comment-level invariants — only this writer exists; refinements add complexity without a bad row.
+- `false` `parseDrafter` accepts `diff: {}` — empty record matches the stated JSON shape.
+- `low` `vocabulary.test.ts` does not pin `draft.evaluated` — that file never pinned `EVIDENCE_EVENT_VALUES`; 0008's CHECK is the DDL pin.
+- `false` combined ineligible reasons untested — `ineligibleFor` pushes independent flags; each reason is covered.
+- `low` below-threshold asserts `toBe(69)` instead of `THRESHOLD - 1` — the input already uses the constant; a threshold change fails the test loudly.
+- `false` `disagrees: false` drops a description / whitespace-only description untested — spec flags iff `disagrees === true`; whitespace is trimmed into the same empty-description branch as `""`.
+- `low` production `gatewayDepsFromEnv` omits `now` / `newId` — persist vs `llm_calls` timestamps are different events; they are not required to match.
+- `false` empty reviewer `notes` stored as `ok` with blank basis — `notes` is a valid JSON string; the spec did not add a non-empty fail mode.
+
 ## Implementation Notes
 
 - Wired `draft-and-review` as its own Workflow `step.do` in `dailyRun.ts` (not folded into connectors). Empty packaging still completes inside `run-daily-step` and never enters the LLM step. `completeDailyStep` is skipped when the Run is already `stopped`.
