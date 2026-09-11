@@ -44,6 +44,50 @@ export async function recordCall(
   return record;
 }
 
+type LlmCallRow = {
+  id: string;
+  run_id: string;
+  role: string;
+  provider: string;
+  model: string;
+  tokens_json: string | null;
+  cost_cents: number;
+  currency: string;
+  created_at: string;
+};
+
+function mapLlmCall(row: LlmCallRow): LlmCallRecord {
+  return LlmCallRecordSchema.parse({
+    id: row.id,
+    runId: row.run_id,
+    role: row.role,
+    provider: row.provider,
+    model: row.model,
+    tokens: row.tokens_json == null ? null : JSON.parse(row.tokens_json),
+    costCents: row.cost_cents,
+    currency: row.currency,
+    createdAt: row.created_at
+  });
+}
+
+/**
+ * Calls for one Run, oldest first — the Evidence detail's model/token list.
+ */
+export async function listByRun(
+  db: Db,
+  runId: string
+): Promise<LlmCallRecord[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT id, run_id, role, provider, model, tokens_json, cost_cents, currency, created_at
+         FROM llm_calls WHERE run_id = ?
+        ORDER BY created_at ASC, id ASC`
+    )
+    .bind(runId)
+    .all<LlmCallRow>();
+  return (results ?? []).map(mapLlmCall);
+}
+
 /**
  * Sum of recorded spend for a run, in cents. The gateway reads this against the
  * run's ceiling before every call.

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { IsoDateSchema, IsoUtcSchema } from "./common";
+import { LlmCallRecordSchema } from "./gateway";
 import {
   EvidenceEventTypeSchema,
   RunModeSchema,
@@ -202,15 +203,17 @@ export const EvidenceEventSchema = z
 export type EvidenceEvent = z.infer<typeof EvidenceEventSchema>;
 
 /**
- * Run detail = the run plus everything the loop recorded under it. Both
- * arrays may be empty — an empty Run's Evidence states zero drafts, and
- * "may be empty" is a designed state, never a missing key.
+ * Run detail = the run plus everything the loop recorded under it. Arrays
+ * may be empty — an empty Run's Evidence states zero drafts, and an unused
+ * gateway leaves `llmCalls` empty. "May be empty" is a designed state, never
+ * a missing key.
  */
 export const RunDetailSchema = z
   .object({
     ...RunSummarySchema.shape,
     drafts: z.array(DraftRecordSchema),
-    evidence: z.array(EvidenceEventSchema)
+    evidence: z.array(EvidenceEventSchema),
+    llmCalls: z.array(LlmCallRecordSchema)
   })
   .strict();
 

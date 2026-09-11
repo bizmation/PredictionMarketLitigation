@@ -1,8 +1,8 @@
 import type { Db } from "../../shared/db/client";
 import * as draftsRepo from "../../shared/db/repos/draftsRepo";
-import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
 import * as llmCallsRepo from "../../shared/db/repos/llmCallsRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
+import { appendStmt } from "../projector/evidence";
 import type { GatewayErrorCode } from "../../shared/schemas/gateway";
 import {
   GATEWAY_ROLE_VALUES,
@@ -161,21 +161,13 @@ export async function complete(
       const timestamp = now();
       await db.batch([
         runsRepo.markStoppedStmt(db, runId, timestamp),
-        db
-          .prepare(
-            `INSERT OR IGNORE INTO evidence_events
-               (id, run_id, seq, event, payload_json, created_at)
-             VALUES (?, ?, (SELECT COALESCE(MAX(seq), -1) + 1
-                              FROM evidence_events WHERE run_id = ?),
-                     'run.stopped', ?, ?)`
-          )
-          .bind(
-            `ev-budget-stop-${runId}`,
-            runId,
-            runId,
-            JSON.stringify({ reason: "budget_stopped" }),
-            timestamp
-          )
+        appendStmt(db, {
+          id: `ev-budget-stop-${runId}`,
+          runId,
+          event: "run.stopped",
+          payload: { reason: "budget_stopped" },
+          createdAt: timestamp
+        })
       ]);
     }
     throw new GatewayError(
@@ -264,7 +256,7 @@ export async function invokeTool(
       tool
     };
     const statements: D1PreparedStatement[] = [
-      evidenceRepo.appendEventStmt(db, {
+      appendStmt(db, {
         id: evidenceId(runId, "guardrails.failed", draftId),
         runId,
         event: "guardrails.failed",

@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
+import { append } from "../../pipeline/projector/evidence";
 import worker from "../../server";
 import { US_ATLAS_STATE_NAMES } from "../../surfaces/apex/circuits/atlasStateNames";
 import * as runsRepo from "../db/repos/runsRepo";
@@ -924,6 +925,11 @@ describe("run records (story 3.1)", () => {
                  '2026-09-07T16:00:00.000Z'),
                 ('ev-1', 'run-20260907-c0de', 1, 'source.fetched',
                  '{"source":"courtlistener"}', '2026-09-07T16:01:00.000Z')`
+      ),
+      testEnv.DB.prepare(
+        `INSERT INTO llm_calls (id, run_id, role, provider, model, tokens_json, cost_cents, currency, created_at)
+         VALUES ('call-1', 'run-20260907-c0de', 'drafter', 'workersai', 'llama-3-8b',
+                 '{"input":11,"output":7}', 0, 'USD', '2026-09-07T16:02:00.000Z')`
       )
     ]);
 
@@ -932,6 +938,7 @@ describe("run records (story 3.1)", () => {
       testEnv
     );
     expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toContain("no-store");
     const body = RunDetailSchema.parse(await res.json());
     expect(body.id).toBe("run-20260907-c0de");
     expect(body.status).toBe("awaiting");
@@ -949,6 +956,20 @@ describe("run records (story 3.1)", () => {
     expect(body.evidence).toHaveLength(2);
     expect(body.evidence.map((e) => e.seq)).toEqual([0, 1]);
     expect(body.evidence[1]!.payload).toEqual({ source: "courtlistener" });
+    expect(body.llmCalls).toHaveLength(1);
+    expect(body.llmCalls[0]).toMatchObject({
+      id: "call-1",
+      runId: "run-20260907-c0de",
+      role: "drafter",
+      provider: "workersai",
+      model: "llama-3-8b",
+      tokens: { input: 11, output: 7 },
+      costCents: 0
+    });
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toMatch(
+      /run_id|tokens_json|cost_cents|created_at|payload_json/
+    );
   });
 
   it("keeps run detail scoped to its own drafts", async () => {
@@ -993,6 +1014,38 @@ describe("run records (story 3.1)", () => {
       code: "not_found",
       message: expect.any(String)
     });
+  });
+
+  it("never echoes a scrubbed secret from the Evidence write path", async () => {
+    await runsRepo.insertRun(
+      testEnv.DB,
+      runInput({
+        id: "run-20260907-5ec2",
+        startedAt: TS_A,
+        completedAt: TS_A,
+        status: "empty",
+        scheduledFor: "2026-09-07"
+      })
+    );
+    await append(testEnv.DB, {
+      id: "ev-secret",
+      runId: "run-20260907-5ec2",
+      event: "source.fetched",
+      payload: { apiKey: "x", source: "cl" },
+      createdAt: TS_A
+    });
+
+    const res = await worker.fetch!(
+      get("/api/runs/run-20260907-5ec2"),
+      testEnv
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toContain("no-store");
+    const body = RunDetailSchema.parse(await res.json());
+    expect(body.llmCalls).toEqual([]);
+    expect(body.evidence).toHaveLength(1);
+    expect(body.evidence[0]!.payload).toEqual({ source: "cl" });
+    expect(JSON.stringify(body)).not.toContain("apiKey");
   });
 
   it("returns 400 for a malformed encoded run id", async () => {

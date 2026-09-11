@@ -3,6 +3,10 @@ import { lazy, Suspense } from "react";
 import { resolveSurface } from "./shared/lib/surface";
 import { AdminShell } from "./surfaces/admin/AdminShell";
 import { ApexShell } from "./surfaces/apex/ApexShell";
+import {
+  EvidenceDetail,
+  runIdFromOpsPath
+} from "./surfaces/ops/EvidenceDetail";
 import { OpsShell } from "./surfaces/ops/OpsShell";
 
 // Dynamic import — dev-only and rarely visited, so it should not bloat the
@@ -17,10 +21,9 @@ const DesignSystemGallery = lazy(() =>
  * Root — resolve which surface this URL belongs to, render its shell.
  *
  * Not a router: v1 apex is one long-scroll page and ops. is one page of
- * anchored bands, so there is nothing to route between yet. Story 3.8 brings
- * the first real nested route (/runs/:runId) and can adopt a router then —
- * resolveSurface stays valid either way, because it reads a URL rather than
- * owning navigation.
+ * anchored bands plus a hand-rolled `/runs/:runId` Evidence page (Story 3.8).
+ * `resolveSurface` stays valid because it reads a URL rather than owning
+ * navigation — do not add react-router or wouter.
  *
  * The query-string override is dev-only, and enforced as such inside
  * resolveSurface: on production, ?surface=admin must never reach admin chrome.
@@ -47,8 +50,11 @@ export default function App() {
   }
 
   switch (resolveSurface(url, { allowQueryOverride: dev })) {
-    case "ops":
+    case "ops": {
+      const runId = runIdFromOpsPath(url.pathname);
+      if (runId) return <EvidenceDetail runId={runId} dev={dev} />;
       return <OpsShell dev={dev} />;
+    }
     case "admin":
       return <AdminShell dev={dev} />;
     default:

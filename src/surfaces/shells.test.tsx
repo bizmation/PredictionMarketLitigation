@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
+import App from "../app";
 import { AdminShell } from "./admin/AdminShell";
 import { ApexShell } from "./apex/ApexShell";
 import { OpsShell } from "./ops/OpsShell";
@@ -330,5 +331,36 @@ describe("dev mode", () => {
     const html = renderToStaticMarkup(<ApexShell dev />);
     expect(html).toContain("?surface=ops");
     expect(html).not.toContain("https://ops.predictionmarketlitigation.com");
+  });
+});
+
+describe("App /runs/:runId (story 3.8)", () => {
+  it.each([
+    "https://ops.predictionmarketlitigation.com/runs/run-20260908-aaa1",
+    "http://localhost:5173/runs/run-20260908-aaa1?surface=ops"
+  ])("renders Evidence chrome instead of OpsShell bands at %s", (href) => {
+    const prior = globalThis.window;
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      writable: true,
+      value: { location: { href } }
+    });
+    try {
+      const html = renderToStaticMarkup(<App />);
+      expect(html).toContain('id="evidence"');
+      expect(html).toContain("Run evidence");
+      expect(html).not.toContain('id="runs"');
+      expect(html).not.toContain('id="layers"');
+    } finally {
+      if (prior === undefined) {
+        Reflect.deleteProperty(globalThis, "window");
+      } else {
+        Object.defineProperty(globalThis, "window", {
+          configurable: true,
+          writable: true,
+          value: prior
+        });
+      }
+    }
   });
 });

@@ -1,6 +1,6 @@
 import type { Db } from "../../shared/db/client";
-import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
+import { append } from "../projector/evidence";
 import type { RunOrigin } from "../../shared/schemas/vocabulary";
 import { draftAndReview } from "../agents/draftAndReview";
 import { enforceDraftGuardrails } from "../ai/actionPolicy";
@@ -48,7 +48,7 @@ export async function ensureRun(
       // Same-id retry/race: the row is already there; still backfill evidence.
     }
   }
-  await evidenceRepo.appendEvent(db, {
+  await append(db, {
     id: evidenceId(id, "run.started"),
     runId: id,
     event: "run.started",
@@ -60,7 +60,7 @@ export async function ensureRun(
 export async function finishEmpty(db: Db, runId: string): Promise<void> {
   const now = new Date().toISOString();
   await runsRepo.completeRun(db, runId, "empty", now);
-  await evidenceRepo.appendEvent(db, {
+  await append(db, {
     id: evidenceId(runId, "run.empty"),
     runId,
     event: "run.empty",
@@ -76,7 +76,7 @@ export async function finishAwaiting(
 ): Promise<void> {
   const now = new Date().toISOString();
   await runsRepo.completeRun(db, runId, "awaiting", now);
-  await evidenceRepo.appendEvent(db, {
+  await append(db, {
     id: evidenceId(runId, "gate.awaiting_approval"),
     runId,
     event: "gate.awaiting_approval",
@@ -88,7 +88,7 @@ export async function finishAwaiting(
 export async function finishFailed(db: Db, runId: string): Promise<void> {
   const now = new Date().toISOString();
   await runsRepo.completeRun(db, runId, "failed", now);
-  await evidenceRepo.appendEvent(db, {
+  await append(db, {
     id: evidenceId(runId, "run.failed"),
     runId,
     event: "run.failed",

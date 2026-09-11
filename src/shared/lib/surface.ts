@@ -7,9 +7,9 @@
  *   admin — the operator's approval gate (/admin, Access-gated from Story 1.4)
  *
  * This is deliberately *resolution*, not routing. v1 apex is a single
- * long-scroll page and ops. is a single page of anchored bands, so nothing here
- * needs a router; and because it reads a URL rather than owning navigation, it
- * stays valid under whatever router Story 3.8 adopts for /runs/:runId.
+ * long-scroll page and ops. is a single page of anchored bands plus a
+ * hand-rolled `/runs/:runId` Evidence page (Story 3.8), so nothing here
+ * needs a router library.
  *
  * Pure by design: no React, no DOM, no imports. Unit-tested in the workers
  * project.
