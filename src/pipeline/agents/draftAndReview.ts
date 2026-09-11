@@ -8,15 +8,28 @@ import type {
   EvalSummary,
   IneligibleReason
 } from "../../shared/schemas/run";
-import { complete, GatewayError, type GatewayDeps } from "../ai/gateway";
+import {
+  GUARDRAIL_RULE_ID,
+  parseToolRequest,
+  pickAuthorizedContext,
+  type AuthorizedDraftContext
+} from "../ai/actionPolicy";
+import {
+  complete,
+  GatewayError,
+  invokeTool,
+  type GatewayDeps
+} from "../ai/gateway";
 import { evidenceId } from "../connectors/connector";
 
 /**
- * Story 3.5 — drafter then reviewer per Draft.
+ * Story 3.5 — drafter then reviewer per Draft. Story 3.6 scopes prompts to
+ * authorized Draft fields and short-circuits remaining LLM when model text
+ * is a tool request (`invokeTool` + `guardrail_fail`).
  *
  * Agents call `gateway.complete({ role })` only. Prompts live here, not in
  * the workflow. YOLO does not run. Workflow retries skip a Draft whose
- * `evalSummary` is already set.
+ * `evalSummary` is already set or that already has `guardrails.failed`.
  */
 
 /** Versioned auto-approve floor until 3.13 makes it operator-configurable. */
@@ -88,13 +101,20 @@ function ineligibleFor(
   return reasons;
 }
 
-function evalsNotRunSummary(draft: DraftRecord): EvalSummary {
+function evalsNotRunSummary(
+  draft: DraftRecord,
+  extra: IneligibleReason[] = []
+): EvalSummary {
+  const ineligible = ineligibleFor(draft, "evals_not_run", null);
+  for (const reason of extra) {
+    if (!ineligible.includes(reason)) ineligible.push(reason);
+  }
   return {
     status: "evals_not_run",
     basis: "evals not run",
     citationCompleteness: null,
     disagreement: { flagged: false, description: null },
-    ineligible: ineligibleFor(draft, "evals_not_run", null)
+    ineligible
   };
 }
 
@@ -115,26 +135,30 @@ function evalFailSummary(
   };
 }
 
-function drafterPrompt(draft: DraftRecord): string {
-  return [
-    "You are the drafter for a litigation-tracker Draft.",
-    "Return ONLY JSON with this shape (no markdown):",
-    '{"body": string, "diff": {"<field>": {"from": unknown, "to": unknown}}}',
-    "",
-    `Target entity: ${draft.targetEntityType ?? "null"} / ${draft.targetEntityId ?? "null"}`,
-    `Tier-2 only: ${draft.tier2Only ? "true" : "false"}`,
-    "Packaging shell body:",
-    draft.body,
-    "Packaging shell diff:",
-    JSON.stringify(draft.diff)
-  ].join("\n");
-}
-
-function reviewerPrompt(
-  draft: DraftRecord,
-  body: string,
-  diff: unknown
+/**
+ * Interpolates only authorized Draft fields. Extra keys on the source
+ * (operator notes, secrets, career notes, decidedBy, …) are dropped and
+ * never concatenated into the prompt.
+ */
+export function buildScopedPrompt(
+  role: "drafter" | "reviewer",
+  source: AuthorizedDraftContext
 ): string {
+  const ctx = pickAuthorizedContext(source);
+  if (role === "drafter") {
+    return [
+      "You are the drafter for a litigation-tracker Draft.",
+      "Return ONLY JSON with this shape (no markdown):",
+      '{"body": string, "diff": {"<field>": {"from": unknown, "to": unknown}}}',
+      "",
+      `Target entity: ${ctx.targetEntityType ?? "null"} / ${ctx.targetEntityId ?? "null"}`,
+      `Tier-2 only: ${ctx.tier2Only ? "true" : "false"}`,
+      "Packaging shell body:",
+      ctx.body,
+      "Packaging shell diff:",
+      JSON.stringify(ctx.diff)
+    ].join("\n");
+  }
   return [
     "You are the reviewer for a litigation-tracker Draft.",
     "Return ONLY JSON with this shape (no markdown):",
@@ -144,12 +168,12 @@ function reviewerPrompt(
     "Set disagrees true only when you materially disagree with the drafter; then disagreement is a short description.",
     'If you agree, disagrees is false and disagreement is "".',
     "",
-    `Target entity: ${draft.targetEntityType ?? "null"} / ${draft.targetEntityId ?? "null"}`,
-    `Tier-2 only: ${draft.tier2Only ? "true" : "false"}`,
+    `Target entity: ${ctx.targetEntityType ?? "null"} / ${ctx.targetEntityId ?? "null"}`,
+    `Tier-2 only: ${ctx.tier2Only ? "true" : "false"}`,
     "Draft body:",
-    body,
+    ctx.body,
     "Proposed diff:",
-    JSON.stringify(diff)
+    JSON.stringify(ctx.diff)
   ].join("\n");
 }
 
@@ -215,6 +239,66 @@ async function persistEvalsNotRun(
   });
 }
 
+async function persistToolDeny(
+  db: Db,
+  gatewayDeps: GatewayDeps,
+  draft: DraftRecord,
+  args: {
+    body: string;
+    diff: unknown;
+    role: "drafter" | "reviewer";
+    tool: string;
+  }
+): Promise<void> {
+  const createdAt = nowIso(gatewayDeps);
+  const evalSummary = evalsNotRunSummary(draft, ["guardrail_fail"]);
+  const reviewStmt = await draftsRepo.applyDraftReviewStmt(db, {
+    id: draft.id,
+    body: args.body,
+    diff: args.diff,
+    confidence: null,
+    evalSummary,
+    updatedAt: createdAt
+  });
+  const extra = [
+    evidenceRepo.appendEventStmt(db, {
+      id: evidenceId(draft.runId, "draft.evaluated", draft.id),
+      runId: draft.runId,
+      event: "draft.evaluated",
+      payload: {
+        draftId: draft.id,
+        disagreement: evalSummary.disagreement
+      },
+      createdAt
+    }),
+    reviewStmt
+  ];
+  try {
+    await invokeTool(gatewayDeps, {
+      role: args.role,
+      runId: draft.runId,
+      draftId: draft.id,
+      tool: args.tool,
+      extraStatements: extra
+    });
+  } catch {
+    await db.batch([
+      evidenceRepo.appendEventStmt(db, {
+        id: evidenceId(draft.runId, "guardrails.failed", draft.id),
+        runId: draft.runId,
+        event: "guardrails.failed",
+        payload: {
+          draftId: draft.id,
+          ruleId: GUARDRAIL_RULE_ID,
+          tool: args.tool
+        },
+        createdAt
+      }),
+      ...extra
+    ]);
+  }
+}
+
 function scoreReviewer(
   draft: DraftRecord,
   text: string
@@ -262,9 +346,12 @@ function scoreReviewer(
 }
 
 /**
- * Per Draft: skip if `evalSummary` is already set; drafter then reviewer;
- * apply review; write `draft.evaluated`. Per-Draft gateway errors mark that
- * Draft `evals_not_run` and continue. `budget_stopped` stops further calls
+ * Per Draft: skip if `evalSummary` is already set or `guardrails.failed`
+ * already exists; drafter then reviewer; apply review; write
+ * `draft.evaluated`. Tool-shaped model text goes through `invokeTool` in
+ * one batch with `evals_not_run` + `guardrail_fail`, skipping remaining
+ * LLM for that Draft. Per-Draft gateway errors mark that Draft
+ * `evals_not_run` and continue. `budget_stopped` stops further calls
  * and marks remaining Drafts `evals_not_run`.
  */
 export async function draftAndReview(
@@ -272,19 +359,41 @@ export async function draftAndReview(
   runId: string,
   gatewayDeps: GatewayDeps
 ): Promise<DraftAndReviewResult> {
+  const failedIds = new Set<string>();
+  for (const event of await evidenceRepo.listByRun(db, runId)) {
+    if (event.event !== "guardrails.failed") continue;
+    const id =
+      event.payload != null && typeof event.payload === "object"
+        ? (event.payload as { draftId?: unknown }).draftId
+        : undefined;
+    if (typeof id === "string") failedIds.add(id);
+  }
   const drafts = (await draftsRepo.listByRun(db, runId)).filter(
-    (draft) => draft.evalSummary == null
+    (draft) => draft.evalSummary == null && !failedIds.has(draft.id)
   );
   for (let i = 0; i < drafts.length; i++) {
     const draft = drafts[i]!;
     let body = draft.body;
     let diff: unknown = draft.diff;
+    let pendingTool: { role: "drafter" | "reviewer"; tool: string } | null =
+      null;
     try {
       const drafter = await complete(gatewayDeps, {
         role: "drafter",
         runId,
-        prompt: drafterPrompt(draft)
+        prompt: buildScopedPrompt("drafter", draft)
       });
+      const drafterTool = parseToolRequest(drafter.text);
+      if (drafterTool) {
+        pendingTool = { role: "drafter", tool: drafterTool.tool };
+        await persistToolDeny(db, gatewayDeps, draft, {
+          body,
+          diff,
+          role: "drafter",
+          tool: drafterTool.tool
+        });
+        continue;
+      }
       const overwritten = parseDrafter(drafter.text);
       if (overwritten) {
         body = overwritten.body;
@@ -293,8 +402,25 @@ export async function draftAndReview(
       const reviewer = await complete(gatewayDeps, {
         role: "reviewer",
         runId,
-        prompt: reviewerPrompt(draft, body, diff)
+        prompt: buildScopedPrompt("reviewer", {
+          targetEntityType: draft.targetEntityType,
+          targetEntityId: draft.targetEntityId,
+          body,
+          diff,
+          tier2Only: draft.tier2Only
+        })
       });
+      const reviewerTool = parseToolRequest(reviewer.text);
+      if (reviewerTool) {
+        pendingTool = { role: "reviewer", tool: reviewerTool.tool };
+        await persistToolDeny(db, gatewayDeps, draft, {
+          body,
+          diff,
+          role: "reviewer",
+          tool: reviewerTool.tool
+        });
+        continue;
+      }
       const scored = scoreReviewer(draft, reviewer.text);
       await persist(db, draft, {
         body,
@@ -307,6 +433,15 @@ export async function draftAndReview(
       const timestamp = nowIso(gatewayDeps);
       let persistFailed = false;
       try {
+        if (pendingTool) {
+          await persistToolDeny(db, gatewayDeps, draft, {
+            body,
+            diff,
+            role: pendingTool.role,
+            tool: pendingTool.tool
+          });
+          continue;
+        }
         await persistEvalsNotRun(db, draft, body, diff, timestamp);
       } catch {
         persistFailed = true;

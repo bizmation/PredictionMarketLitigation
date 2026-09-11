@@ -3,6 +3,7 @@ import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import type { RunOrigin } from "../../shared/schemas/vocabulary";
 import { draftAndReview } from "../agents/draftAndReview";
+import { enforceDraftGuardrails } from "../ai/actionPolicy";
 import type { GatewayDeps } from "../ai/gateway";
 import {
   evidenceId,
@@ -135,9 +136,10 @@ export async function monitorAndPackage(
 }
 
 /**
- * Post-packaging control flow: empty Runs complete with no LLM.
- * Material Runs run draft-and-review, then `completeDailyStep` only if
- * the Run is still `running` (budget-stop already marked `stopped`).
+ * Post-packaging control flow: empty Runs complete with no LLM and no
+ * guardrail events. Material Runs run draft-and-review, then
+ * `enforceDraftGuardrails` before `completeDailyStep` only if the Run is
+ * still `running` (budget-stop already marked `stopped`).
  */
 export async function afterPackaging(
   db: Db,
@@ -150,6 +152,7 @@ export async function afterPackaging(
     return;
   }
   await draftAndReview(db, runId, gatewayDeps);
+  await enforceDraftGuardrails(db, runId, gatewayDeps);
   const run = await runsRepo.getRunById(db, runId);
   if (!run || run.status !== "running") return;
   await completeDailyStep(db, runId, result);

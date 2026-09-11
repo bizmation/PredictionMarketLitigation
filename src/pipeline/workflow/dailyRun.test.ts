@@ -334,6 +334,13 @@ describe("afterPackaging (story 3.5)", () => {
     expect(packaged.draftCount).toBe(0);
     expect(provider.count()).toBe(0);
     expect((await runsRepo.getRunById(testEnv.DB, id))?.status).toBe("empty");
+    const emptyEvidence = await evidenceRepo.listByRun(testEnv.DB, id);
+    expect(
+      emptyEvidence.some(
+        (e) =>
+          e.event === "guardrails.passed" || e.event === "guardrails.failed"
+      )
+    ).toBe(false);
   });
 
   it("reviews material Drafts then completes awaiting", async () => {
@@ -367,6 +374,13 @@ describe("afterPackaging (story 3.5)", () => {
     expect((await runsRepo.getRunById(testEnv.DB, id))?.status).toBe(
       "awaiting"
     );
+    const evidence = await evidenceRepo.listByRun(testEnv.DB, id);
+    const events = evidence.map((e) => e.event);
+    expect(events).toContain("guardrails.passed");
+    expect(events.indexOf("guardrails.passed")).toBeLessThan(
+      events.indexOf("gate.awaiting_approval")
+    );
+    expect(events).not.toContain("guardrails.failed");
   });
 
   it("does not complete awaiting after a budget-stop", async () => {
@@ -392,12 +406,22 @@ describe("afterPackaging (story 3.5)", () => {
     expect(provider.count()).toBe(1);
     expect((await runsRepo.getRunById(testEnv.DB, id))?.status).toBe("stopped");
     const evidence = await evidenceRepo.listByRun(testEnv.DB, id);
-    expect(evidence.some((e) => e.event === "gate.awaiting_approval")).toBe(
-      false
-    );
     const drafts = await draftsRepo.listByRun(testEnv.DB, id);
     expect(drafts.every((d) => d.evalSummary?.status === "evals_not_run")).toBe(
       true
+    );
+    for (const draft of drafts) {
+      expect(
+        evidence.some(
+          (e) =>
+            (e.event === "guardrails.passed" ||
+              e.event === "guardrails.failed") &&
+            (e.payload as { draftId?: string } | null)?.draftId === draft.id
+        )
+      ).toBe(true);
+    }
+    expect(evidence.some((e) => e.event === "gate.awaiting_approval")).toBe(
+      false
     );
   });
 
@@ -512,6 +536,13 @@ describe("packageDailyRun / reviewDailyRun (story 3.5)", () => {
     await reviewDailyRun(testEnv.DB, packaged, deps(provider));
     expect(provider.count()).toBe(0);
     expect((await runsRepo.getRunById(testEnv.DB, id))?.status).toBe("empty");
+    const emptyEvidence = await evidenceRepo.listByRun(testEnv.DB, id);
+    expect(
+      emptyEvidence.some(
+        (e) =>
+          e.event === "guardrails.passed" || e.event === "guardrails.failed"
+      )
+    ).toBe(false);
   });
 
   it("leaves material drafts unevaluated until reviewDailyRun", async () => {
@@ -558,5 +589,10 @@ describe("packageDailyRun / reviewDailyRun (story 3.5)", () => {
     );
     const after = await draftsRepo.listByRun(testEnv.DB, id);
     expect(after[0]?.evalSummary?.status).toBe("ok");
+    const reviewEvidence = await evidenceRepo.listByRun(testEnv.DB, id);
+    const reviewEvents = reviewEvidence.map((e) => e.event);
+    expect(reviewEvents.indexOf("guardrails.passed")).toBeLessThan(
+      reviewEvents.indexOf("gate.awaiting_approval")
+    );
   });
 });
