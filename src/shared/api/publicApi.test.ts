@@ -967,6 +967,21 @@ describe("run records (story 3.1)", () => {
     expect(body.drafts.map((d) => d.id)).toEqual(["draft-1"]);
   });
 
+  it("keeps run detail scoped to its own evidence", async () => {
+    await testEnv.DB.prepare(
+      `INSERT INTO evidence_events (id, run_id, seq, event, payload_json, created_at)
+       VALUES ('ev-foreign', 'run-20260907-beef', 0, 'run.started', NULL,
+               '2026-09-07T16:00:00.000Z')`
+    ).run();
+    const res = await worker.fetch!(
+      get("/api/runs/run-20260907-c0de"),
+      testEnv
+    );
+    expect(res.status).toBe(200);
+    const body = RunDetailSchema.parse(await res.json());
+    expect(body.evidence.map((e) => e.id)).toEqual(["ev-0", "ev-1"]);
+  });
+
   it("404s an unknown run id with the error envelope", async () => {
     const res = await worker.fetch!(get("/api/runs/run-nope"), testEnv);
     expect(res.status).toBe(404);
@@ -1065,12 +1080,18 @@ describe("run records (story 3.1)", () => {
     ).rejects.toThrow();
     // The gate decision trio moves together: outcome never flips without
     // decided_at and decided_by. draft-1 starts with all three NULL.
+    // `edited` also requires a non-empty edited_body (public before/after).
     for (const outcome of DRAFT_OUTCOME_VALUES) {
       await expect(
         testEnv.DB.prepare(
-          "UPDATE drafts SET outcome = ?, decided_at = ?, decided_by = ? WHERE id = 'draft-1'"
+          "UPDATE drafts SET outcome = ?, decided_at = ?, decided_by = ?, edited_body = ? WHERE id = 'draft-1'"
         )
-          .bind(outcome, TS_A, "Patrick")
+          .bind(
+            outcome,
+            TS_A,
+            "Patrick",
+            outcome === "edited" ? "Operator rewrite." : null
+          )
           .run()
       ).resolves.toMatchObject({ meta: { changes: 1 } });
     }
@@ -1079,6 +1100,63 @@ describe("run records (story 3.1)", () => {
         "UPDATE drafts SET outcome = 'approve', decided_at = ?, decided_by = ? WHERE id = 'draft-1'"
       )
         .bind(TS_A, "Patrick")
+        .run()
+    ).rejects.toThrow();
+    await expect(
+      testEnv.DB.prepare(
+        "UPDATE drafts SET outcome = 'approved', decided_at = NULL, decided_by = NULL WHERE id = 'draft-1'"
+      ).run()
+    ).rejects.toThrow();
+    await expect(
+      testEnv.DB.prepare(
+        "UPDATE drafts SET outcome = 'edited', decided_at = ?, decided_by = ?, edited_body = NULL WHERE id = 'draft-1'"
+      )
+        .bind(TS_A, "Patrick")
+        .run()
+    ).rejects.toThrow();
+    await expect(
+      testEnv.DB.prepare(
+        "UPDATE runs SET status = 'running', completed_at = ? WHERE id = ?"
+      )
+        .bind(TS_A, "run-20260907-f00d")
+        .run()
+    ).rejects.toThrow();
+    await expect(
+      testEnv.DB.prepare(
+        "UPDATE runs SET completed_at = '2026-09-06T16:00:00.000Z' WHERE id = ?"
+      )
+        .bind("run-20260907-f00d")
+        .run()
+    ).rejects.toThrow();
+    await expect(
+      testEnv.DB.prepare(
+        `INSERT INTO runs (id, origin, mode, status, started_at, completed_at,
+            spend_cents, spend_currency, budget_cents, scheduled_for)
+         VALUES ('run-20261399-dead', 'manual', 'hitl', 'empty', ?, NULL,
+            0, 'USD', NULL, NULL)`
+      )
+        .bind(TS_A)
+        .run()
+    ).rejects.toThrow();
+    await expect(
+      testEnv.DB.prepare("UPDATE drafts SET id = '' WHERE id = 'draft-1'").run()
+    ).rejects.toThrow();
+    await expect(
+      testEnv.DB.prepare(
+        "UPDATE evidence_events SET id = '' WHERE id = 'ev-0'"
+      ).run()
+    ).rejects.toThrow();
+    await expect(
+      testEnv.DB.prepare(
+        "UPDATE drafts SET target_entity_type = 'states', target_entity_id = NULL WHERE id = 'draft-1'"
+      ).run()
+    ).rejects.toThrow();
+    await expect(
+      testEnv.DB.prepare(
+        `INSERT INTO evidence_events (id, run_id, seq, event, payload_json, created_at)
+         VALUES ('ev-dup', 'run-20260907-c0de', 0, 'run.started', NULL, ?)`
+      )
+        .bind(TS_A)
         .run()
     ).rejects.toThrow();
   });

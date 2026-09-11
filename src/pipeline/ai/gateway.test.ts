@@ -47,8 +47,8 @@ function fakeProvider(
   overrides: Partial<{
     fail: boolean;
     costCents: number;
-    inputTokens: number;
-    outputTokens: number;
+    inputTokens: number | null;
+    outputTokens: number | null;
   }> = {}
 ): LlmProvider & { count: () => number } {
   let calls = 0;
@@ -60,8 +60,10 @@ function fakeProvider(
       if (overrides.fail) throw new Error("boom");
       return {
         text: `fake reply from ${model}`,
-        inputTokens: overrides.inputTokens ?? 11,
-        outputTokens: overrides.outputTokens ?? 7,
+        inputTokens:
+          overrides.inputTokens === undefined ? 11 : overrides.inputTokens,
+        outputTokens:
+          overrides.outputTokens === undefined ? 7 : overrides.outputTokens,
         costCents: overrides.costCents ?? 0
       };
     }
@@ -127,8 +129,10 @@ describe("gateway.complete (story 3.2)", () => {
 
     expect(provider.count()).toBe(0);
     const calls = await testEnv.DB.prepare(
-      "SELECT COUNT(*) AS count FROM llm_calls"
-    ).first<{ count: number }>();
+      "SELECT COUNT(*) AS count FROM llm_calls WHERE run_id = ?"
+    )
+      .bind(RUN_ID)
+      .first<{ count: number }>();
     expect(calls?.count).toBe(0);
   });
 
@@ -148,6 +152,29 @@ describe("gateway.complete (story 3.2)", () => {
         { role: "drafter", runId: RUN_ID, prompt: "hi" }
       )
     ).rejects.toMatchObject({ code: "gateway_not_configured" });
+  });
+
+  it("rejects a missing Run with run_not_found and makes zero provider calls", async () => {
+    await seedConfig(
+      { drafter: { provider: "fake", model: "fake-model-v1" } },
+      null
+    );
+    const missingId = "run-20260908-ffff";
+    const provider = fakeProvider();
+    await expect(
+      complete(deps(provider), {
+        role: "drafter",
+        runId: missingId,
+        prompt: "hi"
+      })
+    ).rejects.toMatchObject({ code: "run_not_found" });
+    expect(provider.count()).toBe(0);
+    const calls = await testEnv.DB.prepare(
+      "SELECT COUNT(*) AS count FROM llm_calls WHERE run_id = ?"
+    )
+      .bind(missingId)
+      .first<{ count: number }>();
+    expect(calls?.count).toBe(0);
   });
 
   it("rejects an unconfigured role with role_not_configured and no spend row", async () => {
@@ -214,6 +241,24 @@ describe("gateway.complete (story 3.2)", () => {
       currency: "USD"
     });
     expect(JSON.parse(row!.tokens_json)).toEqual({ input: 3, output: 5 });
+  });
+
+  it("stores null token usage as SQL NULL, not zeroed JSON", async () => {
+    await insertRun();
+    await seedConfig(
+      { drafter: { provider: "fake", model: "fake-model-v1" } },
+      null
+    );
+    await complete(
+      deps(fakeProvider({ inputTokens: null, outputTokens: null })),
+      { role: "drafter", runId: RUN_ID, prompt: "draft this" }
+    );
+    const row = await testEnv.DB.prepare(
+      `SELECT tokens_json FROM llm_calls WHERE run_id = ?`
+    )
+      .bind(RUN_ID)
+      .first<{ tokens_json: string | null }>();
+    expect(row?.tokens_json).toBeNull();
   });
 
   it("accrues spend cents onto the Run for a non-zero cost call", async () => {
@@ -288,6 +333,45 @@ describe("gateway.complete (story 3.2)", () => {
       .bind(RUN_ID)
       .first<{ count: number }>();
     expect(calls?.count).toBe(1);
+
+    await expect(
+      complete(deps(provider), {
+        role: "orchestrator",
+        runId: RUN_ID,
+        prompt: "go again"
+      })
+    ).rejects.toMatchObject({ code: "budget_stopped" });
+    expect(providerCalls).toBe(0);
+    const again = await runsRepo.getRunById(testEnv.DB, RUN_ID);
+    expect(again?.status).toBe("stopped");
+    expect(again?.completedAt).toBe(NOW);
+    const stopped = await testEnv.DB.prepare(
+      `SELECT COUNT(*) AS count FROM evidence_events
+        WHERE run_id = ? AND event = 'run.stopped'`
+    )
+      .bind(RUN_ID)
+      .first<{ count: number }>();
+    expect(stopped?.count).toBe(1);
+  });
+
+  it("refuses complete() on a non-running Run when spend is under the ceiling", async () => {
+    await insertRun({ status: "published", completedAt: NOW });
+    await seedConfig(
+      { drafter: { provider: "fake", model: "fake-model-v1" } },
+      null
+    );
+    const provider = fakeProvider();
+    await expect(
+      complete(deps(provider), {
+        role: "drafter",
+        runId: RUN_ID,
+        prompt: "hi"
+      })
+    ).rejects.toMatchObject({ code: "budget_stopped" });
+    expect(provider.count()).toBe(0);
+    const run = await runsRepo.getRunById(testEnv.DB, RUN_ID);
+    expect(run?.status).toBe("published");
+    expect(run?.completedAt).toBe(NOW);
   });
 
   it("falls back to the config default ceiling when the Run has no budget_cents", async () => {
@@ -346,6 +430,45 @@ describe("gateway.complete (story 3.2)", () => {
       .first<{ count: number }>();
     expect(calls?.count).toBe(0);
   });
+});
+
+describe("createWorkersAiProvider adapter (story 3.2)", () => {
+  it("returns text and tokens from a string AI.run response", async () => {
+    const provider = createWorkersAiProvider({
+      AI: {
+        run: async () => ({
+          response: "hello from workers",
+          usage: { prompt_tokens: 4, completion_tokens: 6 }
+        })
+      }
+    } as unknown as Env);
+    expect(provider).not.toBeNull();
+    await expect(
+      provider!.complete({ model: "@cf/test", prompt: "hi" })
+    ).resolves.toEqual({
+      text: "hello from workers",
+      inputTokens: 4,
+      outputTokens: 6,
+      costCents: 0
+    });
+  });
+
+  it.each([undefined, null, 12, { nested: true }])(
+    "rejects non-string AI.run response %s",
+    async (response) => {
+      const provider = createWorkersAiProvider({
+        AI: {
+          run: async () => ({
+            response,
+            usage: { prompt_tokens: 1, completion_tokens: 1 }
+          })
+        }
+      } as unknown as Env);
+      await expect(
+        provider!.complete({ model: "@cf/test", prompt: "hi" })
+      ).rejects.toThrow("non-text model output");
+    }
+  );
 });
 
 describe("role→model config repo (story 3.2 config)", () => {

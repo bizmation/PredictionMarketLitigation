@@ -9,7 +9,7 @@
 -- file into single statements and runs them through one `db.batch()`.
 
 CREATE TABLE evidence_events_new (
-  id           TEXT PRIMARY KEY NOT NULL,
+  id           TEXT PRIMARY KEY NOT NULL CHECK (length(trim(id)) > 0),
   run_id       TEXT NOT NULL REFERENCES runs(id),
   seq          INTEGER NOT NULL CHECK (seq = CAST(seq AS INTEGER) AND seq >= 0),
   event        TEXT NOT NULL CHECK (event IN ('run.started','run.completed','run.failed','run.stopped','run.empty','source.fetched','source.skipped','draft.created','draft.evaluated','guardrails.passed','guardrails.failed','gate.awaiting_approval','gate.decided')),

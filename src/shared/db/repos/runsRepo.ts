@@ -11,8 +11,9 @@ import type { Db } from "../client";
  * Story 3.1 — `runs` repo. Snake_case rows in (via `?` binds only),
  * camelCase Zod-mapped domain objects out. `insertRun` exists for test
  * fixtures and the pipeline write path (3.3); the public API is read-only.
- * Story 3.2 added the two budget-stop mutations: `markStopped` (Run → stopped)
- * and `bumpSpend` (spend accrual), exercised only by the gateway.
+ * Story 3.2 added the two budget-stop mutations: `markStopped` (Run → stopped,
+ * no-op unless the row is still `running`) and `bumpSpend` (spend accrual).
+ * The gateway batches `markStoppedStmt` with the `run.stopped` evidence insert.
  */
 
 type RunRow = {
@@ -63,8 +64,8 @@ export async function insertRun(
 ): Promise<RunSummary> {
   // Validate BEFORE the INSERT: a row the CHECKs accept but the schema
   // rejects would sit in D1 as poison and 500 every later read of it. The
-  // CHECKs are stricter in shape, but only Zod owns the full wire contract
-  // (e.g. it also rejects a currency like 'usd').
+  // CHECKs and Zod agree on shape (run-id calendar date, uppercase currency,
+  // integer cents); parse first so a failed contract never hits SQL.
   const run = RunSummarySchema.parse(input);
   await db
     .prepare(
@@ -116,18 +117,27 @@ export async function getRunById(
  * Story 3.2 — budget-stop side effect. Marks the Run `stopped` (the D1 value;
  * "budget-stopped" is a UI label only) and stamps a completion time. The
  * timestamp is supplied by the caller so this stays a pure `?`-bind UPDATE.
+ * A second call on an already-terminal Run matches zero rows.
  */
+export function markStoppedStmt(
+  db: Db,
+  runId: string,
+  completedAt: string
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `UPDATE runs SET status = 'stopped', completed_at = ?
+        WHERE id = ? AND status = 'running'`
+    )
+    .bind(completedAt, runId);
+}
+
 export async function markStopped(
   db: Db,
   runId: string,
   completedAt: string
 ): Promise<void> {
-  await db
-    .prepare(
-      `UPDATE runs SET status = 'stopped', completed_at = ? WHERE id = ?`
-    )
-    .bind(completedAt, runId)
-    .run();
+  await markStoppedStmt(db, runId, completedAt).run();
 }
 
 /**

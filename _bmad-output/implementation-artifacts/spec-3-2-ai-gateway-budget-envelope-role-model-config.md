@@ -83,7 +83,13 @@ context:
 
 ## Implementation Notes
 
+- `createWorkersAiProvider` returns `null` when `env.AI` is absent; `complete()` throws typed `gateway_not_configured`. That split is intentional so 3.5 can mark per-Draft `evals_not_run` instead of failing the Run.
+- Both-null budget ceiling (run `budget_cents` and config `default_budget_cents`) also throws `gateway_not_configured` — same fail-closed family as a missing provider.
+- `gateway_config` is created empty (no seed mappings). 3.12 stands up the live role→model row; until then `complete()` is `role_not_configured`.
+
 ## Spec Change Log
+
+- 2026-09-10 (review): recorded three closed decisions — empty config until 3.12; null-at-init / throw-at-complete; missing ceiling reuses `gateway_not_configured`.
 
 ## Review Triage Log
 
@@ -112,3 +118,37 @@ context:
 - `npm run migrate:local` -- expected: `0007_gateway_config.sql` applies clean
 - `npm test` -- expected: all suites pass incl. the new `pipeline/ai/gateway.test.ts`
 - `npm run check` -- expected: exit 0 (oxfmt + oxlint + tsc)
+
+### Review Findings
+
+- [x] [Review][Defer] Frozen Never requires `gateway.config_changed` on `setRoleModel`, but that event is not in the closed Evidence vocabulary and `evidence_events.run_id` is NOT NULL — a config change has nowhere to attach. First-pass triage #5 never recorded a decision. — deferred: 3.8 projector and 3.12 operator config UI own audited config changes; version bump remains the 3.2 audit record
+- [x] [Review][Defer] Migration 0007 creates empty `gateway_config` with no seed row or default role→model mappings — a fresh D1 cannot `complete()` until an unshipped writer inserts `id = 'current'`. — deferred: 3.12 operator loop controls stand up the live config; empty table stays fail-closed as `role_not_configured`
+
+- [x] [Review][Patch] `complete()` still invokes the provider on a terminal Run when ledger spend is under the ceiling [src/pipeline/ai/gateway.ts:133]
+- [x] [Review][Patch] Budget-stop side effects are not idempotent: `markStopped` has no `AND status = 'running'`, stop+evidence are not one batch, and a second `complete()` on a terminal over-budget Run is untested [src/shared/db/repos/runsRepo.ts:125]
+- [x] [Review][Patch] `run_not_found` can regress with a green suite [src/pipeline/ai/gateway.ts:111]
+- [x] [Review][Patch] Production Workers AI adapter `complete()` is never executed; a non-string `response` becomes empty successful text [src/pipeline/ai/gateway.ts:214]
+- [x] [Review][Patch] Null provider usage is never stored as `tokens_json` NULL [src/pipeline/ai/gateway.ts:175]
+- [x] [Review][Patch] Unknown-role test uses a global `COUNT(*)` on `llm_calls` [src/pipeline/ai/gateway.test.ts:129]
+- [x] [Review][Patch] `GATEWAY_ROLE_VALUES` is not pinned in `vocabulary.test.ts` [src/shared/schemas/vocabulary.ts:291]
+- [x] [Review][Patch] `RoleModelMapSchema` comment claims `.strict()` drops unknown keys; it rejects them [src/shared/schemas/gateway.ts:40]
+
+- [x] [Review][Defer] Successful LLM calls live in `llm_calls`, not `evidence_events` [src/pipeline/ai/gateway.ts:182] — deferred: 3.8 projector owns the public Evidence projection; 0007 already treats `llm_calls` as the spend ledger
+- [x] [Review][Defer] `setRoleModel` last-write-wins the whole `roles_json` [src/shared/db/repos/roleModelsRepo.ts:79] — deferred: no concurrent config writers until 3.12 operator controls; version bump is already atomic
+- [x] [Review][Defer] `GatewayInput` is `prompt` only (no `messages`) [src/pipeline/ai/gateway.ts:64] — deferred: Workers AI text path this story; chat-shaped input belongs to a later provider/chat story
+- [x] [Review][Defer] Config `provider` is never matched to the injected `LlmProvider` [src/pipeline/ai/gateway.ts:165] — deferred: single Workers AI binding this story; revisit when OpenRouter is wired
+- [x] [Review][Defer] Budget check is prior ledger `spend >= budget`, not “this call would push over” [src/pipeline/ai/gateway.ts:133] — deferred: first-pass #1; zero-dollar Workers AI cannot overshoot; paid provider story
+- [x] [Review][Defer] Provider `complete` / `AI.run` has no timeout [src/pipeline/ai/gateway.ts:165] — deferred: same family as the Epic 2 hung-fetch deferral; timeout duration is a product choice
+- [x] [Review][Defer] `llm_calls.currency` hardcoded `USD` instead of `run.spendCurrency` [src/pipeline/ai/gateway.ts:81] — deferred: first-pass #6; USD-only this story
+- [x] [Review][Defer] `run.stopped` evidence is a raw INSERT, not `evidenceRepo` [src/pipeline/ai/gateway.ts:141] — deferred: first-pass #7; 3.8 projector owns Evidence writes
+
+Rejected:
+- `false` — AC#4 “fails closed at initialize”: keep `createWorkersAiProvider` returning `null` and throw `gateway_not_configured` from `complete()`. 3.5 maps that to per-Draft `evals_not_run`; throwing at init would fail the whole Run.
+- `false` — Missing budget ceiling uses `gateway_not_configured`: same fail-closed “not configured, deny” family as a missing provider; distinguish on ops/Evidence later if needed (3.7/3.8).
+- spec-edit — Unchecked execution tasks, empty Implementation Notes / Spec Change Log, leftover “see Q1/Q2”: do not edit the spec under review.
+- `false` — ChatAgent still calls `createWorkersAI`/`streamText`: Code Map carves it out as not this story’s target.
+- `false` — Callers import `complete` rather than `gateway.complete`: the module is the locked path; no extra object is required.
+- `false` — Production `costCents: 0` so `runs.spend_cents` never moves: frozen Never, zero-dollar until a paid provider.
+- `low` — `recordCall` and `bumpSpend` are not one `db.batch()` / bad `costCents` throws ZodError: extra complexity; everyday providers return int cents; `bumpSpend` is a simple UPDATE.
+- `low` — Table is singular `gateway_config` vs Always plural: rename is a new migration; singleton matches `cert_signals`.
+- `low` — `tokens_json` is `json_valid` only: the repo writer is Zod object-or-null; no everyday raw-SQL tokens path.
