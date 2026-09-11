@@ -3,10 +3,10 @@ import { EvidenceEventSchema, type EvidenceEvent } from "../../schemas/run";
 import { type EvidenceEventType } from "../../schemas/vocabulary";
 
 /**
- * Story 3.1 — `evidence_events` repo. Read-only public projection rows; the
- * Evidence projector (later Epic 3 stories) owns every write and scrubs
- * payloads before insert. Snake_case rows in (via `?` binds only), camelCase
- * Zod-mapped domain objects out.
+ * Story 3.1 — `evidence_events` repo. D1 mapping only; the Evidence projector
+ * (Story 3.8) owns every pipeline write and scrubs payloads before bind.
+ * Snake_case rows in (via `?` binds only), camelCase Zod-mapped domain
+ * objects out.
  */
 
 type EvidenceRow = {

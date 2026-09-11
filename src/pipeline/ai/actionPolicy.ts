@@ -3,6 +3,7 @@ import * as draftsRepo from "../../shared/db/repos/draftsRepo";
 import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
 import type { GatewayRole } from "../../shared/schemas/vocabulary";
 import { evidenceId } from "../connectors/connector";
+import { append } from "../projector/evidence";
 import type { GatewayDeps } from "./gateway";
 
 /**
@@ -161,7 +162,7 @@ export async function enforceDraftGuardrails(
       requestedTool: null
     });
     if (verdict.decision !== "pass") continue;
-    await evidenceRepo.appendEvent(db, {
+    await append(db, {
       id: evidenceId(runId, "guardrails.passed", draft.id),
       runId,
       event: "guardrails.passed",

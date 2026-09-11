@@ -1,6 +1,6 @@
 import type { Db } from "../../shared/db/client";
-import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
 import { insertDraft } from "../../shared/db/repos/draftsRepo";
+import { append } from "../projector/evidence";
 import type { PollSource } from "./sources";
 
 export interface EntityChange {
@@ -50,7 +50,7 @@ export async function runConnector(
   try {
     items = await check(source);
   } catch {
-    await evidenceRepo.appendEvent(db, {
+    await append(db, {
       id: evidenceId(runId, "run.failed", source.name),
       runId,
       event: "run.failed",
@@ -61,7 +61,7 @@ export async function runConnector(
   }
 
   if (!Array.isArray(items)) {
-    await evidenceRepo.appendEvent(db, {
+    await append(db, {
       id: evidenceId(runId, "run.failed", source.name),
       runId,
       event: "run.failed",
@@ -73,7 +73,7 @@ export async function runConnector(
 
   const sourceItems = items as SourceItem[];
   if (sourceItems.length === 0) {
-    await evidenceRepo.appendEvent(db, {
+    await append(db, {
       id: evidenceId(runId, "source.skipped", source.name),
       runId,
       event: "source.skipped",
@@ -87,7 +87,7 @@ export async function runConnector(
     return { draftCount: 0, failed: false };
   }
 
-  await evidenceRepo.appendEvent(db, {
+  await append(db, {
     id: evidenceId(runId, "source.fetched", source.name),
     runId,
     event: "source.fetched",
@@ -115,7 +115,7 @@ export async function runConnector(
         evalSummary: null,
         createdAt: now
       });
-      await evidenceRepo.appendEvent(db, {
+      await append(db, {
         id: evidenceId(
           runId,
           "draft.created",

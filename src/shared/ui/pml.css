@@ -750,7 +750,8 @@ td .cite {
   gap: var(--space-2);
   align-items: center;
 }
-.export button {
+.export button,
+.export a {
   font: inherit;
   font-size: 11px;
   letter-spacing: 0.08em;
@@ -760,11 +761,55 @@ td .cite {
   color: var(--color-neutral-800);
   padding: 3px 9px;
   cursor: pointer;
+  text-decoration: none;
 }
-.export button:hover {
+.export button:hover,
+.export a:hover {
   border-color: var(--color-accent-600);
   color: var(--color-accent-700);
   background: var(--color-accent-100);
+}
+
+/* ---- evidence kv / spend (ported from PML Ops.html:31-39) */
+.kv {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 118px 1fr;
+  gap: 7px var(--space-3);
+  font-size: 12.5px;
+}
+.kv dt {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-neutral-600);
+  padding-top: 2px;
+}
+.kv dd {
+  margin: 0;
+  line-height: 1.5;
+}
+.spend {
+  display: flex;
+  gap: var(--space-6);
+  border-top: 1px solid var(--color-divider);
+  border-bottom: 1px solid var(--color-divider);
+  padding: var(--space-3) 0;
+  margin: var(--space-4) 0;
+}
+.spend div b {
+  display: block;
+  font-family: var(--font-heading);
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 1;
+  font-feature-settings: "tnum";
+}
+.spend div span {
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-neutral-600);
 }
 
 /* ---- step timeline (evidence) ---------------------------- */

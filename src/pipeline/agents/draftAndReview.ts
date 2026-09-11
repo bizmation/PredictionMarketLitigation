@@ -21,6 +21,7 @@ import {
   type GatewayDeps
 } from "../ai/gateway";
 import { evidenceId } from "../connectors/connector";
+import { appendStmt } from "../projector/evidence";
 
 /**
  * Story 3.5 — drafter then reviewer per Draft. Story 3.6 scopes prompts to
@@ -209,7 +210,7 @@ async function persist(
     updatedAt: args.createdAt
   });
   await db.batch([
-    evidenceRepo.appendEventStmt(db, {
+    appendStmt(db, {
       id: evidenceId(draft.runId, "draft.evaluated", draft.id),
       runId: draft.runId,
       event: "draft.evaluated",
@@ -261,7 +262,7 @@ async function persistToolDeny(
     updatedAt: createdAt
   });
   const extra = [
-    evidenceRepo.appendEventStmt(db, {
+    appendStmt(db, {
       id: evidenceId(draft.runId, "draft.evaluated", draft.id),
       runId: draft.runId,
       event: "draft.evaluated",
@@ -283,7 +284,7 @@ async function persistToolDeny(
     });
   } catch {
     await db.batch([
-      evidenceRepo.appendEventStmt(db, {
+      appendStmt(db, {
         id: evidenceId(draft.runId, "guardrails.failed", draft.id),
         runId: draft.runId,
         event: "guardrails.failed",

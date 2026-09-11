@@ -15,6 +15,7 @@ import * as draftsRepo from "../db/repos/draftsRepo";
 import * as entitiesRepo from "../db/repos/entitiesRepo";
 import * as evidenceRepo from "../db/repos/evidenceRepo";
 import * as kpisRepo from "../db/repos/kpisRepo";
+import * as llmCallsRepo from "../db/repos/llmCallsRepo";
 import * as pollVotesRepo from "../db/repos/pollVotesRepo";
 import * as runsRepo from "../db/repos/runsRepo";
 import * as statesRepo from "../db/repos/statesRepo";
@@ -294,11 +295,15 @@ export async function handlePublicApi(
         }
         const run = await runsRepo.getRunById(db, id);
         if (!run) throw notFound(`Run '${id}' not found.`);
-        const [drafts, evidence] = await Promise.all([
+        const [drafts, evidence, llmCalls] = await Promise.all([
           draftsRepo.listByRun(db, id),
-          evidenceRepo.listByRun(db, id)
+          evidenceRepo.listByRun(db, id),
+          llmCallsRepo.listByRun(db, id)
         ]);
-        return jsonOk(RunDetailSchema.parse({ ...run, drafts, evidence }));
+        // jsonNoStore so a running Run's timeline can refresh.
+        return jsonNoStore(
+          RunDetailSchema.parse({ ...run, drafts, evidence, llmCalls })
+        );
       }
     }
 
