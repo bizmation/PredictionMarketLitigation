@@ -622,6 +622,36 @@ describe("draftAndReview (story 3.5)", () => {
     );
   });
 
+  it("keeps the Run path open when persistToolDeny recovers in the catch", async () => {
+    const runId = await insertRun();
+    const denyId = await insertShellDraft(runId, { id: `d:${runId}:01` });
+    const okId = await insertShellDraft(runId, { id: `d:${runId}:02` });
+    await seedConfig(DRAFTER_REVIEWER_ROLES);
+    const spy = vi
+      .spyOn(draftsRepo, "applyDraftReviewStmt")
+      .mockRejectedValueOnce(new Error("deny write failed"));
+    const provider = fakeProvider([
+      { text: '{"tool":"publish_f1"}' },
+      { text: drafterJson() },
+      { text: reviewJson() }
+    ]);
+    try {
+      await draftAndReview(testEnv.DB, runId, deps(provider));
+    } finally {
+      spy.mockRestore();
+    }
+    expect(provider.count()).toBe(3);
+    const drafts = await draftsRepo.listByRun(testEnv.DB, runId);
+    expect(evalOf(drafts.find((d) => d.id === denyId)!).ineligible).toContain(
+      "guardrail_fail"
+    );
+    expect(evalOf(drafts.find((d) => d.id === okId)!).status).toBe("ok");
+    await finalizeIfRunning(runId, { draftCount: 2, anyFailure: false });
+    expect((await runsRepo.getRunById(testEnv.DB, runId))?.status).toBe(
+      "awaiting"
+    );
+  });
+
   it("omits private Draft fields from the scoped prompt builder", () => {
     const prompt = buildScopedPrompt("drafter", {
       targetEntityType: "states",

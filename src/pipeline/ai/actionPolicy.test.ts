@@ -6,7 +6,8 @@ import * as draftsRepo from "../../shared/db/repos/draftsRepo";
 import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import { RunDetailSchema } from "../../shared/schemas/run";
-import type { SourceCheck } from "../connectors/connector";
+import { draftAndReview } from "../agents/draftAndReview";
+import { evidenceId, type SourceCheck } from "../connectors/connector";
 import {
   afterPackaging,
   ensureRun,
@@ -507,5 +508,89 @@ describe("enforceDraftGuardrails I/O matrix (story 3.6)", () => {
       ruleId: "tool.allowlist",
       tool: "publish_f1"
     });
+  });
+
+  it("invokeTool throw still writes guardrails.failed and does not stamp passed", async () => {
+    const date = "2026-10-10";
+    await ensureRun(testEnv.DB, "scheduled", date);
+    const id = runIdFor(date, "scheduled");
+    await seedRoles();
+    const packaged = await monitorAndPackage(testEnv.DB, id, oneDraft);
+    const spy = vi
+      .spyOn(draftsRepo, "getById")
+      .mockRejectedValue(new Error("invokeTool lookup failed"));
+    const provider = fakeProvider([{ text: '{"tool":"publish_f1"}' }]);
+    try {
+      await afterPackaging(testEnv.DB, id, packaged, deps(provider));
+    } finally {
+      spy.mockRestore();
+    }
+    expect(provider.count()).toBe(1);
+    const drafts = await draftsRepo.listByRun(testEnv.DB, id);
+    expect(drafts[0]?.evalSummary?.status).toBe("evals_not_run");
+    expect(drafts[0]?.evalSummary?.ineligible).toContain("guardrail_fail");
+    const evidence = await evidenceRepo.listByRun(testEnv.DB, id);
+    expect(guardrailOf(evidence, "guardrails.failed")).toHaveLength(1);
+    expect(guardrailOf(evidence, "guardrails.passed")).toHaveLength(0);
+    expect((await runsRepo.getRunById(testEnv.DB, id))?.status).toBe(
+      "awaiting"
+    );
+  });
+
+  it("step retry skips LLM when guardrails.failed exists and evalSummary is still null", async () => {
+    const date = "2026-10-11";
+    await ensureRun(testEnv.DB, "scheduled", date);
+    const id = runIdFor(date, "scheduled");
+    await seedRoles();
+    const packaged = await monitorAndPackage(testEnv.DB, id, oneDraft);
+    const draft = (await draftsRepo.listByRun(testEnv.DB, id))[0]!;
+    expect(draft.evalSummary).toBeNull();
+    await evidenceRepo.appendEvent(testEnv.DB, {
+      id: evidenceId(id, "guardrails.failed", draft.id),
+      runId: id,
+      event: "guardrails.failed",
+      payload: {
+        draftId: draft.id,
+        ruleId: "tool.allowlist",
+        tool: "publish_f1"
+      },
+      createdAt: NOW
+    });
+    const provider = fakeProvider([{ text: DRAFTER_OK }, { text: OK_REVIEW }]);
+    await afterPackaging(testEnv.DB, id, packaged, deps(provider));
+    expect(provider.count()).toBe(0);
+    const again = (await draftsRepo.listByRun(testEnv.DB, id))[0]!;
+    expect(again.evalSummary).toBeNull();
+    const evidence = await evidenceRepo.listByRun(testEnv.DB, id);
+    expect(guardrailOf(evidence, "guardrails.failed")).toHaveLength(1);
+    expect(guardrailOf(evidence, "guardrails.passed")).toHaveLength(0);
+    expect((await runsRepo.getRunById(testEnv.DB, id))?.status).toBe(
+      "awaiting"
+    );
+  });
+
+  it("stamps guardrails.passed without a second LLM when eval is set and no guardrail event exists", async () => {
+    const date = "2026-10-12";
+    await ensureRun(testEnv.DB, "scheduled", date);
+    const id = runIdFor(date, "scheduled");
+    await seedRoles();
+    const packaged = await monitorAndPackage(testEnv.DB, id, oneDraft);
+    const provider = fakeProvider([{ text: DRAFTER_OK }, { text: OK_REVIEW }]);
+    await draftAndReview(testEnv.DB, id, deps(provider));
+    expect(provider.count()).toBe(2);
+    const mid = await evidenceRepo.listByRun(testEnv.DB, id);
+    expect(guardrailOf(mid, "guardrails.passed")).toHaveLength(0);
+    expect(guardrailOf(mid, "guardrails.failed")).toHaveLength(0);
+    expect(
+      (await draftsRepo.listByRun(testEnv.DB, id))[0]?.evalSummary?.status
+    ).toBe("ok");
+    await afterPackaging(testEnv.DB, id, packaged, deps(provider));
+    expect(provider.count()).toBe(2);
+    const evidence = await evidenceRepo.listByRun(testEnv.DB, id);
+    expect(guardrailOf(evidence, "guardrails.passed")).toHaveLength(1);
+    expect(guardrailOf(evidence, "guardrails.failed")).toHaveLength(0);
+    expect((await runsRepo.getRunById(testEnv.DB, id))?.status).toBe(
+      "awaiting"
+    );
   });
 });

@@ -94,6 +94,31 @@ deferred: []
 - Given Tier-2 source text that instructs a `publish_f1` call, when the model requests that tool, then the allowlist is unchanged, the call is denied, the denial is on Evidence, and no live F1 row is updated
 - Given `GET /api/runs/:id`, when a deny occurred, then the response includes the `guardrails.failed` event and the Draft's `guardrail_fail` reason
 
+### Review Findings
+
+Code review of `62b8e68..d5b3efc` (2026-09-11). Layers: Blind Hunter, Edge Case Hunter, Verification Gap, Acceptance Auditor.
+
+- [x] [Review][Patch] After a recovered `persistToolDeny` in the per-Draft catch, do not `stopFurther`/rethrow — continue so the Run stays `awaiting` [`src/pipeline/agents/draftAndReview.ts:449-470`]
+- [x] [Review][Patch] Assert `invokeTool` throw still writes `guardrails.failed` + `guardrail_fail` and does not get `guardrails.passed` [`src/pipeline/agents/draftAndReview.ts:284-299`]
+- [x] [Review][Patch] Seed `guardrails.failed` with null `evalSummary` and assert retry skips LLM [`src/pipeline/agents/draftAndReview.ts:371-373`]
+- [x] [Review][Patch] Seed eval-set + no guardrail event and assert retry stamps `guardrails.passed` without a second LLM [`src/pipeline/ai/actionPolicy.ts:134-172`]
+
+Rejected:
+- `false` `enforceDraftGuardrails` stamps `passed` on budget-stop / `evals_not_run` Drafts — Always requires pass or fail after 3.5 persist; no tool request is a pass
+- `low` `applyGuardrailIneligibleStmt` unused on the generation deny path — generation batches a fresh eval via `applyDraftReviewStmt`; the OR helper is for `invokeTool` when eval already exists
+- `false` empty Spec Change Log / `deferred: []` / sprint `done` while residual risks remain — fix would edit the spec under review
+- `false` I/O matrix omits budget-stop / fenced JSON rows — same; Design Notes already pin fenced JSON to the 3.5 parse path
+- `false` scoped prompts concatenate untrusted `body` — `body` is authorized context; G1 is allowlist-holds, not withholding source text
+- `false` `parseToolRequest` fail-opens on markdown fences — specified: unparseable JSON stays on the 3.5 path
+- `low` F1 snapshot on empty tables would miss an UPDATE of seeded rows — `invokeTool` has no F1 SQL; seeding is extra complexity
+- `false` GET `/api/runs/:id` not asserted on the pass path — AC is deny-only; D1 tests already pin `guardrails.passed`
+- `false` `extraStatements` only run on deny / always `{ denied: true }` — v1 allowlists are empty; Design Notes require that return
+- `low` `afterPackaging` comment says enforce only when `running` — the code always enforces then skips the gate; comment-only
+- `low` `draftAndReview` throw skips enforce this attempt — unexpected throw already `finishFailed` (3.5); the gate is not offered
+- `low` `appendEvent` throw mid-enforce leaves later Drafts unstamped — not everyday; per-Draft try/catch adds branches
+- `false` `applyGuardrailIneligibleStmt` re-fetch throw drops the deny batch — generation path has `evalSummary == null` and skips that helper
+- `low` `persistToolDeny` catch records `run_not_found` as `tool.allowlist` deny — `complete()` already required the Run; not an everyday path
+
 ## Spec Change Log
 
 ## Review Triage Log

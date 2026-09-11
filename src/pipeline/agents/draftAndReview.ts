@@ -440,9 +440,9 @@ export async function draftAndReview(
             role: pendingTool.role,
             tool: pendingTool.tool
           });
-        } else {
-          await persistEvalsNotRun(db, draft, body, diff, timestamp);
+          continue;
         }
+        await persistEvalsNotRun(db, draft, body, diff, timestamp);
       } catch {
         persistFailed = true;
       }
