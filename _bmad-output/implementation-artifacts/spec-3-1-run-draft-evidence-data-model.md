@@ -122,3 +122,33 @@ context:
 - `npm run migrate:local` -- expected: `0006_run_draft_evidence.sql` applies clean
 - `npm test` -- expected: all suites pass including the new story 3.1 describe (415 → ~421)
 - `npm run check` -- expected: exit 0 (oxfmt + oxlint + tsc)
+
+### Review Findings
+
+- [x] [Review][Patch] `outcome='edited'` requires a non-empty `edited_body` [migrations/0006_run_draft_evidence.sql:145]
+- [x] [Review][Patch] Draft and evidence primary keys accept empty string, then Zod `min(1)` 500s the public detail [migrations/0006_run_draft_evidence.sql:120]
+- [x] [Review][Patch] `target_entity_type` / `target_entity_id` can be set unpaired [migrations/0006_run_draft_evidence.sql:122]
+- [x] [Review][Patch] Non-null `completed_at` may precede `started_at` [migrations/0006_run_draft_evidence.sql:80]
+- [x] [Review][Patch] Run id `YYYYMMDD` is digits-only, not a real calendar date (`run-20261399-dead` is legal) [migrations/0006_run_draft_evidence.sql:63]
+- [x] [Review][Patch] 0006 alignment test never reject-exercises `running`+`completed_at`, unpaired gate trio, or `UNIQUE(run_id, seq)` [src/shared/api/publicApi.test.ts:997]
+- [x] [Review][Patch] Run detail never asserts evidence is scoped to that run (draft leakage is pinned; evidence is not) [src/shared/api/publicApi.test.ts:950]
+- [x] [Review][Patch] Stale comments: evidence `id` still described as a duplicate-seq tie-break; `insertRun` still claims only Zod rejects `'usd'` [src/shared/db/repos/evidenceRepo.ts:32]
+
+- [x] [Review][Defer] Epic context still names `awaiting-approval` / `budget-stopped` / `run.budget_stopped` [epic-3-context.md] — deferred: fix would edit the compiled epic context spec; 3.1 locked `awaiting` / `stopped` / `run.stopped` to match `RunStatusChip`, and later stories already used those strings
+- [x] [Review][Defer] `listRuns` orders by `started_at DESC` but 0006 only indexes `runs(status)` [migrations/0006_run_draft_evidence.sql:108] — deferred: foundation table is empty; add the index when 3.7’s public log is the hot path
+
+Rejected:
+- `false` — No reject-reason / public-private split on drafts: 3.10 owns reject capture; the frozen 3.1 column list did not include those fields (low reject: extra migration surface, no 3.1 reader hits a reject path).
+- `false` — No per-draft `human | agent` attribute: `decided_by` is specified as a public-safe display name; ProvenanceLabel is frozen at publish (3.11).
+- `false` — `target_entity_type` is not a closed F1 set: 0006 and the spec name the F1 target as data, not an FK/enum.
+- `false` — JSON columns are `json_valid` only, not `json_type`: spec requires that; 3.4/3.11 own the diff/eval/payload shape.
+- `low` — Zod does not encode SQL pairings (`running` ⇒ `completedAt` null; outcome ⇔ decided*): SQL already fail-closes the write; a `superRefine` is extra complexity for a combo everyday writers do not send.
+- `low` — No fixture of empty `drafts`/`evidence` arrays on detail: `listByRun` returns `[]` with no special branch.
+- `false` — `public, max-age=60` on run GETs: spec I/O matrix pins that header on `GET /api/runs`; detail uses the same `jsonOk` helper as every other public GET.
+- `false` — `origin='scheduled'` with null `scheduled_for`: spec lists `scheduled_for` as independently nullable, and the 3.1 detail fixture pins that combo.
+- `low` — Public GET never fixtures `empty`/`failed`/`stopped`/`rejected`/`running`: I/O matrix did not require those statuses; alignment already cycles `RUN_STATUS_VALUES`.
+- `false` — `RunStatusChip` has no `running` mapping: spec Never forbids chip changes; the chip’s `RunStatus` is the six terminal labels.
+- spec-edit — Frozen I/O matrix omits the 400 malformed-id case: the branch is already tested; do not edit the spec under review.
+- spec-edit — `## Implementation Notes` is blank: documentation-only; do not edit the spec under review.
+- spec-edit — No `gate.approved` / `run.published` events, `gate.decided` allows null payload: Design Notes close the event set; later stories extend by migration.
+- `false` — Draft/Evidence fixtures are raw SQL not repo inserts: Code Map gave those repos `listByRun` only this story; the test comment records that.

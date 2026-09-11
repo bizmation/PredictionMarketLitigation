@@ -208,7 +208,8 @@ describe("DDL-supporting vocabularies are pinned", () => {
       FORUM_VALUES,
       CERT_READING_VALUES,
       OPERATIONAL_STATUS_BASIS_VALUES,
-      OWNING_TABLE_VALUES
+      OWNING_TABLE_VALUES,
+      GATEWAY_ROLE_VALUES
     } = await import("./vocabulary");
     expect(CASE_LIFECYCLE_VALUES).toEqual(["active", "resolved"]);
     expect(CASE_ENTITY_ROLE_VALUES).toEqual([
@@ -242,6 +243,12 @@ describe("DDL-supporting vocabularies are pinned", () => {
       "entities",
       "cert_signals",
       "state_platform_statuses"
+    ]);
+    expect(GATEWAY_ROLE_VALUES).toEqual([
+      "orchestrator",
+      "drafter",
+      "reviewer",
+      "yolo"
     ]);
   });
 });

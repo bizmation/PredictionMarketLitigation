@@ -22,11 +22,14 @@
 -- CHECKs accept but the schema rejects would turn the public read endpoints
 -- into 500s. Every wire invariant a raw-SQL writer could violate is therefore
 -- also a CHECK: run ids carry their `run-YYYYMMDD-xxxx` shape (split across
--- short GLOBs because D1 caps a single pattern at 50 bytes), currency is 3
--- uppercase letters, cent/seq/confidence columns are true integers, a
--- `running` Run has no completion time, the gate decision trio (outcome,
--- decided_at, decided_by) moves together, and drafts/evidence content is
--- non-empty where the schema demands it.
+-- short GLOBs because D1 caps a single pattern at 50 bytes) and the YYYYMMDD
+-- is a real calendar date (`date(...)` round-trip, same as `scheduled_for`),
+-- currency is 3 uppercase letters, cent/seq/confidence columns are true
+-- integers, a `running` Run has no completion time, a non-null `completed_at`
+-- is not earlier than `started_at`, the gate decision trio (outcome,
+-- decided_at, decided_by) moves together, `outcome = 'edited'` carries a
+-- non-empty `edited_body`, target type/id are paired, and drafts/evidence ids
+-- and content are non-empty where the schema demands it.
 --
 -- ── MONEY ───────────────────────────────────────────────────────────────────
 -- Integer cents + ISO currency code, never float dollars (architecture
@@ -68,6 +71,14 @@ CREATE TABLE runs (
     AND substr(id, 13, 1) = '-'
     AND substr(id, 5, 8) NOT GLOB '*[^0-9]*'
     AND substr(id, 14, 4) NOT GLOB '*[^0-9a-f]*'
+    AND date(
+      substr(id, 5, 4) || '-' || substr(id, 9, 2) || '-' || substr(id, 11, 2),
+      '+0 days'
+    ) IS NOT NULL
+    AND date(
+      substr(id, 5, 4) || '-' || substr(id, 9, 2) || '-' || substr(id, 11, 2),
+      '+0 days'
+    ) = substr(id, 5, 4) || '-' || substr(id, 9, 2) || '-' || substr(id, 11, 2)
   ),
   origin         TEXT NOT NULL CHECK (origin IN ('scheduled','catch-up','manual')),
   mode           TEXT NOT NULL CHECK (mode IN ('hitl','yolo')),
@@ -102,7 +113,10 @@ CREATE TABLE runs (
   -- A Run that is still running has not completed; the terminal statuses may
   -- carry a completion time (or legitimately not, while a Run waits at the
   -- gate — `awaiting` is terminal-for-display but the gate may take days).
-  CHECK (status <> 'running' OR completed_at IS NULL)
+  -- A stamped completion is never earlier than the start (lexicographic
+  -- compare is safe on the 24-char ISO-UTC form).
+  CHECK (status <> 'running' OR completed_at IS NULL),
+  CHECK (completed_at IS NULL OR completed_at >= started_at)
 );
 
 CREATE INDEX idx_runs_status ON runs(status);
@@ -117,7 +131,7 @@ CREATE INDEX idx_runs_status ON runs(status);
 -- the trio moves together, so a decision is never half-recorded.
 
 CREATE TABLE drafts (
-  id                 TEXT PRIMARY KEY NOT NULL,
+  id                 TEXT PRIMARY KEY NOT NULL CHECK (length(trim(id)) > 0),
   run_id             TEXT NOT NULL REFERENCES runs(id),
   target_entity_type TEXT CHECK (
     target_entity_type IS NULL OR length(trim(target_entity_type)) > 0
@@ -142,7 +156,9 @@ CREATE TABLE drafts (
     )
   ),
   decided_by         TEXT CHECK (decided_by IS NULL OR length(trim(decided_by)) > 0),
-  edited_body        TEXT,
+  edited_body        TEXT CHECK (
+    edited_body IS NULL OR length(trim(edited_body)) > 0
+  ),
   created_at         TEXT NOT NULL CHECK (
     length(created_at) = 24
     AND created_at GLOB '????-??-??T??:??:??.???Z'
@@ -154,7 +170,15 @@ CREATE TABLE drafts (
     AND strftime('%Y-%m-%dT%H:%M:%fZ', updated_at, '+0 seconds') = updated_at
   ),
   CHECK ((outcome IS NULL) = (decided_at IS NULL)),
-  CHECK ((outcome IS NULL) = (decided_by IS NULL))
+  CHECK ((outcome IS NULL) = (decided_by IS NULL)),
+  -- Named F1 targets are a pair (or both absent); a type without an id
+  -- (or the reverse) cannot resolve on ops.
+  CHECK ((target_entity_type IS NULL) = (target_entity_id IS NULL)),
+  -- `edited` means there is an after-text for the public before/after diff.
+  CHECK (
+    outcome <> 'edited'
+    OR (edited_body IS NOT NULL AND length(trim(edited_body)) > 0)
+  )
 );
 
 CREATE INDEX idx_drafts_run ON drafts(run_id);
@@ -168,7 +192,7 @@ CREATE INDEX idx_drafts_run ON drafts(run_id);
 -- `payload_json` is scrubbed before insert — secrets never reach this table.
 
 CREATE TABLE evidence_events (
-  id           TEXT PRIMARY KEY NOT NULL,
+  id           TEXT PRIMARY KEY NOT NULL CHECK (length(trim(id)) > 0),
   run_id       TEXT NOT NULL REFERENCES runs(id),
   seq          INTEGER NOT NULL CHECK (seq = CAST(seq AS INTEGER) AND seq >= 0),
   event        TEXT NOT NULL CHECK (event IN ('run.started','run.completed','run.failed','run.stopped','run.empty','source.fetched','source.skipped','draft.created','guardrails.passed','guardrails.failed','gate.awaiting_approval','gate.decided')),

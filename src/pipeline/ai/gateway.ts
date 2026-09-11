@@ -137,25 +137,34 @@ export async function complete(
     // must still throw but must not be re-marked or re-evidenced (idempotent).
     if (run.status === "running") {
       const timestamp = now();
-      await runsRepo.markStopped(db, runId, timestamp);
-      await db
-        .prepare(
-          `INSERT INTO evidence_events (id, run_id, seq, event, payload_json, created_at)
-           VALUES (?, ?, (SELECT COALESCE(MAX(seq), -1) + 1 FROM evidence_events WHERE run_id = ?),
-                   'run.stopped', ?, ?)`
-        )
-        .bind(
-          newId(),
-          runId,
-          runId,
-          JSON.stringify({ reason: "budget_stopped" }),
-          timestamp
-        )
-        .run();
+      await db.batch([
+        runsRepo.markStoppedStmt(db, runId, timestamp),
+        db
+          .prepare(
+            `INSERT OR IGNORE INTO evidence_events
+               (id, run_id, seq, event, payload_json, created_at)
+             VALUES (?, ?, (SELECT COALESCE(MAX(seq), -1) + 1
+                              FROM evidence_events WHERE run_id = ?),
+                     'run.stopped', ?, ?)`
+          )
+          .bind(
+            `ev-budget-stop-${runId}`,
+            runId,
+            runId,
+            JSON.stringify({ reason: "budget_stopped" }),
+            timestamp
+          )
+      ]);
     }
     throw new GatewayError(
       "budget_stopped",
       `Spend ${spend} reached the ceiling ${budget}; call refused.`
+    );
+  }
+  if (run.status !== "running") {
+    throw new GatewayError(
+      "budget_stopped",
+      `Run is not running (${run.status}); call refused.`
     );
   }
 
@@ -221,11 +230,14 @@ export function createWorkersAiProvider(env: Env): LlmProvider | null {
       const result = (await env.AI.run(model, {
         prompt
       })) as {
-        response?: string;
+        response?: unknown;
         usage?: { prompt_tokens?: number; completion_tokens?: number };
       };
+      if (typeof result.response !== "string") {
+        throw new Error("non-text model output");
+      }
       return {
-        text: result.response ?? "",
+        text: result.response,
         inputTokens: result.usage?.prompt_tokens ?? null,
         outputTokens: result.usage?.completion_tokens ?? null,
         costCents: 0

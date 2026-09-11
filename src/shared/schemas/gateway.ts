@@ -37,7 +37,7 @@ export type RoleModelConfig = z.infer<typeof RoleModelConfigSchema>;
  * The role→model map inside the config. Roles are a sparse, closed set: any
  * admitted `GatewayRole` key may be present or absent (an absent role is a
  * typed `role_not_configured` at call time), and no key outside the four is
- * admitted (`.strict()` rejects it). `.strict()` also drops inherited
+ * admitted (`.strict()` rejects it). `.strict()` also rejects inherited
  * prototype keys, so a tampered JSON object cannot smuggle a mapping in.
  */
 export const RoleModelMapSchema = z

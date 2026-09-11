@@ -37,8 +37,16 @@ export type {
  */
 
 const CURRENCY_CODE = /^[A-Z]{3}$/;
-/** Human-readable run id: UTC date + 4 hex (decided format). */
+/** Human-readable run id: real UTC date + 4 hex (decided format). */
 const RUN_ID = /^run-\d{8}-[0-9a-f]{4}$/;
+
+const RunIdSchema = z
+  .string()
+  .regex(RUN_ID)
+  .refine((id) => {
+    const ymd = `${id.slice(4, 8)}-${id.slice(8, 10)}-${id.slice(10, 12)}`;
+    return IsoDateSchema.safeParse(ymd).success;
+  }, "Expected run-YYYYMMDD-xxxx with a real UTC calendar date");
 
 const cents = z.number().int().nonnegative();
 
@@ -49,7 +57,7 @@ const cents = z.number().int().nonnegative();
  */
 export const RunSummarySchema = z
   .object({
-    id: z.string().regex(RUN_ID),
+    id: RunIdSchema,
     origin: RunOriginSchema,
     mode: RunModeSchema,
     status: RunStatusSchema,
@@ -129,7 +137,7 @@ export type EvalSummary = z.infer<typeof EvalSummarySchema>;
 export const DraftRecordSchema = z
   .object({
     id: z.string().min(1),
-    runId: z.string().regex(RUN_ID),
+    runId: RunIdSchema,
     targetEntityType: z.string().min(1).nullable(),
     targetEntityId: z.string().min(1).nullable(),
     diff: z.unknown(),
@@ -140,11 +148,20 @@ export const DraftRecordSchema = z
     outcome: DraftOutcomeSchema.nullable(),
     decidedAt: IsoUtcSchema.nullable(),
     decidedBy: z.string().min(1).nullable(),
-    editedBody: z.string().nullable(),
+    editedBody: z.string().min(1).nullable(),
     createdAt: IsoUtcSchema,
     updatedAt: IsoUtcSchema
   })
-  .strict();
+  .strict()
+  .refine(
+    (draft) =>
+      draft.outcome !== "edited" ||
+      (draft.editedBody != null && draft.editedBody.trim().length > 0),
+    {
+      path: ["editedBody"],
+      message: "edited outcome requires a non-empty editedBody"
+    }
+  );
 
 export type DraftRecord = z.infer<typeof DraftRecordSchema>;
 
@@ -156,7 +173,7 @@ export type DraftRecord = z.infer<typeof DraftRecordSchema>;
 export const EvidenceEventSchema = z
   .object({
     id: z.string().min(1),
-    runId: z.string().regex(RUN_ID),
+    runId: RunIdSchema,
     seq: z.number().int().nonnegative(),
     event: EvidenceEventTypeSchema,
     payload: z.unknown().nullable(),

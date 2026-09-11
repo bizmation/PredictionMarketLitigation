@@ -88,3 +88,22 @@
 ## Deferred from: code review of 2-10-trust-furniture-donations-ops-handoff.md (2026-09-03)
 
 - **Donation placeholder is a silent dead anchor.** `DONATE_URL = "#coffee"` matches no element, so "Buy me a coffee" (trust CTA) and "Support the project" (footer) do nothing on click with no reader-visible hint. — **DEFERRED (Patrick, 2026-09-03):** pending his choice of donation service (Story 2.10 Open Question 1). When the service is picked, wire the real URL and decide whether the CTAs need a visible "donations not open yet" treatment in the meantime.
+
+## Deferred from: code review of spec-3-1-run-draft-evidence-data-model.md (2026-09-10)
+
+- Epic context still names chip statuses `awaiting-approval` / `budget-stopped` and evidence event `run.budget_stopped`, while 3.1 locked `awaiting` / `stopped` / `run.stopped` to match `RunStatusChip`. Fix would edit the compiled epic context; later stories already used the locked strings.
+- `listRuns` orders by `started_at DESC` but `0006` only indexes `runs(status)`. Fine at empty-table foundation; add a `started_at` index when 3.7’s public log is the hot path.
+
+## Deferred from: code review of spec-3-2-ai-gateway-budget-envelope-role-model-config.md (2026-09-10)
+
+- Frozen Never requires `gateway.config_changed` on `setRoleModel`, but that event is not in the closed Evidence vocabulary and `evidence_events.run_id` is NOT NULL. 3.8 projector and 3.12 operator config UI own audited config changes; version bump remains the 3.2 audit record.
+- Migration 0007 creates empty `gateway_config` with no seed row or default role→model mappings. 3.12 operator loop controls stand up the live config; empty table stays fail-closed as `role_not_configured`.
+
+- Successful LLM calls live in `llm_calls`, not `evidence_events`. 3.8 projector owns the public Evidence projection; 0007 already treats `llm_calls` as the spend ledger.
+- `setRoleModel` last-write-wins the whole `roles_json`. No concurrent config writers until 3.12 operator controls; version bump is already atomic.
+- `GatewayInput` is `prompt` only (no `messages`). Workers AI text path this story; chat-shaped input belongs to a later provider/chat story.
+- Config `provider` is never matched to the injected `LlmProvider`. Single Workers AI binding this story; revisit when OpenRouter is wired.
+- Budget check is prior ledger `spend >= budget`, not “this call would push over.” First-pass #1; zero-dollar Workers AI cannot overshoot; paid provider story.
+- Provider `complete` / `AI.run` has no timeout. Same family as the Epic 2 hung-fetch deferral; timeout duration is a product choice.
+- `llm_calls.currency` hardcoded `USD` instead of `run.spendCurrency`. First-pass #6; USD-only this story.
+- `run.stopped` evidence is a raw INSERT, not `evidenceRepo`. First-pass #7; 3.8 projector owns Evidence writes.
