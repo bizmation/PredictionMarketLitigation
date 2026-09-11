@@ -18,9 +18,11 @@ import * as kpisRepo from "../db/repos/kpisRepo";
 import * as pollVotesRepo from "../db/repos/pollVotesRepo";
 import * as runsRepo from "../db/repos/runsRepo";
 import * as statesRepo from "../db/repos/statesRepo";
+import { nextRunAtUtc } from "../lib/schedule";
 import { PollResultsSchema, PollVoteBodySchema } from "../schemas/poll";
 import type { PollResults, PollVote } from "../schemas/poll";
 import { RunDetailSchema } from "../schemas/run";
+import { RUN_SCHEDULE_TIMEZONE } from "../schemas/vocabulary";
 
 /**
  * Public F1 REST router (Story 2.1), plus the reader poll (Story 2.9).
@@ -266,8 +268,17 @@ export async function handlePublicApi(
       return jsonList(await casesRepo.listRecentDevelopments(db));
     }
 
+    // Story 3.7 — same next-run function the cron uses; no D1 column.
+    if (pathname === "/api/schedule") {
+      return jsonNoStore({
+        timezone: RUN_SCHEDULE_TIMEZONE,
+        nextRunAt: nextRunAtUtc()
+      });
+    }
+
     // Story 3.1 — run records are read-only public stubs; the pipeline and
-    // the Approval Gate own every write (later stories).
+    // the Approval Gate own every write (later stories). List items are
+    // RunLogItem (eventCount + approvalOutcome) from 3.7.
     if (pathname === "/api/runs") {
       return jsonList(await runsRepo.listRuns(db));
     }

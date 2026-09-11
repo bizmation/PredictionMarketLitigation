@@ -1,5 +1,7 @@
 import {
+  RunLogItemSchema,
   RunSummarySchema,
+  type RunLogItem,
   type RunMode,
   type RunOrigin,
   type RunStatus,
@@ -29,8 +31,13 @@ type RunRow = {
   scheduled_for: string | null;
 };
 
-function mapRun(row: RunRow): RunSummary {
-  return RunSummarySchema.parse({
+type RunLogRow = RunRow & {
+  event_count: number;
+  approval_outcome: string | null;
+};
+
+function runFields(row: RunRow) {
+  return {
     id: row.id,
     origin: row.origin,
     mode: row.mode,
@@ -41,6 +48,18 @@ function mapRun(row: RunRow): RunSummary {
     spendCurrency: row.spend_currency,
     budgetCents: row.budget_cents,
     scheduledFor: row.scheduled_for
+  };
+}
+
+function mapRun(row: RunRow): RunSummary {
+  return RunSummarySchema.parse(runFields(row));
+}
+
+function mapRunLog(row: RunLogRow): RunLogItem {
+  return RunLogItemSchema.parse({
+    ...runFields(row),
+    eventCount: Number(row.event_count),
+    approvalOutcome: row.approval_outcome ?? null
   });
 }
 
@@ -92,14 +111,25 @@ export async function insertRun(
  * Public run log order: newest-first by `started_at`. `id DESC` is only a
  * deterministic tie-break for same-instant starts (run ids are date-prefixed
  * with a random suffix, so it carries no recency meaning of its own).
+ *
+ * Story 3.7 — one query, no N+1: Evidence `COUNT(*)` plus one Draft
+ * `outcome` if any (else null).
  */
-export async function listRuns(db: Db): Promise<RunSummary[]> {
+export async function listRuns(db: Db): Promise<RunLogItem[]> {
   const { results } = await db
     .prepare(
-      `SELECT ${RUN_COLUMNS} FROM runs ORDER BY started_at DESC, id DESC`
+      `SELECT ${RUN_COLUMNS},
+              (SELECT COUNT(*) FROM evidence_events e
+                WHERE e.run_id = runs.id) AS event_count,
+              (SELECT d.outcome FROM drafts d
+                WHERE d.run_id = runs.id AND d.outcome IS NOT NULL
+                ORDER BY d.created_at DESC, d.id DESC
+                LIMIT 1) AS approval_outcome
+         FROM runs
+        ORDER BY started_at DESC, id DESC`
     )
-    .all<RunRow>();
-  return (results ?? []).map(mapRun);
+    .all<RunLogRow>();
+  return (results ?? []).map(mapRunLog);
 }
 
 export async function getRunById(

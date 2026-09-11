@@ -132,8 +132,13 @@ describe("OpsShell", () => {
     }
   });
 
-  it("wraps unwired bands in EmptyState", () => {
-    expect(ops()).toContain('class="empty"');
+  it("wraps still-unwired bands in EmptyState", () => {
+    const html = ops();
+    expect(html).toContain('class="empty"');
+    expect(html).toContain("No drafts awaiting approval");
+    expect(html).toContain("Mode transparency not yet wired");
+    expect(html).toContain("Explainer not yet built");
+    expect(html).toContain("No posts yet");
   });
 
   it("links back to apex", () => {
@@ -232,8 +237,9 @@ describe("ApexShell trust furniture and ops handoff (story 2.10)", () => {
     expect(html).not.toContain("pending right now");
     expect(html).not.toContain("two pending");
     expect(html).not.toContain("Approval Gate cleared");
-    expect(opsSection).toContain("will all live on");
-    expect(opsSection).not.toContain(" all live on ops.");
+    expect(opsSection).toContain("The run log is on");
+    expect(opsSection).toContain("will live there too");
+    expect(opsSection).not.toContain("will all live on");
   });
 });
 

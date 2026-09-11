@@ -528,6 +528,10 @@ table.grid th button {
 table.grid th button:hover {
   color: var(--color-accent-700);
 }
+.runrow .rid {
+  font-family: var(--font-heading);
+  font-size: 15px;
+}
 
 /* ---- status board ---------------------------------------- */
 .board {
