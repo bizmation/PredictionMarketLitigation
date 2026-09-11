@@ -13,6 +13,8 @@ import {
   finishEmpty,
   finishFailed,
   monitorAndPackage,
+  packageDailyRun,
+  reviewDailyRun,
   runIdFor
 } from "./dailyRunSteps";
 import {
@@ -397,5 +399,164 @@ describe("afterPackaging (story 3.5)", () => {
     expect(drafts.every((d) => d.evalSummary?.status === "evals_not_run")).toBe(
       true
     );
+  });
+
+  it("marks a zero-draft connector failure failed, not empty", async () => {
+    const date = "2026-09-25";
+    await ensureRun(testEnv.DB, "scheduled", date);
+    const id = runIdFor(date, "scheduled");
+    await seedRoles();
+    const packaged = await monitorAndPackage(testEnv.DB, id, {
+      CourtListener: () => {
+        throw new Error("boom");
+      }
+    });
+    const provider = fakeProvider();
+    await afterPackaging(testEnv.DB, id, packaged, deps(provider));
+    expect(packaged.draftCount).toBe(0);
+    expect(packaged.anyFailure).toBe(true);
+    expect(provider.count()).toBe(0);
+    expect((await runsRepo.getRunById(testEnv.DB, id))?.status).toBe("failed");
+    const evidence = await evidenceRepo.listByRun(testEnv.DB, id);
+    expect(evidence.some((e) => e.event === "run.failed")).toBe(true);
+  });
+});
+
+describe("packageDailyRun / reviewDailyRun (story 3.5)", () => {
+  const NOW = "2026-09-26T16:00:00.000Z";
+  const oneDraft: Record<string, SourceCheck> = {
+    "CFTC press": () => [
+      {
+        entities: [
+          {
+            type: "states",
+            id: "st-nv",
+            diff: { operationalStatus: { from: "go", to: "restricted" } },
+            body: "Nevada restricted.",
+            confidence: 80
+          }
+        ]
+      }
+    ]
+  };
+
+  async function seedRoles() {
+    await testEnv.DB.prepare(
+      `INSERT INTO gateway_config (id, version, roles_json, default_budget_cents, updated_at)
+       VALUES ('current', 1, ?, 100, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         roles_json = excluded.roles_json,
+         default_budget_cents = excluded.default_budget_cents,
+         updated_at = excluded.updated_at`
+    )
+      .bind(
+        JSON.stringify({
+          drafter: { provider: "fake", model: "drafter-v1" },
+          reviewer: { provider: "fake", model: "reviewer-v1" }
+        }),
+        NOW
+      )
+      .run();
+  }
+
+  function fakeProvider(
+    script: Array<{ text?: string }> = []
+  ): LlmProvider & { count: () => number } {
+    let calls = 0;
+    return {
+      name: "fake",
+      count: () => calls,
+      complete: async () => {
+        const step = script[calls];
+        calls += 1;
+        return {
+          text:
+            step?.text ??
+            JSON.stringify({
+              body: "Drafter overwrite.",
+              diff: { operationalStatus: { from: "go", to: "restricted" } }
+            }),
+          inputTokens: 1,
+          outputTokens: 1,
+          costCents: 0
+        };
+      }
+    };
+  }
+
+  function deps(provider: LlmProvider): GatewayDeps {
+    return { db: testEnv.DB, provider, now: () => NOW };
+  }
+
+  it("completes an empty poll inside packageDailyRun and never starts reviewDailyRun", async () => {
+    const date = "2026-09-26";
+    await ensureRun(testEnv.DB, "scheduled", date);
+    const id = runIdFor(date, "scheduled");
+    await seedRoles();
+    const provider = fakeProvider();
+    const packaged = await packageDailyRun(
+      testEnv.DB,
+      "scheduled",
+      date,
+      deps(provider)
+    );
+    expect(packaged).toEqual({
+      skip: false,
+      runId: id,
+      draftCount: 0,
+      anyFailure: false
+    });
+    expect(provider.count()).toBe(0);
+    expect((await runsRepo.getRunById(testEnv.DB, id))?.status).toBe("empty");
+
+    await reviewDailyRun(testEnv.DB, packaged, deps(provider));
+    expect(provider.count()).toBe(0);
+    expect((await runsRepo.getRunById(testEnv.DB, id))?.status).toBe("empty");
+  });
+
+  it("leaves material drafts unevaluated until reviewDailyRun", async () => {
+    const date = "2026-09-27";
+    await ensureRun(testEnv.DB, "scheduled", date);
+    const id = runIdFor(date, "scheduled");
+    await seedRoles();
+    const provider = fakeProvider([
+      {
+        text: JSON.stringify({
+          body: "Drafter overwrite.",
+          diff: { operationalStatus: { from: "go", to: "restricted" } }
+        })
+      },
+      {
+        text: JSON.stringify({
+          confidence: 72,
+          citationCompleteness: 90,
+          notes: "ok",
+          disagrees: false,
+          disagreement: ""
+        })
+      }
+    ]);
+    const packaged = await packageDailyRun(
+      testEnv.DB,
+      "scheduled",
+      date,
+      deps(provider),
+      oneDraft
+    );
+    expect(packaged.skip).toBe(false);
+    if (packaged.skip) throw new Error("expected material packaging");
+    expect(packaged.draftCount).toBe(1);
+    expect(provider.count()).toBe(0);
+    expect((await runsRepo.getRunById(testEnv.DB, id))?.status).toBe("running");
+    const before = await draftsRepo.listByRun(testEnv.DB, id);
+    expect(before.every((d) => d.evalSummary == null)).toBe(true);
+
+    await reviewDailyRun(testEnv.DB, packaged, deps(provider));
+    expect(provider.count()).toBe(2);
+    expect((await runsRepo.getRunById(testEnv.DB, id))?.status).toBe(
+      "awaiting"
+    );
+    const after = await draftsRepo.listByRun(testEnv.DB, id);
+    expect(after[0]?.evalSummary?.status).toBe("ok");
   });
 });

@@ -154,3 +154,69 @@ export async function afterPackaging(
   if (!run || run.status !== "running") return;
   await completeDailyStep(db, runId, result);
 }
+
+export type DailyPackageResult =
+  | { skip: true }
+  | {
+      skip: false;
+      runId: string;
+      draftCount: number;
+      anyFailure: boolean;
+    };
+
+/**
+ * Body of Workflow `run-daily-step`. Empty packaging completes here (no LLM
+ * step). Material packaging leaves the Run `running` for `reviewDailyRun`.
+ */
+export async function packageDailyRun(
+  db: Db,
+  origin: RunOrigin,
+  scheduledFor: string,
+  gatewayDeps: GatewayDeps,
+  checks: Record<string, SourceCheck> = {}
+): Promise<DailyPackageResult> {
+  const run = await runsRepo.findRunForDate(db, scheduledFor, origin);
+  if (!run || run.status !== "running") {
+    return { skip: true };
+  }
+  try {
+    const result = await monitorAndPackage(db, run.id, checks);
+    if (result.draftCount === 0) {
+      await afterPackaging(db, run.id, result, gatewayDeps);
+    }
+    return {
+      skip: false,
+      runId: run.id,
+      draftCount: result.draftCount,
+      anyFailure: result.anyFailure
+    };
+  } catch {
+    await finishFailed(db, run.id);
+    return { skip: true };
+  }
+}
+
+/**
+ * Body of Workflow `draft-and-review`. No-ops when packaging skipped or
+ * produced zero drafts, so empty Runs never enter the LLM step.
+ */
+export async function reviewDailyRun(
+  db: Db,
+  packaged: DailyPackageResult,
+  gatewayDeps: GatewayDeps
+): Promise<void> {
+  if (packaged.skip || packaged.draftCount === 0) return;
+  try {
+    await afterPackaging(
+      db,
+      packaged.runId,
+      {
+        draftCount: packaged.draftCount,
+        anyFailure: packaged.anyFailure
+      },
+      gatewayDeps
+    );
+  } catch {
+    await finishFailed(db, packaged.runId);
+  }
+}

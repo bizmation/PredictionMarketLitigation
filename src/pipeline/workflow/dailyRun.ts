@@ -3,19 +3,13 @@ import {
   type WorkflowEvent,
   type WorkflowStep
 } from "cloudflare:workers";
-import * as runsRepo from "../../shared/db/repos/runsRepo";
 import type { RunOrigin } from "../../shared/schemas/vocabulary";
 import {
   createWorkersAiProvider,
   type GatewayDeps,
   type LlmProvider
 } from "../ai/gateway";
-import {
-  afterPackaging,
-  ensureRun,
-  finishFailed,
-  monitorAndPackage
-} from "./dailyRunSteps";
+import { ensureRun, packageDailyRun, reviewDailyRun } from "./dailyRunSteps";
 import { etCalendarDate, isRunTime } from "./schedule";
 
 export interface DailyRunParams {
@@ -69,50 +63,20 @@ export class DailyRunWorkflow extends WorkflowEntrypoint<Env, DailyRunParams> {
 
     await step.do("attach-run", () => ensureRun(db, origin, scheduledFor));
 
-    const packaged = await step.do("run-daily-step", async () => {
-      const run = await runsRepo.findRunForDate(db, scheduledFor, origin);
-      if (!run || run.status !== "running") {
-        return { skip: true as const };
-      }
-      try {
-        const result = await monitorAndPackage(db, run.id);
-        if (result.draftCount === 0) {
-          await afterPackaging(
-            db,
-            run.id,
-            result,
-            gatewayDepsFromEnv(this.env, db)
-          );
-        }
-        return {
-          skip: false as const,
-          runId: run.id,
-          draftCount: result.draftCount,
-          anyFailure: result.anyFailure
-        };
-      } catch {
-        await finishFailed(db, run.id);
-        return { skip: true as const };
-      }
-    });
+    const packaged = await step.do("run-daily-step", () =>
+      packageDailyRun(
+        db,
+        origin,
+        scheduledFor,
+        gatewayDepsFromEnv(this.env, db)
+      )
+    );
 
     if (packaged.skip) return;
     if (packaged.draftCount === 0) return;
 
-    await step.do("draft-and-review", async () => {
-      try {
-        await afterPackaging(
-          db,
-          packaged.runId,
-          {
-            draftCount: packaged.draftCount,
-            anyFailure: packaged.anyFailure
-          },
-          gatewayDepsFromEnv(this.env, db)
-        );
-      } catch {
-        await finishFailed(db, packaged.runId);
-      }
-    });
+    await step.do("draft-and-review", () =>
+      reviewDailyRun(db, packaged, gatewayDepsFromEnv(this.env, db))
+    );
   }
 }

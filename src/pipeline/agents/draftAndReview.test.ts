@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import * as draftsRepo from "../../shared/db/repos/draftsRepo";
 import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
@@ -18,7 +18,7 @@ import {
  */
 
 const testEnv = env as Env;
-const NOW = "2026-09-21T16:00:00.000Z";
+const NOW = "2026-09-08T16:00:00.000Z";
 const SHELL_BODY = "Packaging shell for Nevada.";
 const SHELL_DIFF = { operationalStatus: { from: "go", to: "restricted" } };
 const DRAFTER_BODY = "Drafter: Nevada operationalStatus flipped to restricted.";
@@ -29,7 +29,7 @@ const DRAFTER_DIFF = {
 let runSeq = 0xc00;
 function newRunId(): string {
   runSeq += 1;
-  return `run-20260921-${runSeq.toString(16).padStart(4, "0")}`;
+  return `run-20260908-${runSeq.toString(16).padStart(4, "0")}`;
 }
 
 let idSeq = 0;
@@ -133,7 +133,7 @@ async function insertRun(overrides: { budgetCents?: number | null } = {}) {
     spendCurrency: "USD",
     budgetCents:
       overrides.budgetCents === undefined ? 100 : overrides.budgetCents,
-    scheduledFor: "2026-09-21"
+    scheduledFor: "2026-09-08"
   });
   return id;
 }
@@ -170,6 +170,12 @@ async function finalizeIfRunning(
 function evalOf(draft: { evalSummary: EvalSummary | null }): EvalSummary {
   expect(draft.evalSummary).not.toBeNull();
   return draft.evalSummary as EvalSummary;
+}
+
+async function evaluatedEvents(runId: string) {
+  return (await evidenceRepo.listByRun(testEnv.DB, runId)).filter(
+    (e) => e.event === "draft.evaluated"
+  );
 }
 
 describe("draftAndReview (story 3.5)", () => {
@@ -228,7 +234,7 @@ describe("draftAndReview (story 3.5)", () => {
 
   it("marks eval_fail when reviewer output is unusable and keeps the Run awaiting", async () => {
     const runId = await insertRun();
-    await insertShellDraft(runId);
+    const draftId = await insertShellDraft(runId);
     await seedConfig(DRAFTER_REVIEWER_ROLES);
     const provider = fakeProvider([
       { text: drafterJson() },
@@ -241,6 +247,14 @@ describe("draftAndReview (story 3.5)", () => {
     expect(summary.ineligible).toContain("eval_fail");
     expect(summary.basis).toBe("eval-fail");
     expect(summary.disagreement.flagged).toBe(false);
+    expect(await evaluatedEvents(runId)).toEqual([
+      expect.objectContaining({
+        payload: {
+          draftId,
+          disagreement: { flagged: false, description: null }
+        }
+      })
+    ]);
 
     await finalizeIfRunning(runId, { draftCount: 1, anyFailure: false });
     expect((await runsRepo.getRunById(testEnv.DB, runId))?.status).toBe(
@@ -250,7 +264,7 @@ describe("draftAndReview (story 3.5)", () => {
 
   it("marks eval_fail when confidence or citationCompleteness is missing", async () => {
     const runId = await insertRun();
-    await insertShellDraft(runId);
+    const draftId = await insertShellDraft(runId);
     await seedConfig(DRAFTER_REVIEWER_ROLES);
     const provider = fakeProvider([
       { text: drafterJson() },
@@ -261,6 +275,10 @@ describe("draftAndReview (story 3.5)", () => {
     const summary = evalOf((await draftsRepo.listByRun(testEnv.DB, runId))[0]!);
     expect(summary.status).toBe("eval_fail");
     expect(summary.ineligible).toEqual(["eval_fail"]);
+    expect((await evaluatedEvents(runId))[0]?.payload).toEqual({
+      draftId,
+      disagreement: { flagged: false, description: null }
+    });
   });
 
   it("budget-stops mid-review: remaining Drafts evals_not_run, Run stays stopped", async () => {
@@ -302,6 +320,11 @@ describe("draftAndReview (story 3.5)", () => {
       false
     );
     expect(evidence.filter((e) => e.event === "run.stopped")).toHaveLength(1);
+    const evaluated = evidence.filter((e) => e.event === "draft.evaluated");
+    expect(evaluated).toHaveLength(2);
+    expect(
+      evaluated.map((e) => (e.payload as { draftId: string }).draftId).sort()
+    ).toEqual([firstId, secondId].sort());
   });
 
   it("treats a per-Draft provider error as evals_not_run and continues; Run stays awaiting", async () => {
@@ -326,6 +349,11 @@ describe("draftAndReview (story 3.5)", () => {
     );
     expect(evalOf(drafts.find((d) => d.id === okId)!).status).toBe("ok");
     expect(drafts.find((d) => d.id === okId)?.confidence).toBe(72);
+    const evaluated = await evaluatedEvents(runId);
+    expect(evaluated).toHaveLength(2);
+    expect(
+      evaluated.map((e) => (e.payload as { draftId: string }).draftId).sort()
+    ).toEqual([failId, okId].sort());
 
     await finalizeIfRunning(runId, { draftCount: 2, anyFailure: false });
     expect((await runsRepo.getRunById(testEnv.DB, runId))?.status).toBe(
@@ -346,6 +374,7 @@ describe("draftAndReview (story 3.5)", () => {
     const summary = evalOf((await draftsRepo.listByRun(testEnv.DB, runId))[0]!);
     expect(summary.status).toBe("evals_not_run");
     expect(summary.ineligible).toContain("evals_not_run");
+    expect(await evaluatedEvents(runId)).toHaveLength(1);
     await finalizeIfRunning(runId, { draftCount: 1, anyFailure: false });
     expect((await runsRepo.getRunById(testEnv.DB, runId))?.status).toBe(
       "awaiting"
@@ -559,5 +588,29 @@ describe("draftAndReview (story 3.5)", () => {
 
     await draftAndReview(testEnv.DB, runId, deps(provider));
     expect(provider.roles()).not.toContain("yolo-v1");
+  });
+
+  it("stamps remaining Drafts evals_not_run if persist throws in the catch path", async () => {
+    const runId = await insertRun();
+    const failId = await insertShellDraft(runId, {
+      id: `d:${runId}:01`
+    });
+    const restId = await insertShellDraft(runId, {
+      id: `d:${runId}:02`
+    });
+    await seedConfig(DRAFTER_REVIEWER_ROLES);
+    const spy = vi
+      .spyOn(draftsRepo, "applyDraftReviewStmt")
+      .mockRejectedValueOnce(new Error("write failed"));
+    const provider = fakeProvider([{ fail: true }]);
+    await expect(
+      draftAndReview(testEnv.DB, runId, deps(provider))
+    ).rejects.toThrow();
+    spy.mockRestore();
+    const drafts = await draftsRepo.listByRun(testEnv.DB, runId);
+    expect(drafts.find((d) => d.id === failId)?.evalSummary).toBeNull();
+    expect(evalOf(drafts.find((d) => d.id === restId)!).status).toBe(
+      "evals_not_run"
+    );
   });
 });
