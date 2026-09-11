@@ -4,7 +4,7 @@ type: 'feature'
 created: '2026-09-11'
 status: 'done'
 review_loop_iteration: 0
-followup_review_recommended: true
+followup_review_recommended: false
 baseline_revision: 7d5f67a137dad815c777a2cb57a4a0141f4dc7e6
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context.md'
@@ -104,6 +104,39 @@ deferred:
 - Given `evalSummary.disagreement.flagged`, when the page renders, then the flag and short description are visible
 - Given that Run’s Evidence, when the visitor exports, then they receive one JSON file matching `GET /api/runs/:id`
 
+### Review Findings
+
+**Follow-up adversarial pass — 2026-09-11** (fresh 4-layer review — Blind Hunter, Edge Case Hunter, Verification Gap, Acceptance Auditor — over `94ceda5` including the prior pass’s patches. 34 findings → 13 survived into 5 entries; 21 rejected in the appendix below.)
+
+- [x] [Review][Decision] Scrub matchers are coarse and drops are silent — `isSecretKey` matches any key *containing* a secret token (`auth` ⊂ `author`, `token` ⊂ `tokenCount`), the credential regex is unanchored (a value containing incidental `Bearer <word>` prose is dropped whole), and scrubbed keys/values/array elements vanish with no tombstone — the public audit record can silently shrink, against the designed-empties philosophy. No current pipeline payload key collides (`source`/`tool`/`draftId`/`ruleId`/`reason`/`states`/`kind`/`context`) — latent, but litigation-domain words (`author`, `authorization`) make a future collision plausible. Options: (a) refine matching (boundary-aware keys, anchored value regex — trades recall), (b) redaction tombstones (visible `[REDACTED]` markers), (c) accept the fail-safe direction and pin it with false-positive tests + doc. [src/pipeline/projector/evidence.ts:52-93] — **resolved by decision (Patrick, 2026-09-11): (a) refine matching.** Applied: segment-based key matching (a secret token must be the whole key or one of its word/joined segments — `author`, `authenticationStatus` survive; `openaiApiKey`, `api_token`, `x-api-key` still drop), whole-value-anchored credential regex (incidental `Bearer …` prose survives — accepted recall trade), and a value-type guard (numbers/booleans/null never drop on a key match — `tokenCount: 42` stays). Tests pin both directions (`spares litigation-shaped keys, non-string values, and prose`).
+- [x] [Review][Decision] Live fetch/poll wiring has zero executable verification — every EvidenceDetail test renders via `renderToStaticMarkup` (React server rendering never runs effects), so the initial `GET /api/runs/:id`, the 4-second poll, and abort/cleanup are untested; a poll regression (dropped `load()`, inverted `shouldPoll`, dead interval) passes all 552 tests and freezes a running Run’s page at its first snapshot — half the In-flight I/O matrix row. The fix (mount test with stubbed fetch + fake timers) requires the test-harness decision Patrick already owns (epic-2 retro item 6: jsdom/testing-library vs Playwright). [src/surfaces/ops/EvidenceDetail.tsx:440-482] — **resolved by decision (Patrick, 2026-09-11): jsdom/testing-library** (decides epic-2 retro item 6). Applied: `evidenceDetail.mount.test.tsx` (jsdom + @testing-library/react, fake timers) drives the real effect — initial GET, 4s poll while running, stop on completion, held-detail survival through a failed poll, unmount aborts the in-flight fetch and clears the interval.
+- [x] [Review][Patch] Poll gate fabricates a 200 status to compute shouldPoll [src/surfaces/ops/EvidenceDetail.tsx:472] — applied: `shouldPollView(view)` is now the single poll-gate predicate, shared by `mapEvidenceFetch` and the interval callback; no fabricated status.
+- [x] [Review][Patch] Multi-draft eval/flag blocks lack draft association [src/surfaces/ops/EvidenceDetail.tsx:341-380] — applied: on multi-draft Runs each eval block gets a `draftId` kicker and each disagreement flag is suffixed `· {draftId}` (single-draft runs unchanged); eval keys are now `eval-{draftId}` instead of array index; multi-draft render test added.
+- [x] [Review][Defer] Hung first GET has no client timeout [src/surfaces/ops/EvidenceDetail.tsx:449] — deferred: pre-existing Epic-2 hung-fetch family, timeout duration unchosen; already ledgered in this spec’s frontmatter `deferred` + epic-2 retro item 4
+
+**Rejected (21 findings):**
+
+- `[false]` Unguarded `JSON.parse(tokens_json)` 500s the detail GET — `recordCall` only stores `JSON.stringify` of Zod-validated tokens or null; poison rows require hand-edited D1 (same family 3.7 rejected). [llmCallsRepo.ts:66]
+- `[false]` No limit/pagination on detail joins — a Run’s bundle is bounded by that Run’s own events, and the spec requires export == the full GET JSON. [llmCallsRepo/evidenceRepo/publicRouter]
+- `[false]` "running" as muted `<span>` bypasses `RunStatusChip` — the chip has no `running` variant; the identical pattern shipped in reviewed 3.7 RunLog (RunLog.tsx:168-172). [EvidenceDetail.tsx:259]
+- `[false]` Export href ignores `dev` — `/api/*` is global same-origin routing (`handlePublicApi`); no surface variant exists. [EvidenceDetail.tsx:250]
+- `[false]` Dev-mode fetch misses `?surface=` handling — same global API routing; the identical bare fetch shipped in 3.7. [EvidenceDetail.tsx:453]
+- `[false]` `firstDecidedBy` collapses the Run approver to the first decided Draft — the Code Map specifies exactly this single "approver/`decidedBy` or none" provenance cell; `decidedBy` writes arrive with 3.10/3.11. [EvidenceDetail.tsx:173]
+- `[false]` llmCalls rows omit per-call tokens/cost — Code Map specifies "models from llmCalls"; aggregate tokens/spend render in the spend band. [EvidenceDetail.tsx:323]
+- `[false]` Scrub crashes on non-stringifiable payloads — payloads are pipeline-constructed JSON values; functions/circular refs are unreachable and would fail loudly anyway. [projector/evidence.ts]
+- `[false]` Decoded `%3F`/`%23` in runId breaks fetch/export URLs — ids are system-generated `run-YYYYMMDD-xxxx`; hand-crafted URLs degrade to a 404 EmptyState, fail closed (same family the prior pass rejected). [EvidenceDetail.tsx:96-104]
+- `[false]` `res.ok` + unparseable body maps to network error — the catch path IS the designed fail-closed/kept-held behavior; the user-visible outcome is identical. [EvidenceDetail.tsx:458]
+- `[false]` `formatUsdCents` imported from `./RunLog` violates "shared/* only" — intra-ops sibling import is the established reviewed pattern (OpsShell → RunLog, merged 3.7); the pipeline/cross-surface boundaries the constraint family guards are intact, and the Code Map designates RunLog as the helper’s source. [EvidenceDetail.tsx:26]
+- `[low]` Sole write path unenforced (`evidenceRepo.appendEvent` still exported; test seeds via raw INSERT) — all five pipeline writers go through the projector; ownership is documented in both files; test INSERTs are fixtures, not writers. Latent convention risk only; an encapsulation restructure exceeds a direct fix. [evidenceRepo.ts]
+- `[low]` No loading state while the first GET is in flight — chrome-on-first-paint was the prior pass’s accepted patch; the empty band lasts a sub-second same-origin fetch. [EvidenceDetail.tsx:485]
+- `[low]` Failed first GET offers no retry control — transient failure + manual reload is standard recovery; retry UI is new public surface for a rare path. [EvidenceDetail.tsx:489]
+- `[low]` 4s poll has no backoff/failure cap; a deleted mid-run Run would poll forever (blind-hunter + edge-case-hunter) — no Run-deletion path exists; outage-window polling from an open tab is the deliberate keep-last design. [EvidenceDetail.tsx:471]
+- `[low]` `isRunDetail` duplicates the origin/mode/status vocabulary — identical duplication shipped in reviewed 3.7 RunLog; the vocabularies are closed through 3.13; drift is never met in everyday use. [EvidenceDetail.tsx:36-47]
+- `[low]` a11y — `ul.steps` needs no explicit role (native list semantics); `<time datetime>` is semantic polish with no demonstrated AT harm. [EvidenceDetail.tsx:294-305]
+- `[low]` `noLogin` helper only greps two strings — the no-auth invariant is enforced architecturally (unguarded public route; API tests fetch without auth headers and get 200); the HTML check is belt-and-suspenders. [evidenceDetail.test.tsx:112]
+- `[reject]` Empty `Spec Change Log` heading — spec hygiene; the fix edits the spec under review.
+- `[reject]` Keep-held-on-poll-fail contradicts the matrix’s "Fail closed on fetch error" — the behavior is the prior pass’s deliberate, tested patch (see Review Triage Log); the matrix row’s wording is the stale side; fixing it means editing the spec under review.
+
 ## Spec Change Log
 
 ## Review Triage Log
@@ -131,6 +164,13 @@ deferred:
   - `[false]` `[reject]` GET does not re-scrub stored payloads — matrix row is append-then-GET, which the projector + publicApi tests pin; no secret-bearing rows exist on the write path
   - `[medium]` `[patch]` App `/runs/:id` branch untested — `shells.test.tsx` stubs `window.location.href` and asserts Evidence chrome, not OpsShell bands
   - `[medium]` `[patch]` Evidence I/O tests never ran the GET mapping — `mapEvidenceFetch` covers 404/non-OK/invalid/running-poll/held-on-fail
+
+### 2026-09-11 — Follow-up pass (post-patch, fresh 4-layer review of `94ceda5`)
+- verdicts: 34 findings — 13 survived (2 decision, 2 patch, 1 defer), 21 rejected (11 false, 8 low, 2 spec-edit)
+- decisions (Patrick): scrub matching → refine (segment keys, value-type guard, anchored credential regex; prose survives — accepted recall trade); poll-wiring harness → jsdom/testing-library (decides epic-2 retro item 6)
+- patches applied: scrub refine in `projector/evidence.ts` (+ spares/drops tests), `shouldPollView` poll gate in `EvidenceDetail.tsx`, multi-draft eval/flag `draftId` labels (+ render test), `evidenceDetail.mount.test.tsx` (5 effect-driving tests: initial GET, 4s poll, stop-on-complete, held-on-fail, unmount abort)
+- re-flagged, unchanged: hung first GET timeout (defer — Epic-2 family, spec frontmatter + epic-2 retro item 4)
+- verification: `npm test` — 559 passed; `npm run check` — exit 0
 
 ## Design Notes
 
