@@ -359,4 +359,36 @@ describe("EvidenceDetail (story 3.8)", () => {
     expect(html).not.toContain(NOT_LIVE_LABEL);
     expect(html).not.toContain("none — not approved");
   });
+
+  it("labels eval and disagreement blocks with their draft id on multi-draft runs", () => {
+    const html = renderToStaticMarkup(
+      <EvidenceDetail
+        runId="run-20260908-aaa1"
+        detail={detail({
+          drafts: [
+            draft({ id: "draft-1" }),
+            draft({
+              id: "draft-2",
+              body: "Proposed update for Ohio.",
+              evalSummary: {
+                status: "eval_fail",
+                basis: "Citation did not hold.",
+                citationCompleteness: 40,
+                disagreement: {
+                  flagged: true,
+                  description: "Drafter overstated the holding."
+                },
+                ineligible: []
+              }
+            })
+          ]
+        })}
+      />
+    );
+
+    expect(html).toContain('class="kicker">draft-1<');
+    expect(html).toContain('class="kicker">draft-2<');
+    expect(html).toContain("Disagreement flag · draft-2");
+    expect(html).toContain("Citation did not hold.");
+  });
 });

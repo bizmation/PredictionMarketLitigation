@@ -107,6 +107,10 @@ function isHeldDetail(view: View): view is RunDetail {
   return view !== null && typeof view === "object";
 }
 
+function shouldPollView(view: View): boolean {
+  return isHeldDetail(view) && view.status === "running";
+}
+
 /**
  * GET `/api/runs/:id` → page view. 404 is missing; any other non-OK or
  * invalid body is error. A held RunDetail survives a later failed poll.
@@ -128,7 +132,7 @@ export function mapEvidenceFetch(
 
   return {
     view,
-    shouldPoll: isHeldDetail(view) && view.status === "running"
+    shouldPoll: shouldPollView(view)
   };
 }
 
@@ -177,13 +181,14 @@ function firstDecidedBy(drafts: DraftRecord[]): string | null {
   return null;
 }
 
-function ranEvals(drafts: DraftRecord[]): EvalSummary[] {
-  return drafts
-    .map((draft) => draft.evalSummary)
-    .filter(
-      (summary): summary is EvalSummary =>
-        summary != null && summary.status !== "evals_not_run"
-    );
+function ranEvals(
+  drafts: DraftRecord[]
+): Array<{ draftId: string; summary: EvalSummary }> {
+  return drafts.flatMap((draft) =>
+    draft.evalSummary != null && draft.evalSummary.status !== "evals_not_run"
+      ? [{ draftId: draft.id, summary: draft.evalSummary }]
+      : []
+  );
 }
 
 function EvidenceChrome({
@@ -347,28 +352,36 @@ function EvidenceBody({ detail }: { detail: RunDetail }) {
             This run predates the eval suite, or the evaluator did not run.
           </EmptyState>
         ) : (
-          evals.map((summary, index) => (
-            <dl className="kv" key={`eval-${index}`}>
-              <dt>Status</dt>
-              <dd>{summary.status}</dd>
-              <dt>Basis</dt>
-              <dd>{summary.basis}</dd>
-              <dt>Citation completeness</dt>
-              <dd>
-                {summary.citationCompleteness == null ? (
-                  <span className="muted">—</span>
-                ) : (
-                  summary.citationCompleteness
-                )}
-              </dd>
-            </dl>
+          evals.map(({ draftId, summary }) => (
+            <div key={`eval-${draftId}`}>
+              {detail.drafts.length > 1 ? (
+                <div className="kicker">{draftId}</div>
+              ) : null}
+              <dl className="kv">
+                <dt>Status</dt>
+                <dd>{summary.status}</dd>
+                <dt>Basis</dt>
+                <dd>{summary.basis}</dd>
+                <dt>Citation completeness</dt>
+                <dd>
+                  {summary.citationCompleteness == null ? (
+                    <span className="muted">—</span>
+                  ) : (
+                    summary.citationCompleteness
+                  )}
+                </dd>
+              </dl>
+            </div>
           ))
         )}
 
         {detail.drafts.map((draft) =>
           draft.evalSummary?.disagreement.flagged ? (
             <div key={`flag-${draft.id}`}>
-              <div className="kicker">Disagreement flag</div>
+              <div className="kicker">
+                Disagreement flag
+                {detail.drafts.length > 1 ? ` · ${draft.id}` : ""}
+              </div>
               <EmptyState
                 title="Flagged"
                 hint="v1 records the flag and a summary. The full inter-agent explorer is phase-in."
@@ -469,7 +482,7 @@ export function EvidenceDetail({
 
     void load();
     const timer = window.setInterval(() => {
-      if (mapEvidenceFetch(200, viewRef.current, viewRef.current).shouldPoll) {
+      if (shouldPollView(viewRef.current)) {
         void load();
       }
     }, POLL_MS);
