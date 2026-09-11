@@ -1,4 +1,6 @@
 import type { Db } from "../../shared/db/client";
+import * as draftsRepo from "../../shared/db/repos/draftsRepo";
+import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
 import * as llmCallsRepo from "../../shared/db/repos/llmCallsRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import type { GatewayErrorCode } from "../../shared/schemas/gateway";
@@ -7,13 +9,18 @@ import {
   type GatewayRole
 } from "../../shared/schemas/vocabulary";
 import { defaultBudgetCents, resolveRoleModel } from "../config/modelRoles";
+import { evidenceId } from "../connectors/connector";
+import { GUARDRAIL_RULE_ID, isToolAllowed } from "./actionPolicy";
 
 /**
  * Story 3.2 — the single locked AI gateway.
  *
- * Agents call `gateway.complete({ role, ... })` ONLY (architecture #Service
- * Boundaries: `pipeline/ai/gateway.ts` is "only module that calls LLMs").
- * No ad-hoc provider SDKs or hardcoded model ids live outside this directory.
+ * Agents call `gateway.complete({ role, ... })` ONLY for LLM completions
+ * (architecture #Service Boundaries: `pipeline/ai/gateway.ts` is "only
+ * module that calls LLMs"). Tool requests go through `invokeTool` in this
+ * same module — never through `complete()`, and never by importing F1 write
+ * repos. No ad-hoc provider SDKs or hardcoded model ids live outside this
+ * directory.
  *
  * The flow, in order (mirrors the I/O matrix):
  *   1. validate the role vocabulary (`unknown_role`)
@@ -76,6 +83,21 @@ export interface GatewayResult {
   outputTokens: number | null;
   costCents: number;
   currency: string;
+}
+
+export interface InvokeToolInput {
+  role: GatewayRole;
+  runId: string;
+  draftId: string;
+  tool: string;
+  /** Batched in the same deny write (INSERT OR IGNORE on the event). */
+  extraStatements?: D1PreparedStatement[];
+}
+
+export interface InvokeToolResult {
+  denied: true;
+  ruleId: typeof GUARDRAIL_RULE_ID;
+  tool: string;
 }
 
 const CURRENCY = "USD";
@@ -213,6 +235,57 @@ export async function complete(
     costCents: completion.costCents,
     currency: CURRENCY
   };
+}
+
+/**
+ * Story 3.6 — the only tool front door. Consults the frozen empty per-role
+ * allowlist and writes `guardrails.failed`. Never executes a tool body
+ * (`publish_f1` included). Deny is a result, not `provider_error`.
+ */
+export async function invokeTool(
+  deps: GatewayDeps,
+  input: InvokeToolInput
+): Promise<InvokeToolResult> {
+  const { db } = deps;
+  const now = deps.now ?? (() => new Date().toISOString());
+  const { role, runId, draftId, tool } = input;
+
+  const run = await runsRepo.getRunById(db, runId);
+  if (!run) {
+    throw new GatewayError("run_not_found", `Run ${runId} not found.`);
+  }
+
+  // Allowlists are frozen empty. Consult them; never execute a tool body.
+  if (!isToolAllowed(role, tool)) {
+    const createdAt = now();
+    const payload = {
+      draftId,
+      ruleId: GUARDRAIL_RULE_ID,
+      tool
+    };
+    const statements: D1PreparedStatement[] = [
+      evidenceRepo.appendEventStmt(db, {
+        id: evidenceId(runId, "guardrails.failed", draftId),
+        runId,
+        event: "guardrails.failed",
+        payload,
+        createdAt
+      })
+    ];
+    const draft = await draftsRepo.getById(db, draftId);
+    if (draft?.evalSummary != null) {
+      statements.push(
+        await draftsRepo.applyGuardrailIneligibleStmt(db, {
+          id: draftId,
+          updatedAt: createdAt
+        })
+      );
+    }
+    statements.push(...(input.extraStatements ?? []));
+    await db.batch(statements);
+  }
+
+  return { denied: true, ruleId: GUARDRAIL_RULE_ID, tool };
 }
 
 /**

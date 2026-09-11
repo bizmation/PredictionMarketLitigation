@@ -2,7 +2,12 @@ import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
 import * as runsRepo from "../../shared/db/repos/runsRepo";
-import { complete, createWorkersAiProvider, type LlmProvider } from "./gateway";
+import {
+  complete,
+  createWorkersAiProvider,
+  invokeTool,
+  type LlmProvider
+} from "./gateway";
 
 /**
  * Story 3.2 — AI gateway I/O matrix (the spec's edge-case table), run against
@@ -469,6 +474,120 @@ describe("createWorkersAiProvider adapter (story 3.2)", () => {
       ).rejects.toThrow("non-text model output");
     }
   );
+});
+
+describe("gateway.invokeTool (story 3.6)", () => {
+  async function f1Snapshot() {
+    async function rows(table: string) {
+      const { results } = await testEnv.DB.prepare(
+        `SELECT id, updated_at AS updatedAt FROM ${table} ORDER BY id`
+      ).all<{ id: string; updatedAt: string }>();
+      return results ?? [];
+    }
+    return {
+      states: await rows("states"),
+      cases: await rows("cases"),
+      entities: await rows("entities"),
+      circuits: await rows("circuits")
+    };
+  }
+
+  it("denies publish_f1, logs guardrails.failed, and does not throw", async () => {
+    await insertRun();
+    const provider = fakeProvider();
+    const draftId = `d:${RUN_ID}:CFTC press:states:st-nv`;
+    const result = await invokeTool(deps(provider), {
+      role: "drafter",
+      runId: RUN_ID,
+      draftId,
+      tool: "publish_f1"
+    });
+    expect(result).toEqual({
+      denied: true,
+      ruleId: "tool.allowlist",
+      tool: "publish_f1"
+    });
+    expect(provider.count()).toBe(0);
+
+    const evidence = await testEnv.DB.prepare(
+      `SELECT event, payload_json FROM evidence_events
+        WHERE run_id = ? AND event = 'guardrails.failed'`
+    )
+      .bind(RUN_ID)
+      .first<{ event: string; payload_json: string }>();
+    expect(evidence?.event).toBe("guardrails.failed");
+    expect(JSON.parse(evidence!.payload_json)).toEqual({
+      draftId,
+      ruleId: "tool.allowlist",
+      tool: "publish_f1"
+    });
+  });
+
+  it("denies web_search the same way and is not a provider_error", async () => {
+    await insertRun();
+    const provider = fakeProvider();
+    const result = await invokeTool(deps(provider), {
+      role: "reviewer",
+      runId: RUN_ID,
+      draftId: `d:${RUN_ID}:web`,
+      tool: "web_search"
+    });
+    expect(result.denied).toBe(true);
+    expect(result.tool).toBe("web_search");
+    expect(provider.count()).toBe(0);
+  });
+
+  it("throws run_not_found when the Run is missing and writes no evidence", async () => {
+    const missingId = "run-20260908-eeee";
+    const provider = fakeProvider();
+    await expect(
+      invokeTool(deps(provider), {
+        role: "drafter",
+        runId: missingId,
+        draftId: "d:missing",
+        tool: "publish_f1"
+      })
+    ).rejects.toMatchObject({ code: "run_not_found" });
+    expect(provider.count()).toBe(0);
+    const evidence = await testEnv.DB.prepare(
+      "SELECT COUNT(*) AS count FROM evidence_events WHERE run_id = ?"
+    )
+      .bind(missingId)
+      .first<{ count: number }>();
+    expect(evidence?.count).toBe(0);
+  });
+
+  it("does not UPDATE live F1 rows when publish_f1 is requested", async () => {
+    await insertRun();
+    const before = await f1Snapshot();
+    await invokeTool(deps(fakeProvider()), {
+      role: "yolo",
+      runId: RUN_ID,
+      draftId: `d:${RUN_ID}:publish`,
+      tool: "publish_f1"
+    });
+    expect(await f1Snapshot()).toEqual(before);
+  });
+
+  it("does not duplicate guardrails.failed on retry", async () => {
+    await insertRun();
+    const draftId = `d:${RUN_ID}:retry`;
+    const input = {
+      role: "drafter" as const,
+      runId: RUN_ID,
+      draftId,
+      tool: "publish_f1"
+    };
+    await invokeTool(deps(fakeProvider()), input);
+    await invokeTool(deps(fakeProvider()), input);
+    const count = await testEnv.DB.prepare(
+      `SELECT COUNT(*) AS count FROM evidence_events
+        WHERE run_id = ? AND event = 'guardrails.failed'`
+    )
+      .bind(RUN_ID)
+      .first<{ count: number }>();
+    expect(count?.count).toBe(1);
+  });
 });
 
 describe("role→model config repo (story 3.2 config)", () => {

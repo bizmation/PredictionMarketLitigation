@@ -9,6 +9,7 @@ import type { GatewayDeps, LlmProvider } from "../ai/gateway";
 import { completeDailyStep } from "../workflow/dailyRunSteps";
 import {
   AUTO_APPROVE_CONFIDENCE_THRESHOLD,
+  buildScopedPrompt,
   draftAndReview
 } from "./draftAndReview";
 
@@ -68,17 +69,24 @@ function fakeProvider(
     fail?: boolean;
     costCents?: number;
   }> = []
-): LlmProvider & { count: () => number; roles: () => string[] } {
+): LlmProvider & {
+  count: () => number;
+  roles: () => string[];
+  prompts: () => string[];
+} {
   let calls = 0;
   const roles: string[] = [];
+  const prompts: string[] = [];
   return {
     name: "fake",
     count: () => calls,
     roles: () => roles,
-    complete: async ({ model }) => {
+    prompts: () => prompts,
+    complete: async ({ model, prompt }) => {
       const step = script[calls];
       calls += 1;
       roles.push(model);
+      prompts.push(prompt);
       if (step?.fail) throw new Error("boom");
       return {
         text: step?.text ?? `unscripted reply from ${model}`,
@@ -612,5 +620,127 @@ describe("draftAndReview (story 3.5)", () => {
     expect(evalOf(drafts.find((d) => d.id === restId)!).status).toBe(
       "evals_not_run"
     );
+  });
+
+  it("omits private Draft fields from the scoped prompt builder", () => {
+    const prompt = buildScopedPrompt("drafter", {
+      targetEntityType: "states",
+      targetEntityId: "st-nv",
+      body: SHELL_BODY,
+      diff: SHELL_DIFF,
+      tier2Only: false,
+      decidedBy: "operator@secret.example",
+      editedBody: "career notes must not leak",
+      evalSummary: { status: "ok" }
+    } as Parameters<typeof buildScopedPrompt>[1] & {
+      decidedBy: string;
+      editedBody: string;
+      evalSummary: { status: string };
+    });
+    expect(prompt).toContain(SHELL_BODY);
+    expect(prompt).not.toContain("operator@secret.example");
+    expect(prompt).not.toContain("career notes must not leak");
+    expect(prompt).not.toContain('"status":"ok"');
+  });
+
+  it("short-circuits remaining LLM when the drafter returns tool JSON", async () => {
+    const runId = await insertRun();
+    const failId = await insertShellDraft(runId, { id: `d:${runId}:01` });
+    const okId = await insertShellDraft(runId, { id: `d:${runId}:02` });
+    await seedConfig(DRAFTER_REVIEWER_ROLES);
+    const provider = fakeProvider([
+      { text: '{"tool":"publish_f1"}' },
+      { text: drafterJson() },
+      { text: reviewJson() }
+    ]);
+
+    await draftAndReview(testEnv.DB, runId, deps(provider));
+    expect(provider.count()).toBe(3);
+
+    const drafts = await draftsRepo.listByRun(testEnv.DB, runId);
+    const failed = drafts.find((d) => d.id === failId)!;
+    expect(evalOf(failed).status).toBe("evals_not_run");
+    expect(evalOf(failed).ineligible).toContain("guardrail_fail");
+    expect(evalOf(drafts.find((d) => d.id === okId)!).status).toBe("ok");
+
+    const evidence = await evidenceRepo.listByRun(testEnv.DB, runId);
+    const denied = evidence.filter((e) => e.event === "guardrails.failed");
+    expect(denied).toHaveLength(1);
+    expect(denied[0]?.payload).toEqual({
+      draftId: failId,
+      ruleId: "tool.allowlist",
+      tool: "publish_f1"
+    });
+
+    await finalizeIfRunning(runId, { draftCount: 2, anyFailure: false });
+    expect((await runsRepo.getRunById(testEnv.DB, runId))?.status).toBe(
+      "awaiting"
+    );
+  });
+
+  it("short-circuits when the reviewer returns tool JSON and keeps drafter body", async () => {
+    const runId = await insertRun();
+    await insertShellDraft(runId);
+    await seedConfig(DRAFTER_REVIEWER_ROLES);
+    const provider = fakeProvider([
+      { text: drafterJson() },
+      { text: '{"tool":"web_search"}' }
+    ]);
+
+    await draftAndReview(testEnv.DB, runId, deps(provider));
+    expect(provider.count()).toBe(2);
+    const draft = (await draftsRepo.listByRun(testEnv.DB, runId))[0]!;
+    expect(draft.body).toBe(DRAFTER_BODY);
+    expect(evalOf(draft).ineligible).toContain("guardrail_fail");
+    expect(evalOf(draft).status).toBe("evals_not_run");
+  });
+
+  it("treats tool JSON with extra keys as a tool request, not a drafter overwrite", async () => {
+    const runId = await insertRun();
+    await insertShellDraft(runId);
+    await seedConfig(DRAFTER_REVIEWER_ROLES);
+    const provider = fakeProvider([
+      {
+        text: JSON.stringify({
+          tool: "publish_f1",
+          body: "should not land",
+          diff: { operationalStatus: { from: "go", to: "restricted" } }
+        })
+      }
+    ]);
+
+    await draftAndReview(testEnv.DB, runId, deps(provider));
+    expect(provider.count()).toBe(1);
+    const draft = (await draftsRepo.listByRun(testEnv.DB, runId))[0]!;
+    expect(draft.body).toBe(SHELL_BODY);
+    expect(evalOf(draft).ineligible).toContain("guardrail_fail");
+  });
+
+  it("does not put decidedBy or editedBody into the gateway prompt", async () => {
+    const runId = await insertRun();
+    const draftId = await insertShellDraft(runId);
+    await testEnv.DB.prepare(
+      `UPDATE drafts
+          SET outcome = 'approved', decided_at = ?, decided_by = ?, edited_body = ?
+        WHERE id = ?`
+    )
+      .bind(
+        NOW,
+        "operator@secret.example",
+        "career notes must not leak",
+        draftId
+      )
+      .run();
+    await seedConfig(DRAFTER_REVIEWER_ROLES);
+    const provider = fakeProvider([
+      { text: drafterJson() },
+      { text: reviewJson() }
+    ]);
+
+    await draftAndReview(testEnv.DB, runId, deps(provider));
+    const joined = provider.prompts().join("\n");
+    expect(joined).toContain(SHELL_BODY);
+    expect(joined).not.toContain("operator@secret.example");
+    expect(joined).not.toContain("career notes must not leak");
   });
 });

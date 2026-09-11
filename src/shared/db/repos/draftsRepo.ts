@@ -193,6 +193,51 @@ export async function applyDraftReviewStmt(
     );
 }
 
+const GuardrailIneligiblePatchSchema = z
+  .object({
+    id: z.string().min(1),
+    updatedAt: IsoUtcSchema
+  })
+  .strict();
+
+/**
+ * Statement form so story 3.6 can `db.batch` this UPDATE with
+ * `guardrails.failed`. ORs `guardrail_fail` into existing ineligible
+ * without clobbering the 3.5 eval payload. Validate-before-write.
+ * If the reason is already present, returns a no-op statement.
+ */
+export async function applyGuardrailIneligibleStmt(
+  db: Db,
+  input: { id: string; updatedAt: string }
+): Promise<D1PreparedStatement> {
+  const patch = GuardrailIneligiblePatchSchema.parse(input);
+  const existing = await getById(db, patch.id);
+  if (!existing) {
+    throw new Error(`Draft ${patch.id} not found.`);
+  }
+  if (existing.evalSummary == null) {
+    throw new Error(`Draft ${patch.id} has no evalSummary to stamp.`);
+  }
+  if (existing.evalSummary.ineligible.includes("guardrail_fail")) {
+    return db.prepare("SELECT 1 WHERE 0");
+  }
+  const record = DraftRecordSchema.parse({
+    ...existing,
+    evalSummary: {
+      ...existing.evalSummary,
+      ineligible: [...existing.evalSummary.ineligible, "guardrail_fail"]
+    },
+    updatedAt: patch.updatedAt
+  });
+  return db
+    .prepare(
+      `UPDATE drafts
+          SET eval_summary_json = ?, updated_at = ?
+        WHERE id = ?`
+    )
+    .bind(JSON.stringify(record.evalSummary), record.updatedAt, record.id);
+}
+
 /**
  * Story 3.5 — persist the drafter overwrite + reviewer eval in one UPDATE.
  * Validate-before-write: merge onto the existing row and parse the full

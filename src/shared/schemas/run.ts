@@ -83,14 +83,16 @@ const DraftOutcomeSchema = z.enum(DRAFT_OUTCOME_VALUES);
 
 /**
  * FR17 ineligibility reasons persisted on a Draft for later auto-approve
- * policy (3.13). Closed set — 3.5 records the inputs; it does not enforce
- * the gate.
+ * policy (3.13). Closed set — 3.5 records the inputs; 3.6 adds
+ * `guardrail_fail` so a hard fail is never agent-auto-approvable. This
+ * story does not enforce the gate.
  */
 export const INELIGIBLE_REASON_VALUES = [
   "tier2_only",
   "below_threshold",
   "eval_fail",
-  "evals_not_run"
+  "evals_not_run",
+  "guardrail_fail"
 ] as const;
 
 export const IneligibleReasonSchema = z.enum(INELIGIBLE_REASON_VALUES);
