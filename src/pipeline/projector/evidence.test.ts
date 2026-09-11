@@ -63,7 +63,7 @@ describe("evidence projector (story 3.8)", () => {
     expect(stored?.payload_json).not.toContain("apiKey");
   });
 
-  it("strips compound secret keys and embedded credential-shaped values", async () => {
+  it("strips compound secret keys and whole-value credentials; spares prose", async () => {
     const runId = await seedRun();
     await append(testEnv.DB, {
       id: `e:${runId}:compound`,
@@ -88,11 +88,42 @@ describe("evidence projector (story 3.8)", () => {
       source: "cl",
       tool: "publish_f1",
       reason: "error",
-      draftId: "d-1"
+      draftId: "d-1",
+      note: "prefix Bearer sk-live-abcdefghijklmnopqrstuv suffix"
     });
     expect(JSON.stringify(rows[0]!.payload)).not.toMatch(
-      /openaiApiKey|api_token|x-api-key|aws_secret_access_key|Bearer|sk-live/i
+      /openaiApiKey|api_token|x-api-key|aws_secret_access_key/i
     );
+  });
+
+  it("spares litigation-shaped keys, non-string values, and prose", async () => {
+    const runId = await seedRun();
+    await append(testEnv.DB, {
+      id: `e:${runId}:spared`,
+      runId,
+      event: "source.fetched",
+      payload: {
+        author: "Court staff attorney",
+        authorName: "J. Smith",
+        authenticationStatus: "verified",
+        tokenCount: 42,
+        apiKeyId: 99,
+        citation: "Drafter quoted Bearer abc123 in the ruling",
+        keep: "ok"
+      },
+      createdAt: NOW
+    });
+
+    const rows = await evidenceRepo.listByRun(testEnv.DB, runId);
+    expect(rows[0]!.payload).toEqual({
+      author: "Court staff attorney",
+      authorName: "J. Smith",
+      authenticationStatus: "verified",
+      tokenCount: 42,
+      apiKeyId: 99,
+      citation: "Drafter quoted Bearer abc123 in the ruling",
+      keep: "ok"
+    });
   });
 
   it("strips credential-shaped values nested under ordinary keys", async () => {

@@ -8,6 +8,14 @@ import type { EvidenceEventType } from "../../shared/schemas/vocabulary";
  * `append` / `appendStmt`; this module scrubs secret-bearing keys and
  * credential-shaped values, then binds via `evidenceRepo`. Vendor logs never
  * land in D1. The public GET returns whatever survived this write.
+ *
+ * Review pass 2 (2026-09-11) refined the matching, by decision: a secret token
+ * must be the whole key or one of its word segments ("openaiApiKey" and
+ * "api_token" are dropped; "author" and "authenticationStatus" survive), the
+ * credential regex matches whole values only (incidental "Bearer …" prose
+ * survives — an accepted recall trade), and a key match never drops a value
+ * that cannot hold a secret (numbers, booleans, null — "tokenCount: 42"
+ * stays).
  */
 
 export type EvidenceAppendInput = {
@@ -43,19 +51,43 @@ const SECRET_KEYS = new Set([
 ]);
 
 const CREDENTIAL_VALUE =
-  /(sk-[A-Za-z0-9_-]{8,}|AKIA[0-9A-Z]{16}|Bearer\s+\S+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/i;
+  /^(sk-[A-Za-z0-9_-]{8,}|AKIA[0-9A-Z]{16}|Bearer\s+\S+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/i;
 
 function normalizeKey(key: string): string {
   return key.replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
 }
 
+/** Word segments of a key: splits on non-alphanumerics and camelCase humps. */
+function keySegments(key: string): string[] {
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .split(/[^a-zA-Z0-9]+/)
+    .filter((part) => part.length > 0)
+    .map((part) => part.toLowerCase());
+}
+
+/**
+ * True when a secret token is the whole key or appears as one of its word
+ * segments (single or joined): "openaiApiKey" → api+key → "apikey".
+ */
 function isSecretKey(key: string): boolean {
-  const normalized = normalizeKey(key);
-  if (SECRET_KEYS.has(normalized)) return true;
-  for (const token of SECRET_KEYS) {
-    if (normalized.includes(token)) return true;
+  if (SECRET_KEYS.has(normalizeKey(key))) return true;
+  const segments = keySegments(key);
+  for (let start = 0; start < segments.length; start += 1) {
+    let joined = "";
+    for (let end = start; end < segments.length && end - start < 3; end += 1) {
+      joined += segments[end]!;
+      if (SECRET_KEYS.has(joined)) return true;
+    }
   }
   return false;
+}
+
+/** A key match alone never drops a value that cannot hold a secret. */
+function canHoldSecret(value: unknown): boolean {
+  return (
+    value != null && (typeof value === "string" || typeof value === "object")
+  );
 }
 
 function isCredentialValue(value: string): boolean {
@@ -75,7 +107,7 @@ function scrubValue(value: unknown): unknown {
     for (const [key, nested] of Object.entries(
       value as Record<string, unknown>
     )) {
-      if (isSecretKey(key)) continue;
+      if (isSecretKey(key) && canHoldSecret(nested)) continue;
       const scrubbed = scrubValue(nested);
       if (scrubbed === undefined) continue;
       out[key] = scrubbed;
@@ -85,7 +117,10 @@ function scrubValue(value: unknown): unknown {
   return value;
 }
 
-/** Drop secret-bearing keys and credential-shaped values. Null stays null. */
+/**
+ * Drop secret-bearing keys and whole-value credentials. Null stays null;
+ * prose and non-string values survive.
+ */
 export function scrubPayload(payload: unknown): unknown {
   if (payload == null) return payload;
   const scrubbed = scrubValue(payload);
