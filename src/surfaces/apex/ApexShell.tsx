@@ -225,12 +225,12 @@ export function ApexShell({ dev = false }: ApexShellProps) {
         >
           <div className="opslink">
             <p>
-              The run log, full evidence for every run, the pending drafts in
-              full text, the current approval mode and its audit trail, and the
-              nine-layer governance explainer will all live on{" "}
-              <a href={opsHref}>ops.</a> — no login. The daily pipeline is not
-              live yet; when it is, every run and draft will be published there,
-              labelled not live.
+              The run log is on <a href={opsHref}>ops.</a> — no login. Full
+              evidence for every run, pending drafts in full text, the current
+              approval mode and its audit trail, and the nine-layer governance
+              explainer will live there too. The daily pipeline is not live yet;
+              when it is, every run and draft will be published there, labelled
+              not live.
             </p>
             <a className="btn btn-primary" href={opsHref}>
               Open ops. ↗

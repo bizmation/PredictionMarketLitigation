@@ -1,4 +1,10 @@
+import { useEffect, useState } from "react";
+
+import { formatEtDateTime } from "../../shared/lib/dates";
+import { nextRunAtUtc } from "../../shared/lib/schedule";
 import { surfaceHref } from "../../shared/lib/surface";
+import type { RunLogItem } from "../../shared/schemas/run";
+import { RUN_SCHEDULE_TIMEZONE } from "../../shared/schemas/vocabulary";
 import {
   EmptyState,
   SectionBand,
@@ -8,6 +14,7 @@ import {
   WarnChip,
   type TopBarLink
 } from "../../shared/ui";
+import { RunLog } from "./RunLog";
 
 /**
  * ops. — the public governance record. No login, ever.
@@ -27,10 +34,55 @@ const REPO_URL = "https://github.com/bizmation/PredictionMarketLitigation";
 type OpsShellProps = {
   /** True in local development — routes cross-surface links via ?surface=. */
   dev?: boolean;
+  /** Injected run-log rows for tests. Omit in production — RunLog fetches. */
+  items?: RunLogItem[];
 };
 
-export function OpsShell({ dev = false }: OpsShellProps) {
+type Schedule = {
+  timezone: string;
+  nextRunAt: string;
+};
+
+function isSchedule(value: unknown): value is Schedule {
+  if (value === null || typeof value !== "object") return false;
+  const row = value as Record<string, unknown>;
+  return (
+    row.timezone === RUN_SCHEDULE_TIMEZONE &&
+    typeof row.nextRunAt === "string" &&
+    row.nextRunAt.length > 0
+  );
+}
+
+function useSchedule(): Schedule {
+  const [schedule, setSchedule] = useState<Schedule>({
+    timezone: RUN_SCHEDULE_TIMEZONE,
+    nextRunAt: nextRunAtUtc()
+  });
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/schedule", {
+      signal: controller.signal,
+      headers: { accept: "application/json" }
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body: unknown) => {
+        if (controller.signal.aborted) return;
+        if (isSchedule(body)) setSchedule(body);
+      })
+      .catch(() => {
+        // Keep the local nextRunAtUtc() computation. Schedule is deterministic.
+      });
+
+    return () => controller.abort();
+  }, []);
+
+  return schedule;
+}
+
+export function OpsShell({ dev = false, items }: OpsShellProps) {
   const apexHref = surfaceHref("apex", { dev });
+  const schedule = useSchedule();
 
   const links: TopBarLink[] = [
     { href: "#runs", label: "Run log" },
@@ -56,7 +108,7 @@ export function OpsShell({ dev = false }: OpsShellProps) {
       <TrustBar
         warn={<WarnChip>Nothing here is live tracker content</WarnChip>}
         message="Runs and drafts are AI-produced and gate-controlled. Corrections welcome."
-        meta="Next run — not yet scheduled"
+        meta={`${schedule.timezone} · Next run ${formatEtDateTime(schedule.nextRunAt)}`}
         provenance={
           // Handoff PML Ops.html:115 — a bare mode indicator, not an
           // approval claim, so this deliberately bypasses ProvenanceLabel's
@@ -75,14 +127,7 @@ export function OpsShell({ dev = false }: OpsShellProps) {
           title="Run log"
           why="Every run the pipeline has taken — including the ones that changed nothing."
         >
-          <EmptyState
-            title="No runs yet"
-            hint="Empty runs will be kept in this log deliberately. — Story 3.7"
-          >
-            The daily run has not been built yet. When it is, published,
-            awaiting, empty, failed, budget-stopped and rejected runs all appear
-            here, each linking to its evidence.
-          </EmptyState>
+          <RunLog dev={dev} items={items} />
         </SectionBand>
 
         <SectionBand

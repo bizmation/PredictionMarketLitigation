@@ -4,15 +4,17 @@ import { describe, expect, it } from "vitest";
 import worker from "../../server";
 import { US_ATLAS_STATE_NAMES } from "../../surfaces/apex/circuits/atlasStateNames";
 import * as runsRepo from "../db/repos/runsRepo";
+import { nextRunAtUtc } from "../lib/schedule";
 import {
   DRAFT_OUTCOME_VALUES,
   RunDetailSchema,
-  RunSummarySchema
+  RunLogItemSchema
 } from "../schemas/run";
 import {
   EVIDENCE_EVENT_VALUES,
   RUN_MODE_VALUES,
   RUN_ORIGIN_VALUES,
+  RUN_SCHEDULE_TIMEZONE,
   RUN_STATUS_VALUES
 } from "../schemas/vocabulary";
 
@@ -885,10 +887,12 @@ describe("run records (story 3.1)", () => {
 
     const serialized = JSON.stringify(body);
     expect(serialized).not.toMatch(
-      /started_at|completed_at|spend_cents|spend_currency|budget_cents|scheduled_for|run_id|target_entity|tier2_only|decided_at|decided_by|edited_body|payload_json|created_at|updated_at/
+      /started_at|completed_at|spend_cents|spend_currency|budget_cents|scheduled_for|run_id|target_entity|tier2_only|decided_at|decided_by|edited_body|payload_json|created_at|updated_at|event_count|approval_outcome/
     );
     for (const item of body.items) {
-      expect(() => RunSummarySchema.parse(item)).not.toThrow();
+      const parsed = RunLogItemSchema.parse(item);
+      expect(parsed.eventCount).toBe(0);
+      expect(parsed.approvalOutcome).toBeNull();
     }
   });
 
@@ -1159,5 +1163,79 @@ describe("run records (story 3.1)", () => {
         .bind(TS_A)
         .run()
     ).rejects.toThrow();
+  });
+
+  it("lists eventCount from evidence and approvalOutcome from a draft", async () => {
+    await runsRepo.insertRun(
+      testEnv.DB,
+      runInput({
+        id: "run-20260909-abcd",
+        startedAt: "2026-09-09T16:00:00.000Z",
+        completedAt: "2026-09-09T16:05:00.000Z",
+        spendCents: 0,
+        scheduledFor: "2026-09-09"
+      })
+    );
+    await testEnv.DB.batch([
+      testEnv.DB.prepare(
+        `INSERT INTO evidence_events (id, run_id, seq, event, payload_json, created_at)
+         VALUES ('ev-log-0', 'run-20260909-abcd', 0, 'run.started', NULL,
+                 '2026-09-09T16:00:00.000Z'),
+                ('ev-log-1', 'run-20260909-abcd', 1, 'source.fetched', NULL,
+                 '2026-09-09T16:01:00.000Z'),
+                ('ev-log-2', 'run-20260909-abcd', 2, 'run.completed', NULL,
+                 '2026-09-09T16:05:00.000Z')`
+      ),
+      testEnv.DB.prepare(
+        `INSERT INTO drafts (id, run_id, target_entity_type, target_entity_id,
+            diff_json, body, tier2_only, confidence, eval_summary_json,
+            outcome, decided_at, decided_by, edited_body, created_at, updated_at)
+         VALUES ('draft-log', 'run-20260909-abcd', 'states', 'st-nv',
+            '{}', 'Proposed update.', 0, 80, NULL,
+            'approved', '2026-09-09T16:10:00.000Z', 'Patrick', NULL,
+            '2026-09-09T16:05:00.000Z', '2026-09-09T16:10:00.000Z')`
+      )
+    ]);
+
+    const res = await worker.fetch!(get("/api/runs"), testEnv);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { items: unknown[] };
+    const parsed = body.items.map((item) => RunLogItemSchema.parse(item));
+    const row = parsed.find((item) => item.id === "run-20260909-abcd");
+    expect(row).toMatchObject({
+      eventCount: 3,
+      approvalOutcome: "approved",
+      spendCents: 0
+    });
+  });
+});
+
+/**
+ * Story 3.7 — public schedule singleton. Same function the cron uses;
+ * not a D1 column, not a list envelope.
+ */
+describe("public schedule (story 3.7)", () => {
+  it("returns timezone and nextRunAt matching nextRunAtUtc", async () => {
+    const before = nextRunAtUtc();
+    const res = await worker.fetch!(get("/api/schedule"), testEnv);
+    const after = nextRunAtUtc();
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toContain("no-store");
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.timezone).toBe(RUN_SCHEDULE_TIMEZONE);
+    expect(typeof body.nextRunAt).toBe("string");
+    expect(body.nextRunAt).toMatch(/\.000Z$/);
+    expect([before, after]).toContain(body.nextRunAt);
+    expect(body).not.toHaveProperty("items");
+    expect(Object.keys(body).sort()).toEqual(["nextRunAt", "timezone"]);
+  });
+
+  it("rejects POST /api/schedule with 405 and allow GET, HEAD", async () => {
+    const res = await worker.fetch!(
+      new Request("https://pml.example.com/api/schedule", { method: "POST" }),
+      testEnv
+    );
+    expect(res.status).toBe(405);
+    expect(res.headers.get("allow")).toBe("GET, HEAD");
   });
 });

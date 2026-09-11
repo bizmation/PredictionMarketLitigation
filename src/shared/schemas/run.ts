@@ -82,6 +82,22 @@ export const DRAFT_OUTCOME_VALUES = ["approved", "edited", "rejected"] as const;
 const DraftOutcomeSchema = z.enum(DRAFT_OUTCOME_VALUES);
 
 /**
+ * One row in the public run log (Story 3.7). `eventCount` is Evidence rows
+ * for this Run (not a fake n-of-m step total). `approvalOutcome` is a Draft
+ * `outcome` when 3.10 has written one; null is the designed "—" empty.
+ * Insert and Run detail keep `RunSummarySchema`.
+ */
+export const RunLogItemSchema = z
+  .object({
+    ...RunSummarySchema.shape,
+    eventCount: z.number().int().nonnegative(),
+    approvalOutcome: DraftOutcomeSchema.nullable()
+  })
+  .strict();
+
+export type RunLogItem = z.infer<typeof RunLogItemSchema>;
+
+/**
  * FR17 ineligibility reasons persisted on a Draft for later auto-approve
  * policy (3.13). Closed set — 3.5 records the inputs; 3.6 adds
  * `guardrail_fail` so a hard fail is never agent-auto-approvable. This

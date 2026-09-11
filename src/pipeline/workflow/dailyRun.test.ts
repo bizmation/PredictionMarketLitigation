@@ -47,6 +47,11 @@ describe("schedule (story 3.3)", () => {
     expect(nextRunAtUtc(justBeforeNoon)).toBe("2026-01-15T17:00:00.000Z");
   });
 
+  it("drops leftover milliseconds so the public next-run instant is exact noon", () => {
+    const withMs = new Date("2026-01-15T16:59:30.769Z");
+    expect(nextRunAtUtc(withMs)).toBe("2026-01-15T17:00:00.000Z");
+  });
+
   it("the ET-hour guard fires only at noon ET, including both cron twins", () => {
     expect(isRunTime(new Date("2026-01-15T17:00:00.000Z"))).toBe(true); // noon EST
     expect(isRunTime(new Date("2026-01-15T16:00:00.000Z"))).toBe(false); // 11:00 EST twin
