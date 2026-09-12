@@ -413,7 +413,7 @@ function EvidenceBody({ detail }: { detail: RunDetail }) {
                       </p>
                     </div>
                     <div className="col">
-                      <h4>Edited</h4>
+                      <h4>Published</h4>
                       <p>
                         <ins>{draft.editedBody}</ins>
                       </p>

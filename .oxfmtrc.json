@@ -7,6 +7,7 @@
     "_bmad-output/**",
     ".claude/**",
     ".agents/**",
+    ".omo/**",
     "docs/**",
     "env.d.ts",
     "public/geo/states-10m.json"
