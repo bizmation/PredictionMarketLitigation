@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
+import type { DraftRecord } from "../shared/schemas/run";
 import App from "../app";
 import { AdminShell } from "./admin/AdminShell";
 import { ApexShell } from "./apex/ApexShell";
@@ -133,13 +134,40 @@ describe("OpsShell", () => {
     }
   });
 
-  it("wraps still-unwired bands in EmptyState", () => {
+  it("keeps only the still-unwired bands in EmptyState", () => {
     const html = ops();
     expect(html).toContain('class="empty"');
-    expect(html).toContain("No drafts awaiting approval");
+    expect(html).not.toContain("No drafts awaiting approval"); // 3.9 wired this band
     expect(html).toContain("Mode transparency not yet wired");
     expect(html).toContain("Explainer not yet built");
     expect(html).toContain("No posts yet");
+  });
+
+  it("renders injected draft cards inside the #drafts band", () => {
+    const draftFixture: DraftRecord = {
+      id: "draft-nv-1",
+      runId: "run-20260908-aaa1",
+      targetEntityType: "states",
+      targetEntityId: "st-nv",
+      diff: { posture: { from: "untracked", to: "pending" } },
+      body: "Injected draft card body.",
+      tier2Only: false,
+      confidence: null,
+      evalSummary: null,
+      outcome: null,
+      decidedAt: null,
+      decidedBy: null,
+      editedBody: null,
+      createdAt: "2026-09-08T16:05:00.000Z",
+      updatedAt: "2026-09-08T16:05:00.000Z"
+    };
+    const html = renderToStaticMarkup(<OpsShell drafts={[draftFixture]} />);
+    const band = html.match(
+      /<section class="band" id="drafts"[\s\S]*?<\/section>/
+    )?.[0];
+    expect(band).toBeDefined();
+    expect(band).toContain('class="draftbody"');
+    expect(band).toContain("Injected draft card body.");
   });
 
   it("links back to apex", () => {

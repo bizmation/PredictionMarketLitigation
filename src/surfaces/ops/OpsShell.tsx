@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { formatEtDateTime } from "../../shared/lib/dates";
 import { nextRunAtUtc } from "../../shared/lib/schedule";
 import { surfaceHref } from "../../shared/lib/surface";
-import type { RunLogItem } from "../../shared/schemas/run";
+import type { DraftRecord, RunLogItem } from "../../shared/schemas/run";
 import { RUN_SCHEDULE_TIMEZONE } from "../../shared/schemas/vocabulary";
 import {
   EmptyState,
@@ -14,6 +14,7 @@ import {
   WarnChip,
   type TopBarLink
 } from "../../shared/ui";
+import { PendingDrafts } from "./PendingDrafts";
 import { RunLog } from "./RunLog";
 
 /**
@@ -36,6 +37,8 @@ type OpsShellProps = {
   dev?: boolean;
   /** Injected run-log rows for tests. Omit in production — RunLog fetches. */
   items?: RunLogItem[];
+  /** Injected drafts for tests. Omit in production — PendingDrafts fetches. */
+  drafts?: DraftRecord[];
 };
 
 type Schedule = {
@@ -80,7 +83,7 @@ function useSchedule(): Schedule {
   return schedule;
 }
 
-export function OpsShell({ dev = false, items }: OpsShellProps) {
+export function OpsShell({ dev = false, items, drafts }: OpsShellProps) {
   const apexHref = surfaceHref("apex", { dev });
   const schedule = useSchedule();
 
@@ -136,14 +139,7 @@ export function OpsShell({ dev = false, items }: OpsShellProps) {
           title="Pending drafts"
           why="Read the full text of anything awaiting approval, before it is live."
         >
-          <EmptyState
-            title="No drafts awaiting approval"
-            hint="Pending drafts are public here before they are published anywhere. — Story 3.9"
-          >
-            Each pending draft will show its full body, the changes it proposes,
-            any flags, and a link into its evidence — wrapped so it can never be
-            mistaken for published tracker content.
-          </EmptyState>
+          <PendingDrafts dev={dev} drafts={drafts} />
         </SectionBand>
 
         <SectionBand
