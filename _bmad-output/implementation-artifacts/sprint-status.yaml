@@ -36,7 +36,7 @@
 # - Source epics: _bmad-output/planning-artifacts/epics.md (35 stories, readiness punch list applied 2026-08-09)
 
 generated: 2026-08-09
-last_updated: 09-11-2026 19:07
+last_updated: 09-12-2026 07:42
 project: PML
 project_key: NOKEY
 tracking_system: file-system
@@ -76,7 +76,7 @@ development_status:
   3-6-guardrails-action-policy-scoped-context: done
   3-7-public-ops-run-log: done
   3-8-evidence-detail-projection: done
-  3-9-public-pending-drafts-not-live: backlog
+  3-9-public-pending-drafts-not-live: done
   3-10-admin-hitl-approval-queue: backlog
   3-11-publish-to-live-f1-provenance-diffs: backlog
   3-12-operator-loop-controls: backlog
