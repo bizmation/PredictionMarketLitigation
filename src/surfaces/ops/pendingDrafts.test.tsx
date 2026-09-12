@@ -33,6 +33,7 @@ function draft(overrides: Partial<DraftRecord> = {}): DraftRecord {
     decidedAt: null,
     decidedBy: null,
     editedBody: null,
+    rejectReason: null,
     createdAt: "2026-09-08T16:05:00.000Z",
     updatedAt: "2026-09-08T16:05:00.000Z",
     ...overrides
@@ -53,6 +54,7 @@ const REJECTED: DraftRecord = draft({
   decidedAt: "2026-09-08T17:30:00.000Z",
   decidedBy: "Patrick",
   editedBody: null,
+  rejectReason: "Trade-press expectation is not a docket event.",
   updatedAt: "2026-09-08T17:30:00.000Z"
 });
 
@@ -65,6 +67,7 @@ describe("isDraftRecord", () => {
     expect(isDraftRecord({ ...draft(), confidence: 1.5 })).toBe(false);
     expect(isDraftRecord({ ...draft(), confidence: 101 })).toBe(false);
     expect(isDraftRecord({ ...draft(), diff: "posture" })).toBe(false);
+    expect(isDraftRecord({ ...draft(), rejectReason: 42 })).toBe(false);
     expect(isDraftRecord({ ...draft(), evalSummary: { status: "ok" } })).toBe(
       false
     );
@@ -221,6 +224,8 @@ describe("PendingDrafts", () => {
     expect(html).toContain(
       "<strong>Rejected</strong> — proposed, never published"
     );
+    expect(html).toContain("Rejected because");
+    expect(html).toContain("Trade-press expectation is not a docket event.");
     expect(html).toContain(
       "Decided " + formatEtDateTime("2026-09-08T17:30:00.000Z")
     );

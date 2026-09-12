@@ -69,6 +69,7 @@ export function isDraftRecord(value: unknown): value is DraftRecord {
     (row.decidedAt === null || typeof row.decidedAt === "string") &&
     (row.decidedBy === null || typeof row.decidedBy === "string") &&
     (row.editedBody === null || typeof row.editedBody === "string") &&
+    (row.rejectReason === null || typeof row.rejectReason === "string") &&
     typeof row.createdAt === "string" &&
     typeof row.updatedAt === "string" &&
     row.diff !== null &&
@@ -278,6 +279,13 @@ function ArchiveCard({ draft, dev }: { draft: DraftRecord; dev: boolean }) {
         <p className="muted">
           <strong>Rejected</strong> — proposed, never published
         </p>
+        {draft.rejectReason ? (
+          <p>
+            <span className="kicker">Rejected because</span>
+            <br />
+            {draft.rejectReason}
+          </p>
+        ) : null}
         <div className="flagrow">
           <span className="origin">Rejected</span>
           {draft.decidedAt ? (

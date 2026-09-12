@@ -69,6 +69,7 @@ function draft(
     decidedAt: null,
     decidedBy: null,
     editedBody: null,
+    rejectReason: null,
     createdAt: TS_STEP,
     updatedAt: TS_STEP,
     ...overrides
