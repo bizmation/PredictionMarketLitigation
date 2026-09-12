@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { IsoUtcSchema } from "../../schemas/common";
 import {
+  DRAFT_OUTCOME_VALUES,
   DraftRecordSchema,
   EvalSummarySchema,
   type DraftRecord,
@@ -31,13 +32,16 @@ type DraftRow = {
   decided_at: string | null;
   decided_by: string | null;
   edited_body: string | null;
+  reject_reason: string | null;
+  reject_reason_private: string | null;
   created_at: string;
   updated_at: string;
 };
 
 const DRAFT_COLUMNS = `id, run_id, target_entity_type, target_entity_id, diff_json,
               body, tier2_only, confidence, eval_summary_json, outcome,
-              decided_at, decided_by, edited_body, created_at, updated_at`;
+              decided_at, decided_by, edited_body, reject_reason,
+              created_at, updated_at`;
 
 function mapDraft(row: DraftRow): DraftRecord {
   return DraftRecordSchema.parse({
@@ -55,6 +59,7 @@ function mapDraft(row: DraftRow): DraftRecord {
     decidedAt: row.decided_at,
     decidedBy: row.decided_by,
     editedBody: row.edited_body,
+    rejectReason: row.reject_reason,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   });
@@ -67,6 +72,20 @@ export async function listByRun(db: Db, runId: string): Promise<DraftRecord[]> {
         ORDER BY created_at ASC, id ASC`
     )
     .bind(runId)
+    .all<DraftRow>();
+  return (results ?? []).map(mapDraft);
+}
+
+/**
+ * Story 3.10 — the operator queue feed: pending (`outcome IS NULL`) only,
+ * oldest waiting first. Decided Drafts never appear here again.
+ */
+export async function listPending(db: Db): Promise<DraftRecord[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT ${DRAFT_COLUMNS} FROM drafts WHERE outcome IS NULL
+        ORDER BY created_at ASC, id ASC`
+    )
     .all<DraftRow>();
   return (results ?? []).map(mapDraft);
 }
@@ -124,6 +143,7 @@ export async function insertDraft(
     decidedAt: null,
     decidedBy: null,
     editedBody: null,
+    rejectReason: null,
     createdAt: input.createdAt,
     updatedAt: input.createdAt
   });
@@ -269,4 +289,66 @@ export async function applyDraftReview(
     throw new Error(`Draft ${input.id} not found.`);
   }
   return record;
+}
+
+const DraftDecisionPatchSchema = z
+  .object({
+    id: z.string().min(1),
+    outcome: z.enum(DRAFT_OUTCOME_VALUES),
+    decidedAt: IsoUtcSchema,
+    decidedBy: z.string().min(1),
+    editedBody: z.string().min(1).nullable(),
+    rejectReason: z.string().min(1).nullable(),
+    rejectReasonPrivate: z.string().min(1).nullable(),
+    updatedAt: IsoUtcSchema
+  })
+  .strict();
+
+export type DraftDecisionPatch = z.infer<typeof DraftDecisionPatchSchema>;
+
+/**
+ * Story 3.10 — validate-then-UPDATE decision statement for the Approval Gate.
+ * Loads the row, refuses when already decided, merges the decision onto the
+ * existing record and parses the full `DraftRecordSchema` before binding, so
+ * a CHECK-passing but schema-invalid write cannot land. `rejectReasonPrivate`
+ * is bound here but never mapped back out of the repo.
+ */
+export async function applyDecisionStmt(
+  db: Db,
+  input: DraftDecisionPatch
+): Promise<D1PreparedStatement> {
+  const patch = DraftDecisionPatchSchema.parse(input);
+  const existing = await getById(db, patch.id);
+  if (!existing) {
+    throw new Error(`Draft ${patch.id} not found.`);
+  }
+  if (existing.outcome != null) {
+    throw new Error(`Draft ${patch.id} already decided.`);
+  }
+  const record = DraftRecordSchema.parse({
+    ...existing,
+    outcome: patch.outcome,
+    decidedAt: patch.decidedAt,
+    decidedBy: patch.decidedBy,
+    editedBody: patch.editedBody,
+    rejectReason: patch.rejectReason,
+    updatedAt: patch.updatedAt
+  });
+  return db
+    .prepare(
+      `UPDATE drafts
+          SET outcome = ?, decided_at = ?, decided_by = ?, edited_body = ?,
+              reject_reason = ?, reject_reason_private = ?, updated_at = ?
+        WHERE id = ? AND outcome IS NULL`
+    )
+    .bind(
+      record.outcome,
+      record.decidedAt,
+      record.decidedBy,
+      record.editedBody,
+      record.rejectReason,
+      patch.rejectReasonPrivate,
+      record.updatedAt,
+      record.id
+    );
 }
