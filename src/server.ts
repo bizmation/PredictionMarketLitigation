@@ -19,9 +19,52 @@ import {
   requireOperator
 } from "./shared/lib/adminGuard";
 import { handlePublicApi } from "./shared/api/publicRouter";
+import {
+  badRequest,
+  conflict,
+  internalError,
+  notFound
+} from "./shared/api/errors";
+import { jsonError } from "./shared/api/respond";
+import { getDb } from "./shared/db/client";
+import * as draftsRepo from "./shared/db/repos/draftsRepo";
+import { decide } from "./pipeline/gate/approval";
 import { DailyRunWorkflow, kickDailyRun } from "./pipeline/workflow/dailyRun";
 
 export { DailyRunWorkflow };
+
+/**
+ * Mirror of adminGuard's internal normalizePath. That module is frozen —
+ * story 3.10's routes ride the guard without changing it — so this file keeps
+ * its own copy so the new handlers match exactly the paths the guard admits.
+ */
+function normalizeAdminPath(pathname: string): string {
+  let decoded = pathname;
+  for (let i = 0; i < 3; i++) {
+    try {
+      const next = decodeURIComponent(decoded);
+      if (next === decoded) break;
+      decoded = next;
+    } catch {
+      return pathname.replace(/\/{2,}/g, "/");
+    }
+  }
+  return decoded.replace(/\/{2,}/g, "/");
+}
+
+const DecisionBodySchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("approve") }).strict(),
+  z
+    .object({ action: z.literal("edit"), editedBody: z.string().trim().min(1) })
+    .strict(),
+  z
+    .object({
+      action: z.literal("reject"),
+      rejectReason: z.string().trim().min(1),
+      private: z.boolean().optional()
+    })
+    .strict()
+]);
 
 export class ChatAgent extends AIChatAgent<Env> {
   maxPersistedMessages = 100;
@@ -301,11 +344,134 @@ export default {
         );
       }
 
-      // No other admin handlers exist yet — story 3.10 brings the approval
-      // queue, 3.12 the loop controls, 4.6 feedback moderation. Reaching here
-      // means the caller IS the operator and simply asked for something that
-      // does not exist. The guard above is what this placeholder exists to
-      // prove.
+      // Story 3.10 — the operator's door. The routes below match the SAME
+      // normalized path the guard above admitted; without this an encoded or
+      // double-slashed path would clear the guard and fall into the 404
+      // placeholder instead of answering.
+      const adminPath = normalizeAdminPath(pathname);
+
+      if (adminPath === "/api/admin/queue") {
+        if (request.method !== "GET" && request.method !== "HEAD") {
+          return new Response("Method not allowed", {
+            status: 405,
+            headers: { ...ADMIN_CACHE_HEADERS, allow: "GET, HEAD" }
+          });
+        }
+        try {
+          return Response.json(
+            { items: await draftsRepo.listPending(getDb(env)) },
+            { headers: ADMIN_CACHE_HEADERS }
+          );
+        } catch (error) {
+          console.error(
+            JSON.stringify({
+              event: "admin_api.error",
+              path: pathname,
+              message: error instanceof Error ? error.message : String(error)
+            })
+          );
+          return jsonError(internalError(), {
+            headers: ADMIN_CACHE_HEADERS
+          });
+        }
+      }
+
+      const decisionMatch = /^\/api\/admin\/drafts\/([^/]+)\/decision$/.exec(
+        adminPath
+      );
+      if (decisionMatch) {
+        if (request.method !== "POST") {
+          return new Response("Method not allowed", {
+            status: 405,
+            headers: { ...ADMIN_CACHE_HEADERS, allow: "POST" }
+          });
+        }
+        let draftId: string;
+        try {
+          draftId = decodeURIComponent(decisionMatch[1]!);
+        } catch {
+          return jsonError(badRequest("Malformed draft ID."), {
+            headers: ADMIN_CACHE_HEADERS
+          });
+        }
+        try {
+          let body: unknown;
+          try {
+            body = await request.json();
+          } catch {
+            return jsonError(badRequest("Malformed JSON body."), {
+              headers: ADMIN_CACHE_HEADERS
+            });
+          }
+          const parsed = DecisionBodySchema.safeParse(body);
+          if (!parsed.success) {
+            return jsonError(badRequest("Invalid decision body."), {
+              headers: ADMIN_CACHE_HEADERS
+            });
+          }
+          const common = {
+            draftId,
+            operator: { displayName: gate.operator.displayName },
+            now: new Date().toISOString()
+          };
+          let result: Awaited<ReturnType<typeof decide>>;
+          if (parsed.data.action === "approve") {
+            result = await decide(getDb(env), {
+              ...common,
+              action: "approve"
+            });
+          } else if (parsed.data.action === "edit") {
+            result = await decide(getDb(env), {
+              ...common,
+              action: "edit",
+              editedBody: parsed.data.editedBody
+            });
+          } else {
+            // `private` moves the reason into the private column: the public
+            // wire field and the gate.decided payload get null, the text only
+            // ever lands in reject_reason_private.
+            const reason = parsed.data.rejectReason;
+            result = await decide(getDb(env), {
+              ...common,
+              action: "reject",
+              rejectReason: parsed.data.private === true ? null : reason,
+              rejectReasonPrivate: parsed.data.private === true ? reason : null
+            });
+          }
+          switch (result.status) {
+            case "not_found":
+              return jsonError(notFound(`Draft '${draftId}' not found.`), {
+                headers: ADMIN_CACHE_HEADERS
+              });
+            case "already_decided":
+              return jsonError(conflict("Draft already decided."), {
+                headers: ADMIN_CACHE_HEADERS
+              });
+            case "invalid":
+              return jsonError(badRequest("Invalid decision body."), {
+                headers: ADMIN_CACHE_HEADERS
+              });
+            case "decided":
+              return Response.json(result.record, {
+                headers: ADMIN_CACHE_HEADERS
+              });
+          }
+        } catch (error) {
+          console.error(
+            JSON.stringify({
+              event: "admin_api.error",
+              path: pathname,
+              message: error instanceof Error ? error.message : String(error)
+            })
+          );
+          return jsonError(internalError(), { headers: ADMIN_CACHE_HEADERS });
+        }
+      }
+
+      // No other admin handlers exist yet — 3.12 brings the loop controls,
+      // 4.6 feedback moderation. Reaching here means the caller IS the
+      // operator and simply asked for something that does not exist. The
+      // guard above is what this placeholder exists to prove.
       return new Response("Not found", {
         status: 404,
         headers: ADMIN_CACHE_HEADERS
