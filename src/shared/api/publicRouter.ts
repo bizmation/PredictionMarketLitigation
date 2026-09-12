@@ -284,6 +284,12 @@ export async function handlePublicApi(
       return jsonList(await runsRepo.listRuns(db));
     }
 
+    // Story 3.9 — public pending + rejected-archive drafts, newest first.
+    // Approved/edited belong to publish records (3.11) and are excluded.
+    if (pathname === "/api/drafts") {
+      return jsonList(await draftsRepo.listPublicDrafts(db));
+    }
+
     {
       const m = /^\/api\/runs\/([^/]+)$/.exec(pathname);
       if (m) {
