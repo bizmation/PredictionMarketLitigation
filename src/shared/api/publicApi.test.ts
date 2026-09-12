@@ -8,6 +8,7 @@ import * as runsRepo from "../db/repos/runsRepo";
 import { nextRunAtUtc } from "../lib/schedule";
 import {
   DRAFT_OUTCOME_VALUES,
+  DraftRecordSchema,
   RunDetailSchema,
   RunLogItemSchema
 } from "../schemas/run";
@@ -1260,6 +1261,233 @@ describe("run records (story 3.1)", () => {
       approvalOutcome: "approved",
       spendCents: 0
     });
+  });
+});
+
+/**
+ * Story 3.9 — public pending + rejected-archive drafts. No auth. Approved
+ * and edited drafts belong to publish records (3.11) and never appear.
+ */
+describe("public drafts (story 3.9)", () => {
+  const TS = "2026-09-10T16:00:00.000Z";
+
+  const DRAFT_INSERT = `INSERT INTO drafts (id, run_id, target_entity_type,
+      target_entity_id, diff_json, body, tier2_only, confidence,
+      eval_summary_json, outcome, decided_at, decided_by, edited_body,
+      created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+
+  type DraftFixture = {
+    id: string;
+    runId: string;
+    body: string;
+    diffJson: string;
+    tier2Only: number;
+    confidence: number | null;
+    evalSummaryJson: string | null;
+    outcome: string | null;
+    decidedAt: string | null;
+    decidedBy: string | null;
+    editedBody: string | null;
+    createdAt: string;
+    updatedAt: string;
+  };
+
+  function draftStmt(row: DraftFixture) {
+    return testEnv.DB.prepare(DRAFT_INSERT).bind(
+      row.id,
+      row.runId,
+      row.outcome === "rejected" ? null : "states",
+      row.outcome === "rejected" ? null : "st-nv",
+      row.diffJson,
+      row.body,
+      row.tier2Only,
+      row.confidence,
+      row.evalSummaryJson,
+      row.outcome,
+      row.decidedAt,
+      row.decidedBy,
+      row.editedBody,
+      row.createdAt,
+      row.updatedAt
+    );
+  }
+
+  it("returns pending + rejected, excludes approved/edited, newest first", async () => {
+    await runsRepo.insertRun(testEnv.DB, {
+      id: "run-20260910-d1a1",
+      origin: "scheduled",
+      mode: "hitl",
+      status: "published",
+      startedAt: TS,
+      completedAt: TS,
+      spendCents: 0,
+      spendCurrency: "USD",
+      budgetCents: 200,
+      scheduledFor: "2026-09-10"
+    });
+    await testEnv.DB.batch([
+      draftStmt({
+        id: "d-pending-old",
+        runId: "run-20260910-d1a1",
+        body: "Oldest pending proposal.",
+        diffJson: '{"posture":{"from":"pending","to":"restricted"}}',
+        tier2Only: 0,
+        confidence: 61,
+        evalSummaryJson: null,
+        outcome: null,
+        decidedAt: null,
+        decidedBy: null,
+        editedBody: null,
+        createdAt: "2026-09-10T16:05:00.000Z",
+        updatedAt: "2026-09-10T16:05:00.000Z"
+      }),
+      draftStmt({
+        id: "d-pending-tie",
+        runId: "run-20260910-d1a1",
+        body: "Pending proposal sharing the newest timestamp.",
+        diffJson: '{"operationalStatus":{"from":null,"to":"go"}}',
+        tier2Only: 1,
+        confidence: null,
+        evalSummaryJson: null,
+        outcome: null,
+        decidedAt: null,
+        decidedBy: null,
+        editedBody: null,
+        createdAt: "2026-09-10T16:10:00.000Z",
+        updatedAt: "2026-09-10T16:10:00.000Z"
+      }),
+      draftStmt({
+        id: "d-pending-new",
+        runId: "run-20260910-d1a1",
+        body: "Newest pending proposal.",
+        diffJson: '{"posture":{"from":"untracked","to":"banned"}}',
+        tier2Only: 0,
+        confidence: 94,
+        evalSummaryJson:
+          '{"status":"ok","basis":"all claims cited","citationCompleteness":100,"disagreement":{"flagged":false,"description":null},"ineligible":[]}',
+        outcome: null,
+        decidedAt: null,
+        decidedBy: null,
+        editedBody: null,
+        createdAt: "2026-09-10T16:10:00.000Z",
+        updatedAt: "2026-09-10T16:10:00.000Z"
+      }),
+      draftStmt({
+        id: "d-rejected",
+        runId: "run-20260910-d1a1",
+        body: "A rejected proposal, publicly archived.",
+        diffJson: '{"posture":{"from":"untracked","to":"pending"}}',
+        tier2Only: 0,
+        confidence: 40,
+        evalSummaryJson: null,
+        outcome: "rejected",
+        decidedAt: "2026-09-10T16:20:00.000Z",
+        decidedBy: "Patrick",
+        editedBody: null,
+        createdAt: "2026-09-10T16:15:00.000Z",
+        updatedAt: "2026-09-10T16:20:00.000Z"
+      }),
+      draftStmt({
+        id: "d-approved",
+        runId: "run-20260910-d1a1",
+        body: "An approved proposal — publish record territory.",
+        diffJson: "{}",
+        tier2Only: 0,
+        confidence: 90,
+        evalSummaryJson: null,
+        outcome: "approved",
+        decidedAt: "2026-09-10T16:15:00.000Z",
+        decidedBy: "Patrick",
+        editedBody: null,
+        createdAt: "2026-09-10T16:12:00.000Z",
+        updatedAt: "2026-09-10T16:15:00.000Z"
+      }),
+      draftStmt({
+        id: "d-edited",
+        runId: "run-20260910-d1a1",
+        body: "An edited proposal — publish record territory.",
+        diffJson: "{}",
+        tier2Only: 0,
+        confidence: 88,
+        evalSummaryJson: null,
+        outcome: "edited",
+        decidedAt: "2026-09-10T16:25:00.000Z",
+        decidedBy: "Patrick",
+        editedBody: "The operator-revised body.",
+        createdAt: "2026-09-10T16:21:00.000Z",
+        updatedAt: "2026-09-10T16:25:00.000Z"
+      })
+    ]);
+
+    const res = await worker.fetch!(get("/api/drafts"), testEnv);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toContain("public, max-age=60");
+    const body = (await res.json()) as {
+      items: Array<Record<string, unknown>>;
+      nextCursor?: string;
+    };
+    expect(body).not.toHaveProperty("nextCursor");
+    // Scope to this run's fixtures — earlier tests share this D1 and hold
+    // older drafts of their own, so a full-list order assertion would drift.
+    const fixtures = body.items.filter(
+      (item) => item.runId === "run-20260910-d1a1"
+    );
+    expect(fixtures.map((item) => item.id)).toEqual([
+      "d-rejected",
+      "d-pending-new",
+      "d-pending-tie",
+      "d-pending-old"
+    ]);
+    // Wire/guard parity: every returned item must clear the band's isDraftRecord
+    // shape checks (diff non-null object, valid runId, non-empty body). Inlined —
+    // importing from surfaces into the workers project would pull in react.
+    expect(
+      body.items.every(
+        (item) =>
+          typeof item.runId === "string" &&
+          /^run-\d{8}-[0-9a-f]{4}$/.test(item.runId) &&
+          typeof item.body === "string" &&
+          item.body.length > 0 &&
+          item.diff !== null &&
+          typeof item.diff === "object" &&
+          !Array.isArray(item.diff)
+      )
+    ).toBe(true);
+    const parsed = body.items.map((item) => DraftRecordSchema.parse(item));
+    expect(parsed[0]).toMatchObject({
+      id: "d-rejected",
+      outcome: "rejected",
+      decidedAt: "2026-09-10T16:20:00.000Z",
+      decidedBy: "Patrick"
+    });
+    expect(parsed[1]).toMatchObject({
+      id: "d-pending-new",
+      outcome: null,
+      confidence: 94,
+      tier2Only: false
+    });
+    expect(parsed[2]).toMatchObject({
+      id: "d-pending-tie",
+      confidence: null,
+      tier2Only: true
+    });
+    expect(parsed[3]!.evalSummary).toBeNull();
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toMatch(
+      /run_id|target_entity|tier2_only|eval_summary_json|decided_at|decided_by|edited_body|created_at|updated_at/
+    );
+    expect(serialized).not.toContain("d-approved");
+    expect(serialized).not.toContain("d-edited");
+  });
+
+  it("rejects POST /api/drafts with 405 and allow GET, HEAD", async () => {
+    const res = await worker.fetch!(
+      new Request("https://pml.example.com/api/drafts", { method: "POST" }),
+      testEnv
+    );
+    expect(res.status).toBe(405);
+    expect(res.headers.get("allow")).toBe("GET, HEAD");
   });
 });
 

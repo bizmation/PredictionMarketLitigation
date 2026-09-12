@@ -71,6 +71,22 @@ export async function listByRun(db: Db, runId: string): Promise<DraftRecord[]> {
   return (results ?? []).map(mapDraft);
 }
 
+/**
+ * Story 3.9 — the public pending-drafts feed: pending (`outcome IS NULL`)
+ * plus the rejected archive, newest first. Approved/edited Drafts belong to
+ * publish records (3.11) and are deliberately excluded.
+ */
+export async function listPublicDrafts(db: Db): Promise<DraftRecord[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT ${DRAFT_COLUMNS} FROM drafts
+        WHERE outcome IS NULL OR outcome = 'rejected'
+        ORDER BY updated_at DESC, id ASC`
+    )
+    .all<DraftRow>();
+  return (results ?? []).map(mapDraft);
+}
+
 export async function getById(db: Db, id: string): Promise<DraftRecord | null> {
   const row = await db
     .prepare(`SELECT ${DRAFT_COLUMNS} FROM drafts WHERE id = ?`)
