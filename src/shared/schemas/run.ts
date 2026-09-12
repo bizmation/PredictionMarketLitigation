@@ -151,7 +151,10 @@ export type EvalSummary = z.infer<typeof EvalSummarySchema>;
  * 3.4/3.11). After 3.5, `body` is the drafter's original agent text — the
  * connector packaging shell is overwritten; operator edits still land in
  * `editedBody`, preserving the public before/after diff. `evalSummary` is
- * null only before draft-and-review.
+ * null only before draft-and-review. `rejectReason` is the PUBLIC portion of
+ * a rejection reason (3.10) — required-nullable so it is never a missing key;
+ * the private portion never enters this shape, any Evidence payload, or any
+ * log.
  */
 export const DraftRecordSchema = z
   .object({
@@ -168,6 +171,7 @@ export const DraftRecordSchema = z
     decidedAt: IsoUtcSchema.nullable(),
     decidedBy: z.string().min(1).nullable(),
     editedBody: z.string().min(1).nullable(),
+    rejectReason: z.string().min(1).nullable(),
     createdAt: IsoUtcSchema,
     updatedAt: IsoUtcSchema
   })

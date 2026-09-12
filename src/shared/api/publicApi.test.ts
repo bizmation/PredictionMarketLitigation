@@ -1138,17 +1138,20 @@ describe("run records (story 3.1)", () => {
     ).rejects.toThrow();
     // The gate decision trio moves together: outcome never flips without
     // decided_at and decided_by. draft-1 starts with all three NULL.
-    // `edited` also requires a non-empty edited_body (public before/after).
+    // `edited` also requires a non-empty edited_body (public before/after),
+    // and `rejected` requires a reason (0010): public here, so the sweep
+    // exercises the public column's CHECK.
     for (const outcome of DRAFT_OUTCOME_VALUES) {
       await expect(
         testEnv.DB.prepare(
-          "UPDATE drafts SET outcome = ?, decided_at = ?, decided_by = ?, edited_body = ? WHERE id = 'draft-1'"
+          "UPDATE drafts SET outcome = ?, decided_at = ?, decided_by = ?, edited_body = ?, reject_reason = ? WHERE id = 'draft-1'"
         )
           .bind(
             outcome,
             TS_A,
             "Patrick",
-            outcome === "edited" ? "Operator rewrite." : null
+            outcome === "edited" ? "Operator rewrite." : null,
+            outcome === "rejected" ? "Rejected by the vocabulary sweep." : null
           )
           .run()
       ).resolves.toMatchObject({ meta: { changes: 1 } });
@@ -1274,8 +1277,8 @@ describe("public drafts (story 3.9)", () => {
   const DRAFT_INSERT = `INSERT INTO drafts (id, run_id, target_entity_type,
       target_entity_id, diff_json, body, tier2_only, confidence,
       eval_summary_json, outcome, decided_at, decided_by, edited_body,
-      created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+      reject_reason, reject_reason_private, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
   type DraftFixture = {
     id: string;
@@ -1289,6 +1292,7 @@ describe("public drafts (story 3.9)", () => {
     decidedAt: string | null;
     decidedBy: string | null;
     editedBody: string | null;
+    rejectReason: string | null;
     createdAt: string;
     updatedAt: string;
   };
@@ -1308,6 +1312,8 @@ describe("public drafts (story 3.9)", () => {
       row.decidedAt,
       row.decidedBy,
       row.editedBody,
+      row.rejectReason,
+      null,
       row.createdAt,
       row.updatedAt
     );
@@ -1339,6 +1345,7 @@ describe("public drafts (story 3.9)", () => {
         decidedAt: null,
         decidedBy: null,
         editedBody: null,
+        rejectReason: null,
         createdAt: "2026-09-10T16:05:00.000Z",
         updatedAt: "2026-09-10T16:05:00.000Z"
       }),
@@ -1354,6 +1361,7 @@ describe("public drafts (story 3.9)", () => {
         decidedAt: null,
         decidedBy: null,
         editedBody: null,
+        rejectReason: null,
         createdAt: "2026-09-10T16:10:00.000Z",
         updatedAt: "2026-09-10T16:10:00.000Z"
       }),
@@ -1370,6 +1378,7 @@ describe("public drafts (story 3.9)", () => {
         decidedAt: null,
         decidedBy: null,
         editedBody: null,
+        rejectReason: null,
         createdAt: "2026-09-10T16:10:00.000Z",
         updatedAt: "2026-09-10T16:10:00.000Z"
       }),
@@ -1385,6 +1394,7 @@ describe("public drafts (story 3.9)", () => {
         decidedAt: "2026-09-10T16:20:00.000Z",
         decidedBy: "Patrick",
         editedBody: null,
+        rejectReason: "Trade-press expectation is not a docket event.",
         createdAt: "2026-09-10T16:15:00.000Z",
         updatedAt: "2026-09-10T16:20:00.000Z"
       }),
@@ -1400,6 +1410,7 @@ describe("public drafts (story 3.9)", () => {
         decidedAt: "2026-09-10T16:15:00.000Z",
         decidedBy: "Patrick",
         editedBody: null,
+        rejectReason: null,
         createdAt: "2026-09-10T16:12:00.000Z",
         updatedAt: "2026-09-10T16:15:00.000Z"
       }),
@@ -1415,6 +1426,7 @@ describe("public drafts (story 3.9)", () => {
         decidedAt: "2026-09-10T16:25:00.000Z",
         decidedBy: "Patrick",
         editedBody: "The operator-revised body.",
+        rejectReason: null,
         createdAt: "2026-09-10T16:21:00.000Z",
         updatedAt: "2026-09-10T16:25:00.000Z"
       })
@@ -1459,7 +1471,8 @@ describe("public drafts (story 3.9)", () => {
       id: "d-rejected",
       outcome: "rejected",
       decidedAt: "2026-09-10T16:20:00.000Z",
-      decidedBy: "Patrick"
+      decidedBy: "Patrick",
+      rejectReason: "Trade-press expectation is not a docket event."
     });
     expect(parsed[1]).toMatchObject({
       id: "d-pending-new",
@@ -1475,7 +1488,7 @@ describe("public drafts (story 3.9)", () => {
     expect(parsed[3]!.evalSummary).toBeNull();
     const serialized = JSON.stringify(body);
     expect(serialized).not.toMatch(
-      /run_id|target_entity|tier2_only|eval_summary_json|decided_at|decided_by|edited_body|created_at|updated_at/
+      /run_id|target_entity|tier2_only|eval_summary_json|decided_at|decided_by|edited_body|reject_reason|created_at|updated_at/
     );
     expect(serialized).not.toContain("d-approved");
     expect(serialized).not.toContain("d-edited");

@@ -158,6 +158,7 @@ describe("OpsShell", () => {
       decidedAt: null,
       decidedBy: null,
       editedBody: null,
+      rejectReason: null,
       createdAt: "2026-09-08T16:05:00.000Z",
       updatedAt: "2026-09-08T16:05:00.000Z"
     };
