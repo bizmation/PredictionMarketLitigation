@@ -9,6 +9,7 @@ import {
   WarnChip,
   type TopBarLink
 } from "../../shared/ui";
+import { ApprovalQueue } from "./ApprovalQueue";
 import { useAdminSession } from "./useAdminSession";
 
 /**
@@ -26,10 +27,8 @@ import { useAdminSession } from "./useAdminSession";
  *      NOT name — `ops.`, and historically workers.dev and preview URLs, where
  *      the Access header is forgeable. See src/shared/lib/access.ts.
  *
- * The bands below are still empty placeholders and the approval queue is
- * Story 3.10's, so there is not yet anything here worth protecting — but the
- * protection is real now, and the chrome says so rather than continuing to
- * warn about a gap that closed.
+ * The `#mode` band is still a placeholder (3.13) — the `#queue` band is
+ * wired (Story 3.10) behind the two layers below, and the chrome says so.
  */
 
 type AdminShellProps = {
@@ -88,7 +87,7 @@ export function AdminShell({ dev = false, operator }: AdminShellProps) {
         // operator to discount its own chrome. Retired, not softened.
         warn={<WarnChip>Autonomous OFF — human-in-the-loop</WarnChip>}
         message="Gate: HITL · this surface and the admin APIs both require a verified operator"
-        meta="Queue not yet wired"
+        meta="Operator actions are published, not logged privately."
         provenance={
           // Handoff PML Admin.html:99 — static placeholder, no data until 3.x.
           <span className="num">Budget today $0.38 of $2.00</span>
@@ -102,14 +101,7 @@ export function AdminShell({ dev = false, operator }: AdminShellProps) {
           title="Approval queue"
           why="Approve, edit-then-approve, or reject each pending draft. Every outcome is published."
         >
-          <EmptyState
-            title="Nothing awaiting approval"
-            hint="An empty queue means the pipeline proposed nothing, not that it failed."
-          >
-            Pending drafts appear here with their full text and proposed
-            changes. Editing before approving preserves both versions, so the
-            public diff shows exactly what the operator changed.
-          </EmptyState>
+          <ApprovalQueue />
         </SectionBand>
 
         <SectionBand
