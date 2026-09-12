@@ -111,3 +111,7 @@
 ## Deferred from: code review of spec-3-8-evidence-detail-projection.md (2026-09-11)
 
 - Hung first GET on `/runs/:id` has no client timeout — `AbortController` is unmount-only, so a hung `GET /api/runs/:id` leaves the page chrome-only with an empty body. Same Epic-2 hung-fetch family (epic-2 retro item 4, owner: agent, open); timeout duration is the unchosen product decision. Also recorded in the spec's frontmatter `deferred` (severity: medium). [src/surfaces/ops/EvidenceDetail.tsx:449]
+
+## Deferred from: code review of spec-3-9-public-pending-drafts-not-live.md (2026-09-12)
+
+- Hung `GET /api/drafts` has no client timeout — `useDrafts` AbortController is unmount-only, so a hung list request leaves the `#drafts` band blank (`drafts === null` → `return null`). Same Epic-2 hung-fetch family as 3.7 RunLog and 3.8 EvidenceDetail (epic-2 retro item 4, owner: agent, open); timeout duration is the unchosen product decision. [src/surfaces/ops/PendingDrafts.tsx:88]

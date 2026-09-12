@@ -94,6 +94,32 @@ deferred: []
 - Given this story shipped, apex F1 tables and APIs behave byte-identically — the story adds read paths only
 - Given an empty list or failed fetch, when the band renders, then the designed EmptyState shows and no Draft is invented
 
+### Review Findings
+
+**Follow-up adversarial pass — 2026-09-12** (fresh 4-layer review — Blind Hunter, Edge Case Hunter, Verification Gap, Acceptance Auditor — over `d0fa128...HEAD`, including the prior pass’s three patches. 21 findings → 9 survived into 6 entries; 12 rejected in the appendix below.)
+
+- [ ] [Review][Patch] Confidence 0 is untested at the guard and FlagRow [src/surfaces/ops/pendingDrafts.test.tsx:59]
+- [ ] [Review][Patch] `eval_fail` can render as “Evals not run” with no failing test [src/surfaces/ops/pendingDrafts.test.tsx:137]
+- [ ] [Review][Patch] OpsShell `#drafts` wiring test does not lock UX-DR5 or the `dev` Evidence href [src/surfaces/shells.test.tsx:146]
+- [ ] [Review][Patch] Pending-first grouping is untested against the API’s rejected-first payload [src/surfaces/ops/pendingDrafts.test.tsx:216]
+- [ ] [Review][Patch] API camelCase assertions still index the unfiltered shared-D1 list [src/shared/api/publicApi.test.ts:1457]
+- [x] [Review][Defer] Hung `GET /api/drafts` leaves the band blank [src/surfaces/ops/PendingDrafts.tsx:88] — deferred: pre-existing Epic-2 hung-fetch family, timeout duration unchosen; same deferral as 3.7 RunLog and 3.8 EvidenceDetail
+
+**Rejected (12 findings):**
+
+- `[false]` `evalSummary.ineligible` and `citationCompleteness` never appear on the card — 3.9’s I/O matrix enumerates the flagrow (Tier-2, disagreement chip, `{n}/100` or “not recorded”, eval badge or “Evals not run”). `citationCompleteness` already renders on Evidence (3.8). `ineligible` is 3.13 auto-approve input; spec Never forbids a threshold warning even when confidence is low. 3.8’s “flags belong to 3.9” is the implemented flagrow. [PendingDrafts.tsx:207]
+- `[false]` `disagreement.description` is dropped — the matrix row is the warn chip when `flagged`; the short description is the 3.8 Evidence AC, and every card links there. [PendingDrafts.tsx:217]
+- `[low]` Draft `body` is a single `<p>` with no `pre-wrap`, so newlines collapse — “verbatim” in this spec is untruncated full text (no invented summary). Identical `<p>{draft.body}</p>` shipped in reviewed 3.8; CSS `pre-wrap` would fork that surface. [PendingDrafts.tsx:240]
+- `[low]` `GET /api/drafts` uses `jsonList` (`public, max-age=60`) — that is the public list contract (`/api/runs` is the same helper). 60s of a still-pending card after HITL approve is not an everyday visitor path; flipping to `jsonNoStore` is a cache-policy choice, not a demonstrated UX-DR5 failure. [publicApi.test.ts:1425]
+- `[low]` `listPublicDrafts` has no `outcome` index — spec Never forbids a migration; v1 volume is daily pending + rejected. [draftsRepo.ts:79]
+- `[false]` One poison row 500s the list — `mapDraft` parses the same `DraftRecordSchema` the write path already parsed; `json_valid` + Zod-before-INSERT cannot store a `.strict()`-failing row without D1 surgery (same family 3.7/3.8 rejected). [draftsRepo.ts:42]
+- `[false]` Design-system banner copy and `createdAt` meta are missing — Code Map: meta is the run link; `NOT_LIVE_LABEL` is fixed on the component; mock timestamps/prose are illustrative. [PendingDrafts.tsx:257]
+- `[false]` Archive cards omit FlagRow — AC2 specifies outcome + decidedAt/decidedBy when present, same body/diff/evidence, no pending banner. ArchiveCard implements that; flags are the pending-card matrix. [PendingDrafts.tsx:273]
+- `[low]` `#drafts` SectionBand title is pending-only and “Rejected archive” is a `div.kicker` — the band name is the spec’s; kicker is the handoff pattern; heading-hierarchy churn is more than a direct correction. [OpsShell.tsx:136]
+- `[low]` I/O laundry list (`{}` diffs, rejected without decidedAt, `GET { items: [] }`, multi-paragraph body) — empty-list EmptyState is already pinned client-side; remaining rows have no demonstrated failure and overlap the specific patches above. [pendingDrafts.test.tsx]
+- `[low]` Unbounded `listPublicDrafts` as the rejected archive grows — deliberate v1 no-cursor contract, consistent with `/api/runs`; already in this spec’s residual risks. [draftsRepo.ts:79]
+- `[false]` Empty-string `from`/`to` cells render blank instead of “—” — the matrix’s designed empty is `null`; current posture/operationalStatus vocabularies are closed enums, so `""` is not a write-path value. `value == null` matches the spec row. [PendingDrafts.tsx:149]
+
 ## Spec Change Log
 
 ## Review Triage Log
@@ -124,6 +150,11 @@ deferred: []
   - `[false]` `[reject]` API orders rejected-first globally while the band re-partitions; presentation order never asserted against real API output (intent-alignment) — pending-before-rejected is structural in the component (two sequential maps), not derived from API order; within-group order is the API's tested contract.
   - `[false]` `[reject]` "Full body visible" narrowed by the strict guard (intent-alignment) — the fail-closed EmptyState on guard failure is the spec's explicit design ("never invent a Draft").
   - `[false]` `[reject]` Diffs rendered as record-of-changes rather than patch hunks (intent-alignment) — exactly the spec's Design Note: per-field del/ins rows over the real `Record<string, {from, to}>` shape.
+
+### 2026-09-12 — Follow-up pass (fresh 4-layer review of `d0fa128...HEAD`)
+- verdicts: 21 findings — high 0, medium 9, low 6, false 6, maybe-false 0
+- survivors: 5 patch (confidence 0 pin, `eval_fail` pin, OpsShell UX-DR5 + `dev` href, pending-first order vs rejected-first API, scoped `parsed[n]`), 1 defer (hung GET /api/drafts, Epic-2 family)
+- rejected: 12 — see Review Findings appendix
 
 ## Design Notes
 
