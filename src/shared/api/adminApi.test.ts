@@ -12,6 +12,7 @@ import {
 
 import worker from "../../server";
 import * as runsRepo from "../db/repos/runsRepo";
+import { etCalendarDate } from "../lib/schedule";
 import { DraftRecordSchema } from "../schemas/run";
 
 /**
@@ -1009,5 +1010,341 @@ describe("admin approval queue (story 3.10)", () => {
     );
     expect(res.status).toBe(403);
     expect((await draftRow("d-expired")).outcome).toBeNull();
+  });
+});
+
+describe("admin loop controls (story 3.12)", () => {
+  const loopEnv = (create = vi.fn().mockResolvedValue({})) =>
+    ({ ...realEnv(), DAILY_RUN: { create } }) as unknown as Env;
+
+  async function seedDated(input: {
+    id: string;
+    origin: "scheduled" | "catch-up" | "manual";
+    status: "running" | "published" | "awaiting" | "empty" | "failed";
+    scheduledFor: string;
+  }) {
+    await runsRepo.insertRun(testEnv.DB, {
+      id: input.id,
+      origin: input.origin,
+      mode: "hitl",
+      status: input.status,
+      startedAt: "2026-11-01T00:00:00.000Z",
+      completedAt:
+        input.status === "running" ? null : "2026-11-01T01:00:00.000Z",
+      spendCents: 0,
+      spendCurrency: "USD",
+      budgetCents: null,
+      scheduledFor: input.scheduledFor
+    });
+  }
+
+  it("rejects anonymous loop reads and run triggers with the opaque 403", async () => {
+    const loop = await worker.fetch(get("/api/admin/loop"), anon);
+    expect(loop.status).toBe(403);
+    expect(await loop.json()).toEqual({
+      code: "forbidden",
+      message: expect.any(String)
+    });
+    const trigger = await worker.fetch(
+      get("/api/admin/runs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ origin: "manual" })
+      }),
+      anon
+    );
+    expect(trigger.status).toBe(403);
+  });
+
+  it("returns latest null when there are no runs", async () => {
+    await testEnv.DB.prepare("DELETE FROM llm_calls").run();
+    await testEnv.DB.prepare("DELETE FROM evidence_events").run();
+    await testEnv.DB.prepare("DELETE FROM drafts").run();
+    await testEnv.DB.prepare("DELETE FROM runs").run();
+    const res = await auth("/api/admin/loop");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ latest: null });
+  });
+
+  it("defaults scheduledFor to today's ET date when omitted", async () => {
+    const create = vi.fn().mockResolvedValue({});
+    const expected = etCalendarDate(new Date());
+    const res = await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/runs", { origin: "manual" }),
+      loopEnv(create)
+    );
+    expect(res.status).toBe(200);
+    const run = (await res.json()) as { scheduledFor: string | null };
+    expect(run.scheduledFor).toBe(expected);
+  });
+
+  it("starts a manual Run, lists it on GET /api/runs, and mirrors it on /api/admin/loop", async () => {
+    const create = vi.fn().mockResolvedValue({});
+    const envW = loopEnv(create);
+    const res = await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/runs", {
+        origin: "manual",
+        scheduledFor: "2026-11-10"
+      }),
+      envW
+    );
+    expect(res.status).toBe(200);
+    const run = (await res.json()) as {
+      id: string;
+      origin: string;
+      status: string;
+    };
+    expect(run).toMatchObject({
+      id: "run-20261110-0002",
+      origin: "manual",
+      status: "running"
+    });
+    expect(create).toHaveBeenCalledWith({
+      params: {
+        origin: "manual",
+        scheduledFor: "2026-11-10",
+        runId: "run-20261110-0002"
+      },
+      id: "manual-2026-11-10-0002"
+    });
+
+    const pub = await worker.fetch(get("/api/runs"), envW);
+    expect(pub.status).toBe(200);
+    const items = ((await pub.json()) as { items: Array<{ id: string }> })
+      .items;
+    expect(items.some((item) => item.id === run.id)).toBe(true);
+
+    const loop = await worker.fetch(
+      signed(await sign(EMAIL), "/api/admin/loop"),
+      envW
+    );
+    expect(loop.status).toBe(200);
+    const latest = ((await loop.json()) as { latest: { id: string } | null })
+      .latest;
+    expect(latest?.id).toBe(items[0]?.id);
+  });
+
+  it("returns 409 supersede_required, then confirms a new Run without rewriting the prior", async () => {
+    await seedDated({
+      id: "run-20261111-0000",
+      origin: "scheduled",
+      status: "published",
+      scheduledFor: "2026-11-11"
+    });
+    const create = vi.fn().mockResolvedValue({});
+    const envW = loopEnv(create);
+    const blocked = await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/runs", {
+        origin: "manual",
+        scheduledFor: "2026-11-11"
+      }),
+      envW
+    );
+    expect(blocked.status).toBe(409);
+    expect(await blocked.json()).toEqual({
+      code: "supersede_required",
+      message: expect.any(String),
+      details: { priorRunId: "run-20261111-0000" }
+    });
+    expect(create).not.toHaveBeenCalled();
+
+    const confirmed = await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/runs", {
+        origin: "manual",
+        scheduledFor: "2026-11-11",
+        supersedePriorPublish: true
+      }),
+      envW
+    );
+    expect(confirmed.status).toBe(200);
+    const run = (await confirmed.json()) as { id: string };
+    expect(run.id).toBe("run-20261111-0002");
+    const prior = await testEnv.DB.prepare(
+      "SELECT status FROM runs WHERE id = ?"
+    )
+      .bind("run-20261111-0000")
+      .first<{ status: string }>();
+    expect(prior?.status).toBe("published");
+    const event = await testEnv.DB.prepare(
+      `SELECT event, payload_json FROM evidence_events
+        WHERE run_id = ? AND event = 'run.superseded'`
+    )
+      .bind(run.id)
+      .first<{ event: string; payload_json: string }>();
+    expect(event?.event).toBe("run.superseded");
+    expect(JSON.parse(event?.payload_json ?? "{}")).toEqual({
+      priorRunId: "run-20261111-0000"
+    });
+  });
+
+  it("refuses a same-origin awaiting Run with 409 conflict and does not create", async () => {
+    await seedDated({
+      id: "run-20261112-0002",
+      origin: "manual",
+      status: "awaiting",
+      scheduledFor: "2026-11-12"
+    });
+    const create = vi.fn().mockResolvedValue({});
+    const res = await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/runs", {
+        origin: "manual",
+        scheduledFor: "2026-11-12"
+      }),
+      loopEnv(create)
+    );
+    expect(res.status).toBe(409);
+    expect((await res.json()) as { code: string }).toMatchObject({
+      code: "conflict"
+    });
+    expect(create).not.toHaveBeenCalled();
+    const count = await testEnv.DB.prepare(
+      "SELECT COUNT(*) AS n FROM runs WHERE scheduled_for = ?"
+    )
+      .bind("2026-11-12")
+      .first<{ n: number }>();
+    expect(count?.n).toBe(1);
+  });
+
+  it("refuses a different-origin in-flight Run that date", async () => {
+    await seedDated({
+      id: "run-20261116-0000",
+      origin: "scheduled",
+      status: "running",
+      scheduledFor: "2026-11-16"
+    });
+    const create = vi.fn().mockResolvedValue({});
+    const res = await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/runs", {
+        origin: "manual",
+        scheduledFor: "2026-11-16"
+      }),
+      loopEnv(create)
+    );
+    expect(res.status).toBe(409);
+    expect((await res.json()) as { code: string }).toMatchObject({
+      code: "conflict"
+    });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("refuses a different-origin awaiting Run that date", async () => {
+    await seedDated({
+      id: "run-20261121-0000",
+      origin: "scheduled",
+      status: "awaiting",
+      scheduledFor: "2026-11-21"
+    });
+    const create = vi.fn().mockResolvedValue({});
+    const res = await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/runs", {
+        origin: "manual",
+        scheduledFor: "2026-11-21"
+      }),
+      loopEnv(create)
+    );
+    expect(res.status).toBe(409);
+    expect((await res.json()) as { code: string }).toMatchObject({
+      code: "conflict"
+    });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("is idempotent while the same origin is running (no second instance)", async () => {
+    await seedDated({
+      id: "run-20261113-0002",
+      origin: "manual",
+      status: "running",
+      scheduledFor: "2026-11-13"
+    });
+    const create = vi.fn().mockResolvedValue({});
+    const res = await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/runs", {
+        origin: "manual",
+        scheduledFor: "2026-11-13"
+      }),
+      loopEnv(create)
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json()) as { id: string }).toMatchObject({
+      id: "run-20261113-0002"
+    });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("starts catch-up alongside a terminal scheduled row without replacing it", async () => {
+    await seedDated({
+      id: "run-20261114-0000",
+      origin: "scheduled",
+      status: "empty",
+      scheduledFor: "2026-11-14"
+    });
+    const create = vi.fn().mockResolvedValue({});
+    const res = await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/runs", {
+        origin: "catch-up",
+        scheduledFor: "2026-11-14"
+      }),
+      loopEnv(create)
+    );
+    expect(res.status).toBe(200);
+    const run = (await res.json()) as { id: string; origin: string };
+    expect(run).toMatchObject({
+      id: "run-20261114-0001",
+      origin: "catch-up"
+    });
+    expect(
+      (
+        await testEnv.DB.prepare(
+          "SELECT status FROM runs WHERE id = 'run-20261114-0000'"
+        ).first<{ status: string }>()
+      )?.status
+    ).toBe("empty");
+    expect(create).toHaveBeenCalledWith({
+      params: {
+        origin: "catch-up",
+        scheduledFor: "2026-11-14",
+        runId: "run-20261114-0001"
+      },
+      id: "catch-up-2026-11-14-0001"
+    });
+  });
+
+  it("rejects a scheduled origin and a bad date with 400", async () => {
+    const envW = loopEnv();
+    const scheduled = await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/runs", { origin: "scheduled" }),
+      envW
+    );
+    expect(scheduled.status).toBe(400);
+    const badDate = await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/runs", {
+        origin: "manual",
+        scheduledFor: "13-09-2026"
+      }),
+      envW
+    );
+    expect(badDate.status).toBe(400);
+  });
+
+  it("fails closed with 500 and marks the Run failed when DAILY_RUN is missing", async () => {
+    const res = await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/runs", {
+        origin: "manual",
+        scheduledFor: "2026-11-17"
+      }),
+      realEnv()
+    );
+    expect(res.status).toBe(500);
+    const row = await testEnv.DB.prepare(
+      "SELECT status FROM runs WHERE id = 'run-20261117-0002'"
+    ).first<{ status: string }>();
+    expect(row?.status).toBe("failed");
+  });
+
+  it("keeps #mode and unknown admin paths as 404 after the new routes", async () => {
+    const mode = await auth("/api/admin/mode");
+    expect(mode.status).toBe(404);
+    const ping = await auth("/api/admin/ping");
+    expect(ping.status).toBe(404);
   });
 });

@@ -20,6 +20,7 @@ import {
 } from "./shared/lib/adminGuard";
 import { handlePublicApi } from "./shared/api/publicRouter";
 import {
+  ApiError,
   badRequest,
   conflict,
   internalError,
@@ -28,8 +29,15 @@ import {
 import { jsonError } from "./shared/api/respond";
 import { getDb } from "./shared/db/client";
 import * as draftsRepo from "./shared/db/repos/draftsRepo";
+import * as runsRepo from "./shared/db/repos/runsRepo";
+import { IsoDateSchema } from "./shared/schemas/common";
+import { etCalendarDate } from "./shared/lib/schedule";
 import { decide } from "./pipeline/gate/approval";
-import { DailyRunWorkflow, kickDailyRun } from "./pipeline/workflow/dailyRun";
+import {
+  DailyRunWorkflow,
+  kickDailyRun,
+  startOperatorRun
+} from "./pipeline/workflow/dailyRun";
 
 export { DailyRunWorkflow };
 
@@ -65,6 +73,14 @@ const DecisionBodySchema = z.discriminatedUnion("action", [
     })
     .strict()
 ]);
+
+const OperatorRunBodySchema = z
+  .object({
+    origin: z.enum(["manual", "catch-up"]),
+    scheduledFor: IsoDateSchema.optional(),
+    supersedePriorPublish: z.boolean().optional()
+  })
+  .strict();
 
 export class ChatAgent extends AIChatAgent<Env> {
   maxPersistedMessages = 100;
@@ -468,8 +484,104 @@ export default {
         }
       }
 
-      // No other admin handlers exist yet — 3.12 brings the loop controls,
-      // 4.6 feedback moderation. Reaching here means the caller IS the
+      // Story 3.12 — live/last status is the same row the public log uses.
+      if (adminPath === "/api/admin/loop") {
+        if (request.method !== "GET" && request.method !== "HEAD") {
+          return new Response("Method not allowed", {
+            status: 405,
+            headers: { ...ADMIN_CACHE_HEADERS, allow: "GET, HEAD" }
+          });
+        }
+        try {
+          const items = await runsRepo.listRuns(getDb(env));
+          return Response.json(
+            { latest: items[0] ?? null },
+            { headers: ADMIN_CACHE_HEADERS }
+          );
+        } catch (error) {
+          console.error(
+            JSON.stringify({
+              event: "admin_api.error",
+              path: pathname,
+              message: error instanceof Error ? error.message : String(error)
+            })
+          );
+          return jsonError(internalError(), {
+            headers: ADMIN_CACHE_HEADERS
+          });
+        }
+      }
+
+      if (adminPath === "/api/admin/runs") {
+        if (request.method !== "POST") {
+          return new Response("Method not allowed", {
+            status: 405,
+            headers: { ...ADMIN_CACHE_HEADERS, allow: "POST" }
+          });
+        }
+        try {
+          let body: unknown;
+          try {
+            body = await request.json();
+          } catch {
+            return jsonError(badRequest("Malformed JSON body."), {
+              headers: ADMIN_CACHE_HEADERS
+            });
+          }
+          const parsed = OperatorRunBodySchema.safeParse(body);
+          if (!parsed.success) {
+            return jsonError(badRequest("Invalid run trigger body."), {
+              headers: ADMIN_CACHE_HEADERS
+            });
+          }
+          const now = new Date();
+          const result = await startOperatorRun(getDb(env), env.DAILY_RUN, {
+            origin: parsed.data.origin,
+            scheduledFor: parsed.data.scheduledFor ?? etCalendarDate(now),
+            supersedePriorPublish: parsed.data.supersedePriorPublish,
+            now
+          });
+          switch (result.status) {
+            case "started":
+              return Response.json(result.run, {
+                headers: ADMIN_CACHE_HEADERS
+              });
+            case "conflict":
+              return jsonError(
+                conflict(
+                  "A run is already in flight or awaiting approval for this date."
+                ),
+                { headers: ADMIN_CACHE_HEADERS }
+              );
+            case "supersede_required":
+              return jsonError(
+                new ApiError(
+                  409,
+                  "supersede_required",
+                  "Confirm supersede of the prior published Run.",
+                  { priorRunId: result.priorRunId }
+                ),
+                { headers: ADMIN_CACHE_HEADERS }
+              );
+            case "workflow_unavailable":
+              return jsonError(internalError(), {
+                headers: ADMIN_CACHE_HEADERS
+              });
+          }
+        } catch (error) {
+          console.error(
+            JSON.stringify({
+              event: "admin_api.error",
+              path: pathname,
+              message: error instanceof Error ? error.message : String(error)
+            })
+          );
+          return jsonError(internalError(), { headers: ADMIN_CACHE_HEADERS });
+        }
+      }
+
+      // No other admin handlers exist yet — 3.13 brings `#mode`, 4.6
+      // feedback moderation. Reaching here means the caller IS the
       // operator and simply asked for something that does not exist. The
       // guard above is what this placeholder exists to prove.
       return new Response("Not found", {

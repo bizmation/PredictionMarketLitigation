@@ -280,10 +280,13 @@ describe("AdminShell", () => {
     expect(html).toContain("ops.predictionmarketlitigation.com");
   });
 
-  it("renders the approval queue and mode control bands", () => {
+  it("renders the approval queue, loop controls, and mode control bands", () => {
     const html = admin();
     expect(html).toContain('id="queue"');
+    expect(html).toContain('id="loop"');
+    expect(html).toContain('href="#loop"');
     expect(html).toContain('id="mode"');
+    expect(html).toContain("Controls not yet wired");
   });
 
   it("renders the operator session strip (story 1.4)", () => {

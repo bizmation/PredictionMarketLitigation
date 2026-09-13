@@ -209,6 +209,50 @@ export async function findRunForDate(
 }
 
 /**
+ * Story 3.12 — every Run for a calendar date, newest-first. Suffix allocation
+ * and the busy/supersede matrix both need the day's set, not only one origin.
+ */
+export async function listRunsForDate(
+  db: Db,
+  scheduledFor: string
+): Promise<RunSummary[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT ${RUN_COLUMNS} FROM runs
+        WHERE scheduled_for = ?
+        ORDER BY started_at DESC, id DESC`
+    )
+    .bind(scheduledFor)
+    .all<RunRow>();
+  return (results ?? []).map(mapRun);
+}
+
+export async function listRunIdsForDate(
+  db: Db,
+  scheduledFor: string
+): Promise<string[]> {
+  return (await listRunsForDate(db, scheduledFor)).map((run) => run.id);
+}
+
+export async function hasStatusForDate(
+  db: Db,
+  scheduledFor: string,
+  statuses: readonly RunStatus[]
+): Promise<boolean> {
+  if (statuses.length === 0) return false;
+  const placeholders = statuses.map(() => "?").join(", ");
+  const row = await db
+    .prepare(
+      `SELECT 1 AS present FROM runs
+        WHERE scheduled_for = ? AND status IN (${placeholders})
+        LIMIT 1`
+    )
+    .bind(scheduledFor, ...statuses)
+    .first<{ present: number }>();
+  return row != null;
+}
+
+/**
  * Story 3.3 — complete a Run to a terminal status (empty/failed/published),
  * stamping `completed_at`. Idempotent by design: only a `running` Run moves.
  */
