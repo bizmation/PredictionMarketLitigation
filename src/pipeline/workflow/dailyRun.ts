@@ -170,8 +170,27 @@ export async function startOperatorRun(
       id: operatorInstanceId(origin, scheduledFor, run.id)
     });
   } catch {
-    await finishFailed(db, run.id);
-    const failed = (await runsRepo.getRunById(db, run.id)) ?? run;
+    try {
+      await finishFailed(db, run.id);
+    } catch {
+      // Best-effort: still mark the row failed so a cleanup throw cannot
+      // leave a running orphan after insert-then-create failed.
+      try {
+        await runsRepo.completeRun(
+          db,
+          run.id,
+          "failed",
+          new Date().toISOString()
+        );
+      } catch {
+        /* last resort — response still reports unavailable below */
+      }
+    }
+    const failed =
+      (await runsRepo.getRunById(db, run.id)) ?? {
+        ...run,
+        status: "failed" as const
+      };
     return { status: "workflow_unavailable", run: failed };
   }
 

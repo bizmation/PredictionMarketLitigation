@@ -749,6 +749,33 @@ describe("nextFreeRunId / startOperatorRun (story 3.12)", () => {
     expect(evidence.some((event) => event.event === "run.failed")).toBe(true);
   });
 
+  it("still returns workflow_unavailable when finishFailed throws after create rejects", async () => {
+    const evidenceMod = await import("../projector/evidence");
+    const spy = vi
+      .spyOn(evidenceMod, "append")
+      .mockRejectedValue(new Error("evidence boom"));
+    try {
+      const create = vi.fn().mockRejectedValue(new Error("already exists"));
+      const result = await startOperatorRun(
+        testEnv.DB,
+        { create },
+        {
+          origin: "manual",
+          scheduledFor: "2026-11-19",
+          now: NOW
+        }
+      );
+      expect(result.status).toBe("workflow_unavailable");
+      if (result.status !== "workflow_unavailable") return;
+      expect(result.run.status).toBe("failed");
+      expect(
+        (await runsRepo.getRunById(testEnv.DB, result.run.id))?.status
+      ).toBe("failed");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("returns supersede_required against a published sibling and records it on confirm", async () => {
     await seed({
       id: "run-20261105-0000",

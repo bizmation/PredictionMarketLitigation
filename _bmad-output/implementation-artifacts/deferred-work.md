@@ -115,3 +115,9 @@
 ## Deferred from: code review of spec-3-9-public-pending-drafts-not-live.md (2026-09-12)
 
 - Hung `GET /api/drafts` has no client timeout — `useDrafts` AbortController is unmount-only, so a hung list request leaves the `#drafts` band blank (`drafts === null` → `return null`). Same Epic-2 hung-fetch family as 3.7 RunLog and 3.8 EvidenceDetail (epic-2 retro item 4, owner: agent, open); timeout duration is the unchosen product decision. [src/surfaces/ops/PendingDrafts.tsx:88]
+
+## Deferred from: code review of spec-3-12-operator-loop-controls.md (2026-09-13)
+
+- LoopControls 4s poll while running/awaiting is never timer-asserted — first paint is SSR-tested; EvidenceDetail-style fake-timer mount deferred (also in spec frontmatter). [src/surfaces/admin/LoopControls.tsx:138]
+- Trigger fetch has no timeout; hung POST leaves Run now disabled — Epic-2 hung-fetch family; ApprovalQueue has the same gap (also in spec frontmatter). [src/surfaces/admin/LoopControls.tsx:160]
+- DailyRunWorkflow attach-run void/non-id fallback untested under Workflow step-cache replay — no WorkflowEntrypoint replay fixture in repo unit style; id-pinned helpers cover the non-replay path. [src/pipeline/workflow/dailyRun.ts:192]

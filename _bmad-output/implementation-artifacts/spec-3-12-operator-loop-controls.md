@@ -3,8 +3,8 @@ title: 'Story 3.12: Operator Loop Controls'
 type: 'feature'
 created: '2026-09-13'
 status: 'done'
-review_loop_iteration: 0
-followup_review_recommended: true
+review_loop_iteration: 1
+followup_review_recommended: false
 baseline_revision: c21851c23989dd6b17405a7f7f01927bd559274f
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context.md'
@@ -116,6 +116,31 @@ deferred:
 - Given a same-date published Run, when I click Run now, then I must confirm “supersede prior publish”; after confirm, Evidence for the new Run shows `run.superseded` naming the prior id, and the prior Run stays `published`
 - Given an awaiting or other-origin in-flight Run that date, when I trigger, then the action is refused and no second workflow starts
 - Given routine trigger/inspect/supersede from `/admin`, when those actions succeed, then wrangler cron/bindings are unchanged
+
+### Review Findings
+
+- [x] [Review][Patch] Nest `finishFailed` so a cleanup throw cannot leave a `running` orphan after `workflow.create` fails [`src/pipeline/workflow/dailyRun.ts:172`]
+- [x] [Review][Patch] Mount-cover LoopControls POST outcomes: reload after non-OK, happy-path Run now → `manual`+`running`, supersede confirm updates latest [`src/surfaces/admin/loopControls.mount.test.tsx`]
+- [x] [Review][Defer] LoopControls 4s poll while running/awaiting is never timer-asserted [`src/surfaces/admin/LoopControls.tsx:138`] — deferred: already frontmatter-deferred; EvidenceDetail-style fake-timer mount not required to pin trigger/supersede
+- [x] [Review][Defer] Trigger fetch has no timeout; hung POST leaves Run now disabled [`src/surfaces/admin/LoopControls.tsx:160`] — deferred: Epic-2 hung-fetch family; ApprovalQueue has the same gap
+- [x] [Review][Defer] DailyRunWorkflow attach-run void/non-id fallback untested under Workflow step-cache replay [`src/pipeline/workflow/dailyRun.ts:192`] — deferred: no WorkflowEntrypoint replay fixture in repo unit style; id-pinned helpers cover the non-replay path
+
+#### Rejected
+
+- `[false]` Spec Code Map / Tasks still name `listRunIdsForDate` / `hasStatusForDate` — fix would edit the spec; helpers are unused and were rejected in the prior pass
+- `[false]` Code Map “poll while running” vs awaiting — fix would edit the spec; code already polls awaiting
+- `[false]` Frontmatter `done` + `review_loop_iteration: 0` + follow-up flag — metadata hygiene; fix would edit the spec under review
+- `[false]` Verification section vs Auto Run Result command split — fix would edit the spec
+- `[false]` Same-origin in-flight only via newest `find` / concurrent non-newest orphan — prior pass declined the single-operator snapshot race; `nextFreeRunId` + PK serialize same-origin starts
+- `[false]` Insert-conflict when raced row is not `running` → 500 — prior pass rejected as single-operator window
+- `[false]` Overlapping `load()` polls without generation guard — prior pass rejected as EvidenceDetail-pattern complexity
+- `[false]` Multi-published `priorRunId` lineage / chained supersede — code matches `find(published)` newest-first; matrix edit would be spec work
+- `[false]` `run.superseded` retained on a later `workflow_unavailable` failed Run — intentional attempt lineage, not a defect
+- `[false]` Live/last global latest vs Run now today ET without showing `scheduledFor` — prior pass rejected; specified inspect/start split
+- `[false]` Non-OK loop GET → signedOut (incl. 500) — matches ApprovalQueue fail-closed pattern for admin fetch
+- `[low]` Terminal `failed`/`rejected`/`stopped` retry matrix only thinly tested — `empty` covers the shared no-published branch
+- `[low]` `nextFreeRunId` catch-up `0001` / exhaustion and Cancel dismiss untested — unlikely everyday; extra surface not worth it
+- `[false]` Edge-hunter claim that POST already uses `AbortSignal.timeout` — code has no timeout; consequence kept as the deferred hung-fetch item above
 
 ## Spec Change Log
 
