@@ -22,14 +22,39 @@ export function runIdFor(scheduledFor: string, origin: RunOrigin): string {
   return `run-${scheduledFor.replace(/-/g, "")}-${suffix[origin]}`;
 }
 
+/**
+ * Story 3.12 — prefer `runIdFor`'s origin suffix when free; otherwise the
+ * next unused 4-hex that calendar day so a supersede never rewrites history.
+ */
+export function nextFreeRunId(
+  scheduledFor: string,
+  origin: RunOrigin,
+  existingIds: readonly string[]
+): string {
+  const preferred = runIdFor(scheduledFor, origin);
+  const used = new Set(existingIds);
+  if (!used.has(preferred)) return preferred;
+  const ymd = scheduledFor.replace(/-/g, "");
+  const start = Number.parseInt(preferred.slice(-4), 16);
+  for (let step = 1; step < 0x10000; step += 1) {
+    const suffix = ((start + step) % 0x10000).toString(16).padStart(4, "0");
+    const id = `run-${ymd}-${suffix}`;
+    if (!used.has(id)) return id;
+  }
+  throw new Error(`No free run id suffix for ${scheduledFor}`);
+}
+
 export async function ensureRun(
   db: Db,
   origin: RunOrigin,
-  scheduledFor: string
-): Promise<void> {
-  const existing = await runsRepo.findRunForDate(db, scheduledFor, origin);
+  scheduledFor: string,
+  runId?: string
+): Promise<string> {
+  const existing = runId
+    ? await runsRepo.getRunById(db, runId)
+    : await runsRepo.findRunForDate(db, scheduledFor, origin);
   const now = new Date().toISOString();
-  const id = existing?.id ?? runIdFor(scheduledFor, origin);
+  const id = existing?.id ?? runId ?? runIdFor(scheduledFor, origin);
   if (!existing) {
     try {
       await runsRepo.insertRun(db, {
@@ -55,6 +80,7 @@ export async function ensureRun(
     payload: { origin, scheduledFor },
     createdAt: now
   });
+  return id;
 }
 
 export async function finishEmpty(db: Db, runId: string): Promise<void> {
@@ -170,15 +196,16 @@ export type DailyPackageResult =
 /**
  * Body of Workflow `run-daily-step`. Empty packaging completes here (no LLM
  * step). Material packaging leaves the Run `running` for `reviewDailyRun`.
+ * Loads by id so a same-origin supersede cannot attach to the prior published
+ * row (`findRunForDate` is newest-first and would if clocks skew).
  */
 export async function packageDailyRun(
   db: Db,
-  origin: RunOrigin,
-  scheduledFor: string,
+  runId: string,
   gatewayDeps: GatewayDeps,
   checks: Record<string, SourceCheck> = {}
 ): Promise<DailyPackageResult> {
-  const run = await runsRepo.findRunForDate(db, scheduledFor, origin);
+  const run = await runsRepo.getRunById(db, runId);
   if (!run || run.status !== "running") {
     return { skip: true };
   }

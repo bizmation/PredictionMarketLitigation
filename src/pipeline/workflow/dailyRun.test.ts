@@ -5,7 +5,7 @@ import * as draftsRepo from "../../shared/db/repos/draftsRepo";
 import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import type { GatewayDeps, LlmProvider } from "../ai/gateway";
-import { kickDailyRun } from "./dailyRun";
+import { kickDailyRun, startOperatorRun } from "./dailyRun";
 import {
   afterPackaging,
   completeDailyStep,
@@ -13,6 +13,7 @@ import {
   finishEmpty,
   finishFailed,
   monitorAndPackage,
+  nextFreeRunId,
   packageDailyRun,
   reviewDailyRun,
   runIdFor
@@ -523,12 +524,7 @@ describe("packageDailyRun / reviewDailyRun (story 3.5)", () => {
     const id = runIdFor(date, "scheduled");
     await seedRoles();
     const provider = fakeProvider();
-    const packaged = await packageDailyRun(
-      testEnv.DB,
-      "scheduled",
-      date,
-      deps(provider)
-    );
+    const packaged = await packageDailyRun(testEnv.DB, id, deps(provider));
     expect(packaged).toEqual({
       skip: false,
       runId: id,
@@ -574,8 +570,7 @@ describe("packageDailyRun / reviewDailyRun (story 3.5)", () => {
     ]);
     const packaged = await packageDailyRun(
       testEnv.DB,
-      "scheduled",
-      date,
+      id,
       deps(provider),
       oneDraft
     );
@@ -599,5 +594,203 @@ describe("packageDailyRun / reviewDailyRun (story 3.5)", () => {
     expect(reviewEvents.indexOf("guardrails.passed")).toBeLessThan(
       reviewEvents.indexOf("gate.awaiting_approval")
     );
+  });
+});
+
+describe("nextFreeRunId / startOperatorRun (story 3.12)", () => {
+  const NOW = new Date("2026-01-15T16:00:00.000Z"); // 11:00 EST — off-hour twin
+
+  async function seed(input: {
+    id: string;
+    origin: "scheduled" | "catch-up" | "manual";
+    status: "running" | "published" | "awaiting" | "empty" | "failed";
+    scheduledFor: string;
+    startedAt: string;
+  }) {
+    await runsRepo.insertRun(testEnv.DB, {
+      id: input.id,
+      origin: input.origin,
+      mode: "hitl",
+      status: input.status,
+      startedAt: input.startedAt,
+      completedAt: input.status === "running" ? null : input.startedAt,
+      spendCents: 0,
+      spendCurrency: "USD",
+      budgetCents: null,
+      scheduledFor: input.scheduledFor
+    });
+  }
+
+  it("prefers 0002 for manual and allocates the next hex when 0002 is taken", () => {
+    expect(nextFreeRunId("2026-11-02", "manual", [])).toBe("run-20261102-0002");
+    expect(nextFreeRunId("2026-11-02", "manual", ["run-20261102-0002"])).toBe(
+      "run-20261102-0003"
+    );
+  });
+
+  it("starts an operator Run at an off-hour (skips the noon-ET guard)", async () => {
+    const create = vi.fn().mockResolvedValue({ id: "manual-2026-11-01-0002" });
+    const result = await startOperatorRun(
+      testEnv.DB,
+      { create },
+      {
+        origin: "manual",
+        scheduledFor: "2026-11-01",
+        now: NOW
+      }
+    );
+    expect(isRunTime(NOW)).toBe(false);
+    expect(result.status).toBe("started");
+    if (result.status !== "started") return;
+    expect(result.run.origin).toBe("manual");
+    expect(result.run.status).toBe("running");
+    expect(result.run.id).toBe("run-20261101-0002");
+    expect(result.run.scheduledFor).toBe("2026-11-01");
+    expect(create).toHaveBeenCalledWith({
+      params: {
+        origin: "manual",
+        scheduledFor: "2026-11-01",
+        runId: "run-20261101-0002"
+      },
+      id: "manual-2026-11-01-0002"
+    });
+  });
+
+  it("allocates suffix 0003 when 0002 is already used that day", async () => {
+    await seed({
+      id: "run-20261102-0002",
+      origin: "manual",
+      status: "empty",
+      scheduledFor: "2026-11-02",
+      startedAt: "2026-11-02T12:00:00.000Z"
+    });
+    const create = vi.fn().mockResolvedValue({});
+    const result = await startOperatorRun(
+      testEnv.DB,
+      { create },
+      {
+        origin: "manual",
+        scheduledFor: "2026-11-02",
+        now: new Date("2026-11-02T18:00:00.000Z")
+      }
+    );
+    expect(result.status).toBe("started");
+    if (result.status !== "started") return;
+    expect(result.run.id).toBe("run-20261102-0003");
+  });
+
+  it("packageDailyRun follows the pinned id, not the newest same-origin row", async () => {
+    await seed({
+      id: "run-20261103-0002",
+      origin: "manual",
+      status: "published",
+      scheduledFor: "2026-11-03",
+      startedAt: "2026-09-12T18:00:00.000Z"
+    });
+    await seed({
+      id: "run-20261103-0003",
+      origin: "manual",
+      status: "running",
+      scheduledFor: "2026-11-03",
+      startedAt: "2026-09-12T12:00:00.000Z"
+    });
+    const pinned = await ensureRun(
+      testEnv.DB,
+      "manual",
+      "2026-11-03",
+      "run-20261103-0003"
+    );
+    expect(pinned).toBe("run-20261103-0003");
+    const packaged = await packageDailyRun(testEnv.DB, pinned, {
+      db: testEnv.DB,
+      provider: {
+        name: "fake",
+        complete: async () => {
+          throw new Error("unused");
+        }
+      }
+    });
+    expect(packaged.skip).toBe(false);
+    if (packaged.skip) return;
+    expect(packaged.runId).toBe("run-20261103-0003");
+    expect(
+      (await runsRepo.getRunById(testEnv.DB, "run-20261103-0002"))?.status
+    ).toBe("published");
+  });
+
+  it("marks the inserted Run failed when the workflow binding is missing", async () => {
+    const result = await startOperatorRun(testEnv.DB, undefined, {
+      origin: "manual",
+      scheduledFor: "2026-11-04",
+      now: NOW
+    });
+    expect(result.status).toBe("workflow_unavailable");
+    if (result.status !== "workflow_unavailable") return;
+    expect(result.run.status).toBe("failed");
+    const evidence = await evidenceRepo.listByRun(testEnv.DB, result.run.id);
+    expect(evidence.some((event) => event.event === "run.failed")).toBe(true);
+  });
+
+  it("marks the inserted Run failed when workflow.create rejects", async () => {
+    const create = vi.fn().mockRejectedValue(new Error("already exists"));
+    const result = await startOperatorRun(
+      testEnv.DB,
+      { create },
+      {
+        origin: "manual",
+        scheduledFor: "2026-11-18",
+        now: NOW
+      }
+    );
+    expect(result.status).toBe("workflow_unavailable");
+    if (result.status !== "workflow_unavailable") return;
+    expect(result.run.status).toBe("failed");
+    const evidence = await evidenceRepo.listByRun(testEnv.DB, result.run.id);
+    expect(evidence.some((event) => event.event === "run.failed")).toBe(true);
+  });
+
+  it("returns supersede_required against a published sibling and records it on confirm", async () => {
+    await seed({
+      id: "run-20261105-0000",
+      origin: "scheduled",
+      status: "published",
+      scheduledFor: "2026-11-05",
+      startedAt: "2026-11-05T17:00:00.000Z"
+    });
+    const blocked = await startOperatorRun(
+      testEnv.DB,
+      { create: vi.fn() },
+      {
+        origin: "manual",
+        scheduledFor: "2026-11-05",
+        now: NOW
+      }
+    );
+    expect(blocked).toEqual({
+      status: "supersede_required",
+      priorRunId: "run-20261105-0000"
+    });
+
+    const create = vi.fn().mockResolvedValue({});
+    const confirmed = await startOperatorRun(
+      testEnv.DB,
+      { create },
+      {
+        origin: "manual",
+        scheduledFor: "2026-11-05",
+        supersedePriorPublish: true,
+        now: NOW
+      }
+    );
+    expect(confirmed.status).toBe("started");
+    if (confirmed.status !== "started") return;
+    const evidence = await evidenceRepo.listByRun(testEnv.DB, confirmed.run.id);
+    const superseded = evidence.find(
+      (event) => event.event === "run.superseded"
+    );
+    expect(superseded?.payload).toEqual({ priorRunId: "run-20261105-0000" });
+    expect(
+      (await runsRepo.getRunById(testEnv.DB, "run-20261105-0000"))?.status
+    ).toBe("published");
   });
 });

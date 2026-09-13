@@ -227,6 +227,32 @@ describe("EvidenceDetail (story 3.8)", () => {
     noLogin(html);
   });
 
+  it("prints run.superseded · priorRunId on the Evidence timeline", () => {
+    const html = renderToStaticMarkup(
+      <EvidenceDetail
+        runId="run-20260908-ccc3"
+        detail={detail({
+          id: "run-20260908-ccc3",
+          origin: "manual",
+          status: "running",
+          completedAt: null,
+          drafts: [],
+          llmCalls: [],
+          evidence: [
+            event({
+              id: "ev-sup",
+              seq: 0,
+              event: "run.superseded",
+              runId: "run-20260908-ccc3",
+              payload: { priorRunId: "run-20260908-aaa1" }
+            })
+          ]
+        })}
+      />
+    );
+    expect(html).toContain("run.superseded · run-20260908-aaa1");
+  });
+
   it("keeps $0.00, evals-not-run, and No draft produced on an empty Run", () => {
     const html = renderToStaticMarkup(
       <EvidenceDetail

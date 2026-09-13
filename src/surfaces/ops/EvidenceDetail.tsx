@@ -160,7 +160,10 @@ function payloadField(payload: unknown, key: string): string | null {
 function stepLabel(event: EvidenceEvent): string {
   const tool = payloadField(event.payload, "tool");
   const source = payloadField(event.payload, "source");
-  const extra = [source, tool].filter((part): part is string => part != null);
+  const priorRunId = payloadField(event.payload, "priorRunId");
+  const extra = [source, tool, priorRunId].filter(
+    (part): part is string => part != null
+  );
   return extra.length > 0
     ? `${event.event} · ${extra.join(" · ")}`
     : event.event;

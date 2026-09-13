@@ -10,6 +10,7 @@ import {
   type TopBarLink
 } from "../../shared/ui";
 import { ApprovalQueue } from "./ApprovalQueue";
+import { LoopControls } from "./LoopControls";
 import { useAdminSession } from "./useAdminSession";
 
 /**
@@ -27,8 +28,9 @@ import { useAdminSession } from "./useAdminSession";
  *      NOT name — `ops.`, and historically workers.dev and preview URLs, where
  *      the Access header is forgeable. See src/shared/lib/access.ts.
  *
- * The `#mode` band is still a placeholder (3.13) — the `#queue` band is
- * wired (Story 3.10) behind the two layers below, and the chrome says so.
+ * The `#mode` band is still a placeholder (3.13) — `#queue` (3.10) and
+ * `#loop` (3.12) are wired behind the two layers below, and the chrome
+ * says so.
  */
 
 type AdminShellProps = {
@@ -57,6 +59,7 @@ export function AdminShell({ dev = false, operator }: AdminShellProps) {
 
   const links: TopBarLink[] = [
     { href: "#queue", label: "Approval queue" },
+    { href: "#loop", label: "Loop controls" },
     { href: "#mode", label: "Mode controls" },
     { href: opsHref, label: "ops.", external: true },
     { href: apexHref, label: "Tracker", external: true }
@@ -105,8 +108,17 @@ export function AdminShell({ dev = false, operator }: AdminShellProps) {
         </SectionBand>
 
         <SectionBand
-          id="mode"
+          id="loop"
           kicker="02"
+          title="Loop controls"
+          why="Start a Run without waiting for noon ET. Re-running a published day requires confirming supersede."
+        >
+          <LoopControls />
+        </SectionBand>
+
+        <SectionBand
+          id="mode"
+          kicker="03"
           title="Mode controls"
           why="Switching autonomous mode on or off — restricted to the operator, and audited publicly."
         >
