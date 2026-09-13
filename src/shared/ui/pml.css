@@ -2571,7 +2571,110 @@ button:focus-visible {
   font-size: 12.5px;
 }
 @media (max-width: 980px) {
-  .queue {
+  .queue,
+  .modepanel {
     grid-template-columns: 1fr;
   }
+}
+
+/* ---- mode controls / transparency (story 3.13) ----------- */
+.modepanel {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-6);
+}
+.switchrow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  border: 1px solid var(--color-neutral-700);
+  padding: var(--space-4);
+}
+.switchrow .lab {
+  font-family: var(--font-heading);
+  font-size: 21px;
+  font-weight: 400;
+}
+.toggle {
+  position: relative;
+  width: 66px;
+  height: 28px;
+  border: 1px solid var(--color-neutral-700);
+  background: var(--color-bg);
+  cursor: pointer;
+  flex: none;
+}
+.toggle i {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 30px;
+  height: 22px;
+  background: var(--color-neutral-400);
+  transition:
+    left 0.15s,
+    background 0.15s;
+}
+.toggle[aria-pressed="true"] {
+  border-color: var(--color-accent-600);
+  background: var(--color-accent-100);
+}
+.toggle[aria-pressed="true"] i {
+  left: 32px;
+  background: var(--color-accent);
+}
+.toggle:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.modebox {
+  border: 1px solid var(--color-neutral-700);
+}
+.modebox .mb {
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--color-divider);
+}
+.modebox .mb:last-child {
+  border-bottom: 0;
+}
+.modebox .big {
+  font-family: var(--font-heading);
+  font-size: 30px;
+  font-weight: 400;
+  line-height: 1.1;
+}
+.modebox dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 118px 1fr;
+  gap: 6px var(--space-3);
+  font-size: 12.5px;
+}
+.modebox dt {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-neutral-600);
+  padding-top: 2px;
+}
+.modebox dd {
+  margin: 0;
+  line-height: 1.5;
+}
+.log {
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.log ul {
+  margin: 0;
+  padding: 0;
+}
+.log li {
+  border-bottom: 1px solid var(--color-divider);
+  padding: var(--space-2) 0;
+  list-style: none;
 }

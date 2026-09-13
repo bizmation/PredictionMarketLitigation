@@ -138,7 +138,9 @@ describe("OpsShell", () => {
     const html = ops();
     expect(html).toContain('class="empty"');
     expect(html).not.toContain("No drafts awaiting approval"); // 3.9 wired this band
-    expect(html).toContain("Mode transparency not yet wired");
+    expect(html).not.toContain("Mode transparency not yet wired");
+    expect(html).toContain("HITL — human in the loop");
+    expect(html).toContain("auto-approve threshold 70");
     expect(html).toContain("Explainer not yet built");
     expect(html).toContain("No posts yet");
   });
@@ -286,7 +288,9 @@ describe("AdminShell", () => {
     expect(html).toContain('id="loop"');
     expect(html).toContain('href="#loop"');
     expect(html).toContain('id="mode"');
-    expect(html).toContain("Controls not yet wired");
+    expect(html).not.toContain("Controls not yet wired");
+    expect(html).toContain("Autonomous mode is OFF");
+    expect(html).toContain('class="toggle"');
   });
 
   it("renders the operator session strip (story 1.4)", () => {

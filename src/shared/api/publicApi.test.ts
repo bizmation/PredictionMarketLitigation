@@ -1533,3 +1533,36 @@ describe("public schedule (story 3.7)", () => {
     expect(res.headers.get("allow")).toBe("GET, HEAD");
   });
 });
+
+describe("public mode (story 3.13)", () => {
+  it("returns HITL / 70 / empty audit when nothing has been written", async () => {
+    await testEnv.DB.prepare(
+      `UPDATE approval_mode
+          SET mode = 'hitl', threshold = 70, version = 1,
+              updated_at = '2026-09-13T00:00:00.000Z'
+        WHERE id = 'current'`
+    ).run();
+    await testEnv.DB.prepare("DELETE FROM mode_audit").run();
+    const res = await worker.fetch!(get("/api/mode"), testEnv);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toContain("no-store");
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      mode: "hitl",
+      threshold: 70,
+      audit: []
+    });
+    expect(typeof body.version).toBe("number");
+    expect(typeof body.updatedAt).toBe("string");
+    expect(body).not.toHaveProperty("items");
+  });
+
+  it("rejects POST /api/mode with 405 and allow GET, HEAD", async () => {
+    const res = await worker.fetch!(
+      new Request("https://pml.example.com/api/mode", { method: "POST" }),
+      testEnv
+    );
+    expect(res.status).toBe(405);
+    expect(res.headers.get("allow")).toBe("GET, HEAD");
+  });
+});

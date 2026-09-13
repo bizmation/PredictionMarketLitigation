@@ -1,8 +1,9 @@
 import { env } from "cloudflare:workers";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import * as draftsRepo from "../../shared/db/repos/draftsRepo";
 import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
+import * as modeRepo from "../../shared/db/repos/modeRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import type { GatewayDeps, LlmProvider } from "../ai/gateway";
 import { kickDailyRun, startOperatorRun } from "./dailyRun";
@@ -238,6 +239,28 @@ describe("completeDailyStep (story 3.3/3.4)", () => {
     expect(
       evidence.filter((e) => e.event === "run.failed").map((e) => e.payload)
     ).toContainEqual({ reason: "error" });
+  });
+
+  it("does not append run.failed when completeRun did not move an awaiting Run", async () => {
+    const awaitingDate = "2026-09-14";
+    await ensureRun(testEnv.DB, "scheduled", awaitingDate);
+    const id = runIdFor(awaitingDate, "scheduled");
+    await completeDailyStep(testEnv.DB, id, {
+      draftCount: 1,
+      anyFailure: false
+    });
+    expect((await runsRepo.getRunById(testEnv.DB, id))?.status).toBe(
+      "awaiting"
+    );
+    await finishFailed(testEnv.DB, id);
+    expect((await runsRepo.getRunById(testEnv.DB, id))?.status).toBe(
+      "awaiting"
+    );
+    expect(
+      (await evidenceRepo.listByRun(testEnv.DB, id)).some(
+        (e) => e.event === "run.failed"
+      )
+    ).toBe(false);
   });
 });
 
@@ -819,5 +842,147 @@ describe("nextFreeRunId / startOperatorRun (story 3.12)", () => {
     expect(
       (await runsRepo.getRunById(testEnv.DB, "run-20261105-0000"))?.status
     ).toBe("published");
+  });
+});
+
+describe("mode stamp + YOLO hook (story 3.13)", () => {
+  async function restoreMode() {
+    await testEnv.DB.prepare(
+      `UPDATE approval_mode
+          SET mode = 'hitl', threshold = 70, version = 1,
+              updated_at = '2026-09-13T00:00:00.000Z'
+        WHERE id = 'current'`
+    ).run();
+    await testEnv.DB.prepare("DELETE FROM mode_audit").run();
+    await testEnv.DB.prepare(
+      `UPDATE states
+          SET operational_status = 'banned', provenance_kind = 'human',
+              published_at = '2026-08-09T16:00:00.000Z',
+              updated_at = '2026-08-09T16:00:00.000Z'
+        WHERE id = 'st-nv'`
+    ).run();
+  }
+
+  afterEach(async () => {
+    await restoreMode();
+  });
+
+  const NOW = "2026-12-01T16:00:00.000Z";
+
+  function fakeProvider(): LlmProvider {
+    return {
+      name: "fake",
+      complete: async () => ({
+        text: "{}",
+        inputTokens: 1,
+        outputTokens: 1,
+        costCents: 0
+      })
+    };
+  }
+
+  it("stamps scheduled and operator Runs from the live mode", async () => {
+    await modeRepo.set(testEnv.DB, {
+      mode: "yolo",
+      actor: "Patrick",
+      now: NOW
+    });
+    await ensureRun(testEnv.DB, "scheduled", "2026-12-01");
+    const scheduled = await runsRepo.getRunById(
+      testEnv.DB,
+      runIdFor("2026-12-01", "scheduled")
+    );
+    expect(scheduled?.mode).toBe("yolo");
+
+    const started = await startOperatorRun(
+      testEnv.DB,
+      { create: vi.fn().mockResolvedValue({}) },
+      {
+        origin: "manual",
+        scheduledFor: "2026-12-02",
+        now: new Date(NOW)
+      }
+    );
+    expect(started.status).toBe("started");
+    if (started.status !== "started") return;
+    expect(started.run.mode).toBe("yolo");
+  });
+
+  it("auto-approves an eligible YOLO Run after packaging and leaves HITL pending", async () => {
+    const yoloDate = "2026-12-03";
+    await modeRepo.set(testEnv.DB, {
+      mode: "yolo",
+      actor: "Patrick",
+      now: NOW
+    });
+    await ensureRun(testEnv.DB, "scheduled", yoloDate);
+    const yoloId = runIdFor(yoloDate, "scheduled");
+    await draftsRepo.insertDraft(testEnv.DB, {
+      id: `d:${yoloId}:states:st-nv`,
+      runId: yoloId,
+      targetEntityType: "states",
+      targetEntityId: "st-nv",
+      diff: { operationalStatus: { from: "go", to: "restricted" } },
+      body: "Eligible YOLO draft.",
+      tier2Only: false,
+      confidence: 80,
+      evalSummary: {
+        status: "ok",
+        basis: "ok",
+        citationCompleteness: 90,
+        disagreement: { flagged: false, description: null },
+        ineligible: []
+      },
+      createdAt: NOW
+    });
+    await afterPackaging(
+      testEnv.DB,
+      yoloId,
+      { draftCount: 1, anyFailure: false },
+      { db: testEnv.DB, provider: fakeProvider(), now: () => NOW }
+    );
+    const approved = await draftsRepo.getById(
+      testEnv.DB,
+      `d:${yoloId}:states:st-nv`
+    );
+    expect(approved?.outcome).toBe("approved");
+    expect(approved?.decidedBy).toBe("approval-agent");
+    const events = await evidenceRepo.listByRun(testEnv.DB, yoloId);
+    expect(events.some((e) => e.event === "yolo.validated")).toBe(true);
+    expect(events.some((e) => e.event === "gate.decided")).toBe(true);
+
+    await restoreMode();
+    const hitlDate = "2026-12-04";
+    await ensureRun(testEnv.DB, "scheduled", hitlDate);
+    const hitlId = runIdFor(hitlDate, "scheduled");
+    expect((await runsRepo.getRunById(testEnv.DB, hitlId))?.mode).toBe("hitl");
+    await draftsRepo.insertDraft(testEnv.DB, {
+      id: `d:${hitlId}:states:st-nv`,
+      runId: hitlId,
+      targetEntityType: "states",
+      targetEntityId: "st-nv",
+      diff: { operationalStatus: { from: "go", to: "restricted" } },
+      body: "Eligible HITL draft.",
+      tier2Only: false,
+      confidence: 80,
+      evalSummary: {
+        status: "ok",
+        basis: "ok",
+        citationCompleteness: 90,
+        disagreement: { flagged: false, description: null },
+        ineligible: []
+      },
+      createdAt: NOW
+    });
+    await afterPackaging(
+      testEnv.DB,
+      hitlId,
+      { draftCount: 1, anyFailure: false },
+      { db: testEnv.DB, provider: fakeProvider(), now: () => NOW }
+    );
+    expect(
+      (await draftsRepo.getById(testEnv.DB, `d:${hitlId}:states:st-nv`))
+        ?.outcome
+    ).toBeNull();
   });
 });

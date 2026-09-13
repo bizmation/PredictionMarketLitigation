@@ -602,7 +602,7 @@ describe("admin approval queue (story 3.10)", () => {
     expect(await evidenceCount("run-completed-run-20260912-511b")).toBe(1);
   });
 
-  it("freezes provenance_kind=agent when the run mode is yolo", async () => {
+  it("freezes provenance_kind=human when a human POST approves a yolo Run", async () => {
     await seedRun("run-20260912-311a", "yolo");
     await seedPendingDraft("d-yolo", "run-20260912-311a");
 
@@ -613,10 +613,10 @@ describe("admin approval queue (story 3.10)", () => {
       realEnv()
     );
     expect(res.status).toBe(200);
-    expect((await nvRow()).provenance_kind).toBe("agent");
+    expect((await nvRow()).provenance_kind).toBe("human");
     expect(await publicNv()).toMatchObject({
       posture: "pending",
-      provenanceKind: "agent"
+      provenanceKind: "human"
     });
   });
 
@@ -1341,10 +1341,174 @@ describe("admin loop controls (story 3.12)", () => {
     expect(row?.status).toBe("failed");
   });
 
-  it("keeps #mode and unknown admin paths as 404 after the new routes", async () => {
-    const mode = await auth("/api/admin/mode");
-    expect(mode.status).toBe(404);
+  it("keeps unknown admin paths as 404 after the new routes", async () => {
     const ping = await auth("/api/admin/ping");
     expect(ping.status).toBe(404);
+  });
+});
+
+async function restoreApprovalMode() {
+  await testEnv.DB.prepare(
+    `UPDATE approval_mode
+        SET mode = 'hitl', threshold = 70, version = 1,
+            updated_at = '2026-09-13T00:00:00.000Z'
+      WHERE id = 'current'`
+  ).run();
+  await testEnv.DB.prepare("DELETE FROM mode_audit").run();
+}
+
+describe("admin mode (story 3.13)", () => {
+  beforeEach(async () => {
+    await restoreApprovalMode();
+  });
+  afterEach(async () => {
+    await restoreApprovalMode();
+  });
+
+  async function publicMode() {
+    const res = await worker.fetch(get("/api/mode"), testEnv);
+    return res.json() as Promise<{
+      mode: string;
+      threshold: number;
+      audit: Array<{ actorDisplayName: string; kind: string }>;
+    }>;
+  }
+
+  it("rejects anonymous and wrong-identity POSTs with the opaque 403", async () => {
+    const before = await publicMode();
+    const anonRes = await worker.fetch(
+      get("/api/admin/mode", {
+        method: "POST",
+        body: JSON.stringify({ mode: "yolo" })
+      }),
+      anon
+    );
+    expect(anonRes.status).toBe(403);
+    expect(await anonRes.json()).toEqual({
+      code: "forbidden",
+      message: expect.any(String)
+    });
+    const other = await sign("other@example.com");
+    const wrong = await worker.fetch(
+      jsonPost(other, "/api/admin/mode", { mode: "yolo" }),
+      realEnv()
+    );
+    expect(wrong.status).toBe(403);
+    expect(await wrong.json()).toEqual({
+      code: "forbidden",
+      message: expect.any(String)
+    });
+    expect(await publicMode()).toEqual(before);
+  });
+
+  it("rejects an out-of-set body with 400 and leaves the mode unchanged", async () => {
+    const badMode = await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/mode", { mode: "auto" }),
+      realEnv()
+    );
+    expect(badMode.status).toBe(400);
+    const badThreshold = await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/mode", { threshold: 0.92 }),
+      realEnv()
+    );
+    expect(badThreshold.status).toBe(400);
+    const over = await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/mode", { threshold: 101 }),
+      realEnv()
+    );
+    expect(over.status).toBe(400);
+    expect(await publicMode()).toMatchObject({ mode: "hitl", threshold: 70 });
+  });
+
+  it("enables YOLO with an audit row carrying displayName, never email", async () => {
+    const res = await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/mode", { mode: "yolo" }),
+      realEnv()
+    );
+    expect(res.status).toBe(200);
+    expectUncacheable(res);
+    const raw = await res.clone().text();
+    expect(raw).not.toContain(EMAIL);
+    const body = JSON.parse(raw) as {
+      mode: string;
+      threshold: number;
+      audit: Array<{
+        actorDisplayName: string;
+        kind: string;
+        prior: { mode?: string };
+        next: { mode?: string };
+      }>;
+    };
+    expect(body.mode).toBe("yolo");
+    expect(body.threshold).toBe(70);
+    expect(body.audit).toHaveLength(1);
+    expect(body.audit[0]).toMatchObject({
+      actorDisplayName: DISPLAY_NAME,
+      kind: "mode",
+      prior: { mode: "hitl" },
+      next: { mode: "yolo" }
+    });
+    expect(await publicMode()).toMatchObject({ mode: "yolo", threshold: 70 });
+  });
+
+  it("disables YOLO with a new audit row and leaves the public mode HITL", async () => {
+    await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/mode", { mode: "yolo" }),
+      realEnv()
+    );
+    const res = await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/mode", { mode: "hitl" }),
+      realEnv()
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      mode: string;
+      audit: Array<{
+        kind: string;
+        prior: { mode?: string };
+        next: { mode?: string };
+      }>;
+    };
+    expect(body.mode).toBe("hitl");
+    expect(body.audit[0]).toMatchObject({
+      kind: "mode",
+      prior: { mode: "yolo" },
+      next: { mode: "hitl" }
+    });
+    expect(await publicMode()).toMatchObject({ mode: "hitl", threshold: 70 });
+  });
+
+  it("writes a threshold audit and does not auto-approve just because the number moved", async () => {
+    const res = await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/mode", { threshold: 80 }),
+      realEnv()
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      mode: string;
+      threshold: number;
+      audit: Array<{ kind: string; prior: { threshold?: number } }>;
+    };
+    expect(body.mode).toBe("hitl");
+    expect(body.threshold).toBe(80);
+    expect(body.audit[0]).toMatchObject({
+      kind: "threshold",
+      prior: { threshold: 70 }
+    });
+  });
+
+  it("returns 200 with no new audit row when POST matches the current values", async () => {
+    const first = await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/mode", { mode: "hitl" }),
+      realEnv()
+    );
+    expect(first.status).toBe(200);
+    expect(((await first.json()) as { audit: unknown[] }).audit).toHaveLength(
+      0
+    );
+    const count = await testEnv.DB.prepare(
+      "SELECT COUNT(*) AS n FROM mode_audit"
+    ).first<{ n: number }>();
+    expect(count?.n).toBe(0);
   });
 });

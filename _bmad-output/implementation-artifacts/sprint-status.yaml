@@ -36,7 +36,7 @@
 # - Source epics: _bmad-output/planning-artifacts/epics.md (35 stories, readiness punch list applied 2026-08-09)
 
 generated: 2026-08-09
-last_updated: 09-13-2026 15:58
+last_updated: 09-13-2026 17:50
 project: PML
 project_key: NOKEY
 tracking_system: file-system
@@ -80,7 +80,7 @@ development_status:
   3-10-admin-hitl-approval-queue: done
   3-11-publish-to-live-f1-provenance-diffs: done
   3-12-operator-loop-controls: done
-  3-13-autonomous-mode-yolo-bounds-mode-transparency: backlog
+  3-13-autonomous-mode-yolo-bounds-mode-transparency: done
   # Added by sprint-change-proposal-2026-08-09 (operator steering, F9 / FR-46-50)
   3-14-steering-channel-foundation-action-policy-evidence: backlog
   3-15-draft-interrogation-read-only: backlog

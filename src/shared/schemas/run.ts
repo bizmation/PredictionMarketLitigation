@@ -99,17 +99,19 @@ export const RunLogItemSchema = z
 export type RunLogItem = z.infer<typeof RunLogItemSchema>;
 
 /**
- * FR17 ineligibility reasons persisted on a Draft for later auto-approve
- * policy (3.13). Closed set — 3.5 records the inputs; 3.6 adds
- * `guardrail_fail` so a hard fail is never agent-auto-approvable. This
- * story does not enforce the gate.
+ * FR17 ineligibility reasons persisted on a Draft for auto-approve
+ * policy (3.13). Closed set — 3.5 records the eval/tier/threshold inputs;
+ * 3.6 adds `guardrail_fail`; 3.13 adds `posture_flip` and
+ * `party_characterization` so those escalate categories never auto-approve.
  */
 export const INELIGIBLE_REASON_VALUES = [
   "tier2_only",
   "below_threshold",
   "eval_fail",
   "evals_not_run",
-  "guardrail_fail"
+  "guardrail_fail",
+  "posture_flip",
+  "party_characterization"
 ] as const;
 
 export const IneligibleReasonSchema = z.enum(INELIGIBLE_REASON_VALUES);

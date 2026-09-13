@@ -253,6 +253,25 @@ describe("EvidenceDetail (story 3.8)", () => {
     expect(html).toContain("run.superseded · run-20260908-aaa1");
   });
 
+  it("prints yolo.validated extras for verdict and draftId", () => {
+    const html = renderToStaticMarkup(
+      <EvidenceDetail
+        runId="run-20260908-aaa1"
+        detail={detail({
+          evidence: [
+            event({
+              id: "ev-yolo",
+              seq: 0,
+              event: "yolo.validated",
+              payload: { verdict: "approve", draftId: "d-auto-ok" }
+            })
+          ]
+        })}
+      />
+    );
+    expect(html).toContain("yolo.validated · approve · d-auto-ok");
+  });
+
   it("keeps $0.00, evals-not-run, and No draft produced on an empty Run", () => {
     const html = renderToStaticMarkup(
       <EvidenceDetail

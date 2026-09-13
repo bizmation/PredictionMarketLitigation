@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import * as draftsRepo from "../../shared/db/repos/draftsRepo";
 import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
+import * as modeRepo from "../../shared/db/repos/modeRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import type { EvalSummary } from "../../shared/schemas/run";
 import type { GatewayDeps, LlmProvider } from "../ai/gateway";
@@ -10,7 +11,8 @@ import { completeDailyStep } from "../workflow/dailyRunSteps";
 import {
   AUTO_APPROVE_CONFIDENCE_THRESHOLD,
   buildScopedPrompt,
-  draftAndReview
+  draftAndReview,
+  ineligibleFor
 } from "./draftAndReview";
 
 /**
@@ -148,15 +150,22 @@ async function insertRun(overrides: { budgetCents?: number | null } = {}) {
 
 async function insertShellDraft(
   runId: string,
-  opts: { id?: string; tier2Only?: boolean; confidence?: number | null } = {}
+  opts: {
+    id?: string;
+    tier2Only?: boolean;
+    confidence?: number | null;
+    targetEntityType?: string;
+    targetEntityId?: string;
+    diff?: unknown;
+  } = {}
 ) {
   const id = opts.id ?? `d:${runId}:states:st-nv`;
   await draftsRepo.insertDraft(testEnv.DB, {
     id,
     runId,
-    targetEntityType: "states",
-    targetEntityId: "st-nv",
-    diff: SHELL_DIFF,
+    targetEntityType: opts.targetEntityType ?? "states",
+    targetEntityId: opts.targetEntityId ?? "st-nv",
+    diff: opts.diff ?? SHELL_DIFF,
     body: SHELL_BODY,
     tier2Only: opts.tier2Only ?? false,
     confidence: opts.confidence === undefined ? 80 : opts.confidence,
@@ -772,5 +781,91 @@ describe("draftAndReview (story 3.5)", () => {
     expect(joined).toContain(SHELL_BODY);
     expect(joined).not.toContain("operator@secret.example");
     expect(joined).not.toContain("career notes must not leak");
+  });
+
+  it("stamps posture_flip and party_characterization on ineligible", () => {
+    expect(
+      ineligibleFor(
+        { tier2Only: false, targetEntityType: "states" },
+        "ok",
+        90,
+        70,
+        { posture: { from: "untracked", to: "pending" } }
+      )
+    ).toEqual(["posture_flip"]);
+    expect(
+      ineligibleFor(
+        { tier2Only: false, targetEntityType: "entities" },
+        "ok",
+        90,
+        70,
+        { operationalStatus: { from: "go", to: "restricted" } }
+      )
+    ).toEqual(["party_characterization"]);
+  });
+
+  it("records posture_flip from the live drafter diff", async () => {
+    const runId = await insertRun();
+    await insertShellDraft(runId);
+    await seedConfig(DRAFTER_REVIEWER_ROLES);
+    const provider = fakeProvider([
+      {
+        text: drafterJson({
+          diff: { posture: { from: "untracked", to: "pending" } }
+        })
+      },
+      { text: reviewJson() }
+    ]);
+    await draftAndReview(testEnv.DB, runId, deps(provider));
+    expect(
+      evalOf((await draftsRepo.listByRun(testEnv.DB, runId))[0]!).ineligible
+    ).toEqual(["posture_flip"]);
+  });
+
+  it("records party_characterization when the target is entities", async () => {
+    const runId = await insertRun();
+    await insertShellDraft(runId, {
+      id: `d:${runId}:entities:kalshi`,
+      targetEntityType: "entities",
+      targetEntityId: "kalshi"
+    });
+    await seedConfig(DRAFTER_REVIEWER_ROLES);
+    const provider = fakeProvider([
+      { text: drafterJson() },
+      { text: reviewJson() }
+    ]);
+    await draftAndReview(testEnv.DB, runId, deps(provider));
+    expect(
+      evalOf((await draftsRepo.listByRun(testEnv.DB, runId))[0]!).ineligible
+    ).toEqual(["party_characterization"]);
+  });
+
+  it("uses the live threshold from approval_mode", async () => {
+    await modeRepo.set(testEnv.DB, {
+      threshold: 80,
+      actor: "Patrick",
+      now: NOW
+    });
+    try {
+      const runId = await insertRun();
+      await insertShellDraft(runId);
+      await seedConfig(DRAFTER_REVIEWER_ROLES);
+      const provider = fakeProvider([
+        { text: drafterJson() },
+        { text: reviewJson({ confidence: 72 }) }
+      ]);
+      await draftAndReview(testEnv.DB, runId, deps(provider));
+      expect(
+        evalOf((await draftsRepo.listByRun(testEnv.DB, runId))[0]!).ineligible
+      ).toEqual(["below_threshold"]);
+    } finally {
+      await testEnv.DB.prepare(
+        `UPDATE approval_mode
+            SET mode = 'hitl', threshold = 70, version = 1,
+                updated_at = '2026-09-13T00:00:00.000Z'
+          WHERE id = 'current'`
+      ).run();
+      await testEnv.DB.prepare("DELETE FROM mode_audit").run();
+    }
   });
 });
