@@ -2,15 +2,19 @@ import { z } from "zod";
 
 import type { Db } from "../../shared/db/client";
 import * as draftsRepo from "../../shared/db/repos/draftsRepo";
+import * as runsRepo from "../../shared/db/repos/runsRepo";
 import { IsoUtcSchema } from "../../shared/schemas/common";
 import { type DraftRecord } from "../../shared/schemas/run";
 import { appendStmt } from "../projector/evidence";
+import { applyF1Stmt } from "./f1Apply";
 
 /**
- * Story 3.10 — the Approval Gate's decision module. The ONLY writer of gate
- * decisions: one atomic `db.batch` of the Draft UPDATE plus the projector's
- * `gate.decided` Evidence append. Nothing here touches F1 tables, Run status,
- * or `run.completed` — publish is 3.11's extension point on this module.
+ * Story 3.10/3.11 — the Approval Gate's decision module. The ONLY writer of
+ * gate decisions and of live F1 mutations: one atomic `db.batch` of the Draft
+ * UPDATE, the F1 apply (approve/edit only), `gate.decided`, and — when no
+ * sibling Draft remains pending — the awaiting→published|rejected Run
+ * terminal plus `run.completed`. Retry is `already_decided` / 409 and must
+ * not apply F1 a second time.
  *
  * `decidedBy` is the verified operator's public-safe `displayName` (never the
  * email — access.ts types that as never safe to render), because the
@@ -92,6 +96,9 @@ export async function decide(
   if (!existing) return { status: "not_found" };
   if (existing.outcome != null) return { status: "already_decided" };
 
+  const run = await runsRepo.getRunById(db, existing.runId);
+  if (!run) return { status: "invalid" };
+
   const outcome =
     action === "approve"
       ? "approved"
@@ -104,6 +111,28 @@ export async function decide(
     action === "reject" ? (parsed.data.rejectReason ?? null) : null;
   const privateReason =
     action === "reject" ? (parsed.data.rejectReasonPrivate ?? null) : null;
+
+  const statements: D1PreparedStatement[] = [];
+  let draftStmtIndex = 0;
+
+  if (action !== "reject") {
+    try {
+      statements.push(
+        await applyF1Stmt(db, {
+          draftId,
+          targetEntityType: existing.targetEntityType,
+          targetEntityId: existing.targetEntityId,
+          diff: existing.diff,
+          provenanceKind: run.mode === "yolo" ? "agent" : "human",
+          now,
+          approver: operator.displayName
+        })
+      );
+      draftStmtIndex = 1;
+    } catch {
+      return { status: "invalid" };
+    }
+  }
 
   let update: D1PreparedStatement;
   try {
@@ -121,8 +150,8 @@ export async function decide(
     return { status: "invalid" };
   }
 
-  await db.batch([
-    update,
+  statements.push(update);
+  statements.push(
     appendStmt(db, {
       id: `gate-decided-${draftId}`,
       runId: existing.runId,
@@ -135,7 +164,41 @@ export async function decide(
       },
       createdAt: now
     })
-  ]);
+  );
+
+  const siblings = await draftsRepo.listByRun(db, existing.runId);
+  const otherPending = siblings.some(
+    (draft) => draft.id !== draftId && draft.outcome == null
+  );
+  if (!otherPending && run.status === "awaiting") {
+    const published =
+      action !== "reject" ||
+      siblings.some(
+        (draft) => draft.outcome === "approved" || draft.outcome === "edited"
+      );
+    const terminal = published ? "published" : "rejected";
+    statements.push(
+      runsRepo.terminalAwaitingRunStmt(db, existing.runId, terminal, now)
+    );
+    statements.push(
+      appendStmt(db, {
+        id: `run-completed-${existing.runId}`,
+        runId: existing.runId,
+        event: "run.completed",
+        payload: { status: terminal },
+        createdAt: now
+      })
+    );
+  }
+
+  try {
+    const results = await db.batch(statements);
+    if (results[draftStmtIndex]?.meta.changes === 0) {
+      return { status: "already_decided" };
+    }
+  } catch {
+    return { status: "invalid" };
+  }
 
   const record = await draftsRepo.getById(db, draftId);
   if (!record) return { status: "not_found" };

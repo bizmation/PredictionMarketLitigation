@@ -354,6 +354,9 @@ describe("EvidenceDetail (story 3.8)", () => {
       />
     );
     expect(html).toContain('class="diff"');
+    expect(html).toContain("<h4>Agent draft</h4>");
+    expect(html).toContain("<h4>Published</h4>");
+    expect(html).not.toContain("<h4>Edited</h4>");
     expect(html).toContain("Operator-corrected Nevada text.");
     expect(html).toContain("Human-approved");
     expect(html).toContain("P. Bland");

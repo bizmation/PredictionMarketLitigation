@@ -227,3 +227,22 @@ export async function completeRun(
     .run();
   return res.meta.changes > 0;
 }
+
+/**
+ * Story 3.11 — awaiting → published | rejected. `completeRun` only moves
+ * `running`; the gate's last-pending decision is the path that leaves the
+ * wait. Statement form so `decide()` can batch it with the Draft + F1 write.
+ */
+export function terminalAwaitingRunStmt(
+  db: Db,
+  runId: string,
+  status: Extract<RunStatus, "published" | "rejected">,
+  completedAt: string
+): D1PreparedStatement {
+  return db
+    .prepare(
+      `UPDATE runs SET status = ?, completed_at = ?
+        WHERE id = ? AND status = 'awaiting'`
+    )
+    .bind(status, completedAt, runId);
+}

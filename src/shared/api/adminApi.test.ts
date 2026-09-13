@@ -29,6 +29,7 @@ const EMAIL = "operator@example.com";
 // handler used the configured display name rather than any fallback.
 const DISPLAY_NAME = "Distinctive Queue Operator";
 const TS = "2026-09-12T16:00:00.000Z";
+const RUN_STARTED = "2026-09-12T00:00:00.000Z";
 
 const anon = { ...env, ACCESS_DEV_BYPASS: undefined } as Env;
 const testEnv = env as Env;
@@ -96,7 +97,7 @@ const auth = async (path: string, init?: RequestInit): Promise<Response> => {
   return worker.fetch(signed(token, path, init), realEnv());
 };
 
-async function seedRun(runId: string) {
+async function seedRun(runId: string, mode: "hitl" | "yolo" = "hitl") {
   const existing = await testEnv.DB.prepare("SELECT id FROM runs WHERE id = ?")
     .bind(runId)
     .first();
@@ -104,10 +105,10 @@ async function seedRun(runId: string) {
   await runsRepo.insertRun(testEnv.DB, {
     id: runId,
     origin: "scheduled",
-    mode: "hitl",
+    mode,
     status: "awaiting",
-    startedAt: TS,
-    completedAt: TS,
+    startedAt: RUN_STARTED,
+    completedAt: RUN_STARTED,
     spendCents: 0,
     spendCurrency: "USD",
     budgetCents: 200,
@@ -124,15 +125,20 @@ const DRAFT_INSERT = `INSERT OR IGNORE INTO drafts (id, run_id, target_entity_ty
 function seedPendingDraft(
   id: string,
   runId: string,
-  createdAt = "2026-09-12T16:05:00.000Z"
+  createdAt = "2026-09-12T16:05:00.000Z",
+  patch?: {
+    targetEntityType?: string | null;
+    targetEntityId?: string | null;
+    diffJson?: string;
+  }
 ) {
   return testEnv.DB.prepare(DRAFT_INSERT)
     .bind(
       id,
       runId,
-      "states",
-      "st-nv",
-      '{"posture":{"from":"untracked","to":"pending"}}',
+      patch?.targetEntityType === undefined ? "states" : patch.targetEntityType,
+      patch?.targetEntityId === undefined ? "st-nv" : patch.targetEntityId,
+      patch?.diffJson ?? '{"posture":{"from":"untracked","to":"pending"}}',
       `Pending proposal body for ${id}.`,
       0,
       80,
@@ -177,6 +183,54 @@ async function draftRow(id: string): Promise<Record<string, unknown>> {
     .first<Record<string, unknown>>();
   if (!row) throw new Error(`Draft ${id} not seeded.`);
   return row;
+}
+
+async function f1Snapshot() {
+  async function rows(table: string) {
+    const { results } = await testEnv.DB.prepare(
+      `SELECT * FROM ${table} ORDER BY id`
+    ).all();
+    return results ?? [];
+  }
+  return {
+    states: await rows("states"),
+    cases: await rows("cases"),
+    entities: await rows("entities"),
+    circuits: await rows("circuits"),
+    cert_signals: await rows("cert_signals")
+  };
+}
+
+async function nvRow() {
+  const row = await testEnv.DB.prepare(
+    `SELECT posture, provenance_kind, published_at, updated_at
+       FROM states WHERE id = 'st-nv'`
+  ).first<{
+    posture: string;
+    provenance_kind: string;
+    published_at: string;
+    updated_at: string;
+  }>();
+  if (!row) throw new Error("st-nv missing.");
+  return row;
+}
+
+async function runStatus(runId: string): Promise<string | null> {
+  const row = await testEnv.DB.prepare("SELECT status FROM runs WHERE id = ?")
+    .bind(runId)
+    .first<{ status: string }>();
+  return row?.status ?? null;
+}
+
+async function publicNv(): Promise<{
+  posture: string;
+  provenanceKind: string;
+} | null> {
+  const res = await worker.fetch(get("/api/states"), testEnv);
+  const body = (await res.json()) as {
+    items: Array<{ code: string; posture: string; provenanceKind: string }>;
+  };
+  return body.items.find((item) => item.code === "NV") ?? null;
 }
 
 function expectUncacheable(res: Response) {
@@ -283,12 +337,9 @@ describe("admin approval queue (story 3.10)", () => {
     }
   );
 
-  it("approves: one atomic decision + gate.decided evidence, F1 and run untouched", async () => {
+  it("approves: applies diff.to, freezes human provenance, terminals the run", async () => {
     await seedRun("run-20260912-c0de");
     await seedPendingDraft("d-approve", "run-20260912-c0de");
-    const statesBefore = await testEnv.DB.prepare(
-      "SELECT COUNT(*) AS count FROM states"
-    ).first<{ count: number }>();
 
     const res = await worker.fetch(
       jsonPost(await sign(EMAIL), "/api/admin/drafts/d-approve/decision", {
@@ -324,17 +375,23 @@ describe("admin approval queue (story 3.10)", () => {
       reason: null
     });
 
-    const run = await testEnv.DB.prepare(
-      "SELECT status FROM runs WHERE id = 'run-20260912-c0de'"
-    ).first<{ status: string }>();
-    expect(run?.status).toBe("awaiting");
-    const statesAfter = await testEnv.DB.prepare(
-      "SELECT COUNT(*) AS count FROM states"
-    ).first<{ count: number }>();
-    expect(statesAfter?.count).toBe(statesBefore?.count);
+    const nv = await nvRow();
+    expect(nv.posture).toBe("pending");
+    expect(nv.provenance_kind).toBe("human");
+    expect(nv.published_at).toBe(record.decidedAt);
+    expect(nv.updated_at).toBe(record.decidedAt);
+    expect(await publicNv()).toMatchObject({
+      posture: "pending",
+      provenanceKind: "human"
+    });
+
+    expect(await runStatus("run-20260912-c0de")).toBe("published");
+    expect(await evidencePayload("run-completed-run-20260912-c0de")).toEqual({
+      status: "published"
+    });
   });
 
-  it("edit-then-approve preserves the original body and records the operator text", async () => {
+  it("edit-then-approve applies diff.to, not the operator prose", async () => {
     await seedRun("run-20260912-ed17");
     await seedPendingDraft("d-edit", "run-20260912-ed17");
 
@@ -360,11 +417,22 @@ describe("admin approval queue (story 3.10)", () => {
       decidedBy: DISPLAY_NAME,
       reason: null
     });
+
+    const nv = await nvRow();
+    expect(nv.posture).toBe("pending");
+    expect(nv.provenance_kind).toBe("human");
+    expect(nv.published_at).toBe(record.decidedAt);
+    expect(await publicNv()).toMatchObject({
+      posture: "pending",
+      provenanceKind: "human"
+    });
+    expect(await runStatus("run-20260912-ed17")).toBe("published");
   });
 
   it("rejects a public reason onto the wire, the evidence, and the public feed", async () => {
     await seedRun("run-20260912-ea11");
     await seedPendingDraft("d-reject-public", "run-20260912-ea11");
+    const before = await f1Snapshot();
     const reason = "Trade-press expectation is not a docket event.";
 
     const res = await worker.fetch(
@@ -403,11 +471,18 @@ describe("admin approval queue (story 3.10)", () => {
       outcome: "rejected",
       rejectReason: reason
     });
+
+    expect(await f1Snapshot()).toEqual(before);
+    expect(await runStatus("run-20260912-ea11")).toBe("rejected");
+    expect(await evidencePayload("run-completed-run-20260912-ea11")).toEqual({
+      status: "rejected"
+    });
   });
 
   it("keeps a private reject reason off every public surface and payload", async () => {
     await seedRun("run-20260912-f00d");
     await seedPendingDraft("d-reject-private", "run-20260912-f00d");
+    const before = await f1Snapshot();
     const secret = "PRIVATE-SECRET-REASON-9f2c";
 
     const res = await worker.fetch(
@@ -448,6 +523,8 @@ describe("admin approval queue (story 3.10)", () => {
     const row = await draftRow("d-reject-private");
     expect(row.reject_reason).toBeNull();
     expect(row.reject_reason_private).toBe(secret);
+    expect(await f1Snapshot()).toEqual(before);
+    expect(await runStatus("run-20260912-f00d")).toBe("rejected");
   });
 
   it("answers 409 on a second decision without writing", async () => {
@@ -462,6 +539,8 @@ describe("admin approval queue (story 3.10)", () => {
       realEnv()
     );
     expect(first.status).toBe(200);
+    const afterFirst = await f1Snapshot();
+    const nvAfterFirst = await nvRow();
 
     const second = await worker.fetch(
       jsonPost(token, "/api/admin/drafts/d-double/decision", {
@@ -477,7 +556,369 @@ describe("admin approval queue (story 3.10)", () => {
     });
     expect((await draftRow("d-double")).outcome).toBe("approved");
     expect(await evidenceCount("gate-decided-d-double")).toBe(1);
+    expect(await evidenceCount("run-completed-run-20260912-beef")).toBe(1);
+    expect(await f1Snapshot()).toEqual(afterFirst);
+    expect(await nvRow()).toEqual(nvAfterFirst);
   });
+
+  it("keeps the run awaiting while a sibling draft is still pending", async () => {
+    await seedRun("run-20260912-511b");
+    await seedPendingDraft(
+      "d-sib-a",
+      "run-20260912-511b",
+      "2026-09-12T16:05:00.000Z"
+    );
+    await seedPendingDraft(
+      "d-sib-b",
+      "run-20260912-511b",
+      "2026-09-12T16:06:00.000Z"
+    );
+
+    const first = await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/drafts/d-sib-a/decision", {
+        action: "approve"
+      }),
+      realEnv()
+    );
+    expect(first.status).toBe(200);
+    expect((await draftRow("d-sib-a")).outcome).toBe("approved");
+    expect((await draftRow("d-sib-b")).outcome).toBeNull();
+    expect((await nvRow()).posture).toBe("pending");
+    expect(await runStatus("run-20260912-511b")).toBe("awaiting");
+    expect(await evidenceCount("run-completed-run-20260912-511b")).toBe(0);
+
+    const beforeReject = await f1Snapshot();
+    const last = await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/drafts/d-sib-b/decision", {
+        action: "reject",
+        rejectReason: "Duplicate of the approved sibling."
+      }),
+      realEnv()
+    );
+    expect(last.status).toBe(200);
+    expect(await f1Snapshot()).toEqual(beforeReject);
+    expect(await runStatus("run-20260912-511b")).toBe("published");
+    expect(await evidenceCount("run-completed-run-20260912-511b")).toBe(1);
+  });
+
+  it("freezes provenance_kind=agent when the run mode is yolo", async () => {
+    await seedRun("run-20260912-311a", "yolo");
+    await seedPendingDraft("d-yolo", "run-20260912-311a");
+
+    const res = await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/drafts/d-yolo/decision", {
+        action: "approve"
+      }),
+      realEnv()
+    );
+    expect(res.status).toBe(200);
+    expect((await nvRow()).provenance_kind).toBe("agent");
+    expect(await publicNv()).toMatchObject({
+      posture: "pending",
+      provenanceKind: "agent"
+    });
+  });
+
+  it("approves operationalStatus on st-nv and GET /api/states reflects it", async () => {
+    await seedRun("run-20260912-311b");
+    await seedPendingDraft(
+      "d-ops-nv",
+      "run-20260912-311b",
+      "2026-09-12T16:05:00.000Z",
+      {
+        diffJson: '{"operationalStatus":{"from":"banned","to":"restricted"}}'
+      }
+    );
+
+    const res = await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/drafts/d-ops-nv/decision", {
+        action: "approve"
+      }),
+      realEnv()
+    );
+    expect(res.status).toBe(200);
+
+    const states = await worker.fetch(get("/api/states"), testEnv);
+    const body = (await states.json()) as {
+      items: Array<{ code: string; operationalStatus: string }>;
+    };
+    expect(body.items.find((item) => item.code === "NV")).toMatchObject({
+      operationalStatus: "restricted"
+    });
+  });
+
+  it("approves a case-flaherty field and GET /api/cases reflects it", async () => {
+    await seedRun("run-20260912-311c");
+    await seedPendingDraft(
+      "d-case-flaherty",
+      "run-20260912-311c",
+      "2026-09-12T16:05:00.000Z",
+      {
+        targetEntityType: "cases",
+        targetEntityId: "case-flaherty",
+        diffJson: '{"posture":{"from":"platform","to":"pending"}}'
+      }
+    );
+
+    const res = await worker.fetch(
+      jsonPost(
+        await sign(EMAIL),
+        "/api/admin/drafts/d-case-flaherty/decision",
+        { action: "approve" }
+      ),
+      realEnv()
+    );
+    expect(res.status).toBe(200);
+
+    const cases = await worker.fetch(get("/api/cases"), testEnv);
+    const body = (await cases.json()) as {
+      items: Array<{ id: string; posture: string }>;
+    };
+    expect(
+      body.items.find((item) => item.id === "case-flaherty")
+    ).toMatchObject({ posture: "pending" });
+  });
+
+  it("approves cert_signals/current and stamps GET /api/cert-signal approver", async () => {
+    await seedRun("run-20260912-311d");
+    await seedPendingDraft(
+      "d-cert",
+      "run-20260912-311d",
+      "2026-09-12T16:05:00.000Z",
+      {
+        targetEntityType: "cert_signals",
+        targetEntityId: "current",
+        diffJson: '{"reading":{"from":"elevated","to":"likely"}}'
+      }
+    );
+
+    const res = await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/drafts/d-cert/decision", {
+        action: "approve"
+      }),
+      realEnv()
+    );
+    expect(res.status).toBe(200);
+
+    const cert = await worker.fetch(get("/api/cert-signal"), testEnv);
+    expect(cert.status).toBe(200);
+    expect(await cert.json()).toMatchObject({
+      id: "current",
+      reading: "likely",
+      approver: DISPLAY_NAME
+    });
+  });
+
+  it("publishes F1 on a budget-stopped run but appends no run.completed and leaves the run stopped", async () => {
+    await seedRun("run-20260912-570a");
+    await testEnv.DB.prepare("UPDATE runs SET status = 'stopped' WHERE id = ?")
+      .bind("run-20260912-570a")
+      .run();
+    await seedPendingDraft("d-stopped-run", "run-20260912-570a");
+    const before = await nvRow();
+
+    const res = await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/drafts/d-stopped-run/decision", {
+        action: "approve"
+      }),
+      realEnv()
+    );
+    expect(res.status).toBe(200);
+    expect((await draftRow("d-stopped-run")).outcome).toBe("approved");
+
+    const after = await nvRow();
+    expect(after.posture).toBe("pending");
+    expect(after.provenance_kind).toBe("human");
+    expect(after.updated_at).not.toBe(before.updated_at);
+    expect(await evidenceCount("run-completed-run-20260912-570a")).toBe(0);
+    expect(await runStatus("run-20260912-570a")).toBe("stopped");
+  });
+
+  it("publishes a circuits draft with hasSplit onto the circuit row", async () => {
+    await seedRun("run-20260912-c117");
+    await seedPendingDraft(
+      "d-circuit-split",
+      "run-20260912-c117",
+      "2026-09-12T16:06:00.000Z",
+      {
+        targetEntityType: "circuits",
+        targetEntityId: "cir-3",
+        diffJson: '{"hasSplit":{"from":false,"to":true}}'
+      }
+    );
+
+    const res = await worker.fetch(
+      jsonPost(
+        await sign(EMAIL),
+        "/api/admin/drafts/d-circuit-split/decision",
+        {
+          action: "approve"
+        }
+      ),
+      realEnv()
+    );
+    expect(res.status).toBe(200);
+
+    const row = await testEnv.DB.prepare(
+      "SELECT has_split, provenance_kind FROM circuits WHERE id = 'cir-3'"
+    ).first<{ has_split: number; provenance_kind: string }>();
+    expect(row?.has_split).toBe(1);
+    expect(row?.provenance_kind).toBe("human");
+
+    const publicCircuits = await worker.fetch(get("/api/circuits"), testEnv);
+    expect(publicCircuits.status).toBe(200);
+    const body = (await publicCircuits.json()) as {
+      items: Array<{ id: string; hasSplit: boolean }>;
+    };
+    expect(body.items.find((item) => item.id === "cir-3")).toMatchObject({
+      hasSplit: true
+    });
+  });
+
+  it("publishes an entities draft onto the entity row", async () => {
+    await seedRun("run-20260912-3a77");
+    await seedPendingDraft(
+      "d-entity-rename",
+      "run-20260912-3a77",
+      "2026-09-12T16:07:00.000Z",
+      {
+        targetEntityType: "entities",
+        targetEntityId: "ent-kalshi",
+        diffJson: '{"name":{"from":"KalshiEX LLC","to":"KalshiEX, LLC"}}'
+      }
+    );
+
+    const res = await worker.fetch(
+      jsonPost(
+        await sign(EMAIL),
+        "/api/admin/drafts/d-entity-rename/decision",
+        {
+          action: "approve"
+        }
+      ),
+      realEnv()
+    );
+    expect(res.status).toBe(200);
+
+    const row = await testEnv.DB.prepare(
+      "SELECT name, provenance_kind FROM entities WHERE id = 'ent-kalshi'"
+    ).first<{ name: string; provenance_kind: string }>();
+    expect(row?.name).toBe("KalshiEX, LLC");
+    expect(row?.provenance_kind).toBe("human");
+  });
+
+  it("publishes a cert draft whose factors value is a factor array", async () => {
+    await seedRun("run-20260912-fa37");
+    await seedPendingDraft(
+      "d-cert-factors",
+      "run-20260912-fa37",
+      "2026-09-12T16:08:00.000Z",
+      {
+        targetEntityType: "cert_signals",
+        targetEntityId: "current",
+        diffJson:
+          '{"factors":{"from":[],"to":[{"lead":"Docket momentum","explanation":"Re-listed at the cert stage after the July docket."}]}}'
+      }
+    );
+
+    const res = await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/drafts/d-cert-factors/decision", {
+        action: "approve"
+      }),
+      realEnv()
+    );
+    expect(res.status).toBe(200);
+
+    const row = await testEnv.DB.prepare(
+      "SELECT factors_json, approver FROM cert_signals WHERE id = 'current'"
+    ).first<{ factors_json: string | null; approver: string | null }>();
+    expect(JSON.parse(row?.factors_json ?? "null")).toEqual([
+      {
+        lead: "Docket momentum",
+        explanation: "Re-listed at the cert stage after the July docket."
+      }
+    ]);
+    expect(row?.approver).toBe(DISPLAY_NAME);
+  });
+
+  it.each([
+    [
+      "null target",
+      {
+        targetEntityType: null,
+        targetEntityId: null,
+        diffJson: '{"posture":{"from":"untracked","to":"pending"}}'
+      }
+    ],
+    [
+      "unknown type",
+      {
+        targetEntityType: "widgets",
+        targetEntityId: "st-nv",
+        diffJson: '{"posture":{"from":"untracked","to":"pending"}}'
+      }
+    ],
+    [
+      "unknown field",
+      {
+        targetEntityType: "states",
+        targetEntityId: "st-nv",
+        diffJson: '{"id":{"from":"st-nv","to":"st-hack"}}'
+      }
+    ],
+    [
+      "missing F1 row",
+      {
+        targetEntityType: "states",
+        targetEntityId: "st-missing",
+        diffJson: '{"posture":{"from":"untracked","to":"pending"}}'
+      }
+    ],
+    [
+      "malformed diff",
+      {
+        targetEntityType: "states",
+        targetEntityId: "st-nv",
+        diffJson: '{"posture":{"to":"pending"}}'
+      }
+    ],
+    [
+      "cert factors value that is not JSON",
+      {
+        targetEntityType: "cert_signals",
+        targetEntityId: "current",
+        diffJson: '{"factors":{"from":[],"to":"not json"}}'
+      }
+    ]
+  ])(
+    "answers 400 for unpublishable %s without writing",
+    async (name, patch) => {
+      const id = `d-unpub-${name.replace(/\s+/g, "-")}`;
+      await seedRun("run-20260912-bad1");
+      await seedPendingDraft(
+        id,
+        "run-20260912-bad1",
+        "2026-09-12T16:07:00.000Z",
+        patch
+      );
+      const before = await f1Snapshot();
+
+      const res = await worker.fetch(
+        jsonPost(await sign(EMAIL), `/api/admin/drafts/${id}/decision`, {
+          action: "approve"
+        }),
+        realEnv()
+      );
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({
+        code: "bad_request",
+        message: expect.any(String)
+      });
+      expect((await draftRow(id)).outcome).toBeNull();
+      expect(await f1Snapshot()).toEqual(before);
+      expect(await runStatus("run-20260912-bad1")).toBe("awaiting");
+    }
+  );
 
   it("answers 404 for an unknown draft", async () => {
     const res = await worker.fetch(
