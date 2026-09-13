@@ -709,6 +709,138 @@ describe("admin approval queue (story 3.10)", () => {
     });
   });
 
+  it("publishes F1 on a budget-stopped run but appends no run.completed and leaves the run stopped", async () => {
+    await seedRun("run-20260912-570a");
+    await testEnv.DB.prepare("UPDATE runs SET status = 'stopped' WHERE id = ?")
+      .bind("run-20260912-570a")
+      .run();
+    await seedPendingDraft("d-stopped-run", "run-20260912-570a");
+    const before = await nvRow();
+
+    const res = await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/drafts/d-stopped-run/decision", {
+        action: "approve"
+      }),
+      realEnv()
+    );
+    expect(res.status).toBe(200);
+    expect((await draftRow("d-stopped-run")).outcome).toBe("approved");
+
+    const after = await nvRow();
+    expect(after.posture).toBe("pending");
+    expect(after.provenance_kind).toBe("human");
+    expect(after.updated_at).not.toBe(before.updated_at);
+    expect(await evidenceCount("run-completed-run-20260912-570a")).toBe(0);
+    expect(await runStatus("run-20260912-570a")).toBe("stopped");
+  });
+
+  it("publishes a circuits draft with hasSplit onto the circuit row", async () => {
+    await seedRun("run-20260912-c117");
+    await seedPendingDraft(
+      "d-circuit-split",
+      "run-20260912-c117",
+      "2026-09-12T16:06:00.000Z",
+      {
+        targetEntityType: "circuits",
+        targetEntityId: "cir-3",
+        diffJson: '{"hasSplit":{"from":false,"to":true}}'
+      }
+    );
+
+    const res = await worker.fetch(
+      jsonPost(
+        await sign(EMAIL),
+        "/api/admin/drafts/d-circuit-split/decision",
+        {
+          action: "approve"
+        }
+      ),
+      realEnv()
+    );
+    expect(res.status).toBe(200);
+
+    const row = await testEnv.DB.prepare(
+      "SELECT has_split, provenance_kind FROM circuits WHERE id = 'cir-3'"
+    ).first<{ has_split: number; provenance_kind: string }>();
+    expect(row?.has_split).toBe(1);
+    expect(row?.provenance_kind).toBe("human");
+
+    const publicCircuits = await worker.fetch(get("/api/circuits"), testEnv);
+    expect(publicCircuits.status).toBe(200);
+    const body = (await publicCircuits.json()) as {
+      items: Array<{ id: string; hasSplit: boolean }>;
+    };
+    expect(body.items.find((item) => item.id === "cir-3")).toMatchObject({
+      hasSplit: true
+    });
+  });
+
+  it("publishes an entities draft onto the entity row", async () => {
+    await seedRun("run-20260912-3a77");
+    await seedPendingDraft(
+      "d-entity-rename",
+      "run-20260912-3a77",
+      "2026-09-12T16:07:00.000Z",
+      {
+        targetEntityType: "entities",
+        targetEntityId: "ent-kalshi",
+        diffJson: '{"name":{"from":"KalshiEX LLC","to":"KalshiEX, LLC"}}'
+      }
+    );
+
+    const res = await worker.fetch(
+      jsonPost(
+        await sign(EMAIL),
+        "/api/admin/drafts/d-entity-rename/decision",
+        {
+          action: "approve"
+        }
+      ),
+      realEnv()
+    );
+    expect(res.status).toBe(200);
+
+    const row = await testEnv.DB.prepare(
+      "SELECT name, provenance_kind FROM entities WHERE id = 'ent-kalshi'"
+    ).first<{ name: string; provenance_kind: string }>();
+    expect(row?.name).toBe("KalshiEX, LLC");
+    expect(row?.provenance_kind).toBe("human");
+  });
+
+  it("publishes a cert draft whose factors value is a factor array", async () => {
+    await seedRun("run-20260912-fa37");
+    await seedPendingDraft(
+      "d-cert-factors",
+      "run-20260912-fa37",
+      "2026-09-12T16:08:00.000Z",
+      {
+        targetEntityType: "cert_signals",
+        targetEntityId: "current",
+        diffJson:
+          '{"factors":{"from":[],"to":[{"lead":"Docket momentum","explanation":"Re-listed at the cert stage after the July docket."}]}}'
+      }
+    );
+
+    const res = await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/drafts/d-cert-factors/decision", {
+        action: "approve"
+      }),
+      realEnv()
+    );
+    expect(res.status).toBe(200);
+
+    const row = await testEnv.DB.prepare(
+      "SELECT factors_json, approver FROM cert_signals WHERE id = 'current'"
+    ).first<{ factors_json: string | null; approver: string | null }>();
+    expect(JSON.parse(row?.factors_json ?? "null")).toEqual([
+      {
+        lead: "Docket momentum",
+        explanation: "Re-listed at the cert stage after the July docket."
+      }
+    ]);
+    expect(row?.approver).toBe(DISPLAY_NAME);
+  });
+
   it.each([
     [
       "null target",
@@ -748,6 +880,14 @@ describe("admin approval queue (story 3.10)", () => {
         targetEntityType: "states",
         targetEntityId: "st-nv",
         diffJson: '{"posture":{"to":"pending"}}'
+      }
+    ],
+    [
+      "cert factors value that is not JSON",
+      {
+        targetEntityType: "cert_signals",
+        targetEntityId: "current",
+        diffJson: '{"factors":{"from":[],"to":"not json"}}'
       }
     ]
   ])(
