@@ -4,7 +4,7 @@ type: 'feature'
 created: '2026-09-12'
 status: 'done'
 review_loop_iteration: 0
-followup_review_recommended: true
+followup_review_recommended: false
 baseline_revision: 7221d5240f59a6972f02807a84157a2ab558b8d7
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context.md'
@@ -120,6 +120,33 @@ deferred: []
   - `[false]` `[reject]` FR21 agent-publish proof not in this diff (intent-alignment) — 3.6 `publish_f1` deny + F1-snapshot tests ran in `npm test`; this diff's only F1 writer is the gate module.
   - `[low]` `[reject]` Admin queue copy always says "frozen human-approved" even for the yolo fixture (intent-alignment) — HITL is the launch default; agent-label chrome is 3.13; F1 `provenance_kind` is the frozen published label.
 
+### 2026-09-12 — Follow-up pass (fresh 4-layer review of `7221d52...HEAD`, dispatched via build-auto on the done spec)
+- verdicts: 24 findings — high 0, medium 4, low 6, false 14, maybe-false 0
+- findings:
+  - `[medium]` `[patch]` The awaiting-only run-terminal guard had no non-awaiting-run fixture (blind-hunter + verification-gap, pre-verified) — dropping the `run.status === "awaiting"` conjunct would append `run.completed` to a budget-stopped run with no red test (the terminal UPDATE's own WHERE would mask it). Fixed: a Worker test seeds a `stopped` run with a pending draft, approves it, and asserts F1 applied + `evidenceCount("run-completed-…") === 0` + run still `stopped`.
+  - `[medium]` `[patch]` `circuits`/`entities` allowlist rows and the `bindValue` coercions (`has_split`, `factors_json`) were exercised by no test (blind-hunter + verification-gap, pre-verified) — a coercion regression would turn every circuit/entity publish into a silent permanent 400. Fixed: Worker tests approve a `circuits` draft with `hasSplit: true` (row `has_split = 1`, provenance human, `GET /api/circuits` reflects it), an `entities` rename draft, and a `cert_signals` factors-array draft (factors round-trip + approver stamped); a malformed-factors row joins the unpublishable 400 table.
+  - `[low]` `[reject]` Edit-with-unpublishable untested — `decide()` calls `applyF1Stmt` identically for approve and edit; the approve-only 400 table exercises the same validation path, and the only untested delta (`editedBody`) is covered in the happy path.
+  - `[false]` `[reject]` Run-null branch in `decide()` untested — `drafts.run_id` FKs `runs(id)` (0009), so a dangling run is unrepresentable; the branch is unreachable defensive code.
+  - `[low]` `[reject]` Timestamps asserted only on the states fixture — one shared bind site stamps provenance/published_at/updated_at for every target; the new cert test additionally pins the factors round-trip and approver; per-table timestamp duplication adds nothing.
+  - `[false]` `[reject]` (carried) Empty diff `{}` publishes provenance-only — prior pass rejected (no producer emits `{}`); code unchanged.
+  - `[low]` `[reject]` (carried) Bare catch swallows infra errors into 400 — prior pass rejected (fail-closed, no write; an envelope split adds public error surface); code unchanged. Includes the exported-but-unread `UnpublishableError` name distinction (blind-hunter).
+  - `[low]` `[reject]` No lint enforcing f1Apply's import-only-by-approval invariant — the module documents it; the enforced boundary (surfaces ⊄ pipeline) is grep-able; a custom lint rule exceeds a direct correction.
+  - `[false]` `[reject]` Cert `reviewedAt` is diff-writable and ungoverned — it is an allowlisted claim field by the spec's own stamp list (the gate stamps provenance/published_at/updated_at/approver only); a re-read cert legitimately proposes a new reviewed date.
+  - `[false]` `[reject]` (carried) sprint-status `last_updated` rewind — prior pass rejected (Finalize writes status; `.omo` ignore is what keeps check green); file unchanged since.
+  - `[false]` `[reject]` Frontmatter "dangling warnings" — `followup_review_recommended: true` was correct (two mediums patched) and this pass is that follow-up; `oversized` is accurate metadata.
+  - `[false]` `[reject]` Dual-EXISTS double-apply prevention never asserted out-of-band — the retry matrix is covered by the 409 test with F1/row assertions; the out-of-band scenario has no reachable producer (no F1 delete exists — carried fact).
+  - `[low]` `[reject]` (carried) Concurrent last-pending terminal skip — prior pass rejected (single-operator sequential queue; sibling test covers the sequential path); code unchanged.
+  - `[false]` `[reject]` (carried) 0-row F1 apply with a 1-row draft UPDATE — prior pass rejected (no F1 DELETE exists; the concurrent loser zeros both statements, which is the 409 path); code unchanged.
+  - `[false]` `[reject]` (carried) Empty-diff provenance-only path — grouped with the empty-diff row above.
+  - `[false]` `[reject]` Garbage `to` types bind into columns unvalidated — enum fields fail-closed by the F1 CHECKs (0001 posture/operational_status CHECK IN lists); non-enum text fields coerce harmlessly under SQLite TEXT affinity; no producer emits non-string `to` (packaging types).
+  - `[false]` `[reject]` (carried) Factors scalar-string garbage publishes then breaks the cert GET — prior pass rejected; verified directly this pass: the 0001 CHECK `json_type = 'array' AND json_array_length > 0` fail-closes non-array factors, and the new malformed-factors 400 test pins the pre-write guard (the patch author's own first attempt at an object-shaped factors was correctly refused by this CHECK).
+  - `[low]` `[reject]` (carried) Non-awaiting run publishes F1 without a terminal — this restates the prior pass's patch design (budget-stopped runs keep their status; drafts decided post-hoc do not rewrite run history); the missing fixture was the first patch above.
+  - `[medium]` `[patch]` (carried-adjacent) Stopped-run fixture — the verification-gap row of the first patch entry; fixed.
+  - `[medium]` `[patch]` (carried-adjacent) Circuits/entities/coercion tests — the verification-gap row of the second patch entry; fixed.
+  - `[false]` `[reject]` AC2's rendered Evidence never meets real publish data — compositional coverage: the page renders the fields the publish writes (the same `DraftRecord` schema, pinned on both sides); the composite E2E is the recorded harness residual ("no live-browser pass").
+  - `[false]` `[reject]` Apex provenance render untested post-publish — apex binds `provenanceKind` from the public GET (now pinned for four of five targets); apex chrome rendering is Epic-2-tested.
+  - `[false]` `[reject]` Admin queue "Published" copy fiction — the queue's resolved chip reads the real decision POST response (3.10 mount suite); the fiction is cured by the data path this story ships.
+
 ## Design Notes
 
 - Same batch as 3.10 so a crash cannot leave `outcome` set with F1 unapplied; 409 retries then have nothing left to do.
@@ -159,3 +186,15 @@ Follow-up review recommended: true (two mediums patched). Unverified risk: the a
 Verification: `npm test` — 627 passed (31 files). `npm run check` — oxfmt, oxlint, tsc exit 0.
 
 Residual risks: remote D1 has no new migration (F1 columns already exist); no live-browser pass of queue → apex → Evidence (Worker POST + public GET + static Evidence markup stand in); concurrent last-two-drafts can still both skip the run terminal on a single-operator surface.
+
+### Follow-up review pass — 2026-09-12 (build-auto dispatch on the done spec)
+
+Status: done
+
+The follow-up pass this spec recommended ran as a fresh 4-layer adversarial review over the merged story diff. 24 findings: 2 patch entries applied (the two gaps the Auto Run Result itself flagged — the stopped-run fixture for the awaiting-only terminal guard, and circuits/entities/factors publish tests, now pinned by five new Worker tests), 6 low and 14 false rejected with recorded evidence, 7 of them carried unchanged from the prior pass's rows. One verification note: the patch author's own first cert-factors fixture used an object shape the 0001 CHECK (`json_type = 'array'`) correctly refused — confirming the fail-closed design the prior pass recorded.
+
+Follow-up review recommended: false — the follow-up pass patched no high (two mediums); the work has converged. Patch counts by verdict: high 0, medium 2 entries (4 findings), low 0.
+
+Verification: `npm test` — 632 passed (31 files). `npm run check` — oxfmt, oxlint, tsc exit 0.
+
+Residual risks (updated): the concurrent last-two-drafts terminal skip remains accepted (single-operator surface, prior pass's rejected row); no live-browser pass of queue → apex → Evidence.
