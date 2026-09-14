@@ -12,8 +12,10 @@ import {
 
 import worker from "../../server";
 import * as runsRepo from "../db/repos/runsRepo";
+import * as steeringTurnsRepo from "../db/repos/steeringTurnsRepo";
 import { etCalendarDate } from "../lib/schedule";
 import { DraftRecordSchema } from "../schemas/run";
+import { PublicSteeringTurnSchema } from "../schemas/steering";
 
 /**
  * Story 3.10 — admin approval queue I/O matrix, run through the real Worker
@@ -1510,5 +1512,206 @@ describe("admin mode (story 3.13)", () => {
       "SELECT COUNT(*) AS n FROM mode_audit"
     ).first<{ n: number }>();
     expect(count?.n).toBe(0);
+  });
+});
+
+describe("admin steering (story 3.14)", () => {
+  it("rejects anonymous and wrong-identity POSTs with the opaque 403 and stores nothing", async () => {
+    await seedRun("run-20260914-aaaa");
+    await seedPendingDraft("d-steer-1", "run-20260914-aaaa");
+    const body = {
+      content: "Please explain this Draft.",
+      private: false,
+      draftId: "d-steer-1"
+    };
+    const anonRes = await worker.fetch(
+      get("/api/admin/runs/run-20260914-aaaa/steering", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body)
+      }),
+      anon
+    );
+    expect(anonRes.status).toBe(403);
+    expect(await anonRes.json()).toEqual({
+      code: "forbidden",
+      message: expect.any(String)
+    });
+    const other = await sign("other@example.com");
+    const wrong = await worker.fetch(
+      jsonPost(other, "/api/admin/runs/run-20260914-aaaa/steering", body),
+      realEnv()
+    );
+    expect(wrong.status).toBe(403);
+    expect(
+      await steeringTurnsRepo.listByRun(testEnv.DB, "run-20260914-aaaa")
+    ).toHaveLength(0);
+  });
+
+  it("returns 404 for an unknown Run", async () => {
+    const res = await worker.fetch(
+      jsonPost(
+        await sign(EMAIL),
+        "/api/admin/runs/run-20260914-0ead/steering",
+        {
+          content: "hello",
+          private: false
+        }
+      ),
+      realEnv()
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it("returns 404 for a PATCH of private (no retroactive privatize route)", async () => {
+    await seedRun("run-20260914-bbbb");
+    const res = await worker.fetch(
+      signed(await sign(EMAIL), "/api/admin/runs/run-20260914-bbbb/steering", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ private: true })
+      }),
+      realEnv()
+    );
+    expect(res.status).toBe(405);
+    const missing = await worker.fetch(
+      signed(
+        await sign(EMAIL),
+        "/api/admin/runs/run-20260914-bbbb/steering/private",
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ private: true })
+        }
+      ),
+      realEnv()
+    );
+    expect(missing.status).toBe(404);
+  });
+
+  it("returns 400 for empty content and for a draft on another Run", async () => {
+    await seedRun("run-20260914-cccc");
+    await seedRun("run-20260914-dddd");
+    await seedPendingDraft("d-other-run", "run-20260914-dddd");
+    const empty = await worker.fetch(
+      jsonPost(
+        await sign(EMAIL),
+        "/api/admin/runs/run-20260914-cccc/steering",
+        {
+          content: "   ",
+          private: false
+        }
+      ),
+      realEnv()
+    );
+    expect(empty.status).toBe(400);
+    const cross = await worker.fetch(
+      jsonPost(
+        await sign(EMAIL),
+        "/api/admin/runs/run-20260914-cccc/steering",
+        {
+          content: "cross",
+          private: false,
+          draftId: "d-other-run"
+        }
+      ),
+      realEnv()
+    );
+    expect(cross.status).toBe(400);
+    expect(
+      await steeringTurnsRepo.listByRun(testEnv.DB, "run-20260914-cccc")
+    ).toHaveLength(0);
+  });
+
+  it("submits a public turn with displayName not email", async () => {
+    await seedRun("run-20260914-eeee");
+    await seedPendingDraft("d-steer-pub", "run-20260914-eeee");
+    const res = await worker.fetch(
+      jsonPost(
+        await sign(EMAIL),
+        "/api/admin/runs/run-20260914-eeee/steering",
+        {
+          content: "Please explain the Nevada posture change.",
+          private: false,
+          draftId: "d-steer-pub"
+        }
+      ),
+      realEnv()
+    );
+    expect(res.status).toBe(200);
+    expectUncacheable(res);
+    const raw = await res.clone().text();
+    expect(raw).not.toContain(EMAIL);
+    const turn = PublicSteeringTurnSchema.parse(JSON.parse(raw));
+    expect(turn.actor).toBe(DISPLAY_NAME);
+    expect(turn.content).toBe("Please explain the Nevada posture change.");
+    const publicRes = await worker.fetch(
+      get("/api/runs/run-20260914-eeee"),
+      testEnv
+    );
+    const detail = (await publicRes.json()) as {
+      evidence: Array<{ event: string; payload: Record<string, unknown> }>;
+    };
+    expect(JSON.stringify(detail)).not.toContain(EMAIL);
+    expect(detail.evidence.some((e) => e.event === "steering.turn")).toBe(true);
+    expect(detail.evidence.some((e) => e.event === "steering.applied")).toBe(
+      true
+    );
+  });
+
+  it("redacts private turn content on public GET", async () => {
+    await seedRun("run-20260914-aa20");
+    await seedPendingDraft("d-steer-priv", "run-20260914-aa20");
+    const secret = "private steering secret must not leak";
+    const res = await worker.fetch(
+      jsonPost(
+        await sign(EMAIL),
+        "/api/admin/runs/run-20260914-aa20/steering",
+        {
+          content: secret,
+          private: true,
+          draftId: "d-steer-priv"
+        }
+      ),
+      realEnv()
+    );
+    expect(res.status).toBe(200);
+    const publicRes = await worker.fetch(
+      get("/api/runs/run-20260914-aa20"),
+      testEnv
+    );
+    const detail = (await publicRes.json()) as {
+      evidence: Array<{ event: string; payload: Record<string, unknown> }>;
+    };
+    const turn = detail.evidence.find((e) => e.event === "steering.turn");
+    expect(turn?.payload?.content).toBeNull();
+    expect(JSON.stringify(detail)).not.toContain(secret);
+  });
+
+  it("returns 400 on a published Run", async () => {
+    await runsRepo.insertRun(testEnv.DB, {
+      id: "run-20260914-ffff",
+      origin: "scheduled",
+      mode: "hitl",
+      status: "published",
+      startedAt: RUN_STARTED,
+      completedAt: RUN_STARTED,
+      spendCents: 0,
+      spendCurrency: "USD",
+      budgetCents: 200,
+      scheduledFor: "2026-09-14"
+    });
+    const res = await worker.fetch(
+      jsonPost(
+        await sign(EMAIL),
+        "/api/admin/runs/run-20260914-ffff/steering",
+        {
+          content: "too late",
+          private: false
+        }
+      ),
+      realEnv()
+    );
+    expect(res.status).toBe(400);
   });
 });

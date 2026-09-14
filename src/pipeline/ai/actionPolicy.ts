@@ -39,7 +39,8 @@ export const ALLOWED_TOOLS: Record<GatewayRole, readonly string[]> =
     orchestrator: NONE,
     drafter: NONE,
     reviewer: NONE,
-    yolo: NONE
+    yolo: NONE,
+    steward: NONE
   });
 
 export function isToolAllowed(role: GatewayRole, tool: string): boolean {

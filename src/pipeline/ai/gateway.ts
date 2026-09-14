@@ -175,7 +175,10 @@ export async function complete(
       `Spend ${spend} reached the ceiling ${budget}; call refused.`
     );
   }
-  if (run.status !== "running") {
+  const statusOk =
+    run.status === "running" ||
+    (role === "steward" && run.status === "awaiting");
+  if (!statusOk) {
     throw new GatewayError(
       "budget_stopped",
       `Run is not running (${run.status}); call refused.`

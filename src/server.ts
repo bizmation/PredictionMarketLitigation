@@ -1,14 +1,5 @@
-import { createWorkersAI } from "workers-ai-provider";
-import { callable, routeAgentRequest, type Schedule } from "agents";
-import { getSchedulePrompt, scheduleSchema } from "agents/schedule";
-import { AIChatAgent, type OnChatMessageOptions } from "@cloudflare/ai-chat";
-import {
-  convertToModelMessages,
-  pruneMessages,
-  stepCountIs,
-  streamText,
-  tool
-} from "ai";
+import { routeAgentRequest } from "agents";
+import { AIChatAgent } from "@cloudflare/ai-chat";
 import { z } from "zod";
 
 import {
@@ -34,7 +25,13 @@ import * as runsRepo from "./shared/db/repos/runsRepo";
 import { IsoDateSchema } from "./shared/schemas/common";
 import { ModePostBodySchema } from "./shared/schemas/mode";
 import { etCalendarDate } from "./shared/lib/schedule";
+import {
+  createWorkersAiProvider,
+  type LlmProvider
+} from "./pipeline/ai/gateway";
 import { decide } from "./pipeline/gate/approval";
+import { submitTurn } from "./pipeline/steering/submitTurn";
+import { SteeringPostBodySchema } from "./shared/schemas/steering";
 import {
   DailyRunWorkflow,
   kickDailyRun,
@@ -87,197 +84,16 @@ const OperatorRunBodySchema = z
 export class ChatAgent extends AIChatAgent<Env> {
   maxPersistedMessages = 100;
   chatRecovery = true;
-  // Wait for MCP connections to be re-established after hibernation before
-  // processing a message, so MCP tools aren't intermittently missing.
-  waitForMcpConnections = true;
 
-  onStart() {
-    // Configure OAuth popup behavior for MCP servers that require authentication
-    this.mcp.configureOAuthCallback({
-      customHandler: (result) => {
-        if (result.authSuccess) {
-          return new Response("<script>window.close();</script>", {
-            headers: { "content-type": "text/html" },
-            status: 200
-          });
-        }
-        return new Response(
-          `Authentication Failed: ${result.authError || "Unknown error"}`,
-          { headers: { "content-type": "text/plain" }, status: 400 }
-        );
-      }
-    });
-  }
-
-  @callable()
-  async addServer(name: string, url: string) {
-    return await this.addMcpServer(name, url);
-  }
-
-  @callable()
-  async removeServer(serverId: string) {
-    await this.removeMcpServer(serverId);
-  }
-
-  async onChatMessage(_onFinish: unknown, options?: OnChatMessageOptions) {
-    const mcpTools = this.mcp.getAITools();
-    // env.AI is undefined under `npm run dev` (vite.config.ts drops the
-    // binding so local dev needs no CLOUDFLARE_API_TOKEN — see there for why).
-    // This path is operator-gated (server.ts fetch handler), so reaching it
-    // without the real binding means: put CLOUDFLARE_API_TOKEN in .env and
-    // temporarily remove that gate, per the README.
-    const workersai = createWorkersAI({ binding: this.env.AI });
-
-    const result = streamText({
-      model: workersai("@cf/moonshotai/kimi-k2.7-code", {
-        sessionAffinity: this.sessionAffinity
-      }),
-      system: `You are a helpful assistant that can understand images. You can check the weather, get the user's timezone, run calculations, and schedule tasks. When users share images, describe what you see and answer questions about them.
-
-${getSchedulePrompt({ date: new Date() })}
-
-If the user asks to schedule a task, use the schedule tool to schedule the task.`,
-      // Prune old tool calls and reasoning to save tokens on long conversations
-      messages: pruneMessages({
-        messages: await convertToModelMessages(this.messages),
-        toolCalls: "before-last-2-messages",
-        reasoning: "before-last-message"
-      }),
-      tools: {
-        // MCP tools from connected servers
-        ...mcpTools,
-
-        // Server-side tool: runs automatically on the server
-        getWeather: tool({
-          description: "Get the current weather for a city",
-          inputSchema: z.object({
-            city: z.string().describe("City name")
-          }),
-          execute: async ({ city }) => {
-            // Replace with a real weather API in production
-            const conditions = ["sunny", "cloudy", "rainy", "snowy"];
-            const temp = Math.floor(Math.random() * 30) + 5;
-            return {
-              city,
-              temperature: temp,
-              condition:
-                conditions[Math.floor(Math.random() * conditions.length)],
-              unit: "celsius"
-            };
-          }
-        }),
-
-        // Client-side tool: no execute function — the browser handles it
-        getUserTimezone: tool({
-          description:
-            "Get the user's timezone from their browser. Use this when you need to know the user's local time.",
-          inputSchema: z.object({})
-        }),
-
-        // Approval tool: requires user confirmation before executing
-        calculate: tool({
-          description:
-            "Perform a math calculation with two numbers. Requires user approval for large numbers.",
-          inputSchema: z.object({
-            a: z.number().describe("First number"),
-            b: z.number().describe("Second number"),
-            operator: z
-              .enum(["+", "-", "*", "/", "%"])
-              .describe("Arithmetic operator")
-          }),
-          needsApproval: async ({ a, b }) =>
-            Math.abs(a) > 1000 || Math.abs(b) > 1000,
-          execute: async ({ a, b, operator }) => {
-            const ops: Record<string, (x: number, y: number) => number> = {
-              "+": (x, y) => x + y,
-              "-": (x, y) => x - y,
-              "*": (x, y) => x * y,
-              "/": (x, y) => x / y,
-              "%": (x, y) => x % y
-            };
-            if ((operator === "/" || operator === "%") && b === 0) {
-              return { error: "Division by zero" };
-            }
-            return {
-              expression: `${a} ${operator} ${b}`,
-              result: ops[operator](a, b)
-            };
-          }
-        }),
-
-        scheduleTask: tool({
-          description:
-            "Schedule a task to be executed at a later time. Use this when the user asks to be reminded or wants something done later.",
-          inputSchema: scheduleSchema,
-          execute: async ({ when, description }) => {
-            if (when.type === "no-schedule") {
-              return "Not a valid schedule input";
-            }
-            const input =
-              when.type === "scheduled"
-                ? when.date
-                : when.type === "delayed"
-                  ? when.delayInSeconds
-                  : when.type === "cron"
-                    ? when.cron
-                    : null;
-            if (!input) return "Invalid schedule type";
-            try {
-              this.schedule(input, "executeTask", description, {
-                idempotent: true
-              });
-              return `Task scheduled: "${description}" (${when.type}: ${input})`;
-            } catch (error) {
-              return `Error scheduling task: ${error}`;
-            }
-          }
-        }),
-
-        getScheduledTasks: tool({
-          description: "List all tasks that have been scheduled",
-          inputSchema: z.object({}),
-          execute: async () => {
-            const tasks = this.getSchedules();
-            return tasks.length > 0 ? tasks : "No scheduled tasks found.";
-          }
-        }),
-
-        cancelScheduledTask: tool({
-          description: "Cancel a scheduled task by its ID",
-          inputSchema: z.object({
-            taskId: z.string().describe("The ID of the task to cancel")
-          }),
-          execute: async ({ taskId }) => {
-            try {
-              this.cancelSchedule(taskId);
-              return `Task ${taskId} cancelled.`;
-            } catch (error) {
-              return `Error cancelling task: ${error}`;
-            }
-          }
-        })
-      },
-      stopWhen: stepCountIs(20),
-      abortSignal: options?.abortSignal
-    });
-
-    return result.toUIMessageStreamResponse();
-  }
-
-  async executeTask(description: string, _task: Schedule<string>) {
-    // Do the actual work here (send email, call API, etc.)
-    console.log(`Executing scheduled task: ${description}`);
-
-    // Notify connected clients via a broadcast event.
-    // We use broadcast() instead of saveMessages() to avoid injecting
-    // into chat history — that would cause the AI to see the notification
-    // as new context and potentially loop.
-    this.broadcast(
-      JSON.stringify({
-        type: "scheduled-task",
-        description,
-        timestamp: new Date().toISOString()
-      })
+  /**
+   * Demo tools, Workers AI, and MCP add/remove are stripped (story 3.14).
+   * Operator steering is POST /api/admin/runs/:runId/steering so spend and
+   * Evidence stay on the Run. The Durable Object remains for 1.2/1.5 wiring.
+   */
+  async onChatMessage() {
+    return new Response(
+      "Steering is submitted through the approval-queue channel, not this agent.",
+      { headers: { "content-type": "text/plain; charset=utf-8" } }
     );
   }
 }
@@ -294,32 +110,12 @@ export default {
     const { pathname } = new URL(request.url);
 
     // /oauth/* is deliberately NOT guarded here, unlike /agents/* below.
-    //
-    // It's the callback target for ChatAgent's MCP OAuth flow
-    // (onStart's this.mcp.configureOAuthCallback): reached only after an
-    // operator's own addServer call — itself behind the /agents/* guard
-    // below — initiates a connection to a third-party MCP server. An
-    // anonymous caller cannot reach this callback without first passing
-    // that guard, so the door addServer opens is the one that matters.
-    //
-    // Whether the callback request itself would also carry a valid Access
-    // JWT (letting requireOperator wrap this route too) is unconfirmed —
-    // this review had no live MCP server connection to exercise the real
-    // addServer -> OAuth -> callback round trip end to end, and gating it
-    // blind risked breaking a flow nobody could verify. Revisit once Part
-    // B's Access application exists and an operator can run that round trip
-    // for real.
+    // ChatAgent no longer attaches MCP servers (story 3.14); the path stays
+    // unguarded so an existing OAuth callback cannot 403 a leftover flow.
 
-    // Story 1.5 — the agent surface is operator-only too.
-    //
-    // ChatAgent's `@callable()` addServer attaches an arbitrary MCP server
-    // whose tools then run against env.AI. Unauthenticated, that is an open
-    // invitation to drive Workers AI on this account. Ledgered since 1.1;
-    // closed here by reusing the same guard the admin API uses rather than
-    // inventing a second auth path.
-    //
-    // The Durable Object itself is untouched — Epic 3's pipeline builds on
-    // this Agents/DO wiring. Only the door is locked.
+    // Story 1.5 — the agent surface is operator-only too. ChatAgent's demo
+    // tools and MCP add/remove are gone (3.14); the door stays locked so
+    // /agents is not a second unprojected LLM path.
     if (isAgentsPath(pathname)) {
       const gate = await requireOperator(request, env);
       if (gate instanceof Response) return gate;
@@ -611,6 +407,80 @@ export default {
             now: new Date().toISOString()
           });
           return Response.json(result, { headers: ADMIN_CACHE_HEADERS });
+        } catch (error) {
+          console.error(
+            JSON.stringify({
+              event: "admin_api.error",
+              path: pathname,
+              message: error instanceof Error ? error.message : String(error)
+            })
+          );
+          return jsonError(internalError(), { headers: ADMIN_CACHE_HEADERS });
+        }
+      }
+
+      const steeringMatch = /^\/api\/admin\/runs\/([^/]+)\/steering$/.exec(
+        adminPath
+      );
+      if (steeringMatch) {
+        if (request.method !== "POST") {
+          return new Response("Method not allowed", {
+            status: 405,
+            headers: { ...ADMIN_CACHE_HEADERS, allow: "POST" }
+          });
+        }
+        let runId: string;
+        try {
+          runId = decodeURIComponent(steeringMatch[1]!);
+        } catch {
+          return jsonError(badRequest("Malformed run ID."), {
+            headers: ADMIN_CACHE_HEADERS
+          });
+        }
+        try {
+          let body: unknown;
+          try {
+            body = await request.json();
+          } catch {
+            return jsonError(badRequest("Malformed JSON body."), {
+              headers: ADMIN_CACHE_HEADERS
+            });
+          }
+          const parsed = SteeringPostBodySchema.safeParse(body);
+          if (!parsed.success) {
+            return jsonError(badRequest("Invalid steering body."), {
+              headers: ADMIN_CACHE_HEADERS
+            });
+          }
+          const db = getDb(env);
+          const result = await submitTurn(
+            db,
+            {
+              db,
+              provider: createWorkersAiProvider(env) as LlmProvider
+            },
+            {
+              runId,
+              content: parsed.data.content,
+              private: parsed.data.private,
+              draftId: parsed.data.draftId,
+              actorDisplayName: gate.operator.displayName
+            }
+          );
+          switch (result.status) {
+            case "not_found":
+              return jsonError(notFound(`Run '${runId}' not found.`), {
+                headers: ADMIN_CACHE_HEADERS
+              });
+            case "invalid":
+              return jsonError(badRequest(result.message), {
+                headers: ADMIN_CACHE_HEADERS
+              });
+            case "ok":
+              return Response.json(result.turn, {
+                headers: ADMIN_CACHE_HEADERS
+              });
+          }
         } catch (error) {
           console.error(
             JSON.stringify({

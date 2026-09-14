@@ -4,6 +4,7 @@ import { formatEtDateTime } from "../../shared/lib/dates";
 import { surfaceHref } from "../../shared/lib/surface";
 import type { DraftRecord } from "../../shared/schemas/run";
 import { EmptyState, WarnChip } from "../../shared/ui";
+import { SteeringPanel } from "./SteeringPanel";
 
 /**
  * Story 3.10 — the operator approval queue, handoff anatomy
@@ -509,6 +510,8 @@ export function ApprovalQueue({
             >
               <a href={evidenceHref}>Full evidence for run {current.runId} ↗</a>
             </p>
+
+            <SteeringPanel runId={current.runId} draftId={current.id} />
 
             {rejecting && !resolved[current.id] ? (
               <div className="rejectbox">

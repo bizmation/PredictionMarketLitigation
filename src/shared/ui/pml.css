@@ -2570,6 +2570,42 @@ button:focus-visible {
   margin-top: var(--space-3);
   font-size: 12.5px;
 }
+.composer {
+  border: 1px solid var(--color-neutral-700);
+  padding: var(--space-4);
+  margin-top: var(--space-4);
+}
+.composer > label {
+  display: block;
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-neutral-600);
+  margin-bottom: 5px;
+}
+.composer .submitrow {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: var(--space-3);
+}
+.composer .privacy {
+  margin-top: 0;
+}
+.composer .btn {
+  font: inherit;
+  font-size: 13px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-neutral-100);
+  border: 1px solid var(--color-neutral-700);
+  color: inherit;
+  cursor: pointer;
+}
+.composer .btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 @media (max-width: 980px) {
   .queue,
   .modepanel {

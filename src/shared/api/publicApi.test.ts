@@ -2,8 +2,11 @@ import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
 import { append } from "../../pipeline/projector/evidence";
+import { submitTurn } from "../../pipeline/steering/submitTurn";
+import type { LlmProvider } from "../../pipeline/ai/gateway";
 import worker from "../../server";
 import { US_ATLAS_STATE_NAMES } from "../../surfaces/apex/circuits/atlasStateNames";
+import * as draftsRepo from "../db/repos/draftsRepo";
 import * as runsRepo from "../db/repos/runsRepo";
 import { nextRunAtUtc } from "../lib/schedule";
 import {
@@ -1564,5 +1567,95 @@ describe("public mode (story 3.13)", () => {
     );
     expect(res.status).toBe(405);
     expect(res.headers.get("allow")).toBe("GET, HEAD");
+  });
+});
+
+describe("public run detail steering redaction (story 3.14)", () => {
+  const TS = "2026-09-14T16:00:00.000Z";
+  const provider: LlmProvider = {
+    name: "fake",
+    complete: async () => ({
+      text: "unused",
+      inputTokens: 1,
+      outputTokens: 1,
+      costCents: 0
+    })
+  };
+
+  it("omits private turn content and never exposes a steeringTurns array", async () => {
+    await runsRepo.insertRun(testEnv.DB, {
+      id: "run-20260914-aa10",
+      origin: "scheduled",
+      mode: "hitl",
+      status: "awaiting",
+      startedAt: TS,
+      completedAt: TS,
+      spendCents: 0,
+      spendCurrency: "USD",
+      budgetCents: 200,
+      scheduledFor: "2026-09-14"
+    });
+    await draftsRepo.insertDraft(testEnv.DB, {
+      id: "d-steer-redact",
+      runId: "run-20260914-aa10",
+      targetEntityType: "states",
+      targetEntityId: "st-nv",
+      diff: {},
+      body: "Draft body for redaction.",
+      tier2Only: false,
+      confidence: 70,
+      evalSummary: null,
+      createdAt: TS
+    });
+    const secret = "private steering content must not leak";
+    await submitTurn(
+      testEnv.DB,
+      { db: testEnv.DB, provider, now: () => TS },
+      {
+        runId: "run-20260914-aa10",
+        draftId: "d-steer-redact",
+        content: secret,
+        private: true,
+        actorDisplayName: "Patrick"
+      }
+    );
+    const res = await worker.fetch!(
+      get("/api/runs/run-20260914-aa10"),
+      testEnv
+    );
+    expect(res.status).toBe(200);
+    const body = RunDetailSchema.parse(await res.json());
+    expect("steeringTurns" in body).toBe(false);
+    const serialized = JSON.stringify(body);
+    expect(serialized).not.toContain(secret);
+    const turn = body.evidence.find((e) => e.event === "steering.turn");
+    expect(turn?.payload).toMatchObject({
+      actor: "Patrick",
+      draftId: "d-steer-redact",
+      private: true,
+      content: null
+    });
+  });
+
+  it("does not project an unsubmitted composer as Evidence", async () => {
+    await runsRepo.insertRun(testEnv.DB, {
+      id: "run-20260914-aa11",
+      origin: "scheduled",
+      mode: "hitl",
+      status: "awaiting",
+      startedAt: TS,
+      completedAt: TS,
+      spendCents: 0,
+      spendCurrency: "USD",
+      budgetCents: 200,
+      scheduledFor: "2026-09-14"
+    });
+    const res = await worker.fetch!(
+      get("/api/runs/run-20260914-aa11"),
+      testEnv
+    );
+    const body = RunDetailSchema.parse(await res.json());
+    expect(body.evidence.some((e) => e.event === "steering.turn")).toBe(false);
+    expect("steeringTurns" in body).toBe(false);
   });
 });

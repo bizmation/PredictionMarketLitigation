@@ -248,7 +248,8 @@ describe("DDL-supporting vocabularies are pinned", () => {
       "orchestrator",
       "drafter",
       "reviewer",
-      "yolo"
+      "yolo",
+      "steward"
     ]);
   });
 });

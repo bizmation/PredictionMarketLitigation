@@ -319,7 +319,9 @@ describe("autoApproveRun (story 3.13)", () => {
     await autoApproveRun(testEnv.DB, runId);
 
     const validated = (await evidenceRepo.listByRun(testEnv.DB, runId)).find(
-      (e) => e.event === "yolo.validated" && e.payload?.draftId === draftId
+      (e) =>
+        e.event === "yolo.validated" &&
+        (e.payload as { draftId?: string } | null)?.draftId === draftId
     );
     expect(validated?.payload).toMatchObject({
       verdict: "approve",

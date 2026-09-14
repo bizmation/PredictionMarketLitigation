@@ -36,16 +36,19 @@ export type RoleModelConfig = z.infer<typeof RoleModelConfigSchema>;
 /**
  * The role→model map inside the config. Roles are a sparse, closed set: any
  * admitted `GatewayRole` key may be present or absent (an absent role is a
- * typed `role_not_configured` at call time), and no key outside the four is
- * admitted (`.strict()` rejects it). `.strict()` also rejects inherited
- * prototype keys, so a tampered JSON object cannot smuggle a mapping in.
+ * typed `role_not_configured` at call time), and no key outside the closed
+ * set is admitted (`.strict()` rejects it). `.strict()` also rejects
+ * inherited prototype keys, so a tampered JSON object cannot smuggle a
+ * mapping in. Production does not seed a steward model id; tests INSERT
+ * one when they need `complete({ role: "steward" })`.
  */
 export const RoleModelMapSchema = z
   .object({
     orchestrator: RoleModelConfigSchema.optional(),
     drafter: RoleModelConfigSchema.optional(),
     reviewer: RoleModelConfigSchema.optional(),
-    yolo: RoleModelConfigSchema.optional()
+    yolo: RoleModelConfigSchema.optional(),
+    steward: RoleModelConfigSchema.optional()
   })
   .strict();
 
