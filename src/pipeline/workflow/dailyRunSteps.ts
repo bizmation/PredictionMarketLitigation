@@ -1,10 +1,12 @@
 import type { Db } from "../../shared/db/client";
+import * as modeRepo from "../../shared/db/repos/modeRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import { append } from "../projector/evidence";
 import type { RunOrigin } from "../../shared/schemas/vocabulary";
 import { draftAndReview } from "../agents/draftAndReview";
 import { enforceDraftGuardrails } from "../ai/actionPolicy";
 import type { GatewayDeps } from "../ai/gateway";
+import { autoApproveRun } from "../gate/yoloPolicy";
 import {
   evidenceId,
   runConnector,
@@ -56,11 +58,12 @@ export async function ensureRun(
   const now = new Date().toISOString();
   const id = existing?.id ?? runId ?? runIdFor(scheduledFor, origin);
   if (!existing) {
+    const live = await modeRepo.get(db);
     try {
       await runsRepo.insertRun(db, {
         id,
         origin,
-        mode: "hitl",
+        mode: live.mode,
         status: "running",
         startedAt: now,
         completedAt: null,
@@ -113,7 +116,8 @@ export async function finishAwaiting(
 
 export async function finishFailed(db: Db, runId: string): Promise<void> {
   const now = new Date().toISOString();
-  await runsRepo.completeRun(db, runId, "failed", now);
+  const moved = await runsRepo.completeRun(db, runId, "failed", now);
+  if (!moved) return;
   await append(db, {
     id: evidenceId(runId, "run.failed"),
     runId,
@@ -180,8 +184,13 @@ export async function afterPackaging(
   await draftAndReview(db, runId, gatewayDeps);
   await enforceDraftGuardrails(db, runId, gatewayDeps);
   const run = await runsRepo.getRunById(db, runId);
-  if (!run || run.status !== "running") return;
-  await completeDailyStep(db, runId, result);
+  if (run?.status === "running") {
+    await completeDailyStep(db, runId, result);
+  }
+  const latest = await runsRepo.getRunById(db, runId);
+  if (latest?.mode === "yolo" && latest.status === "awaiting") {
+    await autoApproveRun(db, runId);
+  }
 }
 
 export type DailyPackageResult =

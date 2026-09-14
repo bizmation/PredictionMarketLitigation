@@ -4,6 +4,7 @@ import {
   type WorkflowStep
 } from "cloudflare:workers";
 import type { Db } from "../../shared/db/client";
+import * as modeRepo from "../../shared/db/repos/modeRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import type { RunOrigin, RunSummary } from "../../shared/schemas/run";
 import { append } from "../projector/evidence";
@@ -130,12 +131,13 @@ export async function startOperatorRun(
     origin,
     existing.map((run) => run.id)
   );
+  const live = await modeRepo.get(db);
   let run: RunSummary;
   try {
     run = await runsRepo.insertRun(db, {
       id,
       origin,
-      mode: "hitl",
+      mode: live.mode,
       status: "running",
       startedAt,
       completedAt: null,
@@ -186,11 +188,10 @@ export async function startOperatorRun(
         /* last resort — response still reports unavailable below */
       }
     }
-    const failed =
-      (await runsRepo.getRunById(db, run.id)) ?? {
-        ...run,
-        status: "failed" as const
-      };
+    const failed = (await runsRepo.getRunById(db, run.id)) ?? {
+      ...run,
+      status: "failed" as const
+    };
     return { status: "workflow_unavailable", run: failed };
   }
 

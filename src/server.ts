@@ -29,8 +29,10 @@ import {
 import { jsonError } from "./shared/api/respond";
 import { getDb } from "./shared/db/client";
 import * as draftsRepo from "./shared/db/repos/draftsRepo";
+import * as modeRepo from "./shared/db/repos/modeRepo";
 import * as runsRepo from "./shared/db/repos/runsRepo";
 import { IsoDateSchema } from "./shared/schemas/common";
+import { ModePostBodySchema } from "./shared/schemas/mode";
 import { etCalendarDate } from "./shared/lib/schedule";
 import { decide } from "./pipeline/gate/approval";
 import {
@@ -580,10 +582,51 @@ export default {
         }
       }
 
-      // No other admin handlers exist yet — 3.13 brings `#mode`, 4.6
-      // feedback moderation. Reaching here means the caller IS the
-      // operator and simply asked for something that does not exist. The
-      // guard above is what this placeholder exists to prove.
+      if (adminPath === "/api/admin/mode") {
+        if (request.method !== "POST") {
+          return new Response("Method not allowed", {
+            status: 405,
+            headers: { ...ADMIN_CACHE_HEADERS, allow: "POST" }
+          });
+        }
+        try {
+          let body: unknown;
+          try {
+            body = await request.json();
+          } catch {
+            return jsonError(badRequest("Malformed JSON body."), {
+              headers: ADMIN_CACHE_HEADERS
+            });
+          }
+          const parsed = ModePostBodySchema.safeParse(body);
+          if (!parsed.success) {
+            return jsonError(badRequest("Invalid mode body."), {
+              headers: ADMIN_CACHE_HEADERS
+            });
+          }
+          const result = await modeRepo.set(getDb(env), {
+            mode: parsed.data.mode,
+            threshold: parsed.data.threshold,
+            actor: gate.operator.displayName,
+            now: new Date().toISOString()
+          });
+          return Response.json(result, { headers: ADMIN_CACHE_HEADERS });
+        } catch (error) {
+          console.error(
+            JSON.stringify({
+              event: "admin_api.error",
+              path: pathname,
+              message: error instanceof Error ? error.message : String(error)
+            })
+          );
+          return jsonError(internalError(), { headers: ADMIN_CACHE_HEADERS });
+        }
+      }
+
+      // No other admin handlers exist yet — 4.6 feedback moderation.
+      // Reaching here means the caller IS the operator and simply asked
+      // for something that does not exist. The guard above is what this
+      // placeholder exists to prove.
       return new Response("Not found", {
         status: 404,
         headers: ADMIN_CACHE_HEADERS

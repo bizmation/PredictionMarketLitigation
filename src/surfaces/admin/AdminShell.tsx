@@ -1,7 +1,6 @@
 import { surfaceHref } from "../../shared/lib/surface";
 import {
   AdminBar,
-  EmptyState,
   SectionBand,
   SiteFooter,
   TopBar,
@@ -11,7 +10,9 @@ import {
 } from "../../shared/ui";
 import { ApprovalQueue } from "./ApprovalQueue";
 import { LoopControls } from "./LoopControls";
+import { ModeControls } from "./ModeControls";
 import { useAdminSession } from "./useAdminSession";
+import { useApprovalMode } from "../useApprovalMode";
 
 /**
  * Admin — the operator's approval gate. Deliberately lighter than the public
@@ -28,8 +29,8 @@ import { useAdminSession } from "./useAdminSession";
  *      NOT name — `ops.`, and historically workers.dev and preview URLs, where
  *      the Access header is forgeable. See src/shared/lib/access.ts.
  *
- * The `#mode` band is still a placeholder (3.13) — `#queue` (3.10) and
- * `#loop` (3.12) are wired behind the two layers below, and the chrome
+ * The `#mode` band is the operator's gate toggle (3.13) — `#queue` (3.10)
+ * and `#loop` (3.12) sit behind the two layers below, and the chrome
  * says so.
  */
 
@@ -56,6 +57,8 @@ export function AdminShell({ dev = false, operator }: AdminShellProps) {
   // signed out, and the strip says so — a name here is only ever server-backed.
   const session = useAdminSession();
   const resolvedOperator = operator ?? session;
+  const { mode, setMode } = useApprovalMode();
+  const yolo = mode.mode === "yolo";
 
   const links: TopBarLink[] = [
     { href: "#queue", label: "Approval queue" },
@@ -88,8 +91,18 @@ export function AdminShell({ dev = false, operator }: AdminShellProps) {
         // warning became the opposite failure — a surface looking *worse*
         // protected than it is, which erodes the same trust by teaching the
         // operator to discount its own chrome. Retired, not softened.
-        warn={<WarnChip>Autonomous OFF — human-in-the-loop</WarnChip>}
-        message="Gate: HITL · this surface and the admin APIs both require a verified operator"
+        warn={
+          <WarnChip>
+            {yolo
+              ? "Autonomous ON — YOLO"
+              : "Autonomous OFF — human-in-the-loop"}
+          </WarnChip>
+        }
+        message={
+          yolo
+            ? "Gate: YOLO · this surface and the admin APIs both require a verified operator"
+            : "Gate: HITL · this surface and the admin APIs both require a verified operator"
+        }
         meta="Operator actions are published, not logged privately."
         provenance={
           // Handoff PML Admin.html:99 — static placeholder, no data until 3.x.
@@ -122,13 +135,7 @@ export function AdminShell({ dev = false, operator }: AdminShellProps) {
           title="Mode controls"
           why="Switching autonomous mode on or off — restricted to the operator, and audited publicly."
         >
-          <EmptyState
-            title="Controls not yet wired"
-            hint="Default is human-in-the-loop and stays that way until deliberately changed."
-          >
-            Enabling autonomous mode writes an audit event visible on ops., with
-            its timestamp and the threshold in force.
-          </EmptyState>
+          <ModeControls current={mode} onChange={setMode} opsHref={opsHref} />
         </SectionBand>
       </main>
 

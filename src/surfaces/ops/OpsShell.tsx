@@ -16,6 +16,8 @@ import {
 } from "../../shared/ui";
 import { PendingDrafts } from "./PendingDrafts";
 import { RunLog } from "./RunLog";
+import { ModeTransparency } from "./ModeTransparency";
+import { useApprovalMode } from "../useApprovalMode";
 
 /**
  * ops. — the public governance record. No login, ever.
@@ -86,6 +88,8 @@ function useSchedule(): Schedule {
 export function OpsShell({ dev = false, items, drafts }: OpsShellProps) {
   const apexHref = surfaceHref("apex", { dev });
   const schedule = useSchedule();
+  const { mode } = useApprovalMode();
+  const yolo = mode.mode === "yolo";
 
   const links: TopBarLink[] = [
     { href: "#runs", label: "Run log" },
@@ -118,7 +122,7 @@ export function OpsShell({ dev = false, items, drafts }: OpsShellProps) {
           // fixed "Human-approved"/"Agent-approved" vocabulary.
           <span className="prov">
             <span className="dot" aria-hidden="true" />
-            Gate: HITL
+            Gate: {yolo ? "YOLO" : "HITL"}
           </span>
         }
       />
@@ -148,13 +152,7 @@ export function OpsShell({ dev = false, items, drafts }: OpsShellProps) {
           title="Approval mode"
           why="Whether a human is approving each change right now, and the audit trail of that setting."
         >
-          <EmptyState
-            title="Mode transparency not yet wired"
-            hint="The default is, and will remain, human-in-the-loop. — Story 3.13"
-          >
-            This band will show whether autonomous mode is enabled, the current
-            auto-approve threshold, and every mode change with its timestamp.
-          </EmptyState>
+          <ModeTransparency current={mode} />
         </SectionBand>
 
         <SectionBand

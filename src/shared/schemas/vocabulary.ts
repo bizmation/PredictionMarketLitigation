@@ -258,8 +258,8 @@ export type RunMode = z.infer<typeof RunModeSchema>;
  * Evidence event names (Epic 3) — dot.case names the public Evidence
  * projection may record. Deliberately CLOSED per migration so the D1 CHECK
  * stays truthful; later stories extend by adding a migration (0003
- * precedent). Must match the CHECK in migrations/0011_run_superseded.sql
- * exactly (0011 rebuilt evidence_events to admit `run.superseded`).
+ * precedent). Must match the CHECK in migrations/0012_approval_mode.sql
+ * exactly (0012 rebuilt evidence_events to admit `yolo.validated`).
  */
 export const EVIDENCE_EVENT_VALUES = [
   "run.started",
@@ -275,7 +275,8 @@ export const EVIDENCE_EVENT_VALUES = [
   "guardrails.passed",
   "guardrails.failed",
   "gate.awaiting_approval",
-  "gate.decided"
+  "gate.decided",
+  "yolo.validated"
 ] as const;
 
 export const EvidenceEventTypeSchema = z.enum(EVIDENCE_EVENT_VALUES);

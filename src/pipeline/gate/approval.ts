@@ -5,6 +5,7 @@ import * as draftsRepo from "../../shared/db/repos/draftsRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import { IsoUtcSchema } from "../../shared/schemas/common";
 import { type DraftRecord } from "../../shared/schemas/run";
+import { ProvenanceKindSchema } from "../../shared/schemas/vocabulary";
 import { appendStmt } from "../projector/evidence";
 import { applyF1Stmt } from "./f1Apply";
 
@@ -18,7 +19,9 @@ import { applyF1Stmt } from "./f1Apply";
  *
  * `decidedBy` is the verified operator's public-safe `displayName` (never the
  * email — access.ts types that as never safe to render), because the
- * `gate.decided` payload is public Evidence.
+ * `gate.decided` payload is public Evidence. Approve provenance is the
+ * caller's: admin omits `provenanceKind` (defaults `human`); the YOLO path
+ * passes `agent`. Mixed Runs label the caller, not the Run's stamped mode.
  */
 
 export const DECISION_ACTION_VALUES = ["approve", "edit", "reject"] as const;
@@ -35,7 +38,8 @@ const DecideInputSchema = z
         draftId: z.string().min(1),
         operator: OperatorSchema,
         now: IsoUtcSchema,
-        action: z.literal("approve")
+        action: z.literal("approve"),
+        provenanceKind: ProvenanceKindSchema.optional()
       })
       .strict(),
     z
@@ -76,6 +80,8 @@ export type DecideInput = {
   /** The PRIVATE portion — bound to its column, never mapped back out. */
   rejectReasonPrivate?: string | null;
   now: string;
+  /** Approve only. Admin omits it (defaults `human`); YOLO passes `agent`. */
+  provenanceKind?: "human" | "agent";
 };
 
 export type DecideResult =
@@ -111,6 +117,8 @@ export async function decide(
     action === "reject" ? (parsed.data.rejectReason ?? null) : null;
   const privateReason =
     action === "reject" ? (parsed.data.rejectReasonPrivate ?? null) : null;
+  const provenanceKind =
+    action === "approve" ? (parsed.data.provenanceKind ?? "human") : "human";
 
   const statements: D1PreparedStatement[] = [];
   let draftStmtIndex = 0;
@@ -123,7 +131,7 @@ export async function decide(
           targetEntityType: existing.targetEntityType,
           targetEntityId: existing.targetEntityId,
           diff: existing.diff,
-          provenanceKind: run.mode === "yolo" ? "agent" : "human",
+          provenanceKind,
           now,
           approver: operator.displayName
         })

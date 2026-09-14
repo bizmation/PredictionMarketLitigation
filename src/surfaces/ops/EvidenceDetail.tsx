@@ -23,6 +23,7 @@ import {
   type RunStatus as ChipStatus,
   type TopBarLink
 } from "../../shared/ui";
+import { useApprovalMode } from "../useApprovalMode";
 import { formatUsdCents } from "./RunLog";
 
 /**
@@ -161,7 +162,9 @@ function stepLabel(event: EvidenceEvent): string {
   const tool = payloadField(event.payload, "tool");
   const source = payloadField(event.payload, "source");
   const priorRunId = payloadField(event.payload, "priorRunId");
-  const extra = [source, tool, priorRunId].filter(
+  const verdict = payloadField(event.payload, "verdict");
+  const draftId = payloadField(event.payload, "draftId");
+  const extra = [source, tool, priorRunId, verdict, draftId].filter(
     (part): part is string => part != null
   );
   return extra.length > 0
@@ -203,6 +206,8 @@ function EvidenceChrome({
 }) {
   const apexHref = surfaceHref("apex", { dev });
   const logHref = surfaceHref("ops", { path: "/", dev });
+  const { mode } = useApprovalMode();
+  const yolo = mode.mode === "yolo";
   const links: TopBarLink[] = [
     { href: logHref, label: "Run log" },
     { href: apexHref, label: "Tracker", external: true },
@@ -225,7 +230,7 @@ function EvidenceChrome({
         provenance={
           <span className="prov">
             <span className="dot" aria-hidden="true" />
-            Gate: HITL
+            Gate: {yolo ? "YOLO" : "HITL"}
           </span>
         }
       />

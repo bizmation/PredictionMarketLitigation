@@ -3,11 +3,13 @@ import { z } from "zod";
 import type { Db } from "../../shared/db/client";
 import * as draftsRepo from "../../shared/db/repos/draftsRepo";
 import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
+import * as modeRepo from "../../shared/db/repos/modeRepo";
 import type {
   DraftRecord,
   EvalSummary,
   IneligibleReason
 } from "../../shared/schemas/run";
+import { isPartyCharacterization, isPostureFlip } from "../gate/yoloPolicy";
 import {
   GUARDRAIL_RULE_ID,
   parseToolRequest,
@@ -31,10 +33,11 @@ import { appendStmt } from "../projector/evidence";
  * Agents call `gateway.complete({ role })` only. Prompts live here, not in
  * the workflow. YOLO does not run. Workflow retries skip a Draft whose
  * `evalSummary` is already set or that already has `guardrails.failed`.
+ * `ineligibleFor` uses the live threshold and stamps posture/party reasons
+ * for 3.13 auto-approve.
  */
 
-/** Versioned auto-approve floor until 3.13 makes it operator-configurable. */
-export const AUTO_APPROVE_CONFIDENCE_THRESHOLD = 70;
+export { AUTO_APPROVE_CONFIDENCE_THRESHOLD } from "../../shared/schemas/mode";
 
 const DrafterOutputSchema = z
   .object({
@@ -87,26 +90,40 @@ function parseDrafter(text: string): {
   return { body: parsed.data.body, diff: parsed.data.diff };
 }
 
-function ineligibleFor(
-  draft: DraftRecord,
+export function ineligibleFor(
+  draft: Pick<DraftRecord, "tier2Only" | "targetEntityType">,
   status: EvalSummary["status"],
-  confidence: number | null
+  confidence: number | null,
+  threshold: number,
+  diff: unknown
 ): IneligibleReason[] {
   const reasons: IneligibleReason[] = [];
   if (draft.tier2Only) reasons.push("tier2_only");
-  if (confidence != null && confidence < AUTO_APPROVE_CONFIDENCE_THRESHOLD) {
+  if (confidence != null && confidence < threshold) {
     reasons.push("below_threshold");
   }
   if (status === "eval_fail") reasons.push("eval_fail");
   if (status === "evals_not_run") reasons.push("evals_not_run");
+  if (isPostureFlip(diff)) reasons.push("posture_flip");
+  if (isPartyCharacterization(draft.targetEntityType)) {
+    reasons.push("party_characterization");
+  }
   return reasons;
 }
 
 function evalsNotRunSummary(
   draft: DraftRecord,
+  threshold: number,
+  diff: unknown,
   extra: IneligibleReason[] = []
 ): EvalSummary {
-  const ineligible = ineligibleFor(draft, "evals_not_run", null);
+  const ineligible = ineligibleFor(
+    draft,
+    "evals_not_run",
+    null,
+    threshold,
+    diff
+  );
   for (const reason of extra) {
     if (!ineligible.includes(reason)) ineligible.push(reason);
   }
@@ -125,6 +142,8 @@ function evalFailSummary(
     basis: string;
     citationCompleteness: number | null;
     confidence: number | null;
+    threshold: number;
+    diff: unknown;
   }
 ): EvalSummary {
   return {
@@ -132,7 +151,13 @@ function evalFailSummary(
     basis: args.basis,
     citationCompleteness: args.citationCompleteness,
     disagreement: { flagged: false, description: null },
-    ineligible: ineligibleFor(draft, "eval_fail", args.confidence)
+    ineligible: ineligibleFor(
+      draft,
+      "eval_fail",
+      args.confidence,
+      args.threshold,
+      args.diff
+    )
   };
 }
 
@@ -229,13 +254,14 @@ async function persistEvalsNotRun(
   draft: DraftRecord,
   body: string,
   diff: unknown,
-  createdAt: string
+  createdAt: string,
+  threshold: number
 ): Promise<void> {
   await persist(db, draft, {
     body,
     diff,
     confidence: null,
-    evalSummary: evalsNotRunSummary(draft),
+    evalSummary: evalsNotRunSummary(draft, threshold, diff),
     createdAt
   });
 }
@@ -249,10 +275,13 @@ async function persistToolDeny(
     diff: unknown;
     role: "drafter" | "reviewer";
     tool: string;
+    threshold: number;
   }
 ): Promise<void> {
   const createdAt = nowIso(gatewayDeps);
-  const evalSummary = evalsNotRunSummary(draft, ["guardrail_fail"]);
+  const evalSummary = evalsNotRunSummary(draft, args.threshold, args.diff, [
+    "guardrail_fail"
+  ]);
   const reviewStmt = await draftsRepo.applyDraftReviewStmt(db, {
     id: draft.id,
     body: args.body,
@@ -302,7 +331,9 @@ async function persistToolDeny(
 
 function scoreReviewer(
   draft: DraftRecord,
-  text: string
+  text: string,
+  threshold: number,
+  diff: unknown
 ): {
   confidence: number | null;
   evalSummary: EvalSummary;
@@ -314,7 +345,9 @@ function scoreReviewer(
       evalSummary: evalFailSummary(draft, {
         basis: "eval-fail",
         citationCompleteness: null,
-        confidence: null
+        confidence: null,
+        threshold,
+        diff
       })
     };
   }
@@ -326,7 +359,9 @@ function scoreReviewer(
       evalSummary: evalFailSummary(draft, {
         basis: parsed.data.notes || "eval-fail",
         citationCompleteness: parsed.data.citationCompleteness,
-        confidence: parsed.data.confidence
+        confidence: parsed.data.confidence,
+        threshold,
+        diff
       })
     };
   }
@@ -341,7 +376,13 @@ function scoreReviewer(
         flagged,
         description: flagged ? disagreement : null
       },
-      ineligible: ineligibleFor(draft, "ok", parsed.data.confidence)
+      ineligible: ineligibleFor(
+        draft,
+        "ok",
+        parsed.data.confidence,
+        threshold,
+        diff
+      )
     }
   };
 }
@@ -360,6 +401,7 @@ export async function draftAndReview(
   runId: string,
   gatewayDeps: GatewayDeps
 ): Promise<DraftAndReviewResult> {
+  const threshold = (await modeRepo.get(db)).threshold;
   const failedIds = new Set<string>();
   for (const event of await evidenceRepo.listByRun(db, runId)) {
     if (event.event !== "guardrails.failed") continue;
@@ -391,7 +433,8 @@ export async function draftAndReview(
           body,
           diff,
           role: "drafter",
-          tool: drafterTool.tool
+          tool: drafterTool.tool,
+          threshold
         });
         continue;
       }
@@ -418,11 +461,12 @@ export async function draftAndReview(
           body,
           diff,
           role: "reviewer",
-          tool: reviewerTool.tool
+          tool: reviewerTool.tool,
+          threshold
         });
         continue;
       }
-      const scored = scoreReviewer(draft, reviewer.text);
+      const scored = scoreReviewer(draft, reviewer.text, threshold, diff);
       await persist(db, draft, {
         body,
         diff,
@@ -439,11 +483,12 @@ export async function draftAndReview(
             body,
             diff,
             role: pendingTool.role,
-            tool: pendingTool.tool
+            tool: pendingTool.tool,
+            threshold
           });
           continue;
         }
-        await persistEvalsNotRun(db, draft, body, diff, timestamp);
+        await persistEvalsNotRun(db, draft, body, diff, timestamp, threshold);
       } catch {
         persistFailed = true;
       }
@@ -458,7 +503,8 @@ export async function draftAndReview(
               remaining,
               remaining.body,
               remaining.diff,
-              timestamp
+              timestamp,
+              threshold
             );
           } catch {
             // Stamp as many remaining Drafts as the DB will take.

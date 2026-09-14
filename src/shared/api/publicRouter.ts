@@ -16,6 +16,7 @@ import * as entitiesRepo from "../db/repos/entitiesRepo";
 import * as evidenceRepo from "../db/repos/evidenceRepo";
 import * as kpisRepo from "../db/repos/kpisRepo";
 import * as llmCallsRepo from "../db/repos/llmCallsRepo";
+import * as modeRepo from "../db/repos/modeRepo";
 import * as pollVotesRepo from "../db/repos/pollVotesRepo";
 import * as runsRepo from "../db/repos/runsRepo";
 import * as statesRepo from "../db/repos/statesRepo";
@@ -275,6 +276,11 @@ export async function handlePublicApi(
         timezone: RUN_SCHEDULE_TIMEZONE,
         nextRunAt: nextRunAtUtc()
       });
+    }
+
+    // Story 3.13 — live gate mode, integer threshold, and mode_audit.
+    if (pathname === "/api/mode") {
+      return jsonNoStore(await modeRepo.get(db));
     }
 
     // Story 3.1 — run records are read-only public stubs; the pipeline and
