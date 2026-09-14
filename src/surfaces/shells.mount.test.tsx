@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_APPROVAL_MODE } from "../shared/schemas/mode";
@@ -57,5 +57,55 @@ describe("shell TrustBar live mode (jsdom mount)", () => {
     expect(document.body.textContent).toContain("Gate: YOLO");
     expect(document.body.textContent).toContain("Autonomous ON — YOLO");
     expect(document.body.textContent).not.toContain("Gate: HITL");
+  });
+
+  it("updates the admin TrustBar after a successful mode toggle POST", async () => {
+    let liveMode = DEFAULT_APPROVAL_MODE;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/api/admin/mode") && init?.method === "POST") {
+          liveMode = {
+            ...DEFAULT_APPROVAL_MODE,
+            mode: "yolo",
+            audit: [
+              {
+                id: "a-toggle",
+                createdAt: "2026-09-13T16:00:00.000Z",
+                actorDisplayName: "Patrick",
+                kind: "mode",
+                prior: { mode: "hitl" },
+                next: { mode: "yolo" }
+              }
+            ]
+          };
+          return {
+            ok: true,
+            status: 200,
+            json: async () => liveMode
+          };
+        }
+        if (url.includes("/api/mode")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => liveMode
+          };
+        }
+        return { ok: true, status: 200, json: async () => ({}) };
+      })
+    );
+    render(<AdminShell />);
+    await act(async () => {});
+    expect(document.body.textContent).toContain("Gate: HITL");
+    expect(document.body.textContent).toContain("Autonomous OFF");
+    fireEvent.click(
+      document.querySelector('button[aria-label="Autonomous mode"]')!
+    );
+    await act(async () => {});
+    expect(document.body.textContent).toContain("Gate: YOLO");
+    expect(document.body.textContent).toContain("Autonomous ON — YOLO");
+    expect(document.body.textContent).not.toContain("Autonomous OFF");
   });
 });

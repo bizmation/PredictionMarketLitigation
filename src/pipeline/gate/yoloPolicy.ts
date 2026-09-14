@@ -1,5 +1,6 @@
 import type { Db } from "../../shared/db/client";
 import * as draftsRepo from "../../shared/db/repos/draftsRepo";
+import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
 import * as modeRepo from "../../shared/db/repos/modeRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import type { DraftRecord, IneligibleReason } from "../../shared/schemas/run";
@@ -84,14 +85,51 @@ export function eligible(draft: DraftRecord, threshold: number): boolean {
   return reasonsFor(draft, threshold).length === 0;
 }
 
+async function appendApproveValidation(
+  db: Db,
+  input: {
+    runId: string;
+    draftId: string;
+    confidence: number | null;
+    threshold: number;
+    now: string;
+  }
+): Promise<void> {
+  await append(db, {
+    id: evidenceId(input.runId, "yolo.validated", input.draftId),
+    runId: input.runId,
+    event: "yolo.validated",
+    payload: {
+      verdict: "approve",
+      draftId: input.draftId,
+      confidence: input.confidence,
+      threshold: input.threshold,
+      reasons: []
+    },
+    createdAt: input.now
+  });
+}
+
+function hasApproveValidation(
+  events: Awaited<ReturnType<typeof evidenceRepo.listByRun>>,
+  draftId: string
+): boolean {
+  return events.some(
+    (event) =>
+      event.event === "yolo.validated" &&
+      (event.payload as { draftId?: string; verdict?: string } | null)
+        ?.draftId === draftId &&
+      (event.payload as { verdict?: string } | null)?.verdict === "approve"
+  );
+}
+
 export async function autoApproveRun(db: Db, runId: string): Promise<void> {
   const run = await runsRepo.getRunById(db, runId);
   if (!run || run.mode !== "yolo") return;
 
   const live = await modeRepo.get(db);
-  const pending = (await draftsRepo.listByRun(db, runId)).filter(
-    (draft) => draft.outcome == null
-  );
+  const drafts = await draftsRepo.listByRun(db, runId);
+  const pending = drafts.filter((draft) => draft.outcome == null);
   const now = new Date().toISOString();
 
   for (const draft of pending) {
@@ -119,19 +157,45 @@ export async function autoApproveRun(db: Db, runId: string): Promise<void> {
       now,
       provenanceKind: "agent"
     });
-    if (result.status !== "decided") continue;
-    await append(db, {
-      id: evidenceId(runId, "yolo.validated", draft.id),
-      runId,
-      event: "yolo.validated",
-      payload: {
-        verdict: "approve",
+    if (result.status === "decided") {
+      await appendApproveValidation(db, {
+        runId,
         draftId: draft.id,
         confidence: draft.confidence,
         threshold: live.threshold,
-        reasons
-      },
-      createdAt: now
+        now
+      });
+      continue;
+    }
+    if (result.status === "already_decided") {
+      const decided = await draftsRepo.getById(db, draft.id);
+      if (
+        decided?.outcome === "approved" &&
+        decided.decidedBy === YOLO_AGENT
+      ) {
+        await appendApproveValidation(db, {
+          runId,
+          draftId: draft.id,
+          confidence: draft.confidence,
+          threshold: live.threshold,
+          now
+        });
+      }
+    }
+  }
+
+  const events = await evidenceRepo.listByRun(db, runId);
+  for (const draft of drafts) {
+    if (draft.outcome !== "approved" || draft.decidedBy !== YOLO_AGENT) {
+      continue;
+    }
+    if (hasApproveValidation(events, draft.id)) continue;
+    await appendApproveValidation(db, {
+      runId,
+      draftId: draft.id,
+      confidence: draft.confidence,
+      threshold: live.threshold,
+      now
     });
   }
 }

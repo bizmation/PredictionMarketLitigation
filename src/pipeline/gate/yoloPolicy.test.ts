@@ -305,6 +305,31 @@ describe("autoApproveRun (story 3.13)", () => {
     ).toContain("below_threshold");
   });
 
+  it("backfills yolo.validated when decide is already_decided for an agent approval", async () => {
+    const runId = await seedYoloRun();
+    const draftId = `d:${runId}:retry-ok`;
+    await seedDraft(runId, draftId);
+    await autoApproveRun(testEnv.DB, runId);
+    await testEnv.DB.prepare(
+      "DELETE FROM evidence_events WHERE run_id = ? AND event = 'yolo.validated'"
+    )
+      .bind(runId)
+      .run();
+
+    await autoApproveRun(testEnv.DB, runId);
+
+    const validated = (await evidenceRepo.listByRun(testEnv.DB, runId)).find(
+      (e) => e.event === "yolo.validated" && e.payload?.draftId === draftId
+    );
+    expect(validated?.payload).toMatchObject({
+      verdict: "approve",
+      draftId,
+      confidence: 80,
+      threshold: 70,
+      reasons: []
+    });
+  });
+
   it("never auto-approves a HITL Run even when the Draft would pass", async () => {
     const id = newRunId();
     await runsRepo.insertRun(testEnv.DB, {

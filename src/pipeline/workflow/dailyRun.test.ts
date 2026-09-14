@@ -908,6 +908,56 @@ describe("mode stamp + YOLO hook (story 3.13)", () => {
     expect(started.run.mode).toBe("yolo");
   });
 
+  it("keeps auto-approving a yolo-stamped Run after global mode flips to HITL", async () => {
+    const yoloDate = "2026-12-05";
+    await modeRepo.set(testEnv.DB, {
+      mode: "yolo",
+      actor: "Patrick",
+      now: NOW
+    });
+    await ensureRun(testEnv.DB, "scheduled", yoloDate);
+    const yoloId = runIdFor(yoloDate, "scheduled");
+    await modeRepo.set(testEnv.DB, {
+      mode: "hitl",
+      actor: "Patrick",
+      now: NOW
+    });
+    expect((await runsRepo.getRunById(testEnv.DB, yoloId))?.mode).toBe("yolo");
+    await draftsRepo.insertDraft(testEnv.DB, {
+      id: `d:${yoloId}:states:st-nv`,
+      runId: yoloId,
+      targetEntityType: "states",
+      targetEntityId: "st-nv",
+      diff: { operationalStatus: { from: "go", to: "restricted" } },
+      body: "Frozen yolo Run draft.",
+      tier2Only: false,
+      confidence: 80,
+      evalSummary: {
+        status: "ok",
+        basis: "ok",
+        citationCompleteness: 90,
+        disagreement: { flagged: false, description: null },
+        ineligible: []
+      },
+      createdAt: NOW
+    });
+    await afterPackaging(
+      testEnv.DB,
+      yoloId,
+      { draftCount: 1, anyFailure: false },
+      { db: testEnv.DB, provider: fakeProvider(), now: () => NOW }
+    );
+    expect(
+      (await draftsRepo.getById(testEnv.DB, `d:${yoloId}:states:st-nv`))
+        ?.outcome
+    ).toBe("approved");
+    expect(
+      (await evidenceRepo.listByRun(testEnv.DB, yoloId)).some(
+        (e) => e.event === "yolo.validated"
+      )
+    ).toBe(true);
+  });
+
   it("auto-approves an eligible YOLO Run after packaging and leaves HITL pending", async () => {
     const yoloDate = "2026-12-03";
     await modeRepo.set(testEnv.DB, {

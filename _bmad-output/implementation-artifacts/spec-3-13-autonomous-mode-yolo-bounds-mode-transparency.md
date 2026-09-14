@@ -3,8 +3,8 @@ title: 'Story 3.13: Autonomous Mode, YOLO Bounds & Mode Transparency'
 type: 'feature'
 created: '2026-09-13'
 status: 'done'
-review_loop_iteration: 0
-followup_review_recommended: true
+review_loop_iteration: 1
+followup_review_recommended: false
 baseline_revision: 957ab23623d379a420bb0391aa6eb65dd77a5bda
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context.md'
@@ -39,7 +39,7 @@ deferred:
 - New Runs read live mode at insert (`ensureRun` / `startOperatorRun`). Already-recorded Runs and published provenance stay frozen.
 - Auto-approve only when `run.mode === "yolo"` and **all** hold: `ineligible` empty of eval/guardrail/tier2 reasons, confidence ≥ **current** threshold, not `posture_flip`, not `party_characterization`. Else leave pending.
 - `posture_flip`: parsed diff has `posture` with `from !== to`. `party_characterization`: `targetEntityType === "entities"`. Low-risk = not those escalate categories.
-- Auto-approve calls `decide({ action: "approve" })` with `provenanceKind: "agent"` and `decidedBy: "approval-agent"`. Human `/api/admin/drafts/:id/decision` always `provenanceKind: "human"` (update the 3.11 yolo-fixture test). Append `yolo.validated` Evidence (verdict approve|escalate, draftId, confidence, threshold, reasons) **before** decide.
+- Auto-approve calls `decide({ action: "approve" })` with `provenanceKind: "agent"` and `decidedBy: "approval-agent"`. Human `/api/admin/drafts/:id/decision` always `provenanceKind: "human"` (update the 3.11 yolo-fixture test). Append escalate `yolo.validated` rows before skipping the draft. Append approve `yolo.validated` **after** `decide()` returns `{ status: "decided" }` so Evidence never claims approve while the Draft is still pending; backfill the same row on retry when `decide()` returns `already_decided` for an agent-approved Draft.
 - Fail-closed: missing mode row → HITL/70; public GET errors → show HITL default, never imply YOLO.
 
 **Never:**
@@ -76,7 +76,7 @@ deferred:
 - `src/shared/db/repos/modeRepo.ts` -- NEW -- `get()`, `set({mode?, threshold?, actor, now})` version bump + audit only on change.
 - `src/pipeline/agents/draftAndReview.ts:36-103` -- REPLACE const: `ineligibleFor` takes live threshold; add posture/party reasons from diff/target.
 - `src/pipeline/gate/approval.ts:31-129` -- ADD optional `provenanceKind` on approve (default `human`). Admin route omits it.
-- `src/pipeline/gate/yoloPolicy.ts` -- NEW -- `eligible(draft, threshold)` + `autoApproveRun(db, runId)` loops pending, appends `yolo.validated`, `decide()` with agent provenance. **No** gateway call.
+- `src/pipeline/gate/yoloPolicy.ts` -- NEW -- `eligible(draft, threshold)` + `autoApproveRun(db, runId)` loops pending, `decide()` with agent provenance, then approve `yolo.validated` (escalate rows pre-decide). Backfills approve validation on `already_decided` retry. **No** gateway call.
 - `src/pipeline/workflow/dailyRunSteps.ts:60-63` / `dailyRun.ts:135-138` -- stamp `mode` from `modeRepo.get()`. After `afterPackaging`, if yolo call `autoApproveRun`.
 - `src/pipeline/ai/actionPolicy.ts:37-43` -- READ ONLY empty yolo allowlist.
 - `src/shared/lib/adminGuard.ts` / `access.ts` -- READ ONLY.
@@ -115,9 +115,41 @@ deferred:
 - Given HITL (default), when a otherwise-eligible Draft is packaged, then nothing auto-approves
 - Given ops. with no login, when I open `#mode`, then I see current mode, the numeric threshold, and recent mode/threshold audits
 
+### Review Findings
+
+#### 2026-09-14 — Follow-up review pass
+
+- [x] [Review][Decision] Approve-path `yolo.validated` ordering vs spec — resolved: spec **Always** constraint updated to post-decide approve rows + retry backfill on `already_decided`; escalate rows still pre-decide.
+
+- [x] [Review][Patch] `autoApproveRun` retry skips `yolo.validated` backfill [`src/pipeline/gate/yoloPolicy.ts:122`] — `appendApproveValidation` + `already_decided` backfill; test added
+- [x] [Review][Patch] No test pins frozen `runs.mode` auto-approve after global HITL disable [`src/pipeline/workflow/dailyRun.test.ts`] — yolo-stamped run keeps auto-approving after global HITL flip
+- [x] [Review][Patch] AdminShell TrustBar not tested after mode toggle POST [`src/surfaces/admin/AdminShell.tsx:138`] — mount test in `shells.mount.test.tsx`
+
+- [x] [Review][Defer] `modeRepo.set()` before-image from fail-closed `get()` on parse failure [`src/shared/db/repos/modeRepo.ts:127`] — deferred: unverified parse-throw on a CHECK-valid row; already in spec frontmatter
+
+**Rejected**
+
+- `[false]` Prior pass `INSERT OR IGNORE` retry claim — this pass targets `already_decided` + `continue` with no backfill, not PK conflict; the retry finding above stands on that path.
+- `[false]` Slider 50–99 vs API 0–100 — intentional per Design Notes; API accepts full range.
+- `[false]` Empty trimmed actor → 500 — production operator `displayName` is never whitespace-only.
+- `[false]` YOLO enable lacks confirmation — not in story ACs (unlike supersede).
+- `[false]` Unbounded `mode_audit` on GET — launch volume is tiny; LIMIT is extra surface.
+- `[false]` `ineligibleFor` vs `reasonsFor` null-confidence mismatch — null confidence is already `evals_not_run`; extra `below_threshold` is not an everyday path.
+- `[false]` `draftAndReview` imports from `yoloPolicy` — shared predicates; no named everyday harm.
+- `[false]` Triplicated `/api/mode` fetch — `useApprovalMode` is shared; shells inject live mode.
+- `[false]` AdminShell TrustBar broken after toggle — `ModeControls` calls `onChange={setMode}`; wiring is correct; gap is test coverage only.
+- `[false]` Evidence `stepLabel` omits confidence/threshold/reasons — spec Code Map requires verdict/draftId; full payload is on GET.
+- `[low]` Stale mode UI across browser tabs — no cross-tab sync; unlikely everyday operator workflow.
+- `[low]` Keyboard-only threshold change without blur — `onBlur` commits on focus leave; edge case only when adjusting then clicking elsewhere without leaving the input.
+
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-09-14 — Follow-up review pass
+- verdicts: 27 raw findings → 1 decision-needed, 3 patch, 1 defer, 12 rejected
+- diff: `957ab23..983a06c` (34 files, +2608/−98)
+- layers: Blind Hunter, Edge Case Hunter, Verification Gap, Acceptance Auditor — all completed
 
 ### 2026-09-13 — Review pass
 - verdicts: 35 findings — high 0, medium 11, low 15, false 8, maybe-false 1
@@ -191,7 +223,7 @@ Files changed:
 
 Review: 4 layers, 35 findings — 0 high. Patches: decide-then-validate; finishFailed no-op when not running; slider pointerup + rollback; Evidence/ops/admin live Gate: YOLO tests; live threshold 90 case. Deferred: unverified modeRepo parse-throw before-image. Rejected lows/false as recorded above.
 
-Follow-up review recommended: true — two or more mediums patched. Unverified risk: a crash after `decide()` and before `yolo.validated` leaves an agent-approved Draft without the validation event (retry sees `already_decided` and skips the append).
+Follow-up review recommended: false — 2026-09-14 follow-up closed decision + three patches (spec post-decide ordering, `yolo.validated` backfill pass, frozen-run + TrustBar tests).
 
 Patch counts by verdict: high 0, medium 7 entries (decide honesty, finishFailed, slider, Evidence chrome, live-threshold test, useApprovalMode fail-closed, TrustBar YOLO).
 
