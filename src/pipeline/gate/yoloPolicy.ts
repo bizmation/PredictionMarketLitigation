@@ -169,10 +169,7 @@ export async function autoApproveRun(db: Db, runId: string): Promise<void> {
     }
     if (result.status === "already_decided") {
       const decided = await draftsRepo.getById(db, draft.id);
-      if (
-        decided?.outcome === "approved" &&
-        decided.decidedBy === YOLO_AGENT
-      ) {
+      if (decided?.outcome === "approved" && decided.decidedBy === YOLO_AGENT) {
         await appendApproveValidation(db, {
           runId,
           draftId: draft.id,

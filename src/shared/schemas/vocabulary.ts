@@ -258,8 +258,9 @@ export type RunMode = z.infer<typeof RunModeSchema>;
  * Evidence event names (Epic 3) — dot.case names the public Evidence
  * projection may record. Deliberately CLOSED per migration so the D1 CHECK
  * stays truthful; later stories extend by adding a migration (0003
- * precedent). Must match the CHECK in migrations/0012_approval_mode.sql
- * exactly (0012 rebuilt evidence_events to admit `yolo.validated`).
+ * precedent). Must match the CHECK in migrations/0013_steering_channel.sql
+ * exactly (0013 rebuilt evidence_events to admit `steering.turn` and
+ * `steering.applied`).
  */
 export const EVIDENCE_EVENT_VALUES = [
   "run.started",
@@ -276,7 +277,9 @@ export const EVIDENCE_EVENT_VALUES = [
   "guardrails.failed",
   "gate.awaiting_approval",
   "gate.decided",
-  "yolo.validated"
+  "yolo.validated",
+  "steering.turn",
+  "steering.applied"
 ] as const;
 
 export const EvidenceEventTypeSchema = z.enum(EVIDENCE_EVENT_VALUES);
@@ -286,15 +289,17 @@ export type EvidenceEventType = z.infer<typeof EvidenceEventTypeSchema>;
  * Gateway role (Epic 3) — the named callers admitted through the single AI
  * gateway front door. `gateway.complete({ role })` resolves a model from the
  * versioned role→model config by one of these; there is no free-form string
- * path. The four roles match the architecture's locked orchestration pattern
- * (orchestrator / drafter / reviewer / yolo). Must match the CHECK in
- * migrations/0007_gateway_config.sql exactly.
+ * path. The four pipeline roles match the architecture's locked
+ * orchestration pattern (orchestrator / drafter / reviewer / yolo);
+ * `steward` is the operator steering channel (0013). Must match the CHECK
+ * in migrations/0013_steering_channel.sql exactly.
  */
 export const GATEWAY_ROLE_VALUES = [
   "orchestrator",
   "drafter",
   "reviewer",
-  "yolo"
+  "yolo",
+  "steward"
 ] as const;
 
 export const GatewayRoleSchema = z.enum(GATEWAY_ROLE_VALUES);

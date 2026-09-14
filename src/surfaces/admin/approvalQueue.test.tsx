@@ -81,6 +81,8 @@ describe("ApprovalQueue markup", () => {
     expect(html).toContain("Drafted by agent");
     expect(html).toContain("Publishes as human-approved");
     expect(html).toContain('href="/runs/run-20260912-aaa1?surface=ops"');
+    expect(html).toContain('class="composer"');
+    expect(html).toContain("Privacy is chosen at submit and cannot be undone");
     for (const key of ["A", "E", "R"]) {
       expect(html).toContain(`class="kbd">${key}</span>`);
     }

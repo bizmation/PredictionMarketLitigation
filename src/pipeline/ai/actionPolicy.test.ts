@@ -18,6 +18,7 @@ import {
   ALLOWED_TOOLS,
   AUTHORIZED_CONTEXT_KEYS,
   evaluateDraftGuardrails,
+  isToolAllowed,
   parseToolRequest,
   pickAuthorizedContext
 } from "./actionPolicy";
@@ -157,6 +158,9 @@ describe("actionPolicy constants & parse (story 3.6)", () => {
     expect(ALLOWED_TOOLS.reviewer).toEqual([]);
     expect(ALLOWED_TOOLS.orchestrator).toEqual([]);
     expect(ALLOWED_TOOLS.yolo).toEqual([]);
+    expect(ALLOWED_TOOLS.steward).toEqual([]);
+    expect(isToolAllowed("steward", "publish_f1")).toBe(false);
+    expect(isToolAllowed("steward", "set_mode")).toBe(false);
     expect(
       Object.values(ALLOWED_TOOLS).every(
         (tools) => !tools.includes("publish_f1")
@@ -165,7 +169,11 @@ describe("actionPolicy constants & parse (story 3.6)", () => {
     expect(() => {
       (ALLOWED_TOOLS.drafter as string[]).push("publish_f1");
     }).toThrow();
+    expect(() => {
+      (ALLOWED_TOOLS.steward as string[]).push("publish_f1");
+    }).toThrow();
     expect(ALLOWED_TOOLS.drafter).toEqual([]);
+    expect(ALLOWED_TOOLS.steward).toEqual([]);
   });
 
   it("parses tool-shaped JSON and ignores extra keys", () => {

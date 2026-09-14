@@ -128,6 +128,9 @@ describe("ApprovalQueue live fetch and keyboard (jsdom mount)", () => {
       "Nevada posture proposal body."
     );
     expect(document.body.textContent).toContain("Awaiting");
+    expect(document.body.textContent).toContain(
+      "Privacy is chosen at submit and cannot be undone"
+    );
   });
 
   it("fails closed to the re-auth EmptyState when the fetch is not OK", async () => {

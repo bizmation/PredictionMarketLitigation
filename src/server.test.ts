@@ -10,7 +10,7 @@ import {
   vi
 } from "vitest";
 
-import worker from "./server";
+import worker, { ChatAgent } from "./server";
 
 // Smoke test (story 1.1): the Worker module exposes the shape wrangler deploys.
 // Runs inside workerd via @cloudflare/vitest-pool-workers against
@@ -493,5 +493,21 @@ describe("/agents/* perimeter (story 1.5)", () => {
       authed
     );
     expect(res.status).not.toBe(403);
+  });
+
+  it("keeps ChatAgent but strips demo tools, Workers AI, and MCP add/remove", async () => {
+    expect(typeof ChatAgent).toBe("function");
+    expect(Object.getOwnPropertyNames(ChatAgent.prototype)).not.toContain(
+      "addServer"
+    );
+    expect(Object.getOwnPropertyNames(ChatAgent.prototype)).not.toContain(
+      "removeServer"
+    );
+    const res = await ChatAgent.prototype.onChatMessage.call(
+      Object.create(ChatAgent.prototype)
+    );
+    expect(await res.text()).toBe(
+      "Steering is submitted through the approval-queue channel, not this agent."
+    );
   });
 });

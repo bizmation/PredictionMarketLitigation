@@ -272,6 +272,64 @@ describe("EvidenceDetail (story 3.8)", () => {
     expect(html).toContain("yolo.validated · approve · d-auto-ok");
   });
 
+  it("prints steering.turn actor and the private withheld placeholder", () => {
+    const html = renderToStaticMarkup(
+      <EvidenceDetail
+        runId="run-20260908-aaa1"
+        detail={detail({
+          evidence: [
+            event({
+              id: "ev-steer",
+              seq: 0,
+              event: "steering.turn",
+              payload: {
+                actor: "Patrick",
+                draftId: "d-1",
+                private: true,
+                content: null
+              }
+            })
+          ]
+        })}
+      />
+    );
+    expect(html).toContain("steering.turn · d-1 · Patrick · content withheld");
+    expect(html).not.toContain("secret aside");
+  });
+
+  it("prints public steering.turn content and steering.applied effect", () => {
+    const html = renderToStaticMarkup(
+      <EvidenceDetail
+        runId="run-20260908-aaa1"
+        detail={detail({
+          evidence: [
+            event({
+              id: "ev-steer-pub",
+              seq: 0,
+              event: "steering.turn",
+              payload: {
+                actor: "Patrick",
+                draftId: "d-1",
+                private: false,
+                content: "tighten the holding"
+              }
+            }),
+            event({
+              id: "ev-applied",
+              seq: 1,
+              event: "steering.applied",
+              payload: { effect: "none" }
+            })
+          ]
+        })}
+      />
+    );
+    expect(html).toContain(
+      "steering.turn · d-1 · Patrick · tighten the holding"
+    );
+    expect(html).toContain("steering.applied · none");
+  });
+
   it("keeps $0.00, evals-not-run, and No draft produced on an empty Run", () => {
     const html = renderToStaticMarkup(
       <EvidenceDetail

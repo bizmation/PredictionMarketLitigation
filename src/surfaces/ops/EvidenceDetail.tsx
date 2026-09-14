@@ -158,15 +158,36 @@ function payloadField(payload: unknown, key: string): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
+function payloadPrivate(payload: unknown): boolean {
+  if (
+    payload === null ||
+    typeof payload !== "object" ||
+    Array.isArray(payload)
+  ) {
+    return false;
+  }
+  return (payload as Record<string, unknown>).private === true;
+}
+
 function stepLabel(event: EvidenceEvent): string {
   const tool = payloadField(event.payload, "tool");
   const source = payloadField(event.payload, "source");
   const priorRunId = payloadField(event.payload, "priorRunId");
   const verdict = payloadField(event.payload, "verdict");
   const draftId = payloadField(event.payload, "draftId");
-  const extra = [source, tool, priorRunId, verdict, draftId].filter(
-    (part): part is string => part != null
-  );
+  const actor = payloadField(event.payload, "actor");
+  const withheld = payloadPrivate(event.payload) ? "content withheld" : null;
+  const extra = [
+    source,
+    tool,
+    priorRunId,
+    verdict,
+    draftId,
+    actor,
+    withheld,
+    payloadField(event.payload, "content"),
+    payloadField(event.payload, "effect")
+  ].filter((part): part is string => part != null);
   return extra.length > 0
     ? `${event.event} · ${extra.join(" · ")}`
     : event.event;

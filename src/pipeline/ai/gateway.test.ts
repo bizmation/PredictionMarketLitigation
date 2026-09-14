@@ -379,6 +379,65 @@ describe("gateway.complete (story 3.2)", () => {
     expect(run?.completedAt).toBe(NOW);
   });
 
+  it("allows steward complete on an awaiting Run under budget", async () => {
+    await insertRun({ status: "awaiting", completedAt: NOW, budgetCents: 100 });
+    await seedConfig(
+      { steward: { provider: "fake", model: "steward-v1" } },
+      null
+    );
+    const provider = fakeProvider({ costCents: 4 });
+    const result = await complete(deps(provider), {
+      role: "steward",
+      runId: RUN_ID,
+      prompt: "steer"
+    });
+    expect(result.role).toBe("steward");
+    expect(provider.count()).toBe(1);
+    const run = await runsRepo.getRunById(testEnv.DB, RUN_ID);
+    expect(run?.status).toBe("awaiting");
+    expect(run?.spendCents).toBe(4);
+    const row = await testEnv.DB.prepare(
+      `SELECT role FROM llm_calls WHERE run_id = ?`
+    )
+      .bind(RUN_ID)
+      .first<{ role: string }>();
+    expect(row?.role).toBe("steward");
+  });
+
+  it("refuses other roles on an awaiting Run even under budget", async () => {
+    await insertRun({ status: "awaiting", completedAt: NOW });
+    await seedConfig(
+      { drafter: { provider: "fake", model: "fake-model-v1" } },
+      null
+    );
+    const provider = fakeProvider();
+    await expect(
+      complete(deps(provider), {
+        role: "drafter",
+        runId: RUN_ID,
+        prompt: "hi"
+      })
+    ).rejects.toMatchObject({ code: "budget_stopped" });
+    expect(provider.count()).toBe(0);
+  });
+
+  it("refuses steward complete on a published Run", async () => {
+    await insertRun({ status: "published", completedAt: NOW });
+    await seedConfig(
+      { steward: { provider: "fake", model: "steward-v1" } },
+      null
+    );
+    const provider = fakeProvider();
+    await expect(
+      complete(deps(provider), {
+        role: "steward",
+        runId: RUN_ID,
+        prompt: "hi"
+      })
+    ).rejects.toMatchObject({ code: "budget_stopped" });
+    expect(provider.count()).toBe(0);
+  });
+
   it("falls back to the config default ceiling when the Run has no budget_cents", async () => {
     await insertRun({ budgetCents: null });
     await seedConfig(
@@ -566,6 +625,19 @@ describe("gateway.invokeTool (story 3.6)", () => {
       draftId: `d:${RUN_ID}:publish`,
       tool: "publish_f1"
     });
+    expect(await f1Snapshot()).toEqual(before);
+  });
+
+  it("denies publish_f1 for steward the same way", async () => {
+    await insertRun();
+    const before = await f1Snapshot();
+    const result = await invokeTool(deps(fakeProvider()), {
+      role: "steward",
+      runId: RUN_ID,
+      draftId: `d:${RUN_ID}:steer`,
+      tool: "publish_f1"
+    });
+    expect(result.denied).toBe(true);
     expect(await f1Snapshot()).toEqual(before);
   });
 
