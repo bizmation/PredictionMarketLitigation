@@ -3,8 +3,8 @@ title: 'Story 3.14: Steering Channel Foundation, Action Policy & Evidence'
 type: 'feature'
 created: '2026-09-14'
 status: 'done'
-review_loop_iteration: 0
-followup_review_recommended: true
+review_loop_iteration: 1
+followup_review_recommended: false
 baseline_revision: 0ca2efc2613b379f6fac19a544035cf64856806f
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context.md'
@@ -106,9 +106,52 @@ deferred: []
 - Given no operator JWT, when I POST the steering route or `/agents/*`, then I get the same opaque 403 and no turn is stored
 - Given a steward model mapping and an awaiting Run under budget, when I submit, then public `GET /api/runs/:id` includes an `llmCalls` entry with `role` steward and the Run's `spendCents` has increased
 
+### Review Findings
+
+**2026-09-14 — Follow-up review pass (4 layers, baseline `0ca2efc…HEAD`)**
+
+- [x] [Review][Patch] Admin HTTP route never asserts steward spend attribution [`src/shared/api/adminApi.test.ts:1518`] — added HTTP integration test with spied provider; asserts public `llmCalls` + `spendCents`.
+- [x] [Review][Patch] Draft-body-only tool injection untested [`src/pipeline/steering/submitTurn.test.ts:290`] — added fixture with benign turn text and tool-shaped JSON in draft body.
+- [x] [Review][Patch] Steering submit on `running` Run untested [`src/pipeline/steering/submitTurn.ts:24`] — added success case with `insertRun("running")`.
+- [x] [Review][Patch] ApprovalQueue does not verify steering POST uses selected draft [`src/surfaces/admin/ApprovalQueue.tsx:514`] — added mount test: J navigation then steering POST asserts `draftId: "d-b"`.
+
+- [x] [Review][Defer] Production Workers AI records `costCents: 0` — deferred: documented residual risk; AC #6 satisfied in tests via fake paid provider; real spend requires non-zero provider cost or manual mapping.
+- [x] [Review][Defer] Queue composer → ops Evidence round-trip not live-browser tested — deferred: jsdom + HTTP tests cover path; manual `/admin#queue` walk noted in spec Verification.
+- [x] [Review][Defer] Remote D1 migration 0013 and unseeded production `gateway_config` — deferred: deployment/ops tasks outside this diff; steward spend skipped until mapping inserted.
+- [x] [Review][Defer] Natural-language governance probes produce only `steering.applied` effect none — deferred: `parseToolRequest` is JSON-only by design; spec allows `steering.applied` alone for 3.14; NL refusal is 3.15+ scope.
+
+**Rejected**
+
+- `[false]` Steward LLM response never stored — 3.15 owns grounded replies; 3.14 ACs require operator turn Evidence and spend attribution, not displayed steward utterance.
+- `[false]` Private turn content sent to steward LLM — spec Design Notes: privacy is public projection, not LLM egress.
+- `[false]` `complete()` failures after persist return HTTP 200 — spec I/O: persist turn, no extra paid call; catch-all prevents duplicate retry on gateway throw.
+- `[false]` Private submit returns `content: null` in POST 200 — `toPublicSteeringTurn` intentionally redacts; operator confirms via checkbox copy.
+- `[false]` `SteeringPanel` requires `draftId` blocks run-level steering — spec mounts composer on selected Draft in ApprovalQueue; optional `draftId` on API is for programmatic callers, not an AC.
+- `[false]` Composer only in ApprovalQueue — spec code map explicitly mounts there; running-Run UI is out of 3.14 scope.
+- `[false]` `listByRun` has no admin history UI — not in 3.14 ACs; ops Evidence is the public read path.
+- `[false]` EvidenceDetail private content leak — `publicTurnPayload` nulls content when `private: true`; tests assert `content: null` on public GET.
+- `[false]` Submit without `draftId` skips draft-body scan — no draft body is loaded without `draftId`; not an injection bypass when draft is unattached.
+- `[false]` PATCH steering returns 405 not 404 — correct for known route with wrong method; unknown paths still 404.
+- `[false]` OAuth `onStart` removal breaks callbacks — pre-existing 1.5 path; 3.14 only updated comment; MCP attach stripped by design.
+- `[low]` No success confirmation after submit — composer clears silently; everyday operator sees Evidence link above composer; cosmetic.
+- `[low]` No `content` max length — unbounded rows possible but not demonstrated harm in normal use; guard adds complexity without shown failure.
+- `[low]` No idempotency key on POST — client ref lock covers double-click; network retry duplicates are rare.
+- `[low]` Textarea editable while submit in flight — button disables; race window is negligible.
+- `[low]` Run status race between check and insert — requires concurrent terminal transition; not everyday.
+- `[low]` Second `guardrails.failed` dropped via INSERT OR IGNORE — requires two tool-shaped strings in one turn; not everyday.
+- `[low]` `turnId` omitted from EvidenceDetail step labels — payload includes it; label omission is cosmetic correlation aid.
+- `[low]` `actorDisplayName` whitespace-only — HTTP path uses Access `gate.operator.displayName`, not raw schema input.
+
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-09-14 — Follow-up review pass (baseline `0ca2efc…HEAD`)
+- verdicts: 35 raw findings — high 0, medium 4 patch, low 0, false 11, low-reject 8, defer 4
+- layers: Blind Hunter, Edge Case Hunter, Verification Gap, Acceptance Auditor — all completed
+- patch: admin HTTP spend test; draft-body injection test; running-Run submit test; ApprovalQueue draftId wiring test — **all 4 applied**
+- defer: Workers AI costCents 0; live-browser E2E; remote migration/config; NL governance probes
+- outcome: implementation matches spec intent; verification gaps closed; `npm test` 742 passed
 
 ### 2026-09-14 — Review pass
 - verdicts: 31 findings — high 0, medium 11, low 7, false 13, maybe-false 0

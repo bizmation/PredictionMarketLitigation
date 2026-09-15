@@ -10,11 +10,12 @@ import {
   vi
 } from "vitest";
 
+import * as gateway from "../../pipeline/ai/gateway";
 import worker from "../../server";
 import * as runsRepo from "../db/repos/runsRepo";
 import * as steeringTurnsRepo from "../db/repos/steeringTurnsRepo";
 import { etCalendarDate } from "../lib/schedule";
-import { DraftRecordSchema } from "../schemas/run";
+import { DraftRecordSchema, RunDetailSchema } from "../schemas/run";
 import { PublicSteeringTurnSchema } from "../schemas/steering";
 
 /**
@@ -1515,6 +1516,22 @@ describe("admin mode (story 3.13)", () => {
   });
 });
 
+async function seedStewardMapping() {
+  await testEnv.DB.prepare(
+    `INSERT INTO gateway_config (id, version, roles_json, default_budget_cents, updated_at)
+     VALUES ('current', 1, ?, 500, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       roles_json = excluded.roles_json,
+       default_budget_cents = excluded.default_budget_cents,
+       updated_at = excluded.updated_at`
+  )
+    .bind(
+      JSON.stringify({ steward: { provider: "fake", model: "steward-v1" } }),
+      TS
+    )
+    .run();
+}
+
 describe("admin steering (story 3.14)", () => {
   it("rejects anonymous and wrong-identity POSTs with the opaque 403 and stores nothing", async () => {
     await seedRun("run-20260914-aaaa");
@@ -1686,6 +1703,42 @@ describe("admin steering (story 3.14)", () => {
     const turn = detail.evidence.find((e) => e.event === "steering.turn");
     expect(turn?.payload?.content).toBeNull();
     expect(JSON.stringify(detail)).not.toContain(secret);
+  });
+
+  it("attributes steward spend through the admin HTTP POST path", async () => {
+    const runId = "run-20260914-a420";
+    await seedRun(runId);
+    await seedPendingDraft("d-steer-a420", runId);
+    await seedStewardMapping();
+    const providerSpy = vi
+      .spyOn(gateway, "createWorkersAiProvider")
+      .mockReturnValue({
+        name: "fake",
+        complete: async () => ({
+          text: "steward note",
+          inputTokens: 2,
+          outputTokens: 3,
+          costCents: 6
+        })
+      });
+    try {
+      const res = await worker.fetch(
+        jsonPost(await sign(EMAIL), `/api/admin/runs/${runId}/steering`, {
+          content: "Please explain the Nevada posture change.",
+          private: false,
+          draftId: "d-steer-a420"
+        }),
+        realEnv()
+      );
+      expect(res.status).toBe(200);
+      const publicRes = await worker.fetch(get(`/api/runs/${runId}`), testEnv);
+      expect(publicRes.status).toBe(200);
+      const detail = RunDetailSchema.parse(await publicRes.json());
+      expect(detail.llmCalls.some((c) => c.role === "steward")).toBe(true);
+      expect(detail.spendCents).toBe(6);
+    } finally {
+      providerSpy.mockRestore();
+    }
   });
 
   it("returns 400 on a published Run", async () => {

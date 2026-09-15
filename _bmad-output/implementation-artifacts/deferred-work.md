@@ -121,3 +121,10 @@
 - LoopControls 4s poll while running/awaiting is never timer-asserted — first paint is SSR-tested; EvidenceDetail-style fake-timer mount deferred (also in spec frontmatter). [src/surfaces/admin/LoopControls.tsx:138]
 - Trigger fetch has no timeout; hung POST leaves Run now disabled — Epic-2 hung-fetch family; ApprovalQueue has the same gap (also in spec frontmatter). [src/surfaces/admin/LoopControls.tsx:160]
 - DailyRunWorkflow attach-run void/non-id fallback untested under Workflow step-cache replay — no WorkflowEntrypoint replay fixture in repo unit style; id-pinned helpers cover the non-replay path. [src/pipeline/workflow/dailyRun.ts:192]
+
+## Deferred from: code review of spec-3-14-steering-channel-foundation-action-policy-evidence.md (2026-09-14)
+
+- Production Workers AI records `costCents: 0` — documented residual risk; AC #6 satisfied in tests via fake paid provider; real spend requires non-zero provider cost or manual mapping.
+- Queue composer → ops Evidence round-trip not live-browser tested — jsdom + HTTP tests cover path; manual `/admin#queue` walk noted in spec Verification.
+- Remote D1 migration 0013 and unseeded production `gateway_config` — deployment/ops tasks outside the diff; steward spend skipped until mapping inserted.
+- Natural-language governance probes produce only `steering.applied` effect none — `parseToolRequest` is JSON-only by design; spec allows `steering.applied` alone for 3.14; NL refusal is 3.15+ scope.

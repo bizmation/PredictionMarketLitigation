@@ -185,6 +185,51 @@ describe("ApprovalQueue live fetch and keyboard (jsdom mount)", () => {
     expect(buttons()[0]!.getAttribute("aria-selected")).toBe("true");
   });
 
+  it("POSTs steering for the selected Draft after J navigation", async () => {
+    const fetchMock = vi.fn(
+      async (
+        input: string | URL | Request,
+        _init?: RequestInit
+      ): Promise<ScriptedResponse> => {
+        const url = String(input);
+        if (url.includes("/steering")) {
+          return scripted({
+            id: "st-1",
+            runId: "run-20260912-aaa1",
+            draftId: "d-b",
+            actor: "Patrick",
+            role: "steward",
+            content: "note for d-b",
+            private: false,
+            createdAt: "2026-09-12T16:10:00.000Z"
+          });
+        }
+        return scripted({ items: [draftRecord("d-a"), draftRecord("d-b")] });
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ApprovalQueue />);
+    await act(async () => {});
+
+    fireEvent.keyDown(document, { key: "j" });
+    fireEvent.change(screen.getByLabelText("Steering turn"), {
+      target: { value: "note for d-b" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Submit turn" }));
+    await act(async () => {});
+
+    const steerCall = fetchMock.mock.calls.find((call) =>
+      String(call[0]).includes("/steering")
+    );
+    expect(steerCall).toBeDefined();
+    expect(steerCall![0]).toBe("/api/admin/runs/run-20260912-aaa1/steering");
+    expect(JSON.parse(steerCall![1]!.body as string)).toEqual({
+      content: "note for d-b",
+      private: false,
+      draftId: "d-b"
+    });
+  });
+
   it("A posts an approve decision and refreshes the queue", async () => {
     const fetchMock = stubQueueFetch([draftRecord("d-a")], {
       body: decided(draftRecord("d-a"))
