@@ -249,4 +249,38 @@ These live in `.env` (gitignored via `.gitignore:248`; **this repo is public**).
 3. **Record remote migration state here** as it lands — production D1 is still at `0001`–`0004`; `0005` (poll votes) and onward are staged on `pml-build` first, deliberately (retro V-2).
 4. **This is where Epic 3 work deploys.** Pipeline stories (3.2+) verify on `build.` before any production decision.
 
+**Live check — 2026-09-17 (Cloudflare bindings MCP + HTTP + browser + `wrangler deploy -e build`). Do not treat this as a production deploy.**
+
+| Check | Result |
+|---|---|
+| Worker `pml-build` | version `32a0fb9c-d9ec-4fc1-9cec-af1cb320382a`; Custom Domain `build.predictionmarketlitigation.com` only; workflow `daily-run`; crons 16:00Z / 17:00Z |
+| D1 `pml-build` | id `9e83494a-016e-4bff-9e07-7fca3a159a83`; migrations `0001`–`0013` applied (`0005` poll votes and Epic 3 tables are on staging, not production) |
+| `GET /api/mode` on `build.` | `{"mode":"hitl","threshold":70,...}` — 3.13 is on staging |
+| `https://build.predictionmarketlitigation.com/` | 200 SPA tracker |
+| `https://predictionmarketlitigation.com/` | 200 **landing page**, SHA-256 unchanged through this deploy |
+| `https://ops.predictionmarketlitigation.com/` | 200 **same landing page** as apex (Worker `pml`). Do not point `ops.` at `pml-build` until cutover |
+| `npm run deploy` | **forbidden until cutover** — top-level `wrangler.jsonc` routes still name the apex and `ops.` hosts |
+
+**Deploy lesson (2026-09-17):** `DailyRunWorkflow` is a Workflow binding, not a Durable Object. A `migrations` `v2` `new_classes: ["DailyRunWorkflow"]` makes the Workers API look for a DO export and fail with code 10070. Official Workflows setup is the `workflows` array only; `wrangler.test.jsonc` already omitted v2 for that reason. Do not put it back. Staging was caught up with `npm run deploy:build` (Wrangler OAuth, not MCP). MCP cannot deploy Workers.
+
+---
+
+## Cutover (later — do not run until Patrick says the app replaces the landing page)
+
+When Epics 3–4 are done on `build.`, graduate the app to the root. This is a hostname swap, not “run `npm run deploy` and hope.” The landing page on `pml` is the public site today; the first naive production deploy from this repo would replace it with the SPA.
+
+**Invariant until that day:** apex stays the landing page; all app deploys use `-e build`.
+
+**When Patrick gives the go-ahead:**
+
+1. **Snapshot the landing page** (already backed up in-repo from `df4b431`). Confirm `curl https://predictionmarketlitigation.com/` is still that page immediately before the swap.
+2. **Catch `pml-build` up** (`npm run deploy:build`) so the Worker and D1 `0001`–latest match `main`. Smoke `build.` end-to-end. (Done through `0013` / version `32a0fb9c` on 2026-09-17; re-run if `main` has moved.)
+3. **Decide the D1 story.** Production D1 `pml` is still at `0001`–`0004` (no `poll_votes`, no Epic 3 tables). Either (a) apply remaining migrations to `pml` and keep that database as canonical, or (b) rebind the production Worker to `pml-build` (or dump/restore). Do not invent a third database.
+4. **Move Custom Domains, not code paths.** Per [Workers custom domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/), a Custom Domain is the origin for **all paths** of one hostname. Cutover is: attach `predictionmarketlitigation.com` (and then `ops.`) to the app Worker, and **remove** those hostnames from the landing-page Worker `pml` so two Workers never share a hostname.
+5. **`ops.` is part of the same cutover.** Today it serves the landing page. After the swap it must be the ops. shell (`hostname.startsWith("ops.")` in `surface.ts`). Do not move apex without `ops.` or the tracker’s `ops.` links keep landing on the brochure.
+6. **Access destinations** already name `predictionmarketlitigation.com/admin` and `/api/admin/*`. Re-verify 302 at the edge after the hostname is on the app Worker (`docs/access-runbook.md`).
+7. **First production `npm run deploy` happens only after step 4.** Until the top-level `routes` in `wrangler.jsonc` are intentionally the live app, that script is still the landing-page hazard.
+
+This section is the reminder. No DNS or route changes above have been executed.
+
 
