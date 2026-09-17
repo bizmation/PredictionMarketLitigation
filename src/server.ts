@@ -468,6 +468,8 @@ export default {
               intent: parsed.data.intent,
               key: parsed.data.key,
               revertToVersion: parsed.data.revertToVersion,
+              guidanceItemId: parsed.data.guidanceItemId,
+              revoke: parsed.data.revoke,
               actorDisplayName: gate.operator.displayName
             }
           );

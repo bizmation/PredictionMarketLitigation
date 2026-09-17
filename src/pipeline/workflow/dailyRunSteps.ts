@@ -2,6 +2,8 @@ import type { Db } from "../../shared/db/client";
 import * as modeRepo from "../../shared/db/repos/modeRepo";
 import * as pipelineConfigRepo from "../../shared/db/repos/pipelineConfigRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
+import * as standingGuidanceRepo from "../../shared/db/repos/standingGuidanceRepo";
+import { toGuidanceRef } from "../../shared/schemas/standingGuidance";
 import { append } from "../projector/evidence";
 import type { RunOrigin } from "../../shared/schemas/vocabulary";
 import { draftAndReview } from "../agents/draftAndReview";
@@ -78,11 +80,16 @@ export async function ensureRun(
   }
   const { version: pollSourcesVersion } =
     await pipelineConfigRepo.getEffectivePollSources(db);
+  // Story 3.18 — snapshot the in-force standing guidance at Run start so
+  // ops. can show what the drafter was allowed to see on this Run.
+  const guidanceInForce = (await standingGuidanceRepo.listInForce(db)).map(
+    toGuidanceRef
+  );
   await append(db, {
     id: evidenceId(id, "run.started"),
     runId: id,
     event: "run.started",
-    payload: { origin, scheduledFor, pollSourcesVersion },
+    payload: { origin, scheduledFor, pollSourcesVersion, guidanceInForce },
     createdAt: now
   });
   return id;

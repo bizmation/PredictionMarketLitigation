@@ -20,6 +20,7 @@ import * as modeRepo from "../db/repos/modeRepo";
 import * as pipelineConfigRepo from "../db/repos/pipelineConfigRepo";
 import * as pollVotesRepo from "../db/repos/pollVotesRepo";
 import * as runsRepo from "../db/repos/runsRepo";
+import * as standingGuidanceRepo from "../db/repos/standingGuidanceRepo";
 import * as statesRepo from "../db/repos/statesRepo";
 import { nextRunAtUtc } from "../lib/schedule";
 import { PollResultsSchema, PollVoteBodySchema } from "../schemas/poll";
@@ -287,6 +288,11 @@ export async function handlePublicApi(
     // Story 3.17 — effective poll_sources, current version, append-only history.
     if (pathname === "/api/pipeline-config") {
       return jsonNoStore(await pipelineConfigRepo.getPublic(db));
+    }
+
+    // Story 3.18 — in-force standing guidance, cap, and append-only history.
+    if (pathname === "/api/standing-guidance") {
+      return jsonNoStore(await standingGuidanceRepo.getPublic(db));
     }
 
     // Story 3.1 — run records are read-only public stubs; the pipeline and

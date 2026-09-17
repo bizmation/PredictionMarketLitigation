@@ -1601,6 +1601,128 @@ describe("public pipeline-config (story 3.17)", () => {
   });
 });
 
+describe("public standing-guidance (story 3.18)", () => {
+  it("returns cap, maxChars, and empty lists when nothing has been written", async () => {
+    await testEnv.DB.prepare("DELETE FROM standing_guidance").run();
+    const res = await worker.fetch!(get("/api/standing-guidance"), testEnv);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toContain("no-store");
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toEqual({
+      cap: 12,
+      maxChars: 600,
+      inForce: [],
+      history: []
+    });
+    expect(body).not.toHaveProperty("items");
+    expect(JSON.stringify(body)).not.toContain("steeringTurns");
+  });
+
+  it("lists in-force and history with actor display name and no steering_turns leak", async () => {
+    await testEnv.DB.prepare("DELETE FROM standing_guidance").run();
+    await testEnv.DB.prepare(
+      `INSERT INTO standing_guidance
+         (id, item_id, version, content, status, actor_display_name,
+          source_turn_id, created_at, revoked_at)
+       VALUES
+         ('sg:one:v1', 'sg:one', 1, 'Cite the docket.', 'active',
+          'Distinctive Queue Operator', 'st:run-x:1', '2026-09-18T16:00:00.000Z', NULL),
+         ('sg:two:v1', 'sg:two', 1, 'Never guess motive.', 'active',
+          'Distinctive Queue Operator', NULL, '2026-09-18T16:01:00.000Z', NULL),
+         ('sg:one:v2', 'sg:one', 2, 'Cite the docket and court.', 'active',
+          'Distinctive Queue Operator', 'st:run-x:2', '2026-09-18T16:02:00.000Z', NULL),
+         ('sg:three:v1', 'sg:three', 1, 'Retire me.', 'active',
+          'Distinctive Queue Operator', NULL, '2026-09-18T16:03:00.000Z', NULL),
+         ('sg:three:v2', 'sg:three', 2, 'Retired.', 'revoked',
+          'Distinctive Queue Operator', 'st:run-x:3', '2026-09-18T16:04:00.000Z',
+          '2026-09-18T16:04:00.000Z')`
+    ).run();
+    const res = await worker.fetch!(get("/api/standing-guidance"), testEnv);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      inForce: Array<Record<string, unknown>>;
+      history: Array<Record<string, unknown>>;
+    };
+    // Older item stays first even though it was edited last; revoked item
+    // is absent from in-force.
+    expect(body.inForce.map((row) => row.itemId)).toEqual(["sg:one", "sg:two"]);
+    expect(body.inForce[0]).toEqual({
+      itemId: "sg:one",
+      version: 2,
+      status: "active",
+      content: "Cite the docket and court.",
+      actor: "Distinctive Queue Operator",
+      createdAt: "2026-09-18T16:02:00.000Z",
+      revokedAt: null,
+      sourceTurnId: "st:run-x:2"
+    });
+    expect(body.inForce[1]).toMatchObject({ itemId: "sg:two", version: 1 });
+    expect(body.history.map((row) => [row.itemId, row.version])).toEqual([
+      ["sg:one", 1],
+      ["sg:two", 1],
+      ["sg:one", 2],
+      ["sg:three", 1],
+      ["sg:three", 2]
+    ]);
+    expect(body.history[4]).toMatchObject({
+      status: "revoked",
+      revokedAt: "2026-09-18T16:04:00.000Z"
+    });
+    const text = JSON.stringify(body);
+    expect(text).not.toContain("@");
+    expect(text).not.toContain("actorDisplayName");
+    expect(text).not.toContain("private");
+    await testEnv.DB.prepare("DELETE FROM standing_guidance").run();
+  });
+
+  it("rejects POST /api/standing-guidance with 405 and allow GET, HEAD", async () => {
+    const res = await worker.fetch!(
+      new Request("https://pml.example.com/api/standing-guidance", {
+        method: "POST"
+      }),
+      testEnv
+    );
+    expect(res.status).toBe(405);
+    expect(res.headers.get("allow")).toBe("GET, HEAD");
+  });
+
+  it("pins status/revoked_at together, version >= 1, and unique (item_id, version) at the schema", async () => {
+    await testEnv.DB.prepare("DELETE FROM standing_guidance").run();
+    await testEnv.DB.prepare(
+      `INSERT INTO standing_guidance
+         (id, item_id, version, content, status, actor_display_name,
+          source_turn_id, created_at, revoked_at)
+       VALUES ('sg:chk:v1', 'sg:chk', 1, 'Cite.', 'active', 'Op', NULL,
+               '2026-09-18T16:00:00.000Z', NULL)`
+    ).run();
+    // The CHECK pins status/revoked_at together and version >= 1.
+    await expect(
+      testEnv.DB.prepare(
+        "UPDATE standing_guidance SET status = 'revoked' WHERE id = 'sg:chk:v1'"
+      ).run()
+    ).rejects.toThrow();
+    await expect(
+      testEnv.DB.prepare(
+        `INSERT INTO standing_guidance
+           (id, item_id, version, content, status, actor_display_name,
+            source_turn_id, created_at, revoked_at)
+         VALUES ('sg:chk:v0', 'sg:chk', 0, 'Cite.', 'active', 'Op', NULL,
+                 '2026-09-18T16:00:00.000Z', NULL)`
+      ).run()
+    ).rejects.toThrow();
+    await expect(
+      testEnv.DB.prepare(
+        `INSERT INTO standing_guidance
+           (id, item_id, version, content, status, actor_display_name,
+            source_turn_id, created_at, revoked_at)
+         VALUES ('sg:chk:dup', 'sg:chk', 1, 'Dup.', 'active', 'Op', NULL,
+                 '2026-09-18T16:00:00.000Z', NULL)`
+      ).run()
+    ).rejects.toThrow();
+    await testEnv.DB.prepare("DELETE FROM standing_guidance").run();
+  });
+});
+
 describe("public run detail steering redaction (story 3.14)", () => {
   const TS = "2026-09-14T16:00:00.000Z";
   const secretAnswer = "private steward answer must not leak";

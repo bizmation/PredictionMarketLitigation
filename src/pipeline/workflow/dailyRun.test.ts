@@ -5,6 +5,7 @@ import * as draftsRepo from "../../shared/db/repos/draftsRepo";
 import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
 import * as modeRepo from "../../shared/db/repos/modeRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
+import * as standingGuidanceRepo from "../../shared/db/repos/standingGuidanceRepo";
 import type { GatewayDeps, LlmProvider } from "../ai/gateway";
 import { kickDailyRun, startOperatorRun } from "./dailyRun";
 import {
@@ -123,9 +124,59 @@ describe("daily run (story 3.3)", () => {
     expect(evidence[0]?.payload).toMatchObject({
       origin: "scheduled",
       scheduledFor: date,
-      pollSourcesVersion: 0
+      pollSourcesVersion: 0,
+      guidanceInForce: []
     });
     expect(evidence[1]?.payload).toEqual({ drafts: 0 });
+  });
+
+  it("snapshots in-force standing guidance refs on run.started (story 3.18)", async () => {
+    await testEnv.DB.prepare("DELETE FROM standing_guidance").run();
+    const actor = "Distinctive Queue Operator";
+    const createdAt = "2026-09-18T16:00:00.000Z";
+    await standingGuidanceRepo.appendVersion(testEnv.DB, {
+      itemId: "sg:snap-a",
+      content: "Cite the docket.",
+      actor,
+      sourceTurnId: null,
+      createdAt
+    });
+    await standingGuidanceRepo.appendVersion(testEnv.DB, {
+      itemId: "sg:snap-a",
+      content: "Cite the docket and court.",
+      actor,
+      sourceTurnId: null,
+      createdAt
+    });
+    await standingGuidanceRepo.appendVersion(testEnv.DB, {
+      itemId: "sg:snap-b",
+      content: "Retire me.",
+      actor,
+      sourceTurnId: null,
+      createdAt
+    });
+    await standingGuidanceRepo.revoke(testEnv.DB, {
+      itemId: "sg:snap-b",
+      reason: "retired",
+      actor,
+      sourceTurnId: null,
+      createdAt
+    });
+    const id = await ensureRun(
+      testEnv.DB,
+      "manual",
+      "2026-09-18",
+      "run-20260918-a318"
+    );
+    const started = (await evidenceRepo.listByRun(testEnv.DB, id)).find(
+      (e) => e.event === "run.started"
+    );
+    expect(started?.payload).toMatchObject({
+      guidanceInForce: [{ itemId: "sg:snap-a", version: 2 }]
+    });
+    expect(JSON.stringify(started?.payload)).not.toContain("Cite the docket");
+    expect(JSON.stringify(started?.payload)).not.toContain("sg:snap-b");
+    await testEnv.DB.prepare("DELETE FROM standing_guidance").run();
   });
 
   it("is idempotent: a second ensure for the same day returns the existing Run", async () => {

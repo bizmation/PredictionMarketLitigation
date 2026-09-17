@@ -126,3 +126,7 @@
 - LoopControls 4s poll while running/awaiting is never timer-asserted — first paint is SSR-tested; EvidenceDetail-style fake-timer mount deferred (also in spec frontmatter). [src/surfaces/admin/LoopControls.tsx:138]
 - Trigger fetch has no timeout; hung POST leaves Run now disabled — Epic-2 hung-fetch family; ApprovalQueue has the same gap (also in spec frontmatter). [src/surfaces/admin/LoopControls.tsx:160]
 - DailyRunWorkflow attach-run void/non-id fallback untested under Workflow step-cache replay — no WorkflowEntrypoint replay fixture in repo unit style; id-pinned helpers cover the non-replay path. [src/pipeline/workflow/dailyRun.ts:192]
+
+- source_spec: `spec-3-18-standing-corrections-durable-guidance.md`
+  summary: Best-effort `guidance.recorded` / `guidance.revoked` Evidence after the `standing_guidance` row has no partial-failure test (same for 3.17's `config.steered` catch); a lost receipt is silent while HTTP says ok.
+  evidence: No DB fault-injection harness exists in the repo (only `vi.spyOn` use is `actionPolicy.test.ts`); closing this needs a shared failing-batch helper used by both 3.17 and 3.18 catches, plus a `console.warn` in each catch so the gap is discoverable in logs. [src/pipeline/steering/submitTurn.ts]

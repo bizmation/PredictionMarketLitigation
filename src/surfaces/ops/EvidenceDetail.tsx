@@ -216,6 +216,41 @@ function payloadSourceSummary(payload: unknown, key: string): string | null {
   return names.length > 0 ? `${key} ${names.join(", ")}` : `${key} none`;
 }
 
+/**
+ * Story 3.18 — `guidanceInForce` on `run.started` and `guidance` on
+ * `draft.evaluated` are `{ itemId, version }` refs; summarize as a count
+ * plus the ids so the public step line says what the drafter could see.
+ */
+function payloadGuidanceRefs(payload: unknown, key: string): string | null {
+  if (
+    payload === null ||
+    typeof payload !== "object" ||
+    Array.isArray(payload)
+  ) {
+    return null;
+  }
+  const value = (payload as Record<string, unknown>)[key];
+  if (!Array.isArray(value)) return null;
+  const refs = value
+    .map((item) => {
+      if (item == null || typeof item !== "object" || Array.isArray(item)) {
+        return null;
+      }
+      const ref = item as Record<string, unknown>;
+      if (typeof ref.itemId !== "string" || ref.itemId.length === 0) {
+        return null;
+      }
+      return typeof ref.version === "number"
+        ? `${ref.itemId} v${ref.version}`
+        : ref.itemId;
+    })
+    .filter((ref): ref is string => ref != null);
+  const label = key === "guidanceInForce" ? "guidance in force" : key;
+  return refs.length > 0
+    ? `${label} ${refs.length}: ${refs.join(", ")}`
+    : `${label} none`;
+}
+
 function stepLabel(event: EvidenceEvent): string {
   const tool = payloadField(event.payload, "tool");
   const source = payloadField(event.payload, "source");
@@ -230,6 +265,7 @@ function stepLabel(event: EvidenceEvent): string {
     priorRunId,
     verdict,
     draftId,
+    payloadField(event.payload, "itemId"),
     actor,
     withheld,
     payloadField(event.payload, "content"),
@@ -240,7 +276,9 @@ function stepLabel(event: EvidenceEvent): string {
     payloadRefused(event.payload),
     payloadField(event.payload, "reason"),
     payloadSourceSummary(event.payload, "prior"),
-    payloadSourceSummary(event.payload, "next")
+    payloadSourceSummary(event.payload, "next"),
+    payloadGuidanceRefs(event.payload, "guidanceInForce"),
+    payloadGuidanceRefs(event.payload, "guidance")
   ].filter((part): part is string => part != null);
   return extra.length > 0
     ? `${event.event} · ${extra.join(" · ")}`

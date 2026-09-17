@@ -465,6 +465,109 @@ describe("EvidenceDetail (story 3.8)", () => {
     expect(html).not.toContain("switch to YOLO");
   });
 
+  it("prints guidance.recorded, guidance.revoked, and the guidance effect (story 3.18)", () => {
+    const html = renderToStaticMarkup(
+      <EvidenceDetail
+        runId="run-20260908-aaa1"
+        detail={detail({
+          evidence: [
+            event({
+              id: "ev-g-rec",
+              seq: 0,
+              event: "guidance.recorded",
+              payload: {
+                turnId: "st-1",
+                itemId: "sg:one",
+                version: 1,
+                content: "Cite the docket number.",
+                actor: "Patrick"
+              }
+            }),
+            event({
+              id: "ev-g-applied",
+              seq: 1,
+              event: "steering.applied",
+              payload: {
+                effect: "guidance",
+                turnId: "st-1",
+                itemId: "sg:one",
+                version: 1
+              }
+            }),
+            event({
+              id: "ev-g-rev",
+              seq: 2,
+              event: "guidance.revoked",
+              payload: {
+                turnId: "st-2",
+                itemId: "sg:one",
+                version: 2,
+                reason: "Superseded by the ruling.",
+                actor: "Patrick"
+              }
+            })
+          ]
+        })}
+      />
+    );
+    expect(html).toContain(
+      "guidance.recorded · sg:one · Patrick · Cite the docket number. · 1"
+    );
+    expect(html).toContain("steering.applied · sg:one · guidance · 1");
+    expect(html).toContain(
+      "guidance.revoked · sg:one · Patrick · 2 · Superseded by the ruling."
+    );
+    noLogin(html);
+  });
+
+  it("summarizes guidanceInForce on run.started and guidance on draft.evaluated (story 3.18)", () => {
+    const html = renderToStaticMarkup(
+      <EvidenceDetail
+        runId="run-20260908-aaa1"
+        detail={detail({
+          evidence: [
+            event({
+              id: "ev-0",
+              seq: 0,
+              event: "run.started",
+              payload: {
+                origin: "manual",
+                scheduledFor: "2026-09-18",
+                pollSourcesVersion: 0,
+                guidanceInForce: [
+                  { itemId: "sg:one", version: 2 },
+                  { itemId: "sg:two", version: 1 }
+                ]
+              }
+            }),
+            event({
+              id: "ev-1",
+              seq: 1,
+              event: "draft.evaluated",
+              payload: {
+                draftId: "d-1",
+                disagreement: { flagged: false, description: null },
+                guidance: [{ itemId: "sg:one", version: 2 }]
+              }
+            }),
+            event({
+              id: "ev-2",
+              seq: 2,
+              event: "run.started",
+              runId: "run-20260908-aaa1",
+              payload: { guidanceInForce: [] }
+            })
+          ]
+        })}
+      />
+    );
+    expect(html).toContain(
+      "run.started · guidance in force 2: sg:one v2, sg:two v1"
+    );
+    expect(html).toContain("draft.evaluated · d-1 · guidance 1: sg:one v2");
+    expect(html).toContain("run.started · guidance in force none");
+  });
+
   it("renders a revision chain in index order with the instruction and approved text", () => {
     const html = renderToStaticMarkup(
       <EvidenceDetail

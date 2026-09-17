@@ -4,11 +4,16 @@ import type { Db } from "../../shared/db/client";
 import * as draftsRepo from "../../shared/db/repos/draftsRepo";
 import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
 import * as modeRepo from "../../shared/db/repos/modeRepo";
+import * as standingGuidanceRepo from "../../shared/db/repos/standingGuidanceRepo";
 import type {
   DraftRecord,
   EvalSummary,
   IneligibleReason
 } from "../../shared/schemas/run";
+import {
+  toGuidanceRef,
+  type GuidanceRef
+} from "../../shared/schemas/standingGuidance";
 import { isPartyCharacterization, isPostureFlip } from "../gate/yoloPolicy";
 import {
   GUARDRAIL_RULE_ID,
@@ -28,13 +33,17 @@ import { appendStmt } from "../projector/evidence";
 /**
  * Story 3.5 — drafter then reviewer per Draft. Story 3.6 scopes prompts to
  * authorized Draft fields and short-circuits remaining LLM when model text
- * is a tool request (`invokeTool` + `guardrail_fail`).
+ * is a tool request (`invokeTool` + `guardrail_fail`). Story 3.18 loads
+ * in-force standing guidance once per call and injects it into the
+ * *drafter* prompt only; each `draft.evaluated` names the `{ itemId,
+ * version }` refs that were present in that Draft's drafter prompt.
  *
  * Agents call `gateway.complete({ role })` only. Prompts live here, not in
  * the workflow. YOLO does not run. Workflow retries skip a Draft whose
  * `evalSummary` is already set or that already has `guardrails.failed`.
  * `ineligibleFor` uses the live threshold and stamps posture/party reasons
- * for 3.13 auto-approve.
+ * for 3.13 auto-approve. Guidance never reaches the reviewer prompt, the
+ * tool allowlist, or `pickAuthorizedContext`.
  */
 
 export { AUTO_APPROVE_CONFIDENCE_THRESHOLD } from "../../shared/schemas/mode";
@@ -164,12 +173,16 @@ function evalFailSummary(
 /**
  * Interpolates only authorized Draft fields. Extra keys on the source
  * (operator notes, secrets, career notes, decidedBy, …) are dropped and
- * never concatenated into the prompt.
+ * never concatenated into the prompt. `guidance` (3.18) is the in-force
+ * standing guidance text list; it is rendered as a labeled "Standing
+ * guidance:" block after the revision instruction and only for the
+ * drafter — the reviewer branch ignores it.
  */
 export function buildScopedPrompt(
   role: "drafter" | "reviewer",
   source: AuthorizedDraftContext,
-  revisionInstruction?: string
+  revisionInstruction?: string,
+  guidance?: readonly string[]
 ): string {
   const ctx = pickAuthorizedContext(source);
   if (role === "drafter") {
@@ -183,6 +196,16 @@ export function buildScopedPrompt(
         "",
         "Operator revision instruction:",
         revisionInstruction.trim()
+      );
+    }
+    const standing = (guidance ?? [])
+      .map((text) => text.replace(/\s+/g, " ").trim())
+      .filter((text) => text.length > 0);
+    if (standing.length > 0) {
+      lines.push(
+        "",
+        "Standing guidance:",
+        ...standing.map((text, index) => `${index + 1}. ${text}`)
       );
     }
     lines.push(
@@ -231,6 +254,7 @@ async function persist(
     confidence: number | null;
     evalSummary: EvalSummary;
     createdAt: string;
+    guidance: readonly GuidanceRef[];
   }
 ): Promise<void> {
   // Load/validate the Draft UPDATE first so a missing row throws before any
@@ -252,7 +276,8 @@ async function persist(
       event: "draft.evaluated",
       payload: {
         draftId: draft.id,
-        disagreement: args.evalSummary.disagreement
+        disagreement: args.evalSummary.disagreement,
+        guidance: [...args.guidance]
       },
       createdAt: args.createdAt
     }),
@@ -266,14 +291,16 @@ async function persistEvalsNotRun(
   body: string,
   diff: unknown,
   createdAt: string,
-  threshold: number
+  threshold: number,
+  guidance: readonly GuidanceRef[]
 ): Promise<void> {
   await persist(db, draft, {
     body,
     diff,
     confidence: null,
     evalSummary: evalsNotRunSummary(draft, threshold, diff),
-    createdAt
+    createdAt,
+    guidance
   });
 }
 
@@ -287,6 +314,7 @@ async function persistToolDeny(
     role: "drafter" | "reviewer";
     tool: string;
     threshold: number;
+    guidance: readonly GuidanceRef[];
   }
 ): Promise<void> {
   const createdAt = nowIso(gatewayDeps);
@@ -308,7 +336,8 @@ async function persistToolDeny(
       event: "draft.evaluated",
       payload: {
         draftId: draft.id,
-        disagreement: evalSummary.disagreement
+        disagreement: evalSummary.disagreement,
+        guidance: [...args.guidance]
       },
       createdAt
     }),
@@ -405,7 +434,8 @@ function scoreReviewer(
  * one batch with `evals_not_run` + `guardrail_fail`, skipping remaining
  * LLM for that Draft. Per-Draft gateway errors mark that Draft
  * `evals_not_run` and continue. `budget_stopped` stops further calls
- * and marks remaining Drafts `evals_not_run`.
+ * and marks remaining Drafts `evals_not_run` — those never had a drafter
+ * prompt, so their `draft.evaluated.guidance` is empty.
  */
 export async function draftAndReview(
   db: Db,
@@ -414,6 +444,10 @@ export async function draftAndReview(
   options?: { revisionInstruction?: string }
 ): Promise<DraftAndReviewResult> {
   const threshold = (await modeRepo.get(db)).threshold;
+  const inForce = await standingGuidanceRepo.listInForce(db);
+  const guidanceTexts = inForce.map((row) => row.content);
+  const guidanceRefs: GuidanceRef[] = inForce.map(toGuidanceRef);
+  const NO_GUIDANCE: readonly GuidanceRef[] = [];
   const failedIds = new Set<string>();
   for (const event of await evidenceRepo.listByRun(db, runId)) {
     if (event.event !== "guardrails.failed") continue;
@@ -439,7 +473,8 @@ export async function draftAndReview(
         prompt: buildScopedPrompt(
           "drafter",
           draft,
-          draft.revisionIndex > 0 ? options?.revisionInstruction : undefined
+          draft.revisionIndex > 0 ? options?.revisionInstruction : undefined,
+          guidanceTexts
         )
       });
       const drafterTool = parseToolRequest(drafter.text);
@@ -450,7 +485,8 @@ export async function draftAndReview(
           diff,
           role: "drafter",
           tool: drafterTool.tool,
-          threshold
+          threshold,
+          guidance: guidanceRefs
         });
         continue;
       }
@@ -478,7 +514,8 @@ export async function draftAndReview(
           diff,
           role: "reviewer",
           tool: reviewerTool.tool,
-          threshold
+          threshold,
+          guidance: guidanceRefs
         });
         continue;
       }
@@ -488,7 +525,8 @@ export async function draftAndReview(
         diff,
         confidence: scored.confidence,
         evalSummary: scored.evalSummary,
-        createdAt: nowIso(gatewayDeps)
+        createdAt: nowIso(gatewayDeps),
+        guidance: guidanceRefs
       });
     } catch (err) {
       if (draft.revisionIndex > 0) {
@@ -503,11 +541,20 @@ export async function draftAndReview(
             diff,
             role: pendingTool.role,
             tool: pendingTool.tool,
-            threshold
+            threshold,
+            guidance: guidanceRefs
           });
           continue;
         }
-        await persistEvalsNotRun(db, draft, body, diff, timestamp, threshold);
+        await persistEvalsNotRun(
+          db,
+          draft,
+          body,
+          diff,
+          timestamp,
+          threshold,
+          guidanceRefs
+        );
       } catch {
         persistFailed = true;
       }
@@ -523,7 +570,8 @@ export async function draftAndReview(
               remaining.body,
               remaining.diff,
               timestamp,
-              threshold
+              threshold,
+              NO_GUIDANCE
             );
           } catch {
             // Stamp as many remaining Drafts as the DB will take.
