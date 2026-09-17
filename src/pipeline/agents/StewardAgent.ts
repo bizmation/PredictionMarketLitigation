@@ -1,3 +1,4 @@
+import type { PollSource } from "../../shared/schemas/pipelineConfig";
 import type { DraftRecord, EvidenceEvent } from "../../shared/schemas/run";
 
 /**
@@ -26,6 +27,23 @@ export function buildStewardPrompt(input: {
     "You are the steward for this Run's operator steering channel.",
     "You have no tools. You cannot publish live F1, change YOLO, budget, mode, guardrails, or the tool allowlist.",
     draftLine,
+    "Operator turn:",
+    input.content
+  ].join("\n\n");
+}
+
+export function buildConfigSteerPrompt(input: {
+  content: string;
+  pollSources: PollSource[];
+}): string {
+  return [
+    "You are the steward for this Run's operator steering channel.",
+    "You have no tools. You cannot publish live F1, change YOLO, budget, mode, guardrails, or the tool allowlist.",
+    'The only writable document is poll_sources, an array of {"name","url","tier"} where tier is tier1 or tier2.',
+    'Reply with JSON only: {"key":"poll_sources","value":[...the full list after applying the instruction...]}.',
+    'If the operator asks to change YOLO, budget, mode, guardrails, the tool allowlist, or any other control, reply {"key":"<that control>","value":null}.',
+    "Current poll_sources:",
+    JSON.stringify(input.pollSources),
     "Operator turn:",
     input.content
   ].join("\n\n");

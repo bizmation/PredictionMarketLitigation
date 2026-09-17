@@ -1,5 +1,6 @@
 import type { Db } from "../../shared/db/client";
 import * as modeRepo from "../../shared/db/repos/modeRepo";
+import * as pipelineConfigRepo from "../../shared/db/repos/pipelineConfigRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import { append } from "../projector/evidence";
 import type { RunOrigin } from "../../shared/schemas/vocabulary";
@@ -13,7 +14,6 @@ import {
   stubCheck,
   type SourceCheck
 } from "../connectors/connector";
-import { POLL_SOURCES } from "../connectors/sources";
 
 export function runIdFor(scheduledFor: string, origin: RunOrigin): string {
   const suffix: Record<RunOrigin, string> = {
@@ -76,11 +76,13 @@ export async function ensureRun(
       // Same-id retry/race: the row is already there; still backfill evidence.
     }
   }
+  const { version: pollSourcesVersion } =
+    await pipelineConfigRepo.getEffectivePollSources(db);
   await append(db, {
     id: evidenceId(id, "run.started"),
     runId: id,
     event: "run.started",
-    payload: { origin, scheduledFor },
+    payload: { origin, scheduledFor, pollSourcesVersion },
     createdAt: now
   });
   return id;
@@ -156,7 +158,8 @@ export async function monitorAndPackage(
 ): Promise<{ draftCount: number; anyFailure: boolean }> {
   let draftCount = 0;
   let anyFailure = false;
-  for (const source of POLL_SOURCES) {
+  const { sources } = await pipelineConfigRepo.getEffectivePollSources(db);
+  for (const source of sources) {
     const check = checks[source.name] ?? stubCheck;
     const result = await runConnector(db, runId, source, check);
     draftCount += result.draftCount;

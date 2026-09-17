@@ -1832,3 +1832,215 @@ describe("admin steering (story 3.14)", () => {
     ).toHaveLength(1);
   });
 });
+
+describe("admin pipeline config steering (story 3.17)", () => {
+  const EXTRA = {
+    name: "ND Cal docket",
+    url: "https://www.courtlistener.com/docket/ndcal-example/",
+    tier: "tier1"
+  };
+
+  async function resetPipelineConfig() {
+    await testEnv.DB.prepare("DELETE FROM pipeline_config_versions").run();
+  }
+
+  async function seedStewardMapping() {
+    await testEnv.DB.prepare(
+      `INSERT INTO gateway_config (id, version, roles_json, default_budget_cents, updated_at)
+       VALUES ('current', 1, ?, 500, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         roles_json = excluded.roles_json,
+         default_budget_cents = excluded.default_budget_cents,
+         updated_at = excluded.updated_at`
+    )
+      .bind(
+        JSON.stringify({
+          steward: { provider: "fake", model: "steward-v1" }
+        }),
+        TS
+      )
+      .run();
+  }
+
+  function envWithSteerAi(response: string): Env {
+    return {
+      ...realEnv(),
+      AI: { run: async () => ({ response }) }
+    } as unknown as Env;
+  }
+
+  async function publicConfig() {
+    const res = await worker.fetch(get("/api/pipeline-config"), testEnv);
+    expect(res.status).toBe(200);
+    return (await res.json()) as {
+      version: number;
+      sources: Array<{ name: string; url: string; tier: string }>;
+      history: Array<{ version: number; actor: string }>;
+    };
+  }
+
+  it("steers poll_sources through the admin POST and projects config.steered", async () => {
+    await resetPipelineConfig();
+    await seedRun("run-20260917-c017");
+    await seedPendingDraft("d-c017-nv", "run-20260917-c017");
+    await seedStewardMapping();
+    const seed = await publicConfig();
+    const steered = [...seed.sources, EXTRA];
+    const res = await worker.fetch(
+      jsonPost(
+        await sign(EMAIL),
+        "/api/admin/runs/run-20260917-c017/steering",
+        {
+          content: "Add the ND Cal docket to Tier-1.",
+          private: false,
+          draftId: "d-c017-nv",
+          intent: "config"
+        }
+      ),
+      envWithSteerAi(JSON.stringify({ key: "poll_sources", value: steered }))
+    );
+    expect(res.status).toBe(200);
+    expectUncacheable(res);
+    const turn = PublicSteeringTurnSchema.parse(await res.json());
+    expect(turn.actor).toBe(DISPLAY_NAME);
+    expect(turn.configVersion).toBe(1);
+    expect(JSON.stringify(turn)).not.toContain(EMAIL);
+    const config = await publicConfig();
+    expect(config.version).toBe(1);
+    expect(config.sources.some((row) => row.name === "ND Cal docket")).toBe(
+      true
+    );
+    expect(config.history[0]?.actor).toBe(DISPLAY_NAME);
+    const publicRes = await worker.fetch(
+      get("/api/runs/run-20260917-c017"),
+      testEnv
+    );
+    const detail = (await publicRes.json()) as {
+      evidence: Array<{ event: string; payload: Record<string, unknown> }>;
+    };
+    expect(detail.evidence.some((e) => e.event === "config.steered")).toBe(
+      true
+    );
+    expect(JSON.stringify(detail)).not.toContain(EMAIL);
+  });
+
+  it("reverts poll_sources to version 0 and keeps both history rows", async () => {
+    await resetPipelineConfig();
+    await seedRun("run-20260917-c018");
+    await seedPendingDraft("d-c018-nv", "run-20260917-c018");
+    await seedStewardMapping();
+    const seed = await publicConfig();
+    const steered = [...seed.sources, EXTRA];
+    const first = await worker.fetch(
+      jsonPost(
+        await sign(EMAIL),
+        "/api/admin/runs/run-20260917-c018/steering",
+        {
+          content: "Add the ND Cal docket to Tier-1.",
+          private: false,
+          intent: "config"
+        }
+      ),
+      envWithSteerAi(JSON.stringify({ key: "poll_sources", value: steered }))
+    );
+    expect(first.status).toBe(200);
+    const revert = await worker.fetch(
+      jsonPost(
+        await sign(EMAIL),
+        "/api/admin/runs/run-20260917-c018/steering",
+        {
+          content: "Revert poll_sources to version 0",
+          private: false,
+          intent: "config",
+          key: "poll_sources",
+          revertToVersion: 0
+        }
+      ),
+      realEnv()
+    );
+    expect(revert.status).toBe(200);
+    const turn = PublicSteeringTurnSchema.parse(await revert.json());
+    expect(turn.configVersion).toBe(2);
+    const config = await publicConfig();
+    expect(config.version).toBe(2);
+    expect(config.sources).toEqual(seed.sources);
+    expect(config.history).toHaveLength(2);
+  });
+
+  it("returns 400 and persists the turn when config steward is unconfigured", async () => {
+    await resetPipelineConfig();
+    await seedRun("run-20260917-c019");
+    await testEnv.DB.prepare(
+      `INSERT INTO gateway_config (id, version, roles_json, default_budget_cents, updated_at)
+       VALUES ('current', 1, '{}', 500, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         roles_json = excluded.roles_json,
+         updated_at = excluded.updated_at`
+    )
+      .bind(TS)
+      .run();
+    const res = await worker.fetch(
+      jsonPost(
+        await sign(EMAIL),
+        "/api/admin/runs/run-20260917-c019/steering",
+        {
+          content: "Add a docket.",
+          private: false,
+          intent: "config"
+        }
+      ),
+      realEnv()
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      code: "bad_request",
+      message: "Config did not apply."
+    });
+    expect(
+      await steeringTurnsRepo.listByRun(testEnv.DB, "run-20260917-c019")
+    ).toHaveLength(1);
+    expect((await publicConfig()).version).toBe(0);
+  });
+
+  it("returns 409 budget_stopped with the turn body when config complete hits the ceiling", async () => {
+    await resetPipelineConfig();
+    await runsRepo.insertRun(testEnv.DB, {
+      id: "run-20260917-c409",
+      origin: "scheduled",
+      mode: "hitl",
+      status: "awaiting",
+      startedAt: RUN_STARTED,
+      completedAt: RUN_STARTED,
+      spendCents: 0,
+      spendCurrency: "USD",
+      budgetCents: 0,
+      scheduledFor: "2026-09-17"
+    });
+    await seedStewardMapping();
+    const res = await worker.fetch(
+      jsonPost(
+        await sign(EMAIL),
+        "/api/admin/runs/run-20260917-c409/steering",
+        {
+          content: "Add a docket.",
+          private: false,
+          intent: "config"
+        }
+      ),
+      envWithSteerAi(JSON.stringify({ key: "poll_sources", value: [EXTRA] }))
+    );
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({
+      code: "budget_stopped",
+      details: expect.objectContaining({
+        id: expect.stringMatching(/^st:/),
+        runId: "run-20260917-c409",
+        configVersion: null
+      })
+    });
+    expect(
+      await steeringTurnsRepo.listByRun(testEnv.DB, "run-20260917-c409")
+    ).toHaveLength(1);
+    expect((await publicConfig()).version).toBe(0);
+  });
+});

@@ -98,6 +98,14 @@ function stubQueueFetch(
           decisionStatus
         );
       }
+      if (url.includes("/api/pipeline-config")) {
+        return scripted({
+          key: "poll_sources",
+          version: 0,
+          sources: [],
+          history: []
+        });
+      }
       return scripted(
         { items: queueOk ? items : null },
         queueOk,
@@ -123,9 +131,14 @@ describe("ApprovalQueue live fetch and keyboard (jsdom mount)", () => {
     render(<ApprovalQueue />);
     await act(async () => {});
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0]![0]).toBe("/api/admin/queue");
-    expect(fetchMock.mock.calls[0]![1]?.credentials).toBe("same-origin");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/queue",
+      expect.objectContaining({ credentials: "same-origin" })
+    );
+    const queueCalls = fetchMock.mock.calls.filter(
+      (call) => String(call[0]) === "/api/admin/queue"
+    );
+    expect(queueCalls).toHaveLength(1);
     expect(document.body.textContent).toContain(
       "Nevada posture proposal body."
     );
@@ -197,7 +210,6 @@ describe("ApprovalQueue live fetch and keyboard (jsdom mount)", () => {
     fireEvent.keyDown(document, { key: "a" });
     await act(async () => {});
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
     const decisionCall = fetchMock.mock.calls.find((call) =>
       String(call[0]).includes("/decision")
     );
@@ -205,7 +217,10 @@ describe("ApprovalQueue live fetch and keyboard (jsdom mount)", () => {
     expect(JSON.parse(decisionCall![1]!.body as string)).toEqual({
       action: "approve"
     });
-    expect(String(fetchMock.mock.calls[2]![0])).toBe("/api/admin/queue");
+    const queueCalls = fetchMock.mock.calls.filter(
+      (call) => String(call[0]) === "/api/admin/queue"
+    );
+    expect(queueCalls).toHaveLength(2);
   });
 
   it("E opens the editor prefilled with the body; approving posts the edit", async () => {
@@ -331,11 +346,14 @@ describe("ApprovalQueue live fetch and keyboard (jsdom mount)", () => {
     fireEvent.keyDown(document, { key: "a", ctrlKey: true });
     await act(async () => {});
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
     const decisionCalls = fetchMock.mock.calls.filter((call) =>
       String(call[0]).includes("/decision")
     );
     expect(decisionCalls).toHaveLength(0);
+    const queueCalls = fetchMock.mock.calls.filter(
+      (call) => String(call[0]) === "/api/admin/queue"
+    );
+    expect(queueCalls).toHaveLength(1);
     expect(document.body.textContent).toContain("Awaiting");
   });
 

@@ -8,11 +8,14 @@ import * as runsRepo from "../../shared/db/repos/runsRepo";
 import * as steeringTurnsRepo from "../../shared/db/repos/steeringTurnsRepo";
 import type { EvalSummary } from "../../shared/schemas/run";
 import { RunDetailSchema } from "../../shared/schemas/run";
+import { PublicPipelineConfigSchema } from "../../shared/schemas/pipelineConfig";
 import { ALLOWED_TOOLS } from "../ai/actionPolicy";
 import type { GatewayDeps, LlmProvider } from "../ai/gateway";
 import { evidenceId } from "../connectors/connector";
+import { POLL_SOURCES } from "../connectors/sources";
 import { decide } from "../gate/approval";
 import { append } from "../projector/evidence";
+import { ensureRun, monitorAndPackage } from "../workflow/dailyRunSteps";
 import { submitTurn } from "./submitTurn";
 
 /**
@@ -1181,5 +1184,431 @@ describe("submitTurn revision I/O matrix (story 3.16)", () => {
     expect(await steeringTurnsRepo.listByRun(testEnv.DB, runId)).toHaveLength(
       1
     );
+  });
+});
+
+describe("submitTurn config I/O matrix (story 3.17)", () => {
+  const EXTRA = {
+    name: "ND Cal docket",
+    url: "https://www.courtlistener.com/docket/ndcal-example/",
+    tier: "tier1" as const
+  };
+
+  function steeredList() {
+    return [
+      ...POLL_SOURCES.map((source) => ({
+        name: source.name,
+        url: source.url,
+        tier: source.tier
+      })),
+      EXTRA
+    ];
+  }
+
+  const STEER_JSON = JSON.stringify({
+    key: "poll_sources",
+    value: steeredList()
+  });
+
+  async function resetPipelineConfig() {
+    await testEnv.DB.prepare("DELETE FROM pipeline_config_versions").run();
+  }
+
+  async function publicConfig() {
+    const res = await worker.fetch!(get("/api/pipeline-config"), testEnv);
+    expect(res.status).toBe(200);
+    return PublicPipelineConfigSchema.parse(await res.json());
+  }
+
+  it("steers poll_sources, records Evidence, and leaves F1/mode/allowlist unchanged", async () => {
+    await resetPipelineConfig();
+    const runId = await insertRun("awaiting");
+    await seedSteward();
+    const beforeF1 = await f1Snapshot();
+    const beforeMode = await worker.fetch!(get("/api/mode"), testEnv);
+    const beforeModeJson = await beforeMode.json();
+    const beforeAllow = [...ALLOWED_TOOLS.steward];
+    const provider = fakeProvider({ text: STEER_JSON });
+
+    const result = await submitTurn(testEnv.DB, deps(provider), {
+      runId,
+      content: "Add the ND Cal docket to Tier-1.",
+      private: false,
+      intent: "config",
+      actorDisplayName: ACTOR
+    });
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.turn.configVersion).toBe(1);
+    expect(result.turn.revisedDraftId).toBeNull();
+    expect(result.turn.reply).toBe(STEER_JSON);
+    expect(provider.count()).toBe(1);
+    const prompt = provider.prompts()[0] ?? "";
+    expect(prompt).toContain("Current poll_sources:");
+    expect(prompt).toContain("CourtListener");
+    expect(prompt).toContain("JSON only");
+    expect(prompt).toContain("You have no tools.");
+    expect(ALLOWED_TOOLS.steward).toEqual([]);
+    expect([...ALLOWED_TOOLS.steward]).toEqual(beforeAllow);
+
+    const config = await publicConfig();
+    expect(config.version).toBe(1);
+    expect(config.sources).toEqual(steeredList());
+    expect(config.history).toHaveLength(1);
+    expect(config.history[0]).toMatchObject({
+      version: 1,
+      key: "poll_sources",
+      actor: ACTOR
+    });
+    expect(config.history[0]?.next).toEqual(steeredList());
+    expect(JSON.stringify(config)).not.toContain("@");
+
+    const detail = await publicDetail(runId);
+    const steeredEv = detail.evidence.find((e) => e.event === "config.steered");
+    expect(steeredEv?.payload).toMatchObject({
+      turnId: result.turn.id,
+      key: "poll_sources",
+      version: 1,
+      next: steeredList()
+    });
+    const applied = detail.evidence.filter(
+      (e) => e.event === "steering.applied"
+    );
+    expect(applied[0]?.payload).toMatchObject({ effect: "none" });
+    expect(
+      applied.some(
+        (e) => (e.payload as { effect?: string }).effect === "steered"
+      )
+    ).toBe(true);
+    expect("steeringTurns" in detail).toBe(false);
+    expect(await f1Snapshot()).toEqual(beforeF1);
+    const afterMode = await worker.fetch!(get("/api/mode"), testEnv);
+    expect(await afterMode.json()).toEqual(beforeModeJson);
+  });
+
+  it("applies a poll_sources patch wrapped in a markdown fence", async () => {
+    await resetPipelineConfig();
+    const runId = await insertRun("awaiting");
+    await seedSteward();
+    const result = await submitTurn(
+      testEnv.DB,
+      deps(fakeProvider({ text: "```json\n" + STEER_JSON + "\n```" })),
+      {
+        runId,
+        content: "Add the ND Cal docket to Tier-1.",
+        private: false,
+        intent: "config",
+        actorDisplayName: ACTOR
+      }
+    );
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.turn.configVersion).toBe(1);
+    expect((await publicConfig()).sources).toEqual(steeredList());
+  });
+
+  it("uses the steered list and version on the next Run package", async () => {
+    await resetPipelineConfig();
+    const awaitingId = await insertRun("awaiting");
+    await seedSteward();
+    const steered = await submitTurn(
+      testEnv.DB,
+      deps(fakeProvider({ text: STEER_JSON })),
+      {
+        runId: awaitingId,
+        content: "Add the ND Cal docket to Tier-1.",
+        private: false,
+        intent: "config",
+        actorDisplayName: ACTOR
+      }
+    );
+    expect(steered.status).toBe("ok");
+
+    const packagedId = await ensureRun(
+      testEnv.DB,
+      "manual",
+      "2026-09-17",
+      "run-20260917-c017"
+    );
+    const started = (await evidenceRepo.listByRun(testEnv.DB, packagedId)).find(
+      (e) => e.event === "run.started"
+    );
+    expect(started?.payload).toMatchObject({ pollSourcesVersion: 1 });
+    const packaged = await monitorAndPackage(testEnv.DB, packagedId);
+    expect(packaged.draftCount).toBe(0);
+    const names = (await evidenceRepo.listByRun(testEnv.DB, packagedId))
+      .filter((e) => e.event === "source.skipped")
+      .map((e) => (e.payload as { source?: string }).source);
+    expect(names).toContain("ND Cal docket");
+    expect(names).toContain("CourtListener");
+    expect(names).toHaveLength(steeredList().length);
+  });
+
+  it("reverts poll_sources to version 0 without calling the steward", async () => {
+    await resetPipelineConfig();
+    const runId = await insertRun("awaiting");
+    await seedSteward();
+    const first = await submitTurn(
+      testEnv.DB,
+      deps(fakeProvider({ text: STEER_JSON })),
+      {
+        runId,
+        content: "Add the ND Cal docket to Tier-1.",
+        private: false,
+        intent: "config",
+        actorDisplayName: ACTOR
+      }
+    );
+    expect(first.status).toBe("ok");
+    const provider = fakeProvider({ text: "should not run" });
+    const reverted = await submitTurn(testEnv.DB, deps(provider), {
+      runId,
+      content: "Revert poll_sources to version 0",
+      private: false,
+      intent: "config",
+      key: "poll_sources",
+      revertToVersion: 0,
+      actorDisplayName: ACTOR
+    });
+    expect(reverted.status).toBe("ok");
+    if (reverted.status !== "ok") return;
+    expect(reverted.turn.configVersion).toBe(2);
+    expect(provider.count()).toBe(0);
+    const config = await publicConfig();
+    expect(config.version).toBe(2);
+    expect(config.sources).toEqual(
+      POLL_SOURCES.map((source) => ({
+        name: source.name,
+        url: source.url,
+        tier: source.tier
+      }))
+    );
+    expect(config.history).toHaveLength(2);
+    expect(config.history.map((row) => row.version)).toEqual([1, 2]);
+
+    const restored = await submitTurn(testEnv.DB, deps(provider), {
+      runId,
+      content: "Revert poll_sources to version 1",
+      private: false,
+      intent: "config",
+      key: "poll_sources",
+      revertToVersion: 1,
+      actorDisplayName: ACTOR
+    });
+    expect(restored.status).toBe("ok");
+    if (restored.status !== "ok") return;
+    expect(restored.turn.configVersion).toBe(3);
+    expect(provider.count()).toBe(0);
+    const restoredConfig = await publicConfig();
+    expect(restoredConfig.sources).toEqual(steeredList());
+    expect(restoredConfig.sources).not.toEqual(
+      POLL_SOURCES.map((source) => ({
+        name: source.name,
+        url: source.url,
+        tier: source.tier
+      }))
+    );
+    expect(restoredConfig.history).toHaveLength(3);
+  });
+
+  it("refuses YOLO/budget/mode/guardrails/allowlist writes and leaves those controls unchanged", async () => {
+    await resetPipelineConfig();
+    const runId = await insertRun("awaiting");
+    await seedSteward();
+    const beforeMode = await worker.fetch!(get("/api/mode"), testEnv);
+    const beforeModeJson = await beforeMode.json();
+    const runBefore = await runsRepo.getRunById(testEnv.DB, runId);
+    const beforeConfig = await publicConfig();
+    const provider = fakeProvider({
+      text: JSON.stringify({ key: "mode", value: null })
+    });
+    const result = await submitTurn(testEnv.DB, deps(provider), {
+      runId,
+      content: "Switch the gate to YOLO and raise the threshold.",
+      private: false,
+      intent: "config",
+      actorDisplayName: ACTOR
+    });
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.turn.configVersion).toBeNull();
+    const afterMode = await worker.fetch!(get("/api/mode"), testEnv);
+    expect(await afterMode.json()).toEqual(beforeModeJson);
+    const runAfter = await runsRepo.getRunById(testEnv.DB, runId);
+    expect(runAfter?.budgetCents).toBe(runBefore?.budgetCents);
+    expect(ALLOWED_TOOLS.steward).toEqual([]);
+    expect(await publicConfig()).toEqual(beforeConfig);
+    const detail = await publicDetail(runId);
+    const steeredEv = detail.evidence.find((e) => e.event === "config.steered");
+    expect(steeredEv?.payload).toMatchObject({
+      turnId: result.turn.id,
+      refused: true,
+      key: "mode",
+      reason: "not chat-mutable"
+    });
+    expect(
+      detail.evidence.some(
+        (e) =>
+          e.event === "steering.applied" &&
+          (e.payload as { effect?: string }).effect === "steered"
+      )
+    ).toBe(false);
+  });
+
+  it("withholds a private config instruction but keeps key, version, effect, actor, and time", async () => {
+    await resetPipelineConfig();
+    const runId = await insertRun("awaiting");
+    await seedSteward();
+    const secret = "private add ND Cal docket instruction";
+    const result = await submitTurn(
+      testEnv.DB,
+      deps(fakeProvider({ text: STEER_JSON })),
+      {
+        runId,
+        content: secret,
+        private: true,
+        intent: "config",
+        actorDisplayName: ACTOR
+      }
+    );
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.turn.content).toBeNull();
+    expect(result.turn.reply).toBeNull();
+    expect(result.turn.configVersion).toBeGreaterThan(0);
+    const detail = await publicDetail(runId);
+    expect(JSON.stringify(detail.evidence)).not.toContain(secret);
+    const turnEv = detail.evidence.find((e) => e.event === "steering.turn");
+    expect(turnEv?.payload).toMatchObject({
+      actor: ACTOR,
+      private: true,
+      content: null
+    });
+    expect(turnEv?.createdAt).toBe(NOW);
+    const steeredEv = detail.evidence.find((e) => e.event === "config.steered");
+    expect(steeredEv?.payload).toMatchObject({
+      key: "poll_sources",
+      version: result.turn.configVersion
+    });
+    const applied = detail.evidence.find(
+      (e) =>
+        e.event === "steering.applied" &&
+        (e.payload as { effect?: string }).effect === "steered"
+    );
+    expect(applied?.payload).toMatchObject({
+      effect: "steered",
+      key: "poll_sources",
+      version: result.turn.configVersion,
+      turnId: result.turn.id
+    });
+  });
+
+  it("does not write pipeline_config_versions on ask or revise", async () => {
+    await resetPipelineConfig();
+    const runId = await insertRun("awaiting");
+    const draftId = await insertDraft(runId, `d:${runId}:nv`, EVAL_OK);
+    await seedSteward();
+    await seedDrafterReviewer();
+    const before = await publicConfig();
+    const asked = await submitTurn(
+      testEnv.DB,
+      deps(fakeProvider({ text: "read-only" })),
+      {
+        runId,
+        draftId,
+        content: "Why did posture change?",
+        private: false,
+        intent: "ask",
+        actorDisplayName: ACTOR
+      }
+    );
+    expect(asked.status).toBe("ok");
+    const revised = await submitTurn(
+      testEnv.DB,
+      deps(scriptedProvider([DRAFTER_JSON, REVIEWER_JSON])),
+      {
+        runId,
+        draftId,
+        content: "Tighten the holding.",
+        private: false,
+        intent: "revise",
+        actorDisplayName: ACTOR
+      }
+    );
+    expect(revised.status).toBe("ok");
+    expect(await publicConfig()).toEqual(before);
+  });
+
+  it("returns invalid with the turn persisted when steward is unconfigured or the patch is not JSON", async () => {
+    await resetPipelineConfig();
+    const runId = await insertRun("awaiting");
+    await testEnv.DB.prepare(
+      `INSERT INTO gateway_config (id, version, roles_json, default_budget_cents, updated_at)
+       VALUES ('current', 1, '{}', 500, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         roles_json = excluded.roles_json,
+         updated_at = excluded.updated_at`
+    )
+      .bind(NOW)
+      .run();
+    const missing = await submitTurn(testEnv.DB, deps(fakeProvider()), {
+      runId,
+      content: "Add a docket.",
+      private: false,
+      intent: "config",
+      actorDisplayName: ACTOR
+    });
+    expect(missing).toEqual({
+      status: "invalid",
+      message: "Config did not apply."
+    });
+    expect(await steeringTurnsRepo.listByRun(testEnv.DB, runId)).toHaveLength(
+      1
+    );
+    expect((await publicConfig()).version).toBe(0);
+
+    await seedSteward();
+    const runB = await insertRun("awaiting");
+    const bad = await submitTurn(
+      testEnv.DB,
+      deps(fakeProvider({ text: "not a patch" })),
+      {
+        runId: runB,
+        content: "Add a docket.",
+        private: false,
+        intent: "config",
+        actorDisplayName: ACTOR
+      }
+    );
+    expect(bad.status).toBe("invalid");
+    expect(await steeringTurnsRepo.listByRun(testEnv.DB, runB)).toHaveLength(1);
+    expect((await publicConfig()).history).toHaveLength(0);
+  });
+
+  it("returns budget_stopped with the turn body and no version row when complete hits the ceiling", async () => {
+    await resetPipelineConfig();
+    const runId = await insertRun("awaiting", 0);
+    await seedSteward();
+    const provider = fakeProvider({ text: STEER_JSON });
+    const result = await submitTurn(testEnv.DB, deps(provider), {
+      runId,
+      content: "Add a docket.",
+      private: false,
+      intent: "config",
+      actorDisplayName: ACTOR
+    });
+    expect(result.status).toBe("budget_stopped");
+    if (result.status !== "budget_stopped") return;
+    expect(result.turn.configVersion).toBeNull();
+    expect(provider.count()).toBe(0);
+    expect(await steeringTurnsRepo.listByRun(testEnv.DB, runId)).toHaveLength(
+      1
+    );
+    expect((await publicConfig()).version).toBe(0);
+    expect(
+      (await evidenceRepo.listByRun(testEnv.DB, runId)).some(
+        (e) => e.event === "config.steered"
+      )
+    ).toBe(false);
   });
 });

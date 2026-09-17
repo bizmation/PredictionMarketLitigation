@@ -1,9 +1,10 @@
 import { env } from "cloudflare:workers";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import * as draftsRepo from "../../shared/db/repos/draftsRepo";
 import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
+import * as pipelineConfigRepo from "../../shared/db/repos/pipelineConfigRepo";
 import { POLL_SOURCES } from "./sources";
 import { monitorAndPackage } from "../workflow/dailyRunSteps";
 import type { SourceCheck } from "./connector";
@@ -73,6 +74,10 @@ const wiredEmpty: Record<string, SourceCheck> = {
 };
 
 describe("source monitoring & draft packaging (story 3.4)", () => {
+  beforeEach(async () => {
+    await testEnv.DB.prepare("DELETE FROM pipeline_config_versions").run();
+  });
+
   it("records source.skipped per connector and returns zero drafts when all are stubs", async () => {
     const runId = await newRun();
     const result = await monitorAndPackage(testEnv.DB, runId, skipAll);
@@ -173,5 +178,38 @@ describe("source monitoring & draft packaging (story 3.4)", () => {
       (e) => e.event === "draft.created"
     );
     expect(created).toHaveLength(1);
+  });
+
+  it("iterates the steered poll_sources list on the next package", async () => {
+    const extra = {
+      name: "ND Cal docket",
+      url: "https://www.courtlistener.com/docket/ndcal-example/",
+      tier: "tier1" as const
+    };
+    const steered = [
+      ...POLL_SOURCES.map((source) => ({
+        name: source.name,
+        url: source.url,
+        tier: source.tier
+      })),
+      extra
+    ];
+    await pipelineConfigRepo.appendVersion(testEnv.DB, {
+      newValue: steered,
+      actor: "Distinctive Queue Operator",
+      createdAt: NOW
+    });
+    const runId = await newRun();
+    const result = await monitorAndPackage(testEnv.DB, runId, skipAll);
+    expect(result.draftCount).toBe(0);
+    const skipped = (await evidenceRepo.listByRun(testEnv.DB, runId)).filter(
+      (e) => e.event === "source.skipped"
+    );
+    expect(skipped).toHaveLength(steered.length);
+    expect(
+      skipped.some(
+        (e) => (e.payload as { source?: string }).source === "ND Cal docket"
+      )
+    ).toBe(true);
   });
 });

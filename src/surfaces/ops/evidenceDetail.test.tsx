@@ -385,6 +385,86 @@ describe("EvidenceDetail (story 3.8)", () => {
     expect(html).not.toContain("secret steward answer");
   });
 
+  it("prints config.steered key, version, and steered effect", () => {
+    const html = renderToStaticMarkup(
+      <EvidenceDetail
+        runId="run-20260908-aaa1"
+        detail={detail({
+          evidence: [
+            event({
+              id: "ev-config",
+              seq: 0,
+              event: "config.steered",
+              payload: {
+                turnId: "st-1",
+                key: "poll_sources",
+                version: 1,
+                prior: [{ name: "CourtListener", url: "/", tier: "tier1" }],
+                next: [
+                  { name: "CourtListener", url: "/", tier: "tier1" },
+                  { name: "ND Cal docket", url: "/", tier: "tier1" }
+                ]
+              }
+            }),
+            event({
+              id: "ev-applied-steer",
+              seq: 1,
+              event: "steering.applied",
+              payload: {
+                effect: "steered",
+                turnId: "st-1",
+                key: "poll_sources",
+                version: 1
+              }
+            })
+          ]
+        })}
+      />
+    );
+    expect(html).toContain(
+      "config.steered · poll_sources · 1 · prior CourtListener · next CourtListener, ND Cal docket"
+    );
+    expect(html).toContain("steering.applied · steered · poll_sources · 1");
+  });
+
+  it("prints config.steered refusal key and reason without instruction text", () => {
+    const html = renderToStaticMarkup(
+      <EvidenceDetail
+        runId="run-20260908-aaa1"
+        detail={detail({
+          evidence: [
+            event({
+              id: "ev-turn-priv",
+              seq: 0,
+              event: "steering.turn",
+              payload: {
+                actor: "Patrick",
+                private: true,
+                content: null
+              }
+            }),
+            event({
+              id: "ev-config-refused",
+              seq: 1,
+              event: "config.steered",
+              payload: {
+                turnId: "st-1",
+                refused: true,
+                key: "mode",
+                reason: "not chat-mutable"
+              }
+            })
+          ]
+        })}
+      />
+    );
+    expect(html).toContain(
+      "config.steered · mode · refused · not chat-mutable"
+    );
+    expect(html).toContain("content withheld");
+    expect(html).not.toContain("switch to YOLO");
+  });
+
   it("renders a revision chain in index order with the instruction and approved text", () => {
     const html = renderToStaticMarkup(
       <EvidenceDetail

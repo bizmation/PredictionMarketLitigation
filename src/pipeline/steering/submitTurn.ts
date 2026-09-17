@@ -1,8 +1,16 @@
 import type { Db } from "../../shared/db/client";
 import * as draftsRepo from "../../shared/db/repos/draftsRepo";
 import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
+import * as pipelineConfigRepo from "../../shared/db/repos/pipelineConfigRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import * as steeringTurnsRepo from "../../shared/db/repos/steeringTurnsRepo";
+import {
+  ConfigProposalSchema,
+  PIPELINE_CONFIG_KEY,
+  PollSourcesSchema,
+  isForbiddenPipelineConfigKey,
+  type PollSource
+} from "../../shared/schemas/pipelineConfig";
 import type { DraftRecord } from "../../shared/schemas/run";
 import {
   toPublicSteeringTurn,
@@ -12,22 +20,30 @@ import {
 import { resolveRoleModel } from "../config/modelRoles";
 import { evidenceId } from "../connectors/connector";
 import { enforceDraftGuardrails, parseToolRequest } from "../ai/actionPolicy";
-import { complete, invokeTool, type GatewayDeps } from "../ai/gateway";
+import {
+  complete,
+  invokeTool,
+  GatewayError,
+  type GatewayDeps
+} from "../ai/gateway";
 import { draftAndReview } from "../agents/draftAndReview";
 import { appendStmt } from "../projector/evidence";
 import {
+  buildConfigSteerPrompt,
   buildInterrogationPrompt,
   buildStewardPrompt
 } from "../agents/StewardAgent";
 
 /**
- * Story 3.15/3.16 — persist one operator steering turn. `ask` (default)
- * grounds a steward interrogation and never writes a Draft. `revise`
- * inserts a child Draft under the same Run and re-runs drafter →
- * guardrails → reviewer. The operator turn is persisted first and is
- * never rolled back if drafter/reviewer fail. Does not call
- * `afterPackaging`, `autoApproveRun`, `decide`, or F1 apply. Steward
- * `complete()` runs only on ask.
+ * Story 3.15/3.16/3.17 — persist one operator steering turn. `ask`
+ * (default) grounds a steward interrogation and never writes a Draft.
+ * `revise` inserts a child Draft under the same Run and re-runs drafter →
+ * guardrails → reviewer. `config` versions `poll_sources` (conversational
+ * apply via steward JSON, or structured revert). The operator turn is
+ * persisted first and is never rolled back if steward/`complete()` fails.
+ * Does not call `afterPackaging`, `autoApproveRun`, `decide`, or F1 apply.
+ * Steward `complete()` runs on ask and conversational config, not revise
+ * or revert.
  */
 
 const SUBMITTABLE = new Set(["running", "awaiting"]);
@@ -37,7 +53,9 @@ export type SubmitTurnInput = {
   content: string;
   private: boolean;
   draftId?: string;
-  intent?: "ask" | "revise";
+  intent?: "ask" | "revise" | "config";
+  key?: string;
+  revertToVersion?: number;
   actorDisplayName: string;
 };
 
@@ -263,6 +281,211 @@ async function reviseDraft(
   return { status: "ok", revisedDraftId: childId };
 }
 
+function isBudgetStopped(err: unknown): boolean {
+  return err instanceof GatewayError && err.code === "budget_stopped";
+}
+
+function stripMarkdownFence(text: string): string {
+  return text
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
+}
+
+function parseConfigProposal(
+  text: string
+): { key: string; value: unknown } | null {
+  try {
+    const parsed = ConfigProposalSchema.safeParse(
+      JSON.parse(stripMarkdownFence(text))
+    );
+    if (!parsed.success) return null;
+    return { key: parsed.data.key, value: parsed.data.value };
+  } catch {
+    return null;
+  }
+}
+
+function refusalReason(key: string): string {
+  return isForbiddenPipelineConfigKey(key) ? "not chat-mutable" : "unknown key";
+}
+
+async function recordConfigRefusal(
+  db: Db,
+  input: {
+    turn: SteeringTurnRecord;
+    key: string;
+    reason: string;
+    now: () => string;
+  }
+): Promise<void> {
+  await db.batch([
+    appendStmt(db, {
+      id: evidenceId(input.turn.runId, "config.steered", input.turn.id),
+      runId: input.turn.runId,
+      event: "config.steered",
+      payload: {
+        turnId: input.turn.id,
+        refused: true,
+        key: input.key,
+        reason: input.reason
+      },
+      createdAt: input.now()
+    })
+  ]);
+}
+
+async function recordConfigSuccess(
+  db: Db,
+  input: {
+    turn: SteeringTurnRecord;
+    key: typeof PIPELINE_CONFIG_KEY;
+    version: number;
+    prior: PollSource[];
+    next: PollSource[];
+    now: () => string;
+  }
+): Promise<void> {
+  await db.batch([
+    appendStmt(db, {
+      id: evidenceId(input.turn.runId, "config.steered", input.turn.id),
+      runId: input.turn.runId,
+      event: "config.steered",
+      payload: {
+        turnId: input.turn.id,
+        key: input.key,
+        version: input.version,
+        prior: input.prior,
+        next: input.next
+      },
+      createdAt: input.now()
+    }),
+    appendStmt(db, {
+      id: evidenceId(
+        input.turn.runId,
+        "steering.applied",
+        input.turn.id,
+        "steered"
+      ),
+      runId: input.turn.runId,
+      event: "steering.applied",
+      payload: {
+        effect: "steered",
+        turnId: input.turn.id,
+        key: input.key,
+        version: input.version
+      },
+      createdAt: input.now()
+    })
+  ]);
+}
+
+async function steerPipelineConfig(
+  db: Db,
+  gatewayDeps: GatewayDeps,
+  input: {
+    turn: SteeringTurnRecord;
+    content: string;
+    key?: string;
+    revertToVersion?: number;
+    now: () => string;
+  }
+): Promise<
+  | { status: "ok"; version: number; reply: string | null }
+  | { status: "refused"; reply: string | null }
+  | { status: "invalid" }
+  | { status: "budget_stopped" }
+> {
+  if (input.revertToVersion != null) {
+    if (input.key !== PIPELINE_CONFIG_KEY) {
+      return { status: "invalid" };
+    }
+    try {
+      const row = await pipelineConfigRepo.revertTo(db, {
+        revertToVersion: input.revertToVersion,
+        actor: input.turn.actorDisplayName,
+        createdAt: input.now()
+      });
+      try {
+        await recordConfigSuccess(db, {
+          turn: input.turn,
+          key: PIPELINE_CONFIG_KEY,
+          version: row.version,
+          prior: row.prior,
+          next: row.next,
+          now: input.now
+        });
+      } catch {
+        // Version write already committed; Evidence is best-effort.
+      }
+      return { status: "ok", version: row.version, reply: null };
+    } catch {
+      return { status: "invalid" };
+    }
+  }
+
+  const mapping = await resolveRoleModel(db, "steward");
+  if (!mapping) return { status: "invalid" };
+
+  const effective = await pipelineConfigRepo.getEffectivePollSources(db);
+  try {
+    const result = await complete(gatewayDeps, {
+      role: "steward",
+      runId: input.turn.runId,
+      prompt: buildConfigSteerPrompt({
+        content: input.content,
+        pollSources: effective.sources
+      })
+    });
+    try {
+      await denyToolShaped(gatewayDeps, input.turn.runId, input.turn.id, [
+        result.text
+      ]);
+    } catch {
+      // Persist already succeeded.
+    }
+    if (parseToolRequest(result.text) != null) {
+      return { status: "invalid" };
+    }
+    const proposal = parseConfigProposal(result.text);
+    if (proposal == null) return { status: "invalid" };
+    const reply = input.turn.private ? null : result.text;
+    if (proposal.key !== PIPELINE_CONFIG_KEY) {
+      await recordConfigRefusal(db, {
+        turn: input.turn,
+        key: proposal.key,
+        reason: refusalReason(proposal.key),
+        now: input.now
+      });
+      return { status: "refused", reply };
+    }
+    const parsed = PollSourcesSchema.safeParse(proposal.value);
+    if (!parsed.success) return { status: "invalid" };
+    const row = await pipelineConfigRepo.appendVersion(db, {
+      newValue: parsed.data,
+      actor: input.turn.actorDisplayName,
+      createdAt: input.now()
+    });
+    try {
+      await recordConfigSuccess(db, {
+        turn: input.turn,
+        key: PIPELINE_CONFIG_KEY,
+        version: row.version,
+        prior: row.prior,
+        next: row.next,
+        now: input.now
+      });
+    } catch {
+      // Version write already committed; Evidence is best-effort.
+    }
+    return { status: "ok", version: row.version, reply };
+  } catch (err) {
+    if (isBudgetStopped(err)) return { status: "budget_stopped" };
+    return { status: "invalid" };
+  }
+}
+
 export async function submitTurn(
   db: Db,
   gatewayDeps: GatewayDeps,
@@ -374,6 +597,38 @@ export async function submitTurn(
       };
     }
     return { status: "ok", turn: publicTurn };
+  }
+
+  if (intent === "config") {
+    const steered = await steerPipelineConfig(db, gatewayDeps, {
+      turn,
+      content,
+      key: input.key,
+      revertToVersion: input.revertToVersion,
+      now
+    });
+    if (steered.status === "budget_stopped") {
+      return {
+        status: "budget_stopped",
+        turn: toPublicSteeringTurn(turn, null, null, null)
+      };
+    }
+    if (steered.status === "invalid") {
+      return {
+        status: "invalid",
+        message: "Config did not apply."
+      };
+    }
+    if (steered.status === "refused") {
+      return {
+        status: "ok",
+        turn: toPublicSteeringTurn(turn, steered.reply, null, null)
+      };
+    }
+    return {
+      status: "ok",
+      turn: toPublicSteeringTurn(turn, steered.reply, null, steered.version)
+    };
   }
 
   const reply = await askSteward(db, gatewayDeps, {

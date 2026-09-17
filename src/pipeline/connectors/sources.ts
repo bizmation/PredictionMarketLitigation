@@ -1,8 +1,6 @@
-export interface PollSource {
-  name: string;
-  url: string;
-  tier: "tier1" | "tier2";
-}
+import type { PollSource } from "../../shared/schemas/pipelineConfig";
+
+export type { PollSource };
 
 export const POLL_SOURCES: readonly PollSource[] = [
   {
@@ -26,3 +24,12 @@ export const POLL_SOURCES: readonly PollSource[] = [
     tier: "tier2"
   }
 ];
+
+/** Version-0 seed. Used by `pipelineConfigRepo` when no D1 row exists. */
+export function loadSeedPollSources(): PollSource[] {
+  return POLL_SOURCES.map((source) => ({
+    name: source.name,
+    url: source.url,
+    tier: source.tier
+  }));
+}

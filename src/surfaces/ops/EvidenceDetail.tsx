@@ -169,6 +169,53 @@ function payloadPrivate(payload: unknown): boolean {
   return (payload as Record<string, unknown>).private === true;
 }
 
+function payloadNumber(payload: unknown, key: string): string | null {
+  if (
+    payload === null ||
+    typeof payload !== "object" ||
+    Array.isArray(payload)
+  ) {
+    return null;
+  }
+  const value = (payload as Record<string, unknown>)[key];
+  return typeof value === "number" ? String(value) : null;
+}
+
+function payloadRefused(payload: unknown): string | null {
+  if (
+    payload === null ||
+    typeof payload !== "object" ||
+    Array.isArray(payload)
+  ) {
+    return null;
+  }
+  return (payload as Record<string, unknown>).refused === true
+    ? "refused"
+    : null;
+}
+
+function payloadSourceSummary(payload: unknown, key: string): string | null {
+  if (
+    payload === null ||
+    typeof payload !== "object" ||
+    Array.isArray(payload)
+  ) {
+    return null;
+  }
+  const value = (payload as Record<string, unknown>)[key];
+  if (!Array.isArray(value)) return null;
+  const names = value
+    .map((item) => {
+      if (item == null || typeof item !== "object" || Array.isArray(item)) {
+        return null;
+      }
+      const name = (item as Record<string, unknown>).name;
+      return typeof name === "string" && name.length > 0 ? name : null;
+    })
+    .filter((name): name is string => name != null);
+  return names.length > 0 ? `${key} ${names.join(", ")}` : `${key} none`;
+}
+
 function stepLabel(event: EvidenceEvent): string {
   const tool = payloadField(event.payload, "tool");
   const source = payloadField(event.payload, "source");
@@ -187,7 +234,13 @@ function stepLabel(event: EvidenceEvent): string {
     withheld,
     payloadField(event.payload, "content"),
     payloadField(event.payload, "reply"),
-    payloadField(event.payload, "effect")
+    payloadField(event.payload, "effect"),
+    payloadField(event.payload, "key"),
+    payloadNumber(event.payload, "version"),
+    payloadRefused(event.payload),
+    payloadField(event.payload, "reason"),
+    payloadSourceSummary(event.payload, "prior"),
+    payloadSourceSummary(event.payload, "next")
   ].filter((part): part is string => part != null);
   return extra.length > 0
     ? `${event.event} · ${extra.join(" · ")}`
