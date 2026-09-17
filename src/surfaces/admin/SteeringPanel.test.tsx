@@ -14,6 +14,7 @@ describe("SteeringPanel markup (story 3.14)", () => {
     expect(html).toContain("Mark private at submit");
     expect(html).toContain("Privacy is chosen at submit and cannot be undone");
     expect(html).toContain("Submit turn");
+    expect(html).not.toContain("content withheld");
     expect(html.indexOf("steering-private")).toBeLessThan(
       html.indexOf("Submit turn")
     );

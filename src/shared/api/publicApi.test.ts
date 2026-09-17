@@ -1572,10 +1572,11 @@ describe("public mode (story 3.13)", () => {
 
 describe("public run detail steering redaction (story 3.14)", () => {
   const TS = "2026-09-14T16:00:00.000Z";
+  const secretAnswer = "private steward answer must not leak";
   const provider: LlmProvider = {
     name: "fake",
     complete: async () => ({
-      text: "unused",
+      text: secretAnswer,
       inputTokens: 1,
       outputTokens: 1,
       costCents: 0
@@ -1583,6 +1584,18 @@ describe("public run detail steering redaction (story 3.14)", () => {
   };
 
   it("omits private turn content and never exposes a steeringTurns array", async () => {
+    await testEnv.DB.prepare(
+      `INSERT INTO gateway_config (id, version, roles_json, default_budget_cents, updated_at)
+       VALUES ('current', 1, ?, 500, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         roles_json = excluded.roles_json,
+         updated_at = excluded.updated_at`
+    )
+      .bind(
+        JSON.stringify({ steward: { provider: "fake", model: "steward-v1" } }),
+        TS
+      )
+      .run();
     await runsRepo.insertRun(testEnv.DB, {
       id: "run-20260914-aa10",
       origin: "scheduled",
@@ -1628,12 +1641,22 @@ describe("public run detail steering redaction (story 3.14)", () => {
     expect("steeringTurns" in body).toBe(false);
     const serialized = JSON.stringify(body);
     expect(serialized).not.toContain(secret);
+    expect(serialized).not.toContain(secretAnswer);
     const turn = body.evidence.find((e) => e.event === "steering.turn");
     expect(turn?.payload).toMatchObject({
       actor: "Patrick",
       draftId: "d-steer-redact",
       private: true,
       content: null
+    });
+    const replyEv = body.evidence.find(
+      (e) => e.event === "steering.applied" && e.id.endsWith(":reply")
+    );
+    expect(replyEv?.payload).toMatchObject({
+      effect: "none",
+      draftId: "d-steer-redact",
+      private: true,
+      reply: null
     });
   });
 

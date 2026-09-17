@@ -367,4 +367,62 @@ describe("ApprovalQueue live fetch and keyboard (jsdom mount)", () => {
     const confirm = screen.getByRole("button", { name: "Confirm rejection" });
     expect((confirm as HTMLButtonElement).disabled).toBe(true);
   });
+
+  it("keeps selected index after interrogation submit; J/K/A/E/R still work after blur", async () => {
+    const items = [draftRecord("d-a"), draftRecord("d-b"), draftRecord("d-c")];
+    const fetchMock = vi.fn(
+      async (
+        input: string | URL | Request,
+        _init?: RequestInit
+      ): Promise<ScriptedResponse> => {
+        const url = String(input);
+        if (url.includes("/steering")) {
+          return scripted({
+            id: "st-1",
+            runId: "run-20260912-aaa1",
+            draftId: "d-c",
+            actor: "Patrick",
+            role: "steward",
+            content: "why skipped",
+            reply: "federal-register was skipped",
+            private: false,
+            createdAt: "2026-09-12T16:05:00.000Z"
+          });
+        }
+        return scripted({ items });
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ApprovalQueue />);
+    await act(async () => {});
+
+    const buttons = () =>
+      screen
+        .getAllByRole("button")
+        .filter((button) => button.className.includes("qitem"));
+    fireEvent.keyDown(document, { key: "j" });
+    fireEvent.keyDown(document, { key: "j" });
+    expect(buttons()[2]!.getAttribute("aria-selected")).toBe("true");
+
+    const composer = screen.getByLabelText("Steering turn");
+    fireEvent.change(composer, { target: { value: "why skipped" } });
+    fireEvent.keyDown(composer, { key: "j" });
+    expect(buttons()[2]!.getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Submit turn" }));
+    await act(async () => {});
+
+    expect(buttons()[2]!.getAttribute("aria-selected")).toBe("true");
+    expect(document.body.textContent).toContain("federal-register was skipped");
+
+    fireEvent.blur(composer);
+    fireEvent.keyDown(document, { key: "j" });
+    expect(buttons()[0]!.getAttribute("aria-selected")).toBe("true");
+    expect(document.body.textContent).not.toContain(
+      "federal-register was skipped"
+    );
+    fireEvent.keyDown(document, { key: "k" });
+    expect(buttons()[2]!.getAttribute("aria-selected")).toBe("true");
+    fireEvent.keyDown(document, { key: "e" });
+    expect(screen.getByLabelText("Edited draft body")).toBeTruthy();
+  });
 });

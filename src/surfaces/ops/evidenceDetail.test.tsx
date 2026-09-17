@@ -330,6 +330,59 @@ describe("EvidenceDetail (story 3.8)", () => {
     expect(html).toContain("steering.applied · none");
   });
 
+  it("prints public steering.applied reply on the step line", () => {
+    const html = renderToStaticMarkup(
+      <EvidenceDetail
+        runId="run-20260908-aaa1"
+        detail={detail({
+          evidence: [
+            event({
+              id: "ev-applied-reply",
+              seq: 0,
+              event: "steering.applied",
+              payload: {
+                effect: "none",
+                turnId: "st-1",
+                draftId: "d-1",
+                reply: "federal-register was skipped",
+                private: false
+              }
+            })
+          ]
+        })}
+      />
+    );
+    expect(html).toContain(
+      "steering.applied · d-1 · federal-register was skipped · none"
+    );
+  });
+
+  it("withholds a private steering.applied reply on the step line", () => {
+    const html = renderToStaticMarkup(
+      <EvidenceDetail
+        runId="run-20260908-aaa1"
+        detail={detail({
+          evidence: [
+            event({
+              id: "ev-applied-priv",
+              seq: 0,
+              event: "steering.applied",
+              payload: {
+                effect: "none",
+                turnId: "st-1",
+                draftId: "d-1",
+                reply: null,
+                private: true
+              }
+            })
+          ]
+        })}
+      />
+    );
+    expect(html).toContain("steering.applied · d-1 · content withheld · none");
+    expect(html).not.toContain("secret steward answer");
+  });
+
   it("keeps $0.00, evals-not-run, and No draft produced on an empty Run", () => {
     const html = renderToStaticMarkup(
       <EvidenceDetail
