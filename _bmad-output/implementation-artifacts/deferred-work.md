@@ -116,6 +116,11 @@
 
 - Hung `GET /api/drafts` has no client timeout — `useDrafts` AbortController is unmount-only, so a hung list request leaves the `#drafts` band blank (`drafts === null` → `return null`). Same Epic-2 hung-fetch family as 3.7 RunLog and 3.8 EvidenceDetail (epic-2 retro item 4, owner: agent, open); timeout duration is the unchosen product decision. [src/surfaces/ops/PendingDrafts.tsx:88]
 
+## Deferred from: code review of spec-3-16-conversational-draft-revision.md (2026-09-17)
+
+- Second revise (r2+) has no end-to-end test — less common operator path; first revise fully covered. [`src/pipeline/steering/submitTurn.test.ts`]
+- No live-browser `/admin#queue` → ops. Evidence round-trip — jsdom/HTTP-unit coverage matches 3.15 harness.
+
 ## Deferred from: code review of spec-3-12-operator-loop-controls.md (2026-09-13)
 
 - LoopControls 4s poll while running/awaiting is never timer-asserted — first paint is SSR-tested; EvidenceDetail-style fake-timer mount deferred (also in spec frontmatter). [src/surfaces/admin/LoopControls.tsx:138]

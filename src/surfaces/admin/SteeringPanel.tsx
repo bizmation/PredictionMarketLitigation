@@ -79,18 +79,19 @@ export function SteeringPanel({
         return;
       }
       if (!res.ok) {
-        if (res.status === 409) {
-          try {
-            const body = (await res.json()) as { code?: unknown };
-            if (body.code === "budget_stopped") {
-              setError(
-                "Revision did not complete because spend hit the ceiling."
-              );
-              return;
-            }
-          } catch {
-            // Fall through to the generic failure.
-          }
+        let errBody: { code?: unknown; message?: unknown } = {};
+        try {
+          errBody = (await res.json()) as { code?: unknown; message?: unknown };
+        } catch {
+          // Fall through to the generic failure.
+        }
+        if (res.status === 409 && errBody.code === "budget_stopped") {
+          setError("Revision did not complete because spend hit the ceiling.");
+          return;
+        }
+        if (typeof errBody.message === "string" && errBody.message.length > 0) {
+          setError(errBody.message);
+          return;
         }
         setError("Submit failed. Try again.");
         return;

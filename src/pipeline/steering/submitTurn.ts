@@ -257,7 +257,7 @@ async function reviseDraft(
       })
     ]);
   } catch {
-    // Child is ready; Evidence append is best-effort after persist.
+    return { status: "invalid" };
   }
 
   return { status: "ok", revisedDraftId: childId };

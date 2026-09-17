@@ -875,6 +875,13 @@ describe("submitTurn revision I/O matrix (story 3.16)", () => {
       [parentId, childId].sort()
     );
     expect(detail.evidence.some((e) => e.event === "draft.revised")).toBe(true);
+    expect(
+      detail.evidence.some(
+        (e) =>
+          e.event === "guardrails.passed" &&
+          (e.payload as { draftId?: string }).draftId === childId
+      )
+    ).toBe(true);
     const applied = detail.evidence.filter(
       (e) => e.event === "steering.applied"
     );

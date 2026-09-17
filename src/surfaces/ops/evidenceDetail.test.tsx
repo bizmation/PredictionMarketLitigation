@@ -513,6 +513,36 @@ describe("EvidenceDetail (story 3.8)", () => {
     expect((html.match(new RegExp(NOT_LIVE_LABEL, "g")) ?? []).length).toBe(1);
   });
 
+  it("marks only the parent not-live when the revision child is in-flight", () => {
+    const html = renderToStaticMarkup(
+      <EvidenceDetail
+        runId="run-20260908-aaa1"
+        detail={detail({
+          drafts: [
+            draft({
+              id: "d-root",
+              body: "Original agent body.",
+              outcome: null
+            }),
+            draft({
+              id: "d-root:r1",
+              body: "Revised agent body.",
+              parentDraftId: "d-root",
+              revisionIndex: 1,
+              evalSummary: null,
+              confidence: null,
+              outcome: null
+            })
+          ]
+        })}
+      />
+    );
+    expect((html.match(new RegExp(NOT_LIVE_LABEL, "g")) ?? []).length).toBe(1);
+    expect(html.indexOf(NOT_LIVE_LABEL)).toBeLessThan(
+      html.indexOf("Revised agent body.")
+    );
+  });
+
   it("does not mark a historical parent not-live after the tip is decided", () => {
     const html = renderToStaticMarkup(
       <EvidenceDetail

@@ -1819,7 +1819,14 @@ describe("admin steering (story 3.14)", () => {
       envWithAi
     );
     expect(res.status).toBe(409);
-    expect(await res.json()).toMatchObject({ code: "budget_stopped" });
+    expect(await res.json()).toMatchObject({
+      code: "budget_stopped",
+      details: expect.objectContaining({
+        id: expect.stringMatching(/^st:/),
+        runId: "run-20260917-b409",
+        revisedDraftId: null
+      })
+    });
     expect(
       await steeringTurnsRepo.listByRun(testEnv.DB, "run-20260917-b409")
     ).toHaveLength(1);

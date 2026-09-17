@@ -4,7 +4,7 @@ type: 'feature'
 created: '2026-09-17'
 status: 'done'
 review_loop_iteration: 0
-followup_review_recommended: true
+followup_review_recommended: false
 baseline_revision: 31bb59a686c8272b4e55ccdfa6b25923b2d71f40
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context.md'
@@ -101,9 +101,56 @@ deferred: []
 - Given I approve the revised Draft, when I open that Run on ops., then decided Evidence lists original → revisions → the instruction that caused each → the approved text
 - Given I submit an ordinary ask from the same composer, when I reload ops. Evidence, then no additional Draft version appears
 
+### Review Findings
+
+- [x] [Review][Patch] SteeringPanel shows generic failure for invalid revise after persisted turn [`src/surfaces/admin/SteeringPanel.tsx:81-95`]
+- [x] [Review][Patch] 409 `budget_stopped` omits persisted turn from HTTP body [`src/server.ts:481-487`]
+- [x] [Review][Patch] Successful revise returns ok when `draft.revised` / applied Evidence append fails [`src/pipeline/steering/submitTurn.ts:226-263`]
+- [x] [Review][Patch] Happy-path revise test does not assert `guardrails.passed` on child [`src/pipeline/steering/submitTurn.test.ts:1078-1104`]
+- [x] [Review][Patch] No EvidenceDetail test for in-flight child not-live banner [`src/surfaces/ops/evidenceDetail.test.tsx`]
+- [x] [Review][Defer] Second revise (r2+) has no end-to-end test — deferred: less common operator path; first revise fully covered
+- [x] [Review][Defer] No live-browser `/admin#queue` → ops. Evidence round-trip — deferred: jsdom/HTTP-unit coverage matches 3.15 harness
+
+**Rejected**
+
+- `[false]` Budget-stopped / failed revise lock with no recovery — spec I/O matrix requires `decide` invalid until child ready or absent; recovery would edit intent-contract
+- `[false]` `gate.decided.approvedText` on reject mislabels UI — `decidedApprovedText` only renders for approve/edit outcomes; payload field is consistent for export
+- `[false]` EvidenceDetail reimplements tip helpers — surfaces do not import `shared/db`; logic mirrors `draftsRepo.pendingTips` / `isPendingReadyTip`
+- `[false]` Missing `draftsRepo` unit tests for tip helpers — tip rule pinned indirectly via `submitTurn`, `approval`, and list tests
+- `[false]` Concurrent revise `INSERT OR IGNORE` collision — non-everyday operator path; first pass rejected
+- `[false]` Queue omits `revisionIndex` on selected tip — ops. Evidence shows `Draft · r{n}`; cosmetic queue enhancement
+- `[false]` `epic-3-context.md` names `run.budget_stopped` / `steering.denied` — pre-existing planning drift; deferred in 3.1
+- `[false]` `draftAndReview` run-wide on revise — spec assumes awaiting runs have only the new child with `evalSummary == null`; run-level call is specified
+- `[false]` `pendingSelectId` stuck when tip missing from reload — reload normally includes new tip; edge case on fetch failure
+- `[false]` Multi-entity `approvedText` picks wrong `gate.decided` — `decidedApprovedText` filters approve/edit only; multi-entity decided runs uncommon
+- `[false]` Missing `publicApi` / `actionPolicy` test file updates — guardrail re-entry and tip-only lists covered in `submitTurn.test.ts`
+- `[false]` Orphan in-flight child after non-budget failure — specified Always constraint; tested in `submitTurn.test.ts`
+
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-09-17 — Follow-up review pass
+- verdicts: 26 findings — high 0, medium 7, low 3, false 14, maybe-false 0, defer 2
+- findings:
+  - `[medium]` `[patch]` SteeringPanel maps 400 invalid revise to generic Submit failed — server sends "Revision did not complete." after turn persisted
+  - `[medium]` `[patch]` 409 budget_stopped drops turn body — submitTurn returns turn; server.ts returns code/message only
+  - `[medium]` `[patch]` best-effort catch after ready child still returns ok — missing draft.revised / effect revised breaks public causation
+  - `[medium]` `[patch]` happy-path revise unpinned for guardrails.passed — implementation calls enforceDraftGuardrails; test gap only
+  - `[medium]` `[patch]` in-flight child not-live banner untested — EvidenceDetail uses isReadyPendingTip; no eval-null child fixture
+  - `[medium]` `[reject]` budget-stop lock / no recovery — grouped with first pass; specified matrix
+  - `[medium]` `[reject]` orphan in-flight child — specified Always constraint
+  - `[low]` `[reject]` approvedText in reject gate.decided payload — UI suppresses; export shape intentional
+  - `[low]` `[reject]` EvidenceDetail duplicates draftsRepo tip logic — surfaces cannot import db
+  - `[low]` `[reject]` queue omits revisionIndex — ops Evidence is chain surface
+  - `[false]` `[reject]` concurrent INSERT OR IGNORE — non-everyday path
+  - `[false]` `[reject]` draftAndReview run-wide on multiple unevaluated — awaiting invariant per spec
+  - `[false]` `[reject]` pendingSelectId stuck — rare reload miss
+  - `[false]` `[reject]` multi-entity approvedText — approve/edit filter + uncommon scenario
+  - `[false]` `[reject]` publicApi/actionPolicy test files — covered in submitTurn
+  - `[false]` `[reject]` epic-3-context vocabulary drift — pre-existing deferred in 3.1
+  - `[defer]` r2+ revision chain — real gap, less common path
+  - `[defer]` live-browser round-trip — matches 3.15 harness limitation
 
 ### 2026-09-17 — Review pass
 - verdicts: 36 findings — high 0, medium 16, low 4, false 16, maybe-false 0

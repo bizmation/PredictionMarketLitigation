@@ -162,6 +162,27 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
     expect(document.body.textContent).not.toContain("Try again.");
   });
 
+  it("shows the server message when revise does not complete", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        scripted(
+          { code: "bad_request", message: "Revision did not complete." },
+          false,
+          400
+        )
+      )
+    );
+    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    fireEvent.change(screen.getByLabelText("Steering turn"), {
+      target: { value: "tighten the holding" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Revise draft" }));
+    await act(async () => {});
+    expect(document.body.textContent).toContain("Revision did not complete.");
+    expect(document.body.textContent).not.toContain("Submit failed.");
+  });
+
   it("shows a short failure message on non-403 POST failure", async () => {
     vi.stubGlobal(
       "fetch",

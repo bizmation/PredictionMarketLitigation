@@ -481,7 +481,8 @@ export default {
             case "budget_stopped":
               return jsonError(
                 budgetStopped(
-                  "Run spend reached the budget ceiling; revision did not complete."
+                  "Run spend reached the budget ceiling; revision did not complete.",
+                  result.turn
                 ),
                 { headers: ADMIN_CACHE_HEADERS }
               );
