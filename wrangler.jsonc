@@ -107,13 +107,10 @@
     {
       "new_sqlite_classes": ["ChatAgent"],
       "tag": "v1"
-    },
-    {
-      // Story 3.3 — the DailyRunWorkflow's underlying Durable Object. Workflows
-      // register classes under `new_classes` (not `new_sqlite_classes`).
-      "new_classes": ["DailyRunWorkflow"],
-      "tag": "v2"
     }
+    // DailyRunWorkflow is a Workflow (`workflows` below), not a Durable Object.
+    // A v2 `new_classes` migration makes the API look for a DO export and
+    // fail deploy with 10070. Official Workflows setup is the binding only.
   ],
   // Story 3.3 — the first Workflow binding. `DailyRunWorkflow` is the daily
   // harness; the class MUST be exported from `src/server.ts` (wrangler `main`).

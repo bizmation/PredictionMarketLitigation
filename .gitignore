@@ -260,6 +260,7 @@ coverage
 .bmad-loop/cache/
 .bmad-loop/policy.toml
 .omo/
+.codegraph
 _bmad/render/
 
 # Local scoping archive — not source, and this repo is public.
