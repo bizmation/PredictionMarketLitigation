@@ -3,6 +3,7 @@ import * as draftsRepo from "../../shared/db/repos/draftsRepo";
 import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
 import * as pipelineConfigRepo from "../../shared/db/repos/pipelineConfigRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
+import * as standingGuidanceRepo from "../../shared/db/repos/standingGuidanceRepo";
 import * as steeringTurnsRepo from "../../shared/db/repos/steeringTurnsRepo";
 import {
   ConfigProposalSchema,
@@ -13,8 +14,13 @@ import {
 } from "../../shared/schemas/pipelineConfig";
 import type { DraftRecord } from "../../shared/schemas/run";
 import {
+  STANDING_GUIDANCE_CAP,
+  STANDING_GUIDANCE_MAX_CHARS
+} from "../../shared/schemas/standingGuidance";
+import {
   toPublicSteeringTurn,
   type PublicSteeringTurn,
+  type SteeringIntent,
   type SteeringTurnRecord
 } from "../../shared/schemas/steering";
 import { resolveRoleModel } from "../config/modelRoles";
@@ -35,15 +41,17 @@ import {
 } from "../agents/StewardAgent";
 
 /**
- * Story 3.15/3.16/3.17 — persist one operator steering turn. `ask`
+ * Story 3.15/3.16/3.17/3.18 — persist one operator steering turn. `ask`
  * (default) grounds a steward interrogation and never writes a Draft.
  * `revise` inserts a child Draft under the same Run and re-runs drafter →
  * guardrails → reviewer. `config` versions `poll_sources` (conversational
- * apply via steward JSON, or structured revert). The operator turn is
- * persisted first and is never rolled back if steward/`complete()` fails.
- * Does not call `afterPackaging`, `autoApproveRun`, `decide`, or F1 apply.
- * Steward `complete()` runs on ask and conversational config, not revise
- * or revert.
+ * apply via steward JSON, or structured revert). `guidance` records,
+ * edits, or revokes a versioned `standing_guidance` item with no LLM in
+ * the write path. The operator turn is persisted first and is never
+ * rolled back if steward/`complete()` fails or a structured write is
+ * refused. Does not call `afterPackaging`, `autoApproveRun`, `decide`, or
+ * F1 apply. Steward `complete()` runs on ask and conversational config,
+ * not revise, revert, or guidance.
  */
 
 const SUBMITTABLE = new Set(["running", "awaiting"]);
@@ -53,9 +61,11 @@ export type SubmitTurnInput = {
   content: string;
   private: boolean;
   draftId?: string;
-  intent?: "ask" | "revise" | "config";
+  intent?: SteeringIntent;
   key?: string;
   revertToVersion?: number;
+  guidanceItemId?: string;
+  revoke?: boolean;
   actorDisplayName: string;
 };
 
@@ -486,6 +496,184 @@ async function steerPipelineConfig(
   }
 }
 
+type GuidanceOutcome =
+  | { status: "ok"; itemId: string; version: number }
+  | { status: "invalid"; message: string };
+
+export const GUIDANCE_PRIVATE_MESSAGE =
+  "Standing guidance is public authorized context; it cannot be recorded as private. The turn was kept as a private note only.";
+
+export const GUIDANCE_CAP_MESSAGE = `Standing guidance is at its cap of ${STANDING_GUIDANCE_CAP} in-force items. Revoke or edit an existing item to make room.`;
+
+export const GUIDANCE_TOO_LONG_MESSAGE = `Standing guidance is limited to ${STANDING_GUIDANCE_MAX_CHARS} characters per item.`;
+
+export const GUIDANCE_UNKNOWN_ITEM_MESSAGE =
+  "That standing guidance item was not found.";
+
+export const GUIDANCE_REVOKED_ITEM_MESSAGE =
+  "That standing guidance item is already revoked; record a new item instead.";
+
+async function recordGuidanceEvidence(
+  db: Db,
+  input: {
+    turn: SteeringTurnRecord;
+    itemId: string;
+    version: number;
+    kind: "recorded" | "revoked";
+    text: string;
+    now: () => string;
+  }
+): Promise<void> {
+  const event =
+    input.kind === "recorded" ? "guidance.recorded" : "guidance.revoked";
+  const detail =
+    input.kind === "recorded"
+      ? { content: input.text }
+      : { reason: input.text };
+  await db.batch([
+    appendStmt(db, {
+      id: evidenceId(input.turn.runId, event, input.turn.id),
+      runId: input.turn.runId,
+      event,
+      payload: {
+        turnId: input.turn.id,
+        itemId: input.itemId,
+        version: input.version,
+        ...detail,
+        actor: input.turn.actorDisplayName
+      },
+      createdAt: input.now()
+    }),
+    appendStmt(db, {
+      id: evidenceId(
+        input.turn.runId,
+        "steering.applied",
+        input.turn.id,
+        "guidance"
+      ),
+      runId: input.turn.runId,
+      event: "steering.applied",
+      payload: {
+        effect: "guidance",
+        turnId: input.turn.id,
+        itemId: input.itemId,
+        version: input.version
+      },
+      createdAt: input.now()
+    })
+  ]);
+}
+
+/**
+ * Structured guidance write: no steward `complete()`, no classification.
+ * Private turns, over-length content, a new item past the cap, and an
+ * unknown or already-revoked item are refused as `invalid` with the turn
+ * already persisted and no version row. Evidence after the row is
+ * best-effort (3.17 pattern).
+ */
+async function steerGuidance(
+  db: Db,
+  input: {
+    turn: SteeringTurnRecord;
+    content: string;
+    guidanceItemId?: string;
+    revoke?: boolean;
+    now: () => string;
+    newId: () => string;
+  }
+): Promise<GuidanceOutcome> {
+  if (input.turn.private) {
+    return { status: "invalid", message: GUIDANCE_PRIVATE_MESSAGE };
+  }
+  if (input.content.length > STANDING_GUIDANCE_MAX_CHARS) {
+    return { status: "invalid", message: GUIDANCE_TOO_LONG_MESSAGE };
+  }
+  const actor = input.turn.actorDisplayName;
+  const itemId = input.guidanceItemId;
+
+  if (input.revoke === true) {
+    if (itemId == null) {
+      return { status: "invalid", message: GUIDANCE_UNKNOWN_ITEM_MESSAGE };
+    }
+    const latest = await standingGuidanceRepo.getLatest(db, itemId);
+    if (latest == null) {
+      return { status: "invalid", message: GUIDANCE_UNKNOWN_ITEM_MESSAGE };
+    }
+    if (latest.status === "revoked") {
+      return { status: "invalid", message: GUIDANCE_REVOKED_ITEM_MESSAGE };
+    }
+    let row;
+    try {
+      row = await standingGuidanceRepo.revoke(db, {
+        itemId,
+        reason: input.content,
+        actor,
+        sourceTurnId: input.turn.id,
+        createdAt: input.now()
+      });
+    } catch {
+      return { status: "invalid", message: "Guidance did not apply." };
+    }
+    try {
+      await recordGuidanceEvidence(db, {
+        turn: input.turn,
+        itemId: row.itemId,
+        version: row.version,
+        kind: "revoked",
+        text: row.content,
+        now: input.now
+      });
+    } catch {
+      // Version row already committed; Evidence is best-effort.
+    }
+    return { status: "ok", itemId: row.itemId, version: row.version };
+  }
+
+  let targetItemId: string;
+  if (itemId != null) {
+    const latest = await standingGuidanceRepo.getLatest(db, itemId);
+    if (latest == null) {
+      return { status: "invalid", message: GUIDANCE_UNKNOWN_ITEM_MESSAGE };
+    }
+    if (latest.status === "revoked") {
+      return { status: "invalid", message: GUIDANCE_REVOKED_ITEM_MESSAGE };
+    }
+    targetItemId = itemId;
+  } else {
+    const inForce = await standingGuidanceRepo.countInForce(db);
+    if (inForce >= STANDING_GUIDANCE_CAP) {
+      return { status: "invalid", message: GUIDANCE_CAP_MESSAGE };
+    }
+    targetItemId = standingGuidanceRepo.guidanceItemId(input.newId);
+  }
+
+  let row;
+  try {
+    row = await standingGuidanceRepo.appendVersion(db, {
+      itemId: targetItemId,
+      content: input.content,
+      actor,
+      sourceTurnId: input.turn.id,
+      createdAt: input.now()
+    });
+  } catch {
+    return { status: "invalid", message: "Guidance did not apply." };
+  }
+  try {
+    await recordGuidanceEvidence(db, {
+      turn: input.turn,
+      itemId: row.itemId,
+      version: row.version,
+      kind: "recorded",
+      text: row.content,
+      now: input.now
+    });
+  } catch {
+    // Version row already committed; Evidence is best-effort.
+  }
+  return { status: "ok", itemId: row.itemId, version: row.version };
+}
+
 export async function submitTurn(
   db: Db,
   gatewayDeps: GatewayDeps,
@@ -628,6 +816,27 @@ export async function submitTurn(
     return {
       status: "ok",
       turn: toPublicSteeringTurn(turn, steered.reply, null, steered.version)
+    };
+  }
+
+  if (intent === "guidance") {
+    const guided = await steerGuidance(db, {
+      turn,
+      content,
+      guidanceItemId: input.guidanceItemId,
+      revoke: input.revoke,
+      now,
+      newId
+    });
+    if (guided.status === "invalid") {
+      return { status: "invalid", message: guided.message };
+    }
+    return {
+      status: "ok",
+      turn: toPublicSteeringTurn(turn, null, null, null, {
+        itemId: guided.itemId,
+        version: guided.version
+      })
     };
   }
 

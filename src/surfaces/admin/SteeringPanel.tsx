@@ -3,14 +3,18 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { EmptyState } from "../../shared/ui";
 
 /**
- * Story 3.15/3.16/3.17 — operator steering composer. Submit turn is ask
- * (default). Revise is an explicit second control that sends
- * `intent: "revise"`. Steer pipeline sends `intent: "config"`. After a
- * 200, the last steward reply (or “content withheld” when private) is
- * shown under the composer. A successful revise notifies the queue with
- * `revisedDraftId`. Privacy is chosen at submit and cannot be undone.
- * 403 fails closed to the signed-out EmptyState. Revert of a listed
- * `poll_sources` version is a structured POST on the same route.
+ * Story 3.15/3.16/3.17/3.18 — operator steering composer. Submit turn is
+ * ask (default). Revise is an explicit second control that sends
+ * `intent: "revise"`. Steer pipeline sends `intent: "config"`. Record
+ * guidance sends `intent: "guidance"`; the in-force list (from the public
+ * GET) offers per-item Edit (prefills the composer and pins
+ * `guidanceItemId`) and Revoke (`revoke: true` with the composer text as
+ * the public reason). After a 200, the last steward reply (or “content
+ * withheld” when private) is shown under the composer. A successful
+ * revise notifies the queue with `revisedDraftId`. Privacy is chosen at
+ * submit and cannot be undone. 403 fails closed to the signed-out
+ * EmptyState. Revert of a listed `poll_sources` version is a structured
+ * POST on the same route.
  */
 
 type SteeringPanelProps = {
@@ -33,6 +37,50 @@ type PipelineConfigView = {
   version: number;
   history: PipelineHistoryItem[];
 };
+
+type GuidanceItemView = {
+  itemId: string;
+  version: number;
+  content: string;
+  actor: string;
+  createdAt: string;
+};
+
+type StandingGuidanceView = {
+  cap: number;
+  maxChars: number;
+  inForce: GuidanceItemView[];
+};
+
+function parseStandingGuidance(body: unknown): StandingGuidanceView | null {
+  if (body == null || typeof body !== "object" || Array.isArray(body)) {
+    return null;
+  }
+  const row = body as Record<string, unknown>;
+  if (typeof row.cap !== "number") return null;
+  if (typeof row.maxChars !== "number") return null;
+  if (!Array.isArray(row.inForce)) return null;
+  const inForce: GuidanceItemView[] = [];
+  for (const item of row.inForce) {
+    if (item == null || typeof item !== "object" || Array.isArray(item)) {
+      continue;
+    }
+    const entry = item as Record<string, unknown>;
+    if (typeof entry.itemId !== "string") continue;
+    if (typeof entry.version !== "number") continue;
+    if (typeof entry.content !== "string") continue;
+    if (typeof entry.actor !== "string") continue;
+    if (typeof entry.createdAt !== "string") continue;
+    inForce.push({
+      itemId: entry.itemId,
+      version: entry.version,
+      content: entry.content,
+      actor: entry.actor,
+      createdAt: entry.createdAt
+    });
+  }
+  return { cap: row.cap, maxChars: row.maxChars, inForce };
+}
 
 function parsePipelineConfig(body: unknown): PipelineConfigView | null {
   if (body == null || typeof body !== "object" || Array.isArray(body)) {
@@ -75,6 +123,8 @@ export function SteeringPanel({
   const [lastReply, setLastReply] = useState<string | null>(null);
   const [pipelineConfig, setPipelineConfig] =
     useState<PipelineConfigView | null>(null);
+  const [guidance, setGuidance] = useState<StandingGuidanceView | null>(null);
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const submitting = useRef(false);
   const selectionRef = useRef({ runId, draftId });
   selectionRef.current = { runId, draftId };
@@ -93,15 +143,31 @@ export function SteeringPanel({
     }
   }
 
+  async function loadGuidance() {
+    try {
+      const res = await fetch("/api/standing-guidance", {
+        credentials: "same-origin",
+        headers: { accept: "application/json" }
+      });
+      if (!res.ok) return;
+      const parsed = parseStandingGuidance(await res.json());
+      if (parsed != null) setGuidance(parsed);
+    } catch {
+      // Public GET is best-effort; Record guidance still works without it.
+    }
+  }
+
   useEffect(() => {
     setLastReply(null);
     setError(null);
     setContent("");
     setPrivate(false);
+    setEditingItemId(null);
   }, [draftId, runId]);
 
   useEffect(() => {
     void loadPipelineConfig();
+    void loadGuidance();
   }, [runId]);
 
   async function postSteering(body: Record<string, unknown>): Promise<{
@@ -148,7 +214,9 @@ export function SteeringPanel({
       setError(
         intent === "config"
           ? "Config did not apply because spend hit the ceiling."
-          : "Revision did not complete because spend hit the ceiling."
+          : intent === "guidance"
+            ? "Guidance was not recorded because spend hit the ceiling."
+            : "Revision did not complete because spend hit the ceiling."
       );
       return true;
     }
@@ -160,7 +228,10 @@ export function SteeringPanel({
     return true;
   }
 
-  async function submit(intent: "ask" | "revise" | "config") {
+  async function submit(
+    intent: "ask" | "revise" | "config" | "guidance",
+    guidanceOptions?: { guidanceItemId?: string; revoke?: boolean }
+  ) {
     if (submitting.current || content.trim().length === 0) return;
     submitting.current = true;
     setBusy(true);
@@ -174,6 +245,13 @@ export function SteeringPanel({
       };
       if (intent === "revise") body.intent = "revise";
       if (intent === "config") body.intent = "config";
+      if (intent === "guidance") {
+        body.intent = "guidance";
+        if (guidanceOptions?.guidanceItemId != null) {
+          body.guidanceItemId = guidanceOptions.guidanceItemId;
+        }
+        if (guidanceOptions?.revoke === true) body.revoke = true;
+      }
       const result = await postSteering(body);
       if (result == null) return;
       if (!result.ok) {
@@ -189,6 +267,7 @@ export function SteeringPanel({
               reply?: unknown;
               revisedDraftId?: unknown;
               configVersion?: unknown;
+              guidanceVersion?: unknown;
             })
           : {};
       if (intent === "config" && typeof parsed.configVersion !== "number") {
@@ -210,6 +289,21 @@ export function SteeringPanel({
         onRevised?.(parsed.revisedDraftId);
       }
       if (intent === "config") void loadPipelineConfig();
+      setEditingItemId(null);
+      if (intent === "guidance") {
+        void loadGuidance();
+        const version =
+          typeof parsed.guidanceVersion === "number"
+            ? parsed.guidanceVersion
+            : null;
+        setLastReply(
+          guidanceOptions?.revoke === true
+            ? "Guidance revoked; the next Run will not see it."
+            : version != null && version > 1
+              ? `Guidance updated to version ${version}; it takes effect on the next Run and on any Revise draft from now on.`
+              : "Guidance recorded; it takes effect on the next Run and on any Revise draft from now on."
+        );
+      }
       setContent("");
       setPrivate(false);
     } catch {
@@ -266,6 +360,42 @@ export function SteeringPanel({
     event.preventDefault();
     void submit("ask");
   }
+
+  function beginEdit(item: GuidanceItemView) {
+    if (busy) return;
+    setEditingItemId(item.itemId);
+    setContent(item.content);
+    setPrivate(false);
+    setError(null);
+  }
+
+  function cancelEdit() {
+    setEditingItemId(null);
+    setContent("");
+  }
+
+  async function revokeGuidance(item: GuidanceItemView) {
+    if (busy) return;
+    if (editingItemId != null && editingItemId !== item.itemId) {
+      setError("Cancel the current edit first.");
+      return;
+    }
+    if (content.trim().length === 0) {
+      setError(
+        "Type the public reason for revoking this guidance in the composer, then choose Revoke."
+      );
+      return;
+    }
+    await submit("guidance", { guidanceItemId: item.itemId, revoke: true });
+  }
+
+  const editingItem =
+    editingItemId != null
+      ? (guidance?.inForce.find((item) => item.itemId === editingItemId) ??
+        null)
+      : null;
+  const guidanceAtCap =
+    guidance != null && guidance.inForce.length >= guidance.cap;
 
   if (view.status === "signedOut") {
     return (
@@ -324,7 +454,81 @@ export function SteeringPanel({
         >
           Steer pipeline
         </button>
+        <button
+          type="button"
+          className="btn"
+          disabled={busy}
+          onClick={() =>
+            void submit(
+              "guidance",
+              editingItem != null
+                ? { guidanceItemId: editingItem.itemId }
+                : undefined
+            )
+          }
+        >
+          {editingItem != null ? "Save guidance edit" : "Record guidance"}
+        </button>
       </div>
+      {editingItem != null ? (
+        <p className="lastupd" style={{ marginTop: "var(--space-2)" }}>
+          Editing standing guidance {editingItem.itemId} (version{" "}
+          {editingItem.version}). Saving writes a new version; history is kept.{" "}
+          <button
+            type="button"
+            className="btn"
+            disabled={busy}
+            onClick={cancelEdit}
+          >
+            Cancel edit
+          </button>
+        </p>
+      ) : null}
+      {guidance != null ? (
+        <section
+          className="standing-guidance"
+          aria-label="Standing guidance in force"
+        >
+          <p className="lastupd" style={{ marginTop: "var(--space-2)" }}>
+            Standing guidance in force: {guidance.inForce.length} of{" "}
+            {guidance.cap}. Guidance is public, advisory to the drafter only,
+            and takes effect on the next Run and on any Revise draft from now
+            on. Up to {guidance.maxChars} characters per item.
+            {guidanceAtCap
+              ? " The cap is reached; revoke or edit an item to record another."
+              : ""}
+          </p>
+          {guidance.inForce.length > 0 ? (
+            <ul className="lastupd">
+              {guidance.inForce.map((item) => (
+                <li key={item.itemId}>
+                  <span>
+                    v{item.version} · {item.actor} · {item.content}
+                  </span>{" "}
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={busy}
+                    aria-label={`Edit guidance ${item.itemId}`}
+                    onClick={() => beginEdit(item)}
+                  >
+                    Edit
+                  </button>{" "}
+                  <button
+                    type="button"
+                    className="btn"
+                    disabled={busy}
+                    aria-label={`Revoke guidance ${item.itemId}`}
+                    onClick={() => void revokeGuidance(item)}
+                  >
+                    Revoke
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
+      ) : null}
       {pipelineConfig != null && pipelineConfig.version > 0 ? (
         <p className="lastupd" style={{ marginTop: "var(--space-2)" }}>
           <button

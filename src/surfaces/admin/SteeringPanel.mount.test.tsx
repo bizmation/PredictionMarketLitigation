@@ -546,3 +546,472 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
     ).toBe("Switch the gate to YOLO.");
   });
 });
+
+describe("SteeringPanel standing guidance (story 3.18)", () => {
+  const TURN_BASE = {
+    id: "st-g1",
+    runId: "run-20260914-aaa1",
+    draftId: "d-1",
+    actor: "Patrick",
+    role: "steward",
+    reply: null,
+    private: false,
+    revisedDraftId: null,
+    configVersion: null,
+    createdAt: "2026-09-14T16:00:00.000Z"
+  };
+
+  function emptyConfig() {
+    return scripted({
+      key: "poll_sources",
+      version: 0,
+      sources: [],
+      history: []
+    });
+  }
+
+  function guidanceBody(
+    inForce: Array<{
+      itemId: string;
+      version: number;
+      content: string;
+    }>,
+    cap = 12
+  ) {
+    return {
+      cap,
+      maxChars: 600,
+      inForce: inForce.map((item) => ({
+        ...item,
+        status: "active",
+        actor: "Patrick",
+        createdAt: "2026-09-14T16:00:00.000Z",
+        revokedAt: null,
+        sourceTurnId: "st-0"
+      })),
+      history: []
+    };
+  }
+
+  it("POSTs intent guidance from Record guidance, then reloads the in-force list", async () => {
+    let guidanceGets = 0;
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes("/api/pipeline-config")) return emptyConfig();
+      if (String(url).includes("/api/standing-guidance")) {
+        guidanceGets += 1;
+        return scripted(
+          guidanceBody(
+            guidanceGets === 1
+              ? []
+              : [{ itemId: "sg:one", version: 1, content: "Cite the docket." }]
+          )
+        );
+      }
+      return scripted({
+        ...TURN_BASE,
+        content: "Cite the docket.",
+        guidanceItemId: "sg:one",
+        guidanceVersion: 1
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    await act(async () => {});
+    expect(document.body.textContent).toContain(
+      "Standing guidance in force: 0 of 12"
+    );
+    fireEvent.change(screen.getByLabelText("Steering turn"), {
+      target: { value: "Cite the docket." }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Record guidance" }));
+    await act(async () => {});
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/runs/run-20260914-aaa1/steering",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          content: "Cite the docket.",
+          private: false,
+          draftId: "d-1",
+          intent: "guidance"
+        })
+      })
+    );
+    expect(steeringPosts(fetchMock)).toHaveLength(1);
+    expect(document.body.textContent).toContain(
+      "Guidance recorded; it takes effect on the next Run and on any Revise draft from now on."
+    );
+    expect(document.body.textContent).toContain(
+      "Standing guidance in force: 1 of 12"
+    );
+    expect(document.body.textContent).toContain("Cite the docket.");
+    expect(
+      screen.getByRole("button", { name: "Edit guidance sg:one" })
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Revoke guidance sg:one" })
+    ).toBeTruthy();
+    expect(
+      (screen.getByLabelText("Steering turn") as HTMLTextAreaElement).value
+    ).toBe("");
+  });
+
+  it("Edit prefills the composer and POSTs guidanceItemId with the new text", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes("/api/pipeline-config")) return emptyConfig();
+      if (String(url).includes("/api/standing-guidance")) {
+        return scripted(
+          guidanceBody([
+            { itemId: "sg:one", version: 1, content: "Cite the docket." }
+          ])
+        );
+      }
+      return scripted({
+        ...TURN_BASE,
+        content: "Cite the docket and court.",
+        guidanceItemId: "sg:one",
+        guidanceVersion: 2
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    await act(async () => {});
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit guidance sg:one" })
+    );
+    expect(
+      (screen.getByLabelText("Steering turn") as HTMLTextAreaElement).value
+    ).toBe("Cite the docket.");
+    expect(document.body.textContent).toContain(
+      "Editing standing guidance sg:one (version 1)"
+    );
+    expect(
+      screen.getByRole("button", { name: "Save guidance edit" })
+    ).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Steering turn"), {
+      target: { value: "Cite the docket and court." }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save guidance edit" }));
+    await act(async () => {});
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/runs/run-20260914-aaa1/steering",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          content: "Cite the docket and court.",
+          private: false,
+          draftId: "d-1",
+          intent: "guidance",
+          guidanceItemId: "sg:one"
+        })
+      })
+    );
+    expect(document.body.textContent).toContain(
+      "Guidance updated to version 2"
+    );
+    expect(document.body.textContent).not.toContain(
+      "Editing standing guidance"
+    );
+    expect(
+      screen.getByRole("button", { name: "Record guidance" })
+    ).toBeTruthy();
+  });
+
+  it("clears the edit pin on a successful non-guidance submit", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes("/api/pipeline-config")) return emptyConfig();
+      if (String(url).includes("/api/standing-guidance")) {
+        return scripted(
+          guidanceBody([
+            { itemId: "sg:one", version: 1, content: "Cite the docket." }
+          ])
+        );
+      }
+      return scripted({
+        ...TURN_BASE,
+        content: "why skipped",
+        reply: "federal-register was skipped",
+        guidanceItemId: null,
+        guidanceVersion: null
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    await act(async () => {});
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit guidance sg:one" })
+    );
+    expect(document.body.textContent).toContain(
+      "Editing standing guidance sg:one"
+    );
+    fireEvent.change(screen.getByLabelText("Steering turn"), {
+      target: { value: "why skipped" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Submit turn" }));
+    await act(async () => {});
+    expect(steeringPosts(fetchMock)).toHaveLength(1);
+    expect(JSON.parse(String(steeringPosts(fetchMock)[0]![1]!.body))).toEqual({
+      content: "why skipped",
+      private: false,
+      draftId: "d-1"
+    });
+    expect(document.body.textContent).not.toContain(
+      "Editing standing guidance"
+    );
+    expect(
+      screen.getByRole("button", { name: "Record guidance" })
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Save guidance edit" })
+    ).toBeNull();
+  });
+
+  it("refuses to Revoke a different item while an edit is pinned and posts nothing", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes("/api/pipeline-config")) return emptyConfig();
+      return scripted(
+        guidanceBody([
+          { itemId: "sg:one", version: 1, content: "Cite the docket." },
+          { itemId: "sg:two", version: 1, content: "Never guess motive." }
+        ])
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    await act(async () => {});
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit guidance sg:one" })
+    );
+    expect(
+      (screen.getByLabelText("Steering turn") as HTMLTextAreaElement).value
+    ).toBe("Cite the docket.");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Revoke guidance sg:two" })
+    );
+    await act(async () => {});
+    expect(steeringPosts(fetchMock)).toHaveLength(0);
+    expect(document.body.textContent).toContain(
+      "Cancel the current edit first."
+    );
+    expect(document.body.textContent).toContain(
+      "Editing standing guidance sg:one"
+    );
+  });
+
+  it("drops the edit pin when the selected Draft changes", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes("/api/pipeline-config")) return emptyConfig();
+      return scripted(
+        guidanceBody([
+          { itemId: "sg:one", version: 1, content: "Cite the docket." }
+        ])
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { rerender } = render(
+      <SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />
+    );
+    await act(async () => {});
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit guidance sg:one" })
+    );
+    expect(
+      screen.getByRole("button", { name: "Save guidance edit" })
+    ).toBeTruthy();
+    rerender(<SteeringPanel runId="run-20260914-aaa1" draftId="d-2" />);
+    await act(async () => {});
+    expect(
+      screen.getByRole("button", { name: "Record guidance" })
+    ).toBeTruthy();
+    expect(document.body.textContent).not.toContain(
+      "Editing standing guidance"
+    );
+    expect(
+      (screen.getByLabelText("Steering turn") as HTMLTextAreaElement).value
+    ).toBe("");
+    expect(steeringPosts(fetchMock)).toHaveLength(0);
+  });
+
+  it("Cancel edit clears the composer and restores Record guidance", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes("/api/pipeline-config")) return emptyConfig();
+      return scripted(
+        guidanceBody([
+          { itemId: "sg:one", version: 1, content: "Cite the docket." }
+        ])
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    await act(async () => {});
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit guidance sg:one" })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Cancel edit" }));
+    expect(
+      (screen.getByLabelText("Steering turn") as HTMLTextAreaElement).value
+    ).toBe("");
+    expect(
+      screen.getByRole("button", { name: "Record guidance" })
+    ).toBeTruthy();
+    expect(steeringPosts(fetchMock)).toHaveLength(0);
+  });
+
+  it("Revoke POSTs revoke true with the composer text as the public reason", async () => {
+    let guidanceGets = 0;
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes("/api/pipeline-config")) return emptyConfig();
+      if (String(url).includes("/api/standing-guidance")) {
+        guidanceGets += 1;
+        return scripted(
+          guidanceBody(
+            guidanceGets === 1
+              ? [{ itemId: "sg:one", version: 1, content: "Cite the docket." }]
+              : []
+          )
+        );
+      }
+      return scripted({
+        ...TURN_BASE,
+        content: "Superseded by the ruling.",
+        guidanceItemId: "sg:one",
+        guidanceVersion: 2
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    await act(async () => {});
+    fireEvent.click(
+      screen.getByRole("button", { name: "Revoke guidance sg:one" })
+    );
+    await act(async () => {});
+    expect(steeringPosts(fetchMock)).toHaveLength(0);
+    expect(document.body.textContent).toContain(
+      "Type the public reason for revoking this guidance"
+    );
+    fireEvent.change(screen.getByLabelText("Steering turn"), {
+      target: { value: "Superseded by the ruling." }
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Revoke guidance sg:one" })
+    );
+    await act(async () => {});
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/runs/run-20260914-aaa1/steering",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          content: "Superseded by the ruling.",
+          private: false,
+          draftId: "d-1",
+          intent: "guidance",
+          guidanceItemId: "sg:one",
+          revoke: true
+        })
+      })
+    );
+    expect(steeringPosts(fetchMock)).toHaveLength(1);
+    expect(document.body.textContent).toContain(
+      "Guidance revoked; the next Run will not see it."
+    );
+    expect(document.body.textContent).toContain(
+      "Standing guidance in force: 0 of 12"
+    );
+    expect(
+      screen.queryByRole("button", { name: "Revoke guidance sg:one" })
+    ).toBeNull();
+  });
+
+  it("shows the calm cap message from the server and the cap note when full", async () => {
+    const full = Array.from({ length: 12 }, (_, i) => ({
+      itemId: `sg:${i}`,
+      version: 1,
+      content: `Item ${i}`
+    }));
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes("/api/pipeline-config")) return emptyConfig();
+      if (String(url).includes("/api/standing-guidance")) {
+        return scripted(guidanceBody(full));
+      }
+      return scripted(
+        {
+          code: "bad_request",
+          message:
+            "Standing guidance is at its cap of 12 in-force items. Revoke or edit an existing item to make room."
+        },
+        false,
+        400
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    await act(async () => {});
+    expect(document.body.textContent).toContain(
+      "Standing guidance in force: 12 of 12"
+    );
+    expect(document.body.textContent).toContain("The cap is reached");
+    fireEvent.change(screen.getByLabelText("Steering turn"), {
+      target: { value: "One more." }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Record guidance" }));
+    await act(async () => {});
+    expect(document.body.textContent).toContain(
+      "Standing guidance is at its cap of 12 in-force items."
+    );
+    expect(document.body.textContent).not.toContain("Try again.");
+    expect(
+      (screen.getByLabelText("Steering turn") as HTMLTextAreaElement).value
+    ).toBe("One more.");
+  });
+
+  it("shows a guidance budget-ceiling message on 409 budget_stopped", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (String(url).includes("/api/pipeline-config")) return emptyConfig();
+        if (String(url).includes("/api/standing-guidance")) {
+          return scripted(guidanceBody([]));
+        }
+        return scripted({ code: "budget_stopped" }, false, 409);
+      })
+    );
+    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    await act(async () => {});
+    fireEvent.change(screen.getByLabelText("Steering turn"), {
+      target: { value: "Cite the docket." }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Record guidance" }));
+    await act(async () => {});
+    expect(document.body.textContent).toContain(
+      "Guidance was not recorded because spend hit the ceiling."
+    );
+  });
+
+  it("keeps the composer usable when the public guidance GET fails", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes("/api/pipeline-config")) return emptyConfig();
+      if (String(url).includes("/api/standing-guidance")) {
+        return scripted({ code: "error" }, false, 500);
+      }
+      return scripted({
+        ...TURN_BASE,
+        content: "Cite the docket.",
+        guidanceItemId: "sg:one",
+        guidanceVersion: 1
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    await act(async () => {});
+    expect(document.body.textContent).not.toContain(
+      "Standing guidance in force"
+    );
+    fireEvent.change(screen.getByLabelText("Steering turn"), {
+      target: { value: "Cite the docket." }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Record guidance" }));
+    await act(async () => {});
+    expect(steeringPosts(fetchMock)).toHaveLength(1);
+    expect(document.body.textContent).toContain("Guidance recorded");
+  });
+});

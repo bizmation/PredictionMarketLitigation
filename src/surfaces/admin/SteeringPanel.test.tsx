@@ -16,6 +16,7 @@ describe("SteeringPanel markup (story 3.14)", () => {
     expect(html).toContain("Submit turn");
     expect(html).toContain("Revise draft");
     expect(html).toContain("Steer pipeline");
+    expect(html).toContain("Record guidance");
     expect(html).not.toContain("content withheld");
     expect(html.indexOf("steering-private")).toBeLessThan(
       html.indexOf("Submit turn")
@@ -25,6 +26,9 @@ describe("SteeringPanel markup (story 3.14)", () => {
     );
     expect(html.indexOf("Revise draft")).toBeLessThan(
       html.indexOf("Steer pipeline")
+    );
+    expect(html.indexOf("Steer pipeline")).toBeLessThan(
+      html.indexOf("Record guidance")
     );
   });
 });

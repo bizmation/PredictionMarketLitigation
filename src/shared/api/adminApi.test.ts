@@ -2044,3 +2044,204 @@ describe("admin pipeline config steering (story 3.17)", () => {
     expect((await publicConfig()).version).toBe(0);
   });
 });
+
+describe("admin standing guidance steering (story 3.18)", () => {
+  const GUIDANCE = "Always cite the docket number in the first sentence.";
+
+  async function resetGuidance() {
+    await testEnv.DB.prepare("DELETE FROM standing_guidance").run();
+  }
+
+  async function publicGuidance() {
+    const res = await worker.fetch(get("/api/standing-guidance"), testEnv);
+    expect(res.status).toBe(200);
+    return (await res.json()) as {
+      cap: number;
+      maxChars: number;
+      inForce: Array<{
+        itemId: string;
+        version: number;
+        status: string;
+        content: string;
+        actor: string;
+      }>;
+      history: Array<{ itemId: string; version: number; status: string }>;
+    };
+  }
+
+  it("records, edits, and revokes guidance through the admin POST with displayName not email", async () => {
+    await resetGuidance();
+    await seedRun("run-20260918-d018");
+    await seedPendingDraft("d-d018-nv", "run-20260918-d018");
+    const recorded = await worker.fetch(
+      jsonPost(
+        await sign(EMAIL),
+        "/api/admin/runs/run-20260918-d018/steering",
+        {
+          content: GUIDANCE,
+          private: false,
+          draftId: "d-d018-nv",
+          intent: "guidance"
+        }
+      ),
+      realEnv()
+    );
+    expect(recorded.status).toBe(200);
+    expectUncacheable(recorded);
+    const turn = PublicSteeringTurnSchema.parse(await recorded.json());
+    expect(turn.actor).toBe(DISPLAY_NAME);
+    expect(turn.guidanceItemId).toMatch(/^sg:/);
+    expect(turn.guidanceVersion).toBe(1);
+    expect(turn.configVersion).toBeNull();
+    expect(turn.revisedDraftId).toBeNull();
+    expect(JSON.stringify(turn)).not.toContain(EMAIL);
+    const itemId = turn.guidanceItemId!;
+
+    let pub = await publicGuidance();
+    expect(pub.inForce).toHaveLength(1);
+    expect(pub.inForce[0]).toMatchObject({
+      itemId,
+      version: 1,
+      content: GUIDANCE,
+      actor: DISPLAY_NAME
+    });
+    expect(JSON.stringify(pub)).not.toContain(EMAIL);
+
+    const edited = await worker.fetch(
+      jsonPost(
+        await sign(EMAIL),
+        "/api/admin/runs/run-20260918-d018/steering",
+        {
+          content: "Cite the docket number and the court.",
+          private: false,
+          intent: "guidance",
+          guidanceItemId: itemId
+        }
+      ),
+      realEnv()
+    );
+    expect(edited.status).toBe(200);
+    expect(PublicSteeringTurnSchema.parse(await edited.json())).toMatchObject({
+      guidanceItemId: itemId,
+      guidanceVersion: 2
+    });
+    pub = await publicGuidance();
+    expect(pub.inForce[0]).toMatchObject({ version: 2 });
+    expect(pub.history).toHaveLength(2);
+
+    const revoked = await worker.fetch(
+      jsonPost(
+        await sign(EMAIL),
+        "/api/admin/runs/run-20260918-d018/steering",
+        {
+          content: "Superseded.",
+          private: false,
+          intent: "guidance",
+          guidanceItemId: itemId,
+          revoke: true
+        }
+      ),
+      realEnv()
+    );
+    expect(revoked.status).toBe(200);
+    expect(PublicSteeringTurnSchema.parse(await revoked.json())).toMatchObject({
+      guidanceItemId: itemId,
+      guidanceVersion: 3
+    });
+    pub = await publicGuidance();
+    expect(pub.inForce).toHaveLength(0);
+    expect(pub.history.map((row) => row.status)).toEqual([
+      "active",
+      "active",
+      "revoked"
+    ]);
+
+    const publicRes = await worker.fetch(
+      get("/api/runs/run-20260918-d018"),
+      testEnv
+    );
+    const detail = (await publicRes.json()) as {
+      evidence: Array<{ event: string; payload: Record<string, unknown> }>;
+    };
+    expect(
+      detail.evidence.filter((e) => e.event === "guidance.recorded")
+    ).toHaveLength(2);
+    expect(
+      detail.evidence.filter((e) => e.event === "guidance.revoked")
+    ).toHaveLength(1);
+    expect(
+      detail.evidence.filter(
+        (e) => e.event === "steering.applied" && e.payload.effect === "guidance"
+      )
+    ).toHaveLength(3);
+    expect(JSON.stringify(detail)).not.toContain(EMAIL);
+  });
+
+  it("returns 400 with a calm message and persists the turn for private guidance", async () => {
+    await resetGuidance();
+    await seedRun("run-20260918-d019");
+    const res = await worker.fetch(
+      jsonPost(
+        await sign(EMAIL),
+        "/api/admin/runs/run-20260918-d019/steering",
+        {
+          content: "keep this off the record",
+          private: true,
+          intent: "guidance"
+        }
+      ),
+      realEnv()
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { code: string; message: string };
+    expect(body.code).toBe("bad_request");
+    expect(body.message.toLowerCase()).toContain("public");
+    expect(
+      await steeringTurnsRepo.listByRun(testEnv.DB, "run-20260918-d019")
+    ).toHaveLength(1);
+    expect((await publicGuidance()).history).toHaveLength(0);
+  });
+
+  it("rejects an unknown intent and a non-boolean revoke with 400 and stores nothing", async () => {
+    await resetGuidance();
+    await seedRun("run-20260918-d020");
+    for (const body of [
+      { content: "x", private: false, intent: "standing" },
+      { content: "x", private: false, intent: "guidance", revoke: "yes" },
+      { content: "x", private: false, intent: "guidance", guidanceItemId: "" }
+    ]) {
+      const res = await worker.fetch(
+        jsonPost(
+          await sign(EMAIL),
+          "/api/admin/runs/run-20260918-d020/steering",
+          body
+        ),
+        realEnv()
+      );
+      expect(res.status).toBe(400);
+    }
+    expect(
+      await steeringTurnsRepo.listByRun(testEnv.DB, "run-20260918-d020")
+    ).toHaveLength(0);
+    expect((await publicGuidance()).history).toHaveLength(0);
+  });
+
+  it("rejects anonymous guidance POSTs with the opaque 403 and writes no row", async () => {
+    await resetGuidance();
+    await seedRun("run-20260918-d021");
+    const res = await worker.fetch(
+      get("/api/admin/runs/run-20260918-d021/steering", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          content: GUIDANCE,
+          private: false,
+          intent: "guidance"
+        })
+      }),
+      anon
+    );
+    expect(res.status).toBe(403);
+    expect((await publicGuidance()).history).toHaveLength(0);
+  });
+});
