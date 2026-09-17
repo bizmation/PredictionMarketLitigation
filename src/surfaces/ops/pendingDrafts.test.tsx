@@ -34,6 +34,8 @@ function draft(overrides: Partial<DraftRecord> = {}): DraftRecord {
     decidedBy: null,
     editedBody: null,
     rejectReason: null,
+    parentDraftId: null,
+    revisionIndex: 0,
     createdAt: "2026-09-08T16:05:00.000Z",
     updatedAt: "2026-09-08T16:05:00.000Z",
     ...overrides
@@ -77,6 +79,14 @@ describe("isDraftRecord", () => {
         evalSummary: { ...draft().evalSummary!, disagreement: null }
       })
     ).toBe(false);
+    expect(isDraftRecord({ ...draft(), revisionIndex: -1 })).toBe(false);
+    expect(
+      isDraftRecord({
+        ...draft(),
+        parentDraftId: "d-root",
+        revisionIndex: 1
+      })
+    ).toBe(true);
   });
 });
 

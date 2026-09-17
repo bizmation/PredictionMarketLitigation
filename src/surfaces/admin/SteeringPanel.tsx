@@ -3,20 +3,30 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { EmptyState } from "../../shared/ui";
 
 /**
- * Story 3.15 — operator steering composer. After a 200, the last steward
- * reply (or “content withheld” when private) is shown under the composer.
- * Privacy is chosen at submit and cannot be undone. 403 fails closed to
- * the signed-out EmptyState. Does not change queue selection.
+ * Story 3.15/3.16 — operator steering composer. Submit turn is ask
+ * (default). Revise is an explicit second control that sends
+ * `intent: "revise"`. After a 200, the last steward reply (or “content
+ * withheld” when private) is shown under the composer. A successful
+ * revise notifies the queue with `revisedDraftId`. Privacy is chosen at
+ * submit and cannot be undone. 403 fails closed to the signed-out
+ * EmptyState.
  */
 
 type SteeringPanelProps = {
   runId: string;
   draftId: string;
+  onRevised?: (revisedDraftId: string) => void;
+  onSubmittingChange?: (submitting: boolean) => void;
 };
 
 type View = { status: "ready" } | { status: "signedOut" };
 
-export function SteeringPanel({ runId, draftId }: SteeringPanelProps) {
+export function SteeringPanel({
+  runId,
+  draftId,
+  onRevised,
+  onSubmittingChange
+}: SteeringPanelProps) {
   const [view, setView] = useState<View>({ status: "ready" });
   const [content, setContent] = useState("");
   const [isPrivate, setPrivate] = useState(false);
@@ -34,15 +44,21 @@ export function SteeringPanel({ runId, draftId }: SteeringPanelProps) {
     setPrivate(false);
   }, [draftId, runId]);
 
-  async function onSubmit(event: FormEvent) {
-    event.preventDefault();
+  async function submit(intent: "ask" | "revise") {
     if (submitting.current || content.trim().length === 0) return;
     submitting.current = true;
     setBusy(true);
+    onSubmittingChange?.(true);
     setError(null);
     const submittedRunId = runId;
     const submittedDraftId = draftId;
     try {
+      const body: Record<string, unknown> = {
+        content,
+        private: isPrivate,
+        draftId
+      };
+      if (intent === "revise") body.intent = "revise";
       const res = await fetch(`/api/admin/runs/${runId}/steering`, {
         method: "POST",
         credentials: "same-origin",
@@ -50,11 +66,7 @@ export function SteeringPanel({ runId, draftId }: SteeringPanelProps) {
           "content-type": "application/json",
           accept: "application/json"
         },
-        body: JSON.stringify({
-          content,
-          private: isPrivate,
-          draftId
-        })
+        body: JSON.stringify(body)
       });
       if (
         selectionRef.current.runId !== submittedRunId ||
@@ -67,12 +79,34 @@ export function SteeringPanel({ runId, draftId }: SteeringPanelProps) {
         return;
       }
       if (!res.ok) {
+        let errBody: { code?: unknown; message?: unknown } = {};
+        try {
+          errBody = (await res.json()) as { code?: unknown; message?: unknown };
+        } catch {
+          // Fall through to the generic failure.
+        }
+        if (res.status === 409 && errBody.code === "budget_stopped") {
+          setError("Revision did not complete because spend hit the ceiling.");
+          return;
+        }
+        if (typeof errBody.message === "string" && errBody.message.length > 0) {
+          setError(errBody.message);
+          return;
+        }
         setError("Submit failed. Try again.");
         return;
       }
-      let parsed: { private?: unknown; reply?: unknown } = {};
+      let parsed: {
+        private?: unknown;
+        reply?: unknown;
+        revisedDraftId?: unknown;
+      } = {};
       try {
-        parsed = (await res.json()) as { private?: unknown; reply?: unknown };
+        parsed = (await res.json()) as {
+          private?: unknown;
+          reply?: unknown;
+          revisedDraftId?: unknown;
+        };
       } catch {
         parsed = {};
       }
@@ -83,6 +117,13 @@ export function SteeringPanel({ runId, draftId }: SteeringPanelProps) {
       } else {
         setLastReply(null);
       }
+      if (
+        intent === "revise" &&
+        typeof parsed.revisedDraftId === "string" &&
+        parsed.revisedDraftId.length > 0
+      ) {
+        onRevised?.(parsed.revisedDraftId);
+      }
       setContent("");
       setPrivate(false);
     } catch {
@@ -90,7 +131,13 @@ export function SteeringPanel({ runId, draftId }: SteeringPanelProps) {
     } finally {
       submitting.current = false;
       setBusy(false);
+      onSubmittingChange?.(false);
     }
+  }
+
+  function onSubmit(event: FormEvent) {
+    event.preventDefault();
+    void submit("ask");
   }
 
   if (view.status === "signedOut") {
@@ -107,7 +154,7 @@ export function SteeringPanel({ runId, draftId }: SteeringPanelProps) {
   }
 
   return (
-    <form className="composer" onSubmit={(event) => void onSubmit(event)}>
+    <form className="composer" onSubmit={onSubmit}>
       <label htmlFor="steering-content">Steering turn</label>
       <textarea
         id="steering-content"
@@ -133,6 +180,14 @@ export function SteeringPanel({ runId, draftId }: SteeringPanelProps) {
         </div>
         <button type="submit" className="btn" disabled={busy}>
           Submit turn
+        </button>
+        <button
+          type="button"
+          className="btn"
+          disabled={busy}
+          onClick={() => void submit("revise")}
+        >
+          Revise draft
         </button>
       </div>
       {error ? (

@@ -2,9 +2,10 @@ import { z } from "zod";
 
 import type { Db } from "../../shared/db/client";
 import * as draftsRepo from "../../shared/db/repos/draftsRepo";
+import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import { IsoUtcSchema } from "../../shared/schemas/common";
-import { type DraftRecord } from "../../shared/schemas/run";
+import { type DraftRecord, type EvidenceEvent } from "../../shared/schemas/run";
 import { ProvenanceKindSchema } from "../../shared/schemas/vocabulary";
 import { appendStmt } from "../projector/evidence";
 import { applyF1Stmt } from "./f1Apply";
@@ -90,6 +91,38 @@ export type DecideResult =
   | { status: "invalid" }
   | { status: "decided"; record: DraftRecord };
 
+function turnIdForRevision(
+  draftId: string,
+  revisionIndex: number,
+  events: EvidenceEvent[]
+): string | null {
+  if (revisionIndex === 0) return null;
+  for (const event of events) {
+    if (event.event !== "steering.applied" && event.event !== "draft.revised") {
+      continue;
+    }
+    if (
+      event.payload == null ||
+      typeof event.payload !== "object" ||
+      Array.isArray(event.payload)
+    ) {
+      continue;
+    }
+    const payload = event.payload as {
+      effect?: unknown;
+      draftId?: unknown;
+      turnId?: unknown;
+    };
+    if (payload.draftId !== draftId || typeof payload.turnId !== "string") {
+      continue;
+    }
+    if (event.event === "draft.revised" || payload.effect === "revised") {
+      return payload.turnId;
+    }
+  }
+  return null;
+}
+
 export async function decide(
   db: Db,
   input: DecideInput
@@ -104,6 +137,14 @@ export async function decide(
 
   const run = await runsRepo.getRunById(db, existing.runId);
   if (!run) return { status: "invalid" };
+
+  const siblings = await draftsRepo.listByRun(db, existing.runId);
+  if (draftsRepo.hasInFlightSuccessor(existing, siblings)) {
+    return { status: "invalid" };
+  }
+  if (!draftsRepo.isPendingReadyTip(existing, siblings)) {
+    return { status: "invalid" };
+  }
 
   const outcome =
     action === "approve"
@@ -158,6 +199,15 @@ export async function decide(
     return { status: "invalid" };
   }
 
+  const events = await evidenceRepo.listByRun(db, existing.runId);
+  const lineage = draftsRepo.lineageFromRoot(existing, siblings).map((row) => ({
+    draftId: row.id,
+    revisionIndex: row.revisionIndex,
+    turnId: turnIdForRevision(row.id, row.revisionIndex, events)
+  }));
+  const approvedText =
+    action === "edit" ? (editedBody ?? existing.body) : existing.body;
+
   statements.push(update);
   statements.push(
     appendStmt(db, {
@@ -168,16 +218,17 @@ export async function decide(
         draftId,
         outcome,
         decidedBy: operator.displayName,
-        reason: publicReason
+        reason: publicReason,
+        lineage,
+        approvedText
       },
       createdAt: now
     })
   );
 
-  const siblings = await draftsRepo.listByRun(db, existing.runId);
-  const otherPending = siblings.some(
-    (draft) => draft.id !== draftId && draft.outcome == null
-  );
+  const otherPending = draftsRepo
+    .pendingTips(siblings)
+    .some((draft) => draft.id !== draftId);
   if (!otherPending && run.status === "awaiting") {
     const published =
       action !== "reject" ||

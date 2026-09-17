@@ -70,6 +70,8 @@ export function isDraftRecord(value: unknown): value is DraftRecord {
     (row.decidedBy === null || typeof row.decidedBy === "string") &&
     (row.editedBody === null || typeof row.editedBody === "string") &&
     (row.rejectReason === null || typeof row.rejectReason === "string") &&
+    (row.parentDraftId === null || typeof row.parentDraftId === "string") &&
+    isNonNegativeInt(row.revisionIndex) &&
     typeof row.createdAt === "string" &&
     typeof row.updatedAt === "string" &&
     row.diff !== null &&

@@ -378,6 +378,54 @@ describe("draftAndReview (story 3.5)", () => {
     );
   });
 
+  it("does not stamp evals_not_run when complete() fails on a revision child", async () => {
+    const runId = await insertRun();
+    const parentId = `d:${runId}:01`;
+    await draftsRepo.insertDraft(testEnv.DB, {
+      id: parentId,
+      runId,
+      targetEntityType: "states",
+      targetEntityId: "st-nv",
+      diff: SHELL_DIFF,
+      body: SHELL_BODY,
+      tier2Only: false,
+      confidence: 80,
+      evalSummary: {
+        status: "ok",
+        basis: "already reviewed",
+        citationCompleteness: 100,
+        disagreement: { flagged: false, description: null },
+        ineligible: []
+      },
+      createdAt: NOW
+    });
+    const childId = `${parentId}:r1`;
+    await draftsRepo.insertDraft(testEnv.DB, {
+      id: childId,
+      runId,
+      targetEntityType: "states",
+      targetEntityId: "st-nv",
+      diff: SHELL_DIFF,
+      body: SHELL_BODY,
+      tier2Only: false,
+      confidence: null,
+      evalSummary: null,
+      parentDraftId: parentId,
+      revisionIndex: 1,
+      createdAt: NOW
+    });
+    await seedConfig(DRAFTER_REVIEWER_ROLES);
+    const result = await draftAndReview(
+      testEnv.DB,
+      runId,
+      deps(fakeProvider([{ fail: true }]))
+    );
+    expect(result.budgetStopped).toBe(false);
+    expect(
+      (await draftsRepo.getById(testEnv.DB, childId))?.evalSummary
+    ).toBeNull();
+  });
+
   it("marks evals_not_run when the gateway is not configured", async () => {
     const runId = await insertRun();
     await insertShellDraft(runId);
@@ -680,6 +728,26 @@ describe("draftAndReview (story 3.5)", () => {
     expect(prompt).not.toContain("operator@secret.example");
     expect(prompt).not.toContain("career notes must not leak");
     expect(prompt).not.toContain('"status":"ok"');
+  });
+
+  it("includes a labeled operator revision instruction in the drafter prompt", () => {
+    const prompt = buildScopedPrompt(
+      "drafter",
+      {
+        targetEntityType: "states",
+        targetEntityId: "st-nv",
+        body: SHELL_BODY,
+        diff: SHELL_DIFF,
+        tier2Only: false
+      },
+      "Tighten the holding."
+    );
+    expect(prompt).toContain("Operator revision instruction:");
+    expect(prompt).toContain("Tighten the holding.");
+    expect(prompt).toContain(SHELL_BODY);
+    expect(prompt.indexOf("Operator revision instruction:")).toBeLessThan(
+      prompt.indexOf("Packaging shell body:")
+    );
   });
 
   it("short-circuits remaining LLM when the drafter returns tool JSON", async () => {

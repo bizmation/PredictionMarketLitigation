@@ -11,8 +11,9 @@ import {
 } from "../../shared/schemas/steering";
 import { resolveRoleModel } from "../config/modelRoles";
 import { evidenceId } from "../connectors/connector";
-import { parseToolRequest } from "../ai/actionPolicy";
+import { enforceDraftGuardrails, parseToolRequest } from "../ai/actionPolicy";
 import { complete, invokeTool, type GatewayDeps } from "../ai/gateway";
+import { draftAndReview } from "../agents/draftAndReview";
 import { appendStmt } from "../projector/evidence";
 import {
   buildInterrogationPrompt,
@@ -20,12 +21,13 @@ import {
 } from "../agents/StewardAgent";
 
 /**
- * Story 3.15 — persist one operator steering turn, ground a steward
- * interrogation in Draft fields + Run Evidence, and append a read-only
- * `:reply` Evidence row. Does not write Drafts, mode, budget, YOLO,
- * guardrails, standing guidance, live F1, or ALLOWED_TOOLS.
- * `complete({ role: "steward" })` runs only when a mapping exists; failures
- * of that call never roll back the turn.
+ * Story 3.15/3.16 — persist one operator steering turn. `ask` (default)
+ * grounds a steward interrogation and never writes a Draft. `revise`
+ * inserts a child Draft under the same Run and re-runs drafter →
+ * guardrails → reviewer. The operator turn is persisted first and is
+ * never rolled back if drafter/reviewer fail. Does not call
+ * `afterPackaging`, `autoApproveRun`, `decide`, or F1 apply. Steward
+ * `complete()` runs only on ask.
  */
 
 const SUBMITTABLE = new Set(["running", "awaiting"]);
@@ -35,13 +37,15 @@ export type SubmitTurnInput = {
   content: string;
   private: boolean;
   draftId?: string;
+  intent?: "ask" | "revise";
   actorDisplayName: string;
 };
 
 export type SubmitTurnResult =
   | { status: "ok"; turn: PublicSteeringTurn }
   | { status: "not_found" }
-  | { status: "invalid"; message: string };
+  | { status: "invalid"; message: string }
+  | { status: "budget_stopped"; turn: PublicSteeringTurn };
 
 function publicTurnPayload(turn: SteeringTurnRecord): Record<string, unknown> {
   const projected = toPublicSteeringTurn(turn);
@@ -73,6 +77,192 @@ async function denyToolShaped(
   }
 }
 
+async function persistTurnReceipt(
+  db: Db,
+  turn: SteeringTurnRecord,
+  createdAt: string
+): Promise<void> {
+  const payload = publicTurnPayload(turn);
+  await db.batch([
+    steeringTurnsRepo.insertStmt(db, turn),
+    appendStmt(db, {
+      id: evidenceId(turn.runId, "steering.turn", turn.id),
+      runId: turn.runId,
+      event: "steering.turn",
+      payload,
+      createdAt
+    }),
+    appendStmt(db, {
+      id: evidenceId(turn.runId, "steering.applied", turn.id),
+      runId: turn.runId,
+      event: "steering.applied",
+      payload: { effect: "none", turnId: turn.id, draftId: turn.draftId },
+      createdAt
+    })
+  ]);
+}
+
+async function askSteward(
+  db: Db,
+  gatewayDeps: GatewayDeps,
+  input: {
+    turn: SteeringTurnRecord;
+    loadedDraft: DraftRecord | null;
+    content: string;
+    now: () => string;
+  }
+): Promise<string | null> {
+  const mapping = await resolveRoleModel(db, "steward");
+  if (!mapping) return null;
+  try {
+    const prompt =
+      input.loadedDraft != null
+        ? buildInterrogationPrompt({
+            content: input.content,
+            draft: input.loadedDraft,
+            evidence: await evidenceRepo.listByRun(db, input.turn.runId)
+          })
+        : buildStewardPrompt({
+            content: input.content,
+            draftId: input.turn.draftId
+          });
+    const result = await complete(gatewayDeps, {
+      role: "steward",
+      runId: input.turn.runId,
+      prompt
+    });
+    try {
+      await denyToolShaped(gatewayDeps, input.turn.runId, input.turn.id, [
+        result.text
+      ]);
+    } catch {
+      // Persist already succeeded.
+    }
+    await db.batch([
+      appendStmt(db, {
+        id: evidenceId(
+          input.turn.runId,
+          "steering.applied",
+          input.turn.id,
+          "reply"
+        ),
+        runId: input.turn.runId,
+        event: "steering.applied",
+        payload: {
+          effect: "none",
+          turnId: input.turn.id,
+          draftId: input.turn.draftId,
+          reply: input.turn.private ? null : result.text,
+          private: input.turn.private
+        },
+        createdAt: input.now()
+      })
+    ]);
+    return result.text;
+  } catch {
+    return null;
+  }
+}
+
+async function reviseDraft(
+  db: Db,
+  gatewayDeps: GatewayDeps,
+  input: {
+    turn: SteeringTurnRecord;
+    parent: DraftRecord;
+    content: string;
+    now: () => string;
+  }
+): Promise<
+  | { status: "ok"; revisedDraftId: string }
+  | { status: "budget_stopped" }
+  | { status: "invalid" }
+> {
+  const latest = await draftsRepo.getById(db, input.parent.id);
+  if (latest == null || latest.outcome != null) {
+    return { status: "invalid" };
+  }
+  const siblings = await draftsRepo.listByRun(db, latest.runId);
+  if (
+    draftsRepo.hasInFlightSuccessor(latest, siblings) ||
+    !draftsRepo.isPendingReadyTip(latest, siblings)
+  ) {
+    return { status: "invalid" };
+  }
+
+  const n = latest.revisionIndex + 1;
+  const childId = draftsRepo.revisionDraftId(latest.id, n);
+  await draftsRepo.insertDraft(db, {
+    id: childId,
+    runId: latest.runId,
+    targetEntityType: latest.targetEntityType,
+    targetEntityId: latest.targetEntityId,
+    diff: latest.diff,
+    body: latest.body,
+    tier2Only: latest.tier2Only,
+    confidence: null,
+    evalSummary: null,
+    parentDraftId: latest.id,
+    revisionIndex: n,
+    createdAt: input.now()
+  });
+
+  let budgetStopped = false;
+  try {
+    const result = await draftAndReview(db, input.parent.runId, gatewayDeps, {
+      revisionInstruction: input.content
+    });
+    budgetStopped = result.budgetStopped;
+  } catch {
+    // Turn already persisted; in-flight child stays non-ready when eval
+    // was not stamped.
+  }
+
+  const child = await draftsRepo.getById(db, childId);
+  if (child == null || child.evalSummary == null) {
+    return budgetStopped ? { status: "budget_stopped" } : { status: "invalid" };
+  }
+
+  try {
+    await enforceDraftGuardrails(db, input.parent.runId, gatewayDeps);
+    await db.batch([
+      appendStmt(db, {
+        id: evidenceId(input.parent.runId, "draft.revised", childId),
+        runId: input.parent.runId,
+        event: "draft.revised",
+        payload: {
+          draftId: childId,
+          parentDraftId: input.parent.id,
+          turnId: input.turn.id,
+          revisionIndex: n
+        },
+        createdAt: input.now()
+      }),
+      appendStmt(db, {
+        id: evidenceId(
+          input.parent.runId,
+          "steering.applied",
+          input.turn.id,
+          "revised"
+        ),
+        runId: input.parent.runId,
+        event: "steering.applied",
+        payload: {
+          effect: "revised",
+          turnId: input.turn.id,
+          draftId: childId,
+          parentDraftId: input.parent.id
+        },
+        createdAt: input.now()
+      })
+    ]);
+  } catch {
+    return { status: "invalid" };
+  }
+
+  return { status: "ok", revisedDraftId: childId };
+}
+
 export async function submitTurn(
   db: Db,
   gatewayDeps: GatewayDeps,
@@ -83,6 +273,7 @@ export async function submitTurn(
     return { status: "invalid", message: "Content is required." };
   }
 
+  const intent = input.intent ?? "ask";
   const run = await runsRepo.getRunById(db, input.runId);
   if (!run) return { status: "not_found" };
   if (!SUBMITTABLE.has(run.status)) {
@@ -111,6 +302,31 @@ export async function submitTurn(
     loadedDraft = draft;
   }
 
+  if (intent === "revise") {
+    if (run.status !== "awaiting") {
+      return {
+        status: "invalid",
+        message: "Run is not awaiting; revise is closed."
+      };
+    }
+    if (draftId == null || loadedDraft == null) {
+      return {
+        status: "invalid",
+        message: "Revise requires a pending draftId."
+      };
+    }
+    const siblings = await draftsRepo.listByRun(db, run.id);
+    if (
+      draftsRepo.hasInFlightSuccessor(loadedDraft, siblings) ||
+      !draftsRepo.isPendingReadyTip(loadedDraft, siblings)
+    ) {
+      return {
+        status: "invalid",
+        message: "Draft is not the current ready chain tip."
+      };
+    }
+  }
+
   const now = gatewayDeps.now ?? (() => new Date().toISOString());
   const newId = gatewayDeps.newId ?? (() => crypto.randomUUID());
   const createdAt = now();
@@ -125,26 +341,8 @@ export async function submitTurn(
     createdAt
   };
 
-  const payload = publicTurnPayload(turn);
-  await db.batch([
-    steeringTurnsRepo.insertStmt(db, turn),
-    appendStmt(db, {
-      id: evidenceId(run.id, "steering.turn", turn.id),
-      runId: run.id,
-      event: "steering.turn",
-      payload,
-      createdAt
-    }),
-    appendStmt(db, {
-      id: evidenceId(run.id, "steering.applied", turn.id),
-      runId: run.id,
-      event: "steering.applied",
-      payload: { effect: "none", turnId: turn.id, draftId: turn.draftId },
-      createdAt
-    })
-  ]);
+  await persistTurnReceipt(db, turn, createdAt);
 
-  // Synthetic id: never a Draft row, so invokeTool cannot stamp guardrail_fail.
   const denyId = turn.id;
   const denyTexts = [content];
   if (loadedDraft != null) denyTexts.push(loadedDraft.body);
@@ -154,51 +352,35 @@ export async function submitTurn(
     // Deny is best-effort after persist; the turn + applied receipt stay.
   }
 
-  let reply: string | null = null;
-  const mapping = await resolveRoleModel(db, "steward");
-  if (mapping) {
-    try {
-      const prompt =
-        loadedDraft != null
-          ? buildInterrogationPrompt({
-              content,
-              draft: loadedDraft,
-              evidence: await evidenceRepo.listByRun(db, run.id)
-            })
-          : buildStewardPrompt({
-              content,
-              draftId: turn.draftId
-            });
-      const result = await complete(gatewayDeps, {
-        role: "steward",
-        runId: run.id,
-        prompt
-      });
-      try {
-        await denyToolShaped(gatewayDeps, run.id, denyId, [result.text]);
-      } catch {
-        // Same as above: persist already succeeded.
-      }
-      await db.batch([
-        appendStmt(db, {
-          id: evidenceId(run.id, "steering.applied", turn.id, "reply"),
-          runId: run.id,
-          event: "steering.applied",
-          payload: {
-            effect: "none",
-            turnId: turn.id,
-            draftId: turn.draftId,
-            reply: turn.private ? null : result.text,
-            private: turn.private
-          },
-          createdAt: now()
-        })
-      ]);
-      reply = result.text;
-    } catch {
-      // Persist already succeeded; a retry must not duplicate the turn.
+  if (intent === "revise" && loadedDraft != null) {
+    const revised = await reviseDraft(db, gatewayDeps, {
+      turn,
+      parent: loadedDraft,
+      content,
+      now
+    });
+    const publicTurn = toPublicSteeringTurn(
+      turn,
+      null,
+      revised.status === "ok" ? revised.revisedDraftId : null
+    );
+    if (revised.status === "budget_stopped") {
+      return { status: "budget_stopped", turn: publicTurn };
     }
+    if (revised.status === "invalid") {
+      return {
+        status: "invalid",
+        message: "Revision did not complete."
+      };
+    }
+    return { status: "ok", turn: publicTurn };
   }
 
-  return { status: "ok", turn: toPublicSteeringTurn(turn, reply) };
+  const reply = await askSteward(db, gatewayDeps, {
+    turn,
+    loadedDraft,
+    content,
+    now
+  });
+  return { status: "ok", turn: toPublicSteeringTurn(turn, reply, null) };
 }

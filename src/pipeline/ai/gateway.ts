@@ -175,9 +175,10 @@ export async function complete(
       `Spend ${spend} reached the ceiling ${budget}; call refused.`
     );
   }
+  const awaitingRoles =
+    role === "steward" || role === "drafter" || role === "reviewer";
   const statusOk =
-    run.status === "running" ||
-    (role === "steward" && run.status === "awaiting");
+    run.status === "running" || (awaitingRoles && run.status === "awaiting");
   if (!statusOk) {
     throw new GatewayError(
       "budget_stopped",
