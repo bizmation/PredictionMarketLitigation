@@ -174,6 +174,8 @@ export const DraftRecordSchema = z
     decidedBy: z.string().min(1).nullable(),
     editedBody: z.string().min(1).nullable(),
     rejectReason: z.string().min(1).nullable(),
+    parentDraftId: z.string().min(1).nullable(),
+    revisionIndex: z.number().int().nonnegative(),
     createdAt: IsoUtcSchema,
     updatedAt: IsoUtcSchema
   })
@@ -185,6 +187,13 @@ export const DraftRecordSchema = z
     {
       path: ["editedBody"],
       message: "edited outcome requires a non-empty editedBody"
+    }
+  )
+  .refine(
+    (draft) => (draft.parentDraftId == null) === (draft.revisionIndex === 0),
+    {
+      path: ["parentDraftId"],
+      message: "parentDraftId is null iff revisionIndex is 0"
     }
   );
 

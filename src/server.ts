@@ -13,6 +13,7 @@ import { handlePublicApi } from "./shared/api/publicRouter";
 import {
   ApiError,
   badRequest,
+  budgetStopped,
   conflict,
   internalError,
   notFound
@@ -464,6 +465,7 @@ export default {
               content: parsed.data.content,
               private: parsed.data.private,
               draftId: parsed.data.draftId,
+              intent: parsed.data.intent,
               actorDisplayName: gate.operator.displayName
             }
           );
@@ -476,6 +478,13 @@ export default {
               return jsonError(badRequest(result.message), {
                 headers: ADMIN_CACHE_HEADERS
               });
+            case "budget_stopped":
+              return jsonError(
+                budgetStopped(
+                  "Run spend reached the budget ceiling; revision did not complete."
+                ),
+                { headers: ADMIN_CACHE_HEADERS }
+              );
             case "ok":
               return Response.json(result.turn, {
                 headers: ADMIN_CACHE_HEADERS

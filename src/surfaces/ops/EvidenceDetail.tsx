@@ -202,6 +202,108 @@ function tokenSum(detail: RunDetail): number {
   return total;
 }
 
+function chainRootId(
+  draft: DraftRecord,
+  byId: Map<string, DraftRecord>
+): string {
+  let current = draft;
+  const seen = new Set<string>();
+  while (current.parentDraftId != null) {
+    if (seen.has(current.id)) break;
+    seen.add(current.id);
+    const parent = byId.get(current.parentDraftId);
+    if (!parent) break;
+    current = parent;
+  }
+  return current.id;
+}
+
+function draftsInChainOrder(drafts: DraftRecord[]): DraftRecord[] {
+  const byId = new Map(drafts.map((draft) => [draft.id, draft]));
+  return [...drafts].sort((a, b) => {
+    const rootA = chainRootId(a, byId);
+    const rootB = chainRootId(b, byId);
+    if (rootA !== rootB) return rootA.localeCompare(rootB);
+    if (a.revisionIndex !== b.revisionIndex) {
+      return a.revisionIndex - b.revisionIndex;
+    }
+    return a.id.localeCompare(b.id);
+  });
+}
+
+function payloadTurnId(payload: unknown): string | null {
+  return payloadField(payload, "turnId");
+}
+
+function revisionInstruction(
+  draft: DraftRecord,
+  evidence: EvidenceEvent[]
+): { effect: string; text: string | null; withheld: boolean } | null {
+  if (draft.revisionIndex === 0) return null;
+  const applied = evidence.find((event) => {
+    if (event.event !== "steering.applied") return false;
+    if (
+      event.payload == null ||
+      typeof event.payload !== "object" ||
+      Array.isArray(event.payload)
+    ) {
+      return false;
+    }
+    const row = event.payload as Record<string, unknown>;
+    return row.effect === "revised" && row.draftId === draft.id;
+  });
+  const turnId = applied != null ? payloadTurnId(applied.payload) : null;
+  const turn =
+    turnId == null
+      ? undefined
+      : evidence.find(
+          (event) =>
+            event.event === "steering.turn" &&
+            payloadTurnId(event.payload) === turnId
+        );
+  const withheld = turn != null && payloadPrivate(turn.payload);
+  const text = withheld ? null : payloadField(turn?.payload, "content");
+  return {
+    effect: payloadField(applied?.payload, "effect") ?? "revised",
+    text,
+    withheld
+  };
+}
+
+function isDraftReady(draft: DraftRecord): boolean {
+  return !(draft.revisionIndex > 0 && draft.evalSummary == null);
+}
+
+function isReadyPendingTip(draft: DraftRecord, drafts: DraftRecord[]): boolean {
+  if (draft.outcome != null) return false;
+  const byId = new Map(drafts.map((row) => [row.id, row]));
+  const root = chainRootId(draft, byId);
+  const members = drafts
+    .filter((row) => chainRootId(row, byId) === root)
+    .sort((a, b) => a.revisionIndex - b.revisionIndex);
+  const head = members[members.length - 1];
+  if (head == null || head.outcome != null) return false;
+  if (isDraftReady(head)) return draft.id === head.id;
+  for (let i = members.length - 2; i >= 0; i--) {
+    const previous = members[i]!;
+    if (isDraftReady(previous) && previous.outcome == null) {
+      return draft.id === previous.id;
+    }
+  }
+  return false;
+}
+
+function decidedApprovedText(evidence: EvidenceEvent[]): string | null {
+  for (let i = evidence.length - 1; i >= 0; i--) {
+    const event = evidence[i]!;
+    if (event.event !== "gate.decided") continue;
+    const outcome = payloadField(event.payload, "outcome");
+    if (outcome !== "approved" && outcome !== "edited") return null;
+    return payloadField(event.payload, "approvedText");
+  }
+  return null;
+}
+
 function firstDecidedBy(drafts: DraftRecord[]): string | null {
   for (const draft of drafts) {
     if (draft.decidedBy) return draft.decidedBy;
@@ -430,9 +532,19 @@ function EvidenceBody({ detail }: { detail: RunDetail }) {
             The run did its work and found nothing to change.
           </EmptyState>
         ) : (
-          detail.drafts.map((draft) => {
+          draftsInChainOrder(detail.drafts).map((draft) => {
+            const instruction = revisionInstruction(draft, detail.evidence);
             const body = (
               <>
+                {instruction != null ? (
+                  <p className="lastupd">
+                    {instruction.effect}
+                    {" · "}
+                    {instruction.withheld
+                      ? "content withheld"
+                      : (instruction.text ?? "not recorded")}
+                  </p>
+                ) : null}
                 <p>{draft.body}</p>
                 {draft.editedBody ? (
                   <div className="diff">
@@ -454,8 +566,11 @@ function EvidenceBody({ detail }: { detail: RunDetail }) {
             );
             return (
               <div key={draft.id}>
-                <div className="kicker">Draft</div>
-                {draft.outcome == null ? (
+                <div className="kicker">
+                  Draft
+                  {draft.revisionIndex > 0 ? ` · r${draft.revisionIndex}` : ""}
+                </div>
+                {isReadyPendingTip(draft, detail.drafts) ? (
                   <NotLiveDraftBanner>{body}</NotLiveDraftBanner>
                 ) : (
                   body
@@ -464,6 +579,16 @@ function EvidenceBody({ detail }: { detail: RunDetail }) {
             );
           })
         )}
+        {(() => {
+          const approved = decidedApprovedText(detail.evidence);
+          if (approved == null) return null;
+          return (
+            <div>
+              <div className="kicker">Approved text</div>
+              <p>{approved}</p>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

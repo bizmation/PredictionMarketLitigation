@@ -375,7 +375,9 @@ describe("admin approval queue (story 3.10)", () => {
       draftId: "d-approve",
       outcome: "approved",
       decidedBy: DISPLAY_NAME,
-      reason: null
+      reason: null,
+      lineage: [{ draftId: "d-approve", revisionIndex: 0, turnId: null }],
+      approvedText: "Pending proposal body for d-approve."
     });
 
     const nv = await nvRow();
@@ -418,7 +420,9 @@ describe("admin approval queue (story 3.10)", () => {
       draftId: "d-edit",
       outcome: "edited",
       decidedBy: DISPLAY_NAME,
-      reason: null
+      reason: null,
+      lineage: [{ draftId: "d-edit", revisionIndex: 0, turnId: null }],
+      approvedText: "The operator-revised body."
     });
 
     const nv = await nvRow();
@@ -461,7 +465,9 @@ describe("admin approval queue (story 3.10)", () => {
       draftId: "d-reject-public",
       outcome: "rejected",
       decidedBy: DISPLAY_NAME,
-      reason
+      reason,
+      lineage: [{ draftId: "d-reject-public", revisionIndex: 0, turnId: null }],
+      approvedText: "Pending proposal body for d-reject-public."
     });
 
     const publicFeed = await worker.fetch(get("/api/drafts"), anon);
@@ -512,7 +518,11 @@ describe("admin approval queue (story 3.10)", () => {
       draftId: "d-reject-private",
       outcome: "rejected",
       decidedBy: DISPLAY_NAME,
-      reason: null
+      reason: null,
+      lineage: [
+        { draftId: "d-reject-private", revisionIndex: 0, turnId: null }
+      ],
+      approvedText: "Pending proposal body for d-reject-private."
     });
 
     const publicFeed = await worker.fetch(get("/api/drafts"), anon);
@@ -1725,5 +1735,93 @@ describe("admin steering (story 3.14)", () => {
       realEnv()
     );
     expect(res.status).toBe(400);
+  });
+
+  it("returns 400 when intent is revise without a pending draftId", async () => {
+    await seedRun("run-20260917-aa16");
+    const res = await worker.fetch(
+      jsonPost(
+        await sign(EMAIL),
+        "/api/admin/runs/run-20260917-aa16/steering",
+        {
+          content: "tighten the holding",
+          private: false,
+          intent: "revise"
+        }
+      ),
+      realEnv()
+    );
+    expect(res.status).toBe(400);
+    expect(
+      await steeringTurnsRepo.listByRun(testEnv.DB, "run-20260917-aa16")
+    ).toHaveLength(0);
+  });
+
+  it("returns 409 budget_stopped when revise hits the spend ceiling", async () => {
+    await runsRepo.insertRun(testEnv.DB, {
+      id: "run-20260917-b409",
+      origin: "scheduled",
+      mode: "hitl",
+      status: "awaiting",
+      startedAt: RUN_STARTED,
+      completedAt: RUN_STARTED,
+      spendCents: 0,
+      spendCurrency: "USD",
+      budgetCents: 0,
+      scheduledFor: "2026-09-17"
+    });
+    await seedPendingDraft("d-b409-nv", "run-20260917-b409");
+    await testEnv.DB.prepare(
+      `UPDATE drafts SET eval_summary_json = ? WHERE id = ?`
+    )
+      .bind(
+        JSON.stringify({
+          status: "ok",
+          basis: "all claims cited",
+          citationCompleteness: 100,
+          disagreement: { flagged: false, description: null },
+          ineligible: []
+        }),
+        "d-b409-nv"
+      )
+      .run();
+    await testEnv.DB.prepare(
+      `INSERT INTO gateway_config (id, version, roles_json, default_budget_cents, updated_at)
+       VALUES ('current', 1, ?, 500, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         roles_json = excluded.roles_json,
+         default_budget_cents = excluded.default_budget_cents,
+         updated_at = excluded.updated_at`
+    )
+      .bind(
+        JSON.stringify({
+          drafter: { provider: "fake", model: "drafter-v1" },
+          reviewer: { provider: "fake", model: "reviewer-v1" }
+        }),
+        TS
+      )
+      .run();
+    const envWithAi = {
+      ...realEnv(),
+      AI: { run: async () => ({ response: "unused" }) }
+    } as unknown as Env;
+    const res = await worker.fetch(
+      jsonPost(
+        await sign(EMAIL),
+        "/api/admin/runs/run-20260917-b409/steering",
+        {
+          content: "tighten the holding",
+          private: false,
+          draftId: "d-b409-nv",
+          intent: "revise"
+        }
+      ),
+      envWithAi
+    );
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: "budget_stopped" });
+    expect(
+      await steeringTurnsRepo.listByRun(testEnv.DB, "run-20260917-b409")
+    ).toHaveLength(1);
   });
 });

@@ -41,6 +41,8 @@ function draft(overrides: Partial<DraftRecord> = {}): DraftRecord {
     decidedBy: null,
     editedBody: null,
     rejectReason: null,
+    parentDraftId: null,
+    revisionIndex: 0,
     createdAt: NOW,
     updatedAt: NOW,
     ...overrides

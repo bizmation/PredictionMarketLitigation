@@ -1,10 +1,10 @@
 # Epic 3 Context: Governed Daily Loop (Pipeline → Gate → Live)
 
-<!-- Compiled from planning artifacts. Edit freely. Regenerate with compile-epic-context if planning docs change. -->
+<!-- Generated from planning artifacts. Regenerate with compile-epic-context if planning docs change. -->
 
 ## Goal
 
-Epic 3 builds the governed daily loop that makes the project's core thesis real: an agent fleet runs a scheduled harness every calendar day, detects material litigation changes, and packages them as Drafts — but canonical tracker truth only moves through a visible Approval Gate. Anyone can inspect every Run, its Evidence, and pending Drafts on `ops.` without logging in; the operator (HITL, the default) or a bounded, audited approval agent (Autonomous mode) approves/edits/rejects; approved Drafts update live apex F1 with frozen provenance and public before/after diffs. Empty, failed, and budget-stopped Runs are first-class public records — silence must never be mistaken for "the harness didn't look."
+This epic makes the daily harness real: agents monitor sources, package Drafts, and wait at an Approval Gate, while anyone can inspect every Run, Evidence record, pending Draft, and operator steering turn on `ops.` without login. HITL is the launch default; bounded Autonomous mode may auto-approve within policy. Live F1 changes only through the gate, with provenance frozen at publish. Operator steering (interrogate, revise by instruction, tune pipeline config, record standing guidance) is a drafting-side channel that never bypasses the gate and never conceals causation.
 
 ## Stories
 
@@ -13,7 +13,7 @@ Epic 3 builds the governed daily loop that makes the project's core thesis real:
 - Story 3.3: Daily Run Workflow & Empty Runs
 - Story 3.4: Source Monitoring & Draft Packaging
 - Story 3.5: Drafter, Reviewer & Disagreement Flag
-- Story 3.6: Guardrails, Action Policy & Scoped Context (Enforcement Layer)
+- Story 3.6: Guardrails, Action Policy & Scoped Context
 - Story 3.7: Public ops. Run Log
 - Story 3.8: Evidence Detail Projection
 - Story 3.9: Public Pending Drafts (Not Live)
@@ -21,50 +21,45 @@ Epic 3 builds the governed daily loop that makes the project's core thesis real:
 - Story 3.11: Publish to Live F1 with Provenance & Diffs
 - Story 3.12: Operator Loop Controls
 - Story 3.13: Autonomous Mode, YOLO Bounds & Mode Transparency
+- Story 3.14: Steering Channel Foundation
+- Story 3.15: Draft Interrogation
+- Story 3.16: Conversational Draft Revision
+- Story 3.17: Conversational Pipeline Steering
+- Story 3.18: Standing Corrections
 
 ## Requirements & Constraints
 
-**Cadence & reliability.** A Run is attempted every calendar day (noon ET target, no weekend/holiday skip). No-material-change days still complete an empty Run whose Evidence states zero drafts. Missing/failed scheduled attempts are visible as gaps, never silently deleted. Catch-up Runs supplement (never replace) the day's record; multiple Runs may share a date, each with a distinct origin (`scheduled` | `catch-up` | `manual`). The noon-ET schedule must hold across DST transitions via a chosen, publicly displayed rule (dual UTC crons with an ET-hour guard, or a documented fixed-UTC choice); schedule timezone and next-run time are stored for public display.
+**Cadence.** Attempt a Run every calendar day (noon ET, weekends/holidays included). No-change days still complete an empty Run whose Evidence states zero drafts. Gaps are visible, never silently deleted. Catch-up supplements the day's record; multiple Runs may share a date with distinct origins (`scheduled` | `catch-up` | `manual`). The noon-ET rule must survive DST (dual UTC crons with an ET-hour guard, or a documented fixed-UTC choice); that rule and next-run time are public.
 
-**Two-tier sources.** Every ingested or skipped source item is labeled Tier-1 (citation of record) or Tier-2 (leads/corroboration) with reasons on public Evidence. Published factual claims require a Tier-1 citation or an explicit pending-primary label. Tier-2-only Drafts are ineligible for agent auto-approve. Connector stubs are acceptable if they record skip reasons; partial connector failure must be explicit on the Run, never masked as full success.
+**Sources, drafts, gate.** Ingested and skipped items are labeled Tier-1 or Tier-2 with reasons. Published claims need a Tier-1 citation or an explicit pending-primary label. Tier-2-only Drafts cannot be agent-auto-approved. Material changes produce Drafts with entity diffs, sources, and confidence/eval inputs. Partial connector failure is explicit. No Kalshi/Robinhood market data for AI features. HITL is default: every Draft needs approve, edit-then-approve, or reject before live F1 changes. Edits preserve the original for a public diff. Reject reasons are public by default, with a private-portion mark. Provenance (`human-approved` | `agent-approved`) freezes at publish. Publish is exclusive to the Approval Gate; retries are idempotent; destructive replay requires explicit supersede confirmation, itself public Evidence. Drafts never write live F1.
 
-**Drafts & gate.** Material changes produce Drafts naming the affected F1 entities, proposed field diffs, source links, and confidence/eval inputs. Drafts never write live F1 tables. Each Run hands the gate a durable package: Drafts (0..N) + Evidence stub + mode inputs — durable enough that late human review sees the same Draft set. HITL is the launch default: every Draft needs human approve/edit/reject; edit-then-approve preserves the original Draft for a full public before/after diff; reject reasons are public by default with an operator control to mark a reason (or portion) private. Rejected Drafts may remain publicly archived with outcome.
+**Autonomous mode.** Off by default; only the operator identity can toggle it; every change is a public audit event. Auto-approve only when all hold: low-risk, Tier-1 citations, guardrails pass, confidence at/above a versioned public threshold, not an escalate category. Must escalate: party characterization, posture flips, below-threshold/eval-fail, Tier-2-only, evals-not-run.
 
-**Autonomous mode bounds.** Off by default; only the operator identity can enable/disable, and every change writes an audited event visible on `ops.`. Auto-approve requires ALL policy checks to pass: low-risk update, Tier-1 citations, guardrails pass, confidence at/above a versioned publicly-visible threshold. Must escalate to human: party characterizations, posture flips, below-threshold/eval-fail, Tier-2-only, evals-not-run.
+**Spine & transparency.** All model/tool calls go through one gateway with a hard per-Run budget; exceeding it stops paid calls and marks the Run `budget-stopped`. Guardrail failures are public with rule identity; hard fails block auto-approve. Disallowed tools are denied and logged even when requested. Agents use only authorized context, attributable in lineage. Prompt-injection in source or Draft content cannot expand tool permissions. Secrets never appear in prompts or public artifacts. HITL interrupts resume under the same Run ID without a duplicate Draft set. No-login run log and Evidence cover every Run kind as a full projection — steps, tools, models/prompts, spend, evals or explicit not-run, full Draft, lineage (claim→sources→Run→approval), approver, mode, validation log, diffs, reject reasons — with designed empty states. Drafter/reviewer disagreement is a public flag + short description. Thin exportable Evidence bundle per Run. Vendor consoles are not the public system of record. Schedule, trigger, inspect, approve, and steer without redeploy.
 
-**Governance spine (enforcement, not prompt-level).** All LLM/tool calls go through one gateway front door with a hard per-Run budget ceiling — exceeding it stops paid calls and marks the Run `budget-stopped` as a first-class status. Guardrail failures are recorded publicly with rule identity; hard fails block auto-approve. Prompt-injection embedded in source content cannot expand tool permissions (enforced via adversarial tests). Disallowed tool calls are denied and the denial logged publicly, even when a model requests them. No agent holds a direct live-F1 publish tool — publish exists only via the Approval Gate. Agents run under scoped identities with authorized-context-only access, attributable in lineage.
+**Operator steering.** Authenticated conversation with a `steward` agent. Interrogation is read-only and cites that Run's Evidence, saying "not recorded" rather than reconstructing. Revision regenerates a new Draft version under the same Run ID, preserves the full chain, re-runs guardrails and eval, and recomputes the confidence badge. Pipeline config changes (sources, escalation categories, monitoring scope) are versioned, attributed, revertible, take effect next Run, and are public. Standing guidance is versioned, revocable, public authorized context, advisory to drafting only, capped and reviewable, and listed as in-force/influential on each Run. Reader correction submissions never reach runtime agents.
 
-**Transparency.** The public run log and Evidence detail require no login and cover every Run kind. Evidence is a full projection (steps, tools, model/prompt versions, spend, evals or explicit "evals not run", full Draft text, lineage from claim → sources → Run → approval, approver, mode, agent validation log, edit diffs, reject reasons) with designed empty states for zero/not-run values; secrets are scrubbed. Drafter/reviewer material disagreement sets a public flag + short description. A thin exportable Evidence bundle per Run is required.
-
-**Testing mandates (Vitest, co-located).** Required coverage: Run creation, empty-Run completion, and same-Run-ID resume after HITL interrupt; prompt-injection/tool-allowlist enforcement fixtures; gate write-path transitions (approve / edit-then-approve / reject) and idempotent publish under retry. The implemented eval/confidence scoring method must be documented when it lands.
+The steward has no live-F1 publish tool. Every influencing turn emits Evidence; a Draft must never change shape without a visible cause. YOLO threshold, per-Run budget, Autonomous mode, guardrail rules, and the action-policy allowlist are not chat-mutable (code allowlist, not prompt). Turns publish at turn completion immediately on submit — no public as-you-type streaming, no publish queue. Redaction is decided at submit; private marking hides content but never existence, timestamp, or effect. Public observes; only the operator steers. Steering spend counts against the Run budget.
 
 ## Technical Decisions
 
-- **Storage:** D1 is canonical for `runs`, `drafts`, `evidence_events` (+ lineage/step tables); Durable Objects hold in-flight Run state and HITL wait coordination, projected out to D1 for `ops.` Zod schemas in `src/shared/schemas` are the canonical contracts for API payloads, Draft diffs, and Evidence events. Wrangler D1 migrations.
-- **Orchestration:** `DailyRunWorkflow` (Agents SDK + Workflows) orchestrates durable steps — connectors → drafter agent(s) → reviewer/eval agent → package → `waitForApproval` (HITL) or YOLO agent → gate publish. A Run interrupted awaiting approval resumes under the same Run ID without regenerating a conflicting Draft set; retries are idempotent for publish.
-- **Model routing (locked):** single code path — agents call `gateway.complete({ role })` only; no ad-hoc provider SDKs or hardcoded model IDs. OpenRouter via AI Gateway. Versioned role→model config (orchestrator / drafter / reviewer / yolo) stored in D1/ops config, visible on `ops.`; changing it is an audited event. Every LLM call records role, provider, model, tokens/spend for Evidence. Reviewer model is configured separately from drafter (may differ).
-- **Write-path rules (mandatory):** only the Approval Gate module persists published F1 mutations; agents/connectors write Drafts + Evidence stubs only; supersede/replay requires an explicit flag, confirmation, and its own Evidence event.
-- **Evidence projector:** one module writes the public Evidence projection (append-oriented rows, not raw vendor logs) using dot.case event names (`run.started`, `source.fetched`, `draft.created`, `gate.awaiting_approval`, `run.budget_stopped`, …) validated by Zod; scrubs secrets/credentials. Vendor consoles are never the public system of record.
-- **Spend/money:** integer cents + currency code; never float dollars in API.
-- **Structure & conventions:** pipeline code lives in `src/pipeline/` (workflows, agents, gate, connectors, projector, ai, config); `surfaces/*` never import `pipeline/*` internals; DB snake_case / JSON camelCase boundary; PRD glossary terms verbatim (`Run`, `Draft`, `Evidence`, `ApprovalGate`, `posture`, `operationalStatus`).
-- **Auth:** Cloudflare Access in front of `/admin` and `/api/admin/*`; no reader accounts; secrets only in Worker bindings — never in prompts or public artifacts.
-- **External sources:** CourtListener, Federal Register, Tier-2 news via `pipeline/connectors` (mostly non-LLM).
+- D1 is canonical for `runs`, `drafts`, `evidence_events`, plus `steering_turns`, `standing_guidance`, `pipeline_config_versions`. Drafts support a parent/revision-index chain. Durable Objects hold in-flight Run/HITL wait state. Zod contracts at the API/Draft/Evidence boundary.
+- `DailyRunWorkflow` (Agents SDK + Workflows): connectors → drafter → reviewer → package → HITL wait or YOLO agent → Approval Gate publish. Steward sits beside the wait, writing Drafts/config/guidance/turns/Evidence, never live F1.
+- Versioned roles `orchestrator` / `drafter` / `reviewer` / `yolo` / `steward` via `gateway.complete({ role })` only; OpenRouter through AI Gateway; role→model changes audited. Steward has its own model binding and a tighter tool allowlist.
+- Only the Approval Gate persists published F1. Connectors/agents write Drafts + Evidence stubs. Steward may write Drafts, pipeline config, and standing guidance. Governance-control mutation is admin-form-only. A steering write without a projected Evidence event is a defect.
+- Evidence is an append-oriented projection (`run.started`, `source.fetched`, `draft.created`, `gate.awaiting_approval`, `run.budget_stopped`, plus `steering.turn` / `steering.applied` / `steering.denied`, `draft.revised`, `config.steered`, `guidance.recorded` / `guidance.revoked`). Spend as integer cents.
+- Cloudflare Access on `/admin` and mutating gate/steering APIs. Preserve the scaffold chat transport as the steering foundation; it stays unreachable to unauthenticated users.
+- Unresolved in planning (do not invent): numeric YOLO threshold; standing-guidance cap and review cadence; steward model pin; whether to cap revision-chain depth; exact UTC cron for noon ET.
 
 ## UX & Interaction Patterns
 
-- **Run log (`ops.`):** recent Runs with id, status chip, timestamp, origin flag, mode, spend, step summary, approval outcome; schedule timezone + next-run visible; rows link to Evidence detail; no auth. Status chips cover published / awaiting-approval / empty / failed / budget-stopped; origin flags cover scheduled / catch-up / manual.
-- **Evidence detail:** step timeline with live + historical step-level status; explicit designed empty states for zero-spend and evals-not-run (never blank); full Draft text; lineage/provenance; before/after diff for human edits; disagreement flag + description when present; current mode + auto-approve threshold display.
-- **Pending Drafts (`ops.`):** full body, proposed diffs, flags, confidence/eval badge — always under the NotLiveDraftBanner / `.draft` ticket-edge treatment so drafts are impossible to confuse with live F1.
-- **Admin approval queue (Access-gated):** keyboard-first — J/K navigate, A approve, E edit, R reject; edit buffer preserving the original Draft; reject-reason capture with public/private-portion control; mode toggle + threshold slider; audit trail panel.
-- Reuse Epic 1 trust components: RunStatusChip, OriginFlag, ProvenanceLabel (human- vs agent-approved), NotLiveDraftBanner, EmptyState.
+- `ops.` is receipts, not a second litigation dashboard. Pending Drafts always carry NotLiveDraftBanner / ticket-edge treatment. Run log uses status chips (published, awaiting-approval, empty, failed, budget-stopped) and origin flags (scheduled, catch-up, manual); next-run is public; rows link to Evidence.
+- Evidence shows live+historical steps; empty states for zero spend, evals-not-run, and no steering (healthy "nobody intervened"); full Draft; lineage; edit diffs; disagreement flag; mode + threshold; steering turns attached to Run/Draft with the instruction that caused each revision; redacted turns still show timestamp, actor, and effect.
+- Admin queue: J/K navigate, A approve, E edit, R reject, plus a binding to open steering inline without losing queue context. Conversational revision and the manual edit buffer coexist. Mode toggle and threshold are form controls, not chat. Governance-control refusals are calm explanations, not errors.
+- Steering composer: submit is publication. Make public-by-default unmistakable at the typing moment. Private/redact control sits adjacent to submit, not in a post-hoc menu. Public projection is turn-granular (may poll); never token-streamed.
 
 ## Cross-Story Dependencies
 
-- Story 3.1's schema builds on Epic 2's F1 schema/seed and is the foundation for everything else in this epic.
-- 3.2 (gateway + role→model config) is a prerequisite for the workflow (3.3), source monitoring/drafting (3.4), drafter/reviewer (3.5), and autonomous mode (3.13).
-- 3.3's workflow feeds 3.4's connectors; 3.5's agents consume 3.4's packaging; 3.6's enforcement wraps 3.5's generation agents before Drafts reach the gate.
-- Public surfaces (3.7–3.9) depend on the data model + pipeline stories; the admin queue (3.10) depends on Epic 1's Access protection and on 3.9's pending Drafts.
-- 3.11's publish path depends on 3.10 and enforces 3.6's no-agent-publish rule end-to-end.
-- 3.12's operator controls depend on the 3.3 workflow; 3.13 depends on the policy groundwork from 3.2/3.5/3.6/3.10.
-- Upstream: Epic 1 (scaffold, design tokens, Access, deploy pipeline) and Epic 2 (apex views that published Drafts must update; seed provenance labels). Downstream: Epic 4's explainer live hooks and Evidence-linked journal posts consume this epic's Run/Evidence data.
-- Provenance labels are seeded in Epic 2 but frozen at publish time here (mode changes cannot relabel already-published items).
+- 3.1 (schema, including steering tables and revision chain) and 3.2 (gateway + `steward` role) underpin the rest. 3.3 → 3.4 → 3.5 → 3.6 wraps generation before the gate. Public surfaces 3.7–3.9 depend on pipeline data; 3.8 must also project steering once 3.14 lands. 3.10 needs Access (Epic 1) and pending Drafts (3.9); 3.11 is the sole live-F1 write path. 3.12 depends on 3.3; 3.13 depends on 3.2 / 3.5–3.6 / 3.10.
+- Steering sequence: 3.14 (channel + policy) → 3.15 (interrogate) → 3.16 (revise) → 3.17 (config) → 3.18 (standing guidance). 3.16 also needs 3.11's publish/diff machinery and 3.5's drafter/reviewer. 3.17 needs 3.4 and 3.12. 3.18 needs 3.6 authorized-context.
+- Upstream: Epic 1 shells, Access, and preserved chat primitive; Epic 2 F1 schema and live views that 3.11 updates. Downstream: Epic 4 explainer hooks and journal consume Run/Evidence; reader correction queue must not be wired into the steward.

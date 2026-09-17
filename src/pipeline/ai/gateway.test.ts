@@ -404,16 +404,43 @@ describe("gateway.complete (story 3.2)", () => {
     expect(row?.role).toBe("steward");
   });
 
+  it("allows drafter and reviewer complete on an awaiting Run under budget", async () => {
+    await insertRun({ status: "awaiting", completedAt: NOW, budgetCents: 100 });
+    await seedConfig(
+      {
+        drafter: { provider: "fake", model: "drafter-v1" },
+        reviewer: { provider: "fake", model: "reviewer-v1" }
+      },
+      null
+    );
+    const provider = fakeProvider({ costCents: 4 });
+    const drafter = await complete(deps(provider), {
+      role: "drafter",
+      runId: RUN_ID,
+      prompt: "draft"
+    });
+    expect(drafter.role).toBe("drafter");
+    const reviewer = await complete(deps(provider), {
+      role: "reviewer",
+      runId: RUN_ID,
+      prompt: "review"
+    });
+    expect(reviewer.role).toBe("reviewer");
+    expect(provider.count()).toBe(2);
+    const run = await runsRepo.getRunById(testEnv.DB, RUN_ID);
+    expect(run?.status).toBe("awaiting");
+  });
+
   it("refuses other roles on an awaiting Run even under budget", async () => {
     await insertRun({ status: "awaiting", completedAt: NOW });
     await seedConfig(
-      { drafter: { provider: "fake", model: "fake-model-v1" } },
+      { yolo: { provider: "fake", model: "fake-model-v1" } },
       null
     );
     const provider = fakeProvider();
     await expect(
       complete(deps(provider), {
-        role: "drafter",
+        role: "yolo",
         runId: RUN_ID,
         prompt: "hi"
       })

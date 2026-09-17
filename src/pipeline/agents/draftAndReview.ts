@@ -168,14 +168,24 @@ function evalFailSummary(
  */
 export function buildScopedPrompt(
   role: "drafter" | "reviewer",
-  source: AuthorizedDraftContext
+  source: AuthorizedDraftContext,
+  revisionInstruction?: string
 ): string {
   const ctx = pickAuthorizedContext(source);
   if (role === "drafter") {
-    return [
+    const lines = [
       "You are the drafter for a litigation-tracker Draft.",
       "Return ONLY JSON with this shape (no markdown):",
-      '{"body": string, "diff": {"<field>": {"from": unknown, "to": unknown}}}',
+      '{"body": string, "diff": {"<field>": {"from": unknown, "to": unknown}}}'
+    ];
+    if (revisionInstruction != null && revisionInstruction.trim().length > 0) {
+      lines.push(
+        "",
+        "Operator revision instruction:",
+        revisionInstruction.trim()
+      );
+    }
+    lines.push(
       "",
       `Target entity: ${ctx.targetEntityType ?? "null"} / ${ctx.targetEntityId ?? "null"}`,
       `Tier-2 only: ${ctx.tier2Only ? "true" : "false"}`,
@@ -183,7 +193,8 @@ export function buildScopedPrompt(
       ctx.body,
       "Packaging shell diff:",
       JSON.stringify(ctx.diff)
-    ].join("\n");
+    );
+    return lines.join("\n");
   }
   return [
     "You are the reviewer for a litigation-tracker Draft.",
@@ -399,7 +410,8 @@ function scoreReviewer(
 export async function draftAndReview(
   db: Db,
   runId: string,
-  gatewayDeps: GatewayDeps
+  gatewayDeps: GatewayDeps,
+  options?: { revisionInstruction?: string }
 ): Promise<DraftAndReviewResult> {
   const threshold = (await modeRepo.get(db)).threshold;
   const failedIds = new Set<string>();
@@ -424,7 +436,11 @@ export async function draftAndReview(
       const drafter = await complete(gatewayDeps, {
         role: "drafter",
         runId,
-        prompt: buildScopedPrompt("drafter", draft)
+        prompt: buildScopedPrompt(
+          "drafter",
+          draft,
+          draft.revisionIndex > 0 ? options?.revisionInstruction : undefined
+        )
       });
       const drafterTool = parseToolRequest(drafter.text);
       if (drafterTool) {
@@ -475,6 +491,9 @@ export async function draftAndReview(
         createdAt: nowIso(gatewayDeps)
       });
     } catch (err) {
+      if (draft.revisionIndex > 0) {
+        return { budgetStopped: isBudgetStopped(err) };
+      }
       const timestamp = nowIso(gatewayDeps);
       let persistFailed = false;
       try {

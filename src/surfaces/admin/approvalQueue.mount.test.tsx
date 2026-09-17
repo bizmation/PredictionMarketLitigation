@@ -39,6 +39,8 @@ function draftRecord(id: string): DraftRecord {
     decidedBy: null,
     editedBody: null,
     rejectReason: null,
+    parentDraftId: null,
+    revisionIndex: 0,
     createdAt: "2026-09-12T16:05:00.000Z",
     updatedAt: "2026-09-12T16:05:00.000Z"
   };
@@ -424,5 +426,133 @@ describe("ApprovalQueue live fetch and keyboard (jsdom mount)", () => {
     expect(buttons()[2]!.getAttribute("aria-selected")).toBe("true");
     fireEvent.keyDown(document, { key: "e" });
     expect(screen.getByLabelText("Edited draft body")).toBeTruthy();
+  });
+
+  it("reloads the queue and selects the revised tip; J/K still work after blur", async () => {
+    const original = [
+      draftRecord("d-a"),
+      draftRecord("d-b"),
+      draftRecord("d-c")
+    ];
+    const revisedTip = {
+      ...draftRecord("d-c:r1"),
+      body: "Revised Nevada holding."
+    };
+    const revised = [draftRecord("d-a"), draftRecord("d-b"), revisedTip];
+    let queueItems = original;
+    const fetchMock = vi.fn(
+      async (
+        input: string | URL | Request,
+        _init?: RequestInit
+      ): Promise<ScriptedResponse> => {
+        const url = String(input);
+        if (url.includes("/steering")) {
+          queueItems = revised;
+          return scripted({
+            id: "st-1",
+            runId: "run-20260912-aaa1",
+            draftId: "d-c",
+            actor: "Patrick",
+            role: "steward",
+            content: "tighten the holding",
+            reply: null,
+            private: false,
+            revisedDraftId: "d-c:r1",
+            createdAt: "2026-09-12T16:05:00.000Z"
+          });
+        }
+        return scripted({ items: queueItems });
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ApprovalQueue />);
+    await act(async () => {});
+
+    const buttons = () =>
+      screen
+        .getAllByRole("button")
+        .filter((button) => button.className.includes("qitem"));
+    fireEvent.keyDown(document, { key: "j" });
+    fireEvent.keyDown(document, { key: "j" });
+    expect(buttons()[2]!.getAttribute("aria-selected")).toBe("true");
+
+    fireEvent.change(screen.getByLabelText("Steering turn"), {
+      target: { value: "tighten the holding" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Revise draft" }));
+    await act(async () => {});
+
+    expect(buttons()).toHaveLength(3);
+    expect(buttons()[2]!.getAttribute("aria-selected")).toBe("true");
+    expect(document.body.textContent).toContain("Revised Nevada holding.");
+    expect(document.body.textContent).not.toContain(
+      "Nevada posture proposal body."
+    );
+
+    fireEvent.keyDown(document, { key: "j" });
+    expect(buttons()[0]!.getAttribute("aria-selected")).toBe("true");
+    fireEvent.keyDown(document, { key: "k" });
+    expect(buttons()[2]!.getAttribute("aria-selected")).toBe("true");
+    fireEvent.keyDown(document, { key: "e" });
+    expect(screen.getByLabelText("Edited draft body")).toBeTruthy();
+  });
+
+  it("ignores A/E/R while a revise submit is in flight", async () => {
+    let resolveRevise: ((value: ScriptedResponse) => void) | undefined;
+    const fetchMock = vi.fn(
+      (
+        input: string | URL | Request,
+        _init?: RequestInit
+      ): Promise<ScriptedResponse> => {
+        const url = String(input);
+        if (url.includes("/steering")) {
+          return new Promise<ScriptedResponse>((resolve) => {
+            resolveRevise = resolve;
+          });
+        }
+        return Promise.resolve(scripted({ items: [draftRecord("d-a")] }));
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ApprovalQueue />);
+    await act(async () => {});
+
+    fireEvent.change(screen.getByLabelText("Steering turn"), {
+      target: { value: "tighten the holding" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Revise draft" }));
+    await act(async () => {});
+    fireEvent.blur(screen.getByLabelText("Steering turn"));
+    fireEvent.keyDown(document, { key: "a" });
+    fireEvent.keyDown(document, { key: "e" });
+    fireEvent.keyDown(document, { key: "r" });
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reject" }));
+
+    expect(
+      fetchMock.mock.calls.some((call) => String(call[0]).includes("/decision"))
+    ).toBe(false);
+    expect(screen.queryByLabelText("Edited draft body")).toBeNull();
+    expect(
+      screen.queryByLabelText("Reject reason — published by default")
+    ).toBeNull();
+
+    await act(async () => {
+      resolveRevise?.(
+        scripted({
+          id: "st-1",
+          runId: "run-20260912-aaa1",
+          draftId: "d-a",
+          actor: "Patrick",
+          role: "steward",
+          content: "tighten the holding",
+          reply: null,
+          private: false,
+          revisedDraftId: "d-a:r1",
+          createdAt: "2026-09-12T16:05:00.000Z"
+        })
+      );
+    });
   });
 });

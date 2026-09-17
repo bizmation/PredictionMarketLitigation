@@ -34,6 +34,8 @@ type DraftRow = {
   edited_body: string | null;
   reject_reason: string | null;
   reject_reason_private: string | null;
+  parent_draft_id: string | null;
+  revision_index: number;
   created_at: string;
   updated_at: string;
 };
@@ -41,7 +43,7 @@ type DraftRow = {
 const DRAFT_COLUMNS = `id, run_id, target_entity_type, target_entity_id, diff_json,
               body, tier2_only, confidence, eval_summary_json, outcome,
               decided_at, decided_by, edited_body, reject_reason,
-              created_at, updated_at`;
+              parent_draft_id, revision_index, created_at, updated_at`;
 
 function mapDraft(row: DraftRow): DraftRecord {
   return DraftRecordSchema.parse({
@@ -60,9 +62,116 @@ function mapDraft(row: DraftRow): DraftRecord {
     decidedBy: row.decided_by,
     editedBody: row.edited_body,
     rejectReason: row.reject_reason,
+    parentDraftId: row.parent_draft_id,
+    revisionIndex: row.revision_index,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   });
+}
+
+/** Ready = not (revisionIndex > 0 && evalSummary == null). */
+export function isDraftReady(draft: DraftRecord): boolean {
+  return !(draft.revisionIndex > 0 && draft.evalSummary == null);
+}
+
+export function revisionDraftId(
+  parentId: string,
+  revisionIndex: number
+): string {
+  return `${parentId}:r${revisionIndex}`;
+}
+
+function chainRootId(
+  draft: DraftRecord,
+  byId: Map<string, DraftRecord>
+): string {
+  let current = draft;
+  const seen = new Set<string>();
+  while (current.parentDraftId != null) {
+    if (seen.has(current.id)) break;
+    seen.add(current.id);
+    const parent = byId.get(current.parentDraftId);
+    if (!parent) break;
+    current = parent;
+  }
+  return current.id;
+}
+
+function membersOfChain(draft: DraftRecord, all: DraftRecord[]): DraftRecord[] {
+  const byId = new Map(all.map((row) => [row.id, row]));
+  const root = chainRootId(draft, byId);
+  return all.filter((row) => chainRootId(row, byId) === root);
+}
+
+/**
+ * Pending-tip rule (story 3.16): a chain is closed when its head (max
+ * revisionIndex) has an outcome; ancestors with NULL outcome are
+ * historical. If the head is ready and pending, it is the only tip. If
+ * the head is in-flight, the previous ready pending row stays visible.
+ */
+export function pendingTips(drafts: DraftRecord[]): DraftRecord[] {
+  const byId = new Map(drafts.map((row) => [row.id, row]));
+  const chains = new Map<string, DraftRecord[]>();
+  for (const draft of drafts) {
+    const root = chainRootId(draft, byId);
+    const list = chains.get(root) ?? [];
+    list.push(draft);
+    chains.set(root, list);
+  }
+  const tips: DraftRecord[] = [];
+  for (const members of chains.values()) {
+    members.sort((a, b) => a.revisionIndex - b.revisionIndex);
+    const head = members[members.length - 1];
+    if (head == null || head.outcome != null) continue;
+    if (isDraftReady(head)) {
+      tips.push(head);
+      continue;
+    }
+    for (let i = members.length - 2; i >= 0; i--) {
+      const previous = members[i]!;
+      if (isDraftReady(previous) && previous.outcome == null) {
+        tips.push(previous);
+        break;
+      }
+    }
+  }
+  return tips;
+}
+
+export function isPendingReadyTip(
+  draft: DraftRecord,
+  siblings: DraftRecord[]
+): boolean {
+  return pendingTips(siblings).some((tip) => tip.id === draft.id);
+}
+
+export function hasInFlightSuccessor(
+  draft: DraftRecord,
+  siblings: DraftRecord[]
+): boolean {
+  return membersOfChain(draft, siblings).some(
+    (row) => row.revisionIndex > draft.revisionIndex && !isDraftReady(row)
+  );
+}
+
+export function lineageFromRoot(
+  tip: DraftRecord,
+  siblings: DraftRecord[]
+): DraftRecord[] {
+  const byId = new Map(siblings.map((row) => [row.id, row]));
+  const chain: DraftRecord[] = [];
+  let current: DraftRecord | undefined = tip;
+  const seen = new Set<string>();
+  while (current != null && !seen.has(current.id)) {
+    seen.add(current.id);
+    chain.push(current);
+    current =
+      current.parentDraftId != null
+        ? byId.get(current.parentDraftId)
+        : undefined;
+  }
+  chain.reverse();
+  return chain;
 }
 
 export async function listByRun(db: Db, runId: string): Promise<DraftRecord[]> {
@@ -77,33 +186,40 @@ export async function listByRun(db: Db, runId: string): Promise<DraftRecord[]> {
 }
 
 /**
- * Story 3.10 — the operator queue feed: pending (`outcome IS NULL`) only,
- * oldest waiting first. Decided Drafts never appear here again.
+ * Story 3.10 / 3.16 — the operator queue feed: ready chain tips only
+ * (pending), oldest waiting first. Historical ancestors and in-flight
+ * children never appear here. Decided Drafts never appear here again.
  */
 export async function listPending(db: Db): Promise<DraftRecord[]> {
   const { results } = await db
     .prepare(
-      `SELECT ${DRAFT_COLUMNS} FROM drafts WHERE outcome IS NULL
+      `SELECT ${DRAFT_COLUMNS} FROM drafts
         ORDER BY created_at ASC, id ASC`
     )
     .all<DraftRow>();
-  return (results ?? []).map(mapDraft);
+  const all = (results ?? []).map(mapDraft);
+  const tipIds = new Set(pendingTips(all).map((draft) => draft.id));
+  return all.filter((draft) => tipIds.has(draft.id));
 }
 
 /**
- * Story 3.9 — the public pending-drafts feed: pending (`outcome IS NULL`)
- * plus the rejected archive, newest first. Approved/edited Drafts belong to
- * publish records (3.11) and are deliberately excluded.
+ * Story 3.9 / 3.16 — the public pending-drafts feed: ready chain tips
+ * plus the rejected archive, newest first. Historical NULL-outcome
+ * ancestors are not pending. Approved/edited Drafts belong to publish
+ * records (3.11) and are deliberately excluded.
  */
 export async function listPublicDrafts(db: Db): Promise<DraftRecord[]> {
   const { results } = await db
     .prepare(
       `SELECT ${DRAFT_COLUMNS} FROM drafts
-        WHERE outcome IS NULL OR outcome = 'rejected'
         ORDER BY updated_at DESC, id ASC`
     )
     .all<DraftRow>();
-  return (results ?? []).map(mapDraft);
+  const all = (results ?? []).map(mapDraft);
+  const tipIds = new Set(pendingTips(all).map((draft) => draft.id));
+  return all.filter(
+    (draft) => tipIds.has(draft.id) || draft.outcome === "rejected"
+  );
 }
 
 export async function getById(db: Db, id: string): Promise<DraftRecord | null> {
@@ -126,6 +242,8 @@ export async function insertDraft(
     tier2Only: boolean;
     confidence: number | null;
     evalSummary: EvalSummary | null;
+    parentDraftId?: string | null;
+    revisionIndex?: number;
     createdAt: string;
   }
 ): Promise<DraftRecord> {
@@ -144,6 +262,8 @@ export async function insertDraft(
     decidedBy: null,
     editedBody: null,
     rejectReason: null,
+    parentDraftId: input.parentDraftId ?? null,
+    revisionIndex: input.revisionIndex ?? 0,
     createdAt: input.createdAt,
     updatedAt: input.createdAt
   });
@@ -151,8 +271,9 @@ export async function insertDraft(
     .prepare(
       `INSERT OR IGNORE INTO drafts (id, run_id, target_entity_type, target_entity_id,
           diff_json, body, tier2_only, confidence, eval_summary_json,
-          outcome, decided_at, decided_by, edited_body, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)`
+          outcome, decided_at, decided_by, edited_body, parent_draft_id,
+          revision_index, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?)`
     )
     .bind(
       record.id,
@@ -164,6 +285,8 @@ export async function insertDraft(
       record.tier2Only ? 1 : 0,
       record.confidence,
       record.evalSummary == null ? null : JSON.stringify(record.evalSummary),
+      record.parentDraftId,
+      record.revisionIndex,
       record.createdAt,
       record.updatedAt
     )

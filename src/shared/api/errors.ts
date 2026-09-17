@@ -54,6 +54,12 @@ export function conflict(message: string, details?: unknown): ApiError {
   return new ApiError(409, "conflict", message, details);
 }
 
+export function budgetStopped(
+  message = "Run spend reached the budget ceiling."
+): ApiError {
+  return new ApiError(409, "budget_stopped", message);
+}
+
 export function internalError(): ApiError {
   return new ApiError(500, "internal_error", "Unexpected server error.");
 }

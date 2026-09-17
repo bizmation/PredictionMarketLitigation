@@ -70,6 +70,8 @@ function draft(
     decidedBy: null,
     editedBody: null,
     rejectReason: null,
+    parentDraftId: null,
+    revisionIndex: 0,
     createdAt: TS_STEP,
     updatedAt: TS_STEP,
     ...overrides
@@ -381,6 +383,197 @@ describe("EvidenceDetail (story 3.8)", () => {
     );
     expect(html).toContain("steering.applied · d-1 · content withheld · none");
     expect(html).not.toContain("secret steward answer");
+  });
+
+  it("renders a revision chain in index order with the instruction and approved text", () => {
+    const html = renderToStaticMarkup(
+      <EvidenceDetail
+        runId="run-20260908-aaa1"
+        detail={detail({
+          drafts: [
+            draft({
+              id: "d-root",
+              body: "Original agent body.",
+              parentDraftId: null,
+              revisionIndex: 0,
+              outcome: "approved",
+              decidedAt: TS_DONE,
+              decidedBy: "Patrick"
+            }),
+            draft({
+              id: "d-root:r1",
+              body: "Revised agent body.",
+              parentDraftId: "d-root",
+              revisionIndex: 1,
+              confidence: 55,
+              outcome: "approved",
+              decidedAt: TS_DONE,
+              decidedBy: "Patrick"
+            })
+          ],
+          evidence: [
+            event({
+              id: "ev-turn",
+              seq: 0,
+              event: "steering.turn",
+              payload: {
+                actor: "Patrick",
+                draftId: "d-root",
+                private: false,
+                content: "tighten the holding",
+                turnId: "st-1"
+              }
+            }),
+            event({
+              id: "ev-revised",
+              seq: 1,
+              event: "steering.applied",
+              payload: {
+                effect: "revised",
+                turnId: "st-1",
+                draftId: "d-root:r1",
+                parentDraftId: "d-root"
+              }
+            }),
+            event({
+              id: "ev-decided",
+              seq: 2,
+              event: "gate.decided",
+              payload: {
+                draftId: "d-root:r1",
+                outcome: "approved",
+                approvedText: "Approved published text."
+              }
+            })
+          ]
+        })}
+      />
+    );
+    const originalAt = html.indexOf("Original agent body.");
+    const instructionAt = html.indexOf("revised · tighten the holding");
+    const revisedAt = html.indexOf("Revised agent body.");
+    const approvedAt = html.indexOf("Approved published text.");
+    expect(originalAt).toBeGreaterThan(-1);
+    expect(instructionAt).toBeGreaterThan(originalAt);
+    expect(revisedAt).toBeGreaterThan(instructionAt);
+    expect(approvedAt).toBeGreaterThan(revisedAt);
+    expect(html).toContain("Draft · r1");
+    expect(html).toContain("Approved text");
+  });
+
+  it("withholds a private revision instruction and keeps pending members not-live", () => {
+    const html = renderToStaticMarkup(
+      <EvidenceDetail
+        runId="run-20260908-aaa1"
+        detail={detail({
+          drafts: [
+            draft({
+              id: "d-root",
+              body: "Original agent body.",
+              outcome: null
+            }),
+            draft({
+              id: "d-root:r1",
+              body: "Revised agent body.",
+              parentDraftId: "d-root",
+              revisionIndex: 1,
+              outcome: null
+            })
+          ],
+          evidence: [
+            event({
+              id: "ev-turn",
+              seq: 0,
+              event: "steering.turn",
+              payload: {
+                actor: "Patrick",
+                draftId: "d-root",
+                private: true,
+                content: null,
+                turnId: "st-1"
+              }
+            }),
+            event({
+              id: "ev-revised",
+              seq: 1,
+              event: "steering.applied",
+              payload: {
+                effect: "revised",
+                turnId: "st-1",
+                draftId: "d-root:r1",
+                parentDraftId: "d-root"
+              }
+            })
+          ]
+        })}
+      />
+    );
+    expect(html).toContain("revised · content withheld");
+    expect(html).not.toContain("secret revision instruction");
+    expect((html.match(new RegExp(NOT_LIVE_LABEL, "g")) ?? []).length).toBe(1);
+  });
+
+  it("does not mark a historical parent not-live after the tip is decided", () => {
+    const html = renderToStaticMarkup(
+      <EvidenceDetail
+        runId="run-20260908-aaa1"
+        detail={detail({
+          drafts: [
+            draft({
+              id: "d-root",
+              body: "Original agent body.",
+              outcome: null
+            }),
+            draft({
+              id: "d-root:r1",
+              body: "Revised agent body.",
+              parentDraftId: "d-root",
+              revisionIndex: 1,
+              outcome: "approved",
+              decidedAt: TS_DONE,
+              decidedBy: "Patrick"
+            })
+          ]
+        })}
+      />
+    );
+    expect(html).not.toContain(NOT_LIVE_LABEL);
+  });
+
+  it("does not show Approved text after a reject decision", () => {
+    const html = renderToStaticMarkup(
+      <EvidenceDetail
+        runId="run-20260908-aaa1"
+        detail={detail({
+          drafts: [
+            draft({
+              id: "d-root:r1",
+              body: "Revised agent body.",
+              parentDraftId: "d-root",
+              revisionIndex: 1,
+              outcome: "rejected",
+              decidedAt: TS_DONE,
+              decidedBy: "Patrick",
+              rejectReason: "Not ready."
+            })
+          ],
+          evidence: [
+            event({
+              id: "ev-decided",
+              seq: 2,
+              event: "gate.decided",
+              payload: {
+                draftId: "d-root:r1",
+                outcome: "rejected",
+                approvedText: "Must not surface after reject."
+              }
+            })
+          ]
+        })}
+      />
+    );
+    expect(html).not.toContain("Approved text");
+    expect(html).not.toContain("Must not surface after reject.");
   });
 
   it("keeps $0.00, evals-not-run, and No draft produced on an empty Run", () => {

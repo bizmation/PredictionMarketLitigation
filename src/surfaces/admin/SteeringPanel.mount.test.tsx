@@ -68,6 +68,51 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
     expect(document.body.textContent).toContain("Submit turn");
   });
 
+  it("POSTs intent revise and notifies onRevised with the new Draft id", async () => {
+    const onRevised = vi.fn();
+    const fetchMock = vi.fn(async () =>
+      scripted({
+        id: "st-1",
+        runId: "run-20260914-aaa1",
+        draftId: "d-1",
+        actor: "Patrick",
+        role: "steward",
+        content: "tighten the holding",
+        reply: null,
+        private: false,
+        revisedDraftId: "d-1:r1",
+        createdAt: "2026-09-14T16:00:00.000Z"
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <SteeringPanel
+        runId="run-20260914-aaa1"
+        draftId="d-1"
+        onRevised={onRevised}
+      />
+    );
+    fireEvent.change(screen.getByLabelText("Steering turn"), {
+      target: { value: "tighten the holding" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Revise draft" }));
+    await act(async () => {});
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/runs/run-20260914-aaa1/steering",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          content: "tighten the holding",
+          private: false,
+          draftId: "d-1",
+          intent: "revise"
+        })
+      })
+    );
+    expect(onRevised).toHaveBeenCalledWith("d-1:r1");
+    expect(onRevised).toHaveBeenCalledTimes(1);
+  });
+
   it("locks a second click before busy re-renders", async () => {
     let resolveFetch: ((value: ScriptedResponse) => void) | undefined;
     const fetchMock = vi.fn(
@@ -98,6 +143,23 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
         })
       );
     });
+  });
+
+  it("shows a budget-ceiling message on 409 budget_stopped", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => scripted({ code: "budget_stopped" }, false, 409))
+    );
+    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    fireEvent.change(screen.getByLabelText("Steering turn"), {
+      target: { value: "tighten the holding" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Revise draft" }));
+    await act(async () => {});
+    expect(document.body.textContent).toContain(
+      "Revision did not complete because spend hit the ceiling."
+    );
+    expect(document.body.textContent).not.toContain("Try again.");
   });
 
   it("shows a short failure message on non-403 POST failure", async () => {

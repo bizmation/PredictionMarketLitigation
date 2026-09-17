@@ -83,6 +83,8 @@ export function isQueueItem(value: unknown): value is DraftRecord {
     (row.decidedBy === null || typeof row.decidedBy === "string") &&
     (row.editedBody === null || typeof row.editedBody === "string") &&
     (row.rejectReason === null || typeof row.rejectReason === "string") &&
+    (row.parentDraftId === null || typeof row.parentDraftId === "string") &&
+    isNonNegativeInt(row.revisionIndex) &&
     typeof row.createdAt === "string" &&
     typeof row.updatedAt === "string" &&
     row.diff !== null &&
@@ -227,7 +229,9 @@ export function ApprovalQueue({
     {}
   );
   const [busy, setBusy] = useState(false);
+  const [steeringBusy, setSteeringBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [pendingSelectId, setPendingSelectId] = useState<string | null>(null);
 
   useEffect(() => {
     if (injectedItems !== undefined) return;
@@ -255,6 +259,16 @@ export function ApprovalQueue({
   }, [injectedItems, reload]);
 
   const items = injectedItems ?? (view.status === "ready" ? view.items : null);
+
+  useEffect(() => {
+    if (pendingSelectId == null || items == null) return;
+    const index = items.findIndex((draft) => draft.id === pendingSelectId);
+    if (index < 0) return;
+    setSelected(index);
+    setEditing(false);
+    setRejecting(false);
+    setPendingSelectId(null);
+  }, [items, pendingSelectId]);
 
   async function postDecision(id: string, body: unknown) {
     setBusy(true);
@@ -303,7 +317,7 @@ export function ApprovalQueue({
   }
 
   function approveAction() {
-    if (current == null || busy) return;
+    if (current == null || busy || steeringBusy) return;
     if (resolved[current.id]) return;
     if (editing) {
       if (editText.trim().length === 0) return;
@@ -317,7 +331,7 @@ export function ApprovalQueue({
   }
 
   function toggleEdit() {
-    if (current == null || busy || resolved[current.id]) return;
+    if (current == null || busy || steeringBusy || resolved[current.id]) return;
     setEditing((value) => {
       if (!value) setEditText(current.body);
       return !value;
@@ -326,7 +340,7 @@ export function ApprovalQueue({
   }
 
   function confirmReject() {
-    if (current == null || busy || resolved[current.id]) return;
+    if (current == null || busy || steeringBusy || resolved[current.id]) return;
     if (rejectText.trim().length === 0) return;
     void postDecision(current.id, {
       action: "reject",
@@ -363,7 +377,7 @@ export function ApprovalQueue({
     if (key === "a") approveAction();
     if (key === "e") toggleEdit();
     if (key === "r") {
-      if (busy) return;
+      if (busy || steeringBusy) return;
       setRejecting(true);
       setEditing(false);
     }
@@ -511,7 +525,15 @@ export function ApprovalQueue({
               <a href={evidenceHref}>Full evidence for run {current.runId} ↗</a>
             </p>
 
-            <SteeringPanel runId={current.runId} draftId={current.id} />
+            <SteeringPanel
+              runId={current.runId}
+              draftId={current.id}
+              onSubmittingChange={setSteeringBusy}
+              onRevised={(revisedDraftId) => {
+                setPendingSelectId(revisedDraftId);
+                setReload((value) => value + 1);
+              }}
+            />
 
             {rejecting && !resolved[current.id] ? (
               <div className="rejectbox">
@@ -578,7 +600,9 @@ export function ApprovalQueue({
                   type="button"
                   className="btn btn-primary"
                   onClick={confirmReject}
-                  disabled={busy || rejectText.trim().length === 0}
+                  disabled={
+                    busy || steeringBusy || rejectText.trim().length === 0
+                  }
                 >
                   Confirm rejection
                 </button>
@@ -586,7 +610,7 @@ export function ApprovalQueue({
                   type="button"
                   className="btn btn-ghost"
                   onClick={() => setRejecting(false)}
-                  disabled={busy}
+                  disabled={busy || steeringBusy}
                 >
                   Cancel
                 </button>
@@ -597,7 +621,11 @@ export function ApprovalQueue({
                   type="button"
                   className="btn btn-primary"
                   onClick={approveAction}
-                  disabled={busy || (editing && editText.trim().length === 0)}
+                  disabled={
+                    busy ||
+                    steeringBusy ||
+                    (editing && editText.trim().length === 0)
+                  }
                 >
                   {editing ? "Approve with edits" : "Approve"}
                 </button>
@@ -605,7 +633,7 @@ export function ApprovalQueue({
                   type="button"
                   className="btn btn-secondary"
                   onClick={toggleEdit}
-                  disabled={busy}
+                  disabled={busy || steeringBusy}
                 >
                   {editing ? "Discard edits" : "Edit"}
                 </button>
@@ -616,7 +644,7 @@ export function ApprovalQueue({
                     setRejecting(true);
                     setEditing(false);
                   }}
-                  disabled={busy}
+                  disabled={busy || steeringBusy}
                 >
                   Reject
                 </button>

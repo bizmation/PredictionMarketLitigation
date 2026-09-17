@@ -33,6 +33,8 @@ function draft(overrides: Partial<DraftRecord> = {}): DraftRecord {
     decidedBy: null,
     editedBody: null,
     rejectReason: null,
+    parentDraftId: null,
+    revisionIndex: 0,
     createdAt: "2026-09-12T16:05:00.000Z",
     updatedAt: "2026-09-12T16:05:00.000Z",
     ...overrides
@@ -48,6 +50,10 @@ describe("isQueueItem", () => {
     expect(isQueueItem({ ...draft(), confidence: 1.5 })).toBe(false);
     expect(isQueueItem({ ...draft(), diff: "posture" })).toBe(false);
     expect(isQueueItem({ ...draft(), rejectReason: 42 })).toBe(false);
+    expect(isQueueItem({ ...draft(), revisionIndex: -1 })).toBe(false);
+    expect(
+      isQueueItem({ ...draft(), parentDraftId: "d-root", revisionIndex: 1 })
+    ).toBe(true);
   });
 });
 
@@ -83,6 +89,7 @@ describe("ApprovalQueue markup", () => {
     expect(html).toContain('href="/runs/run-20260912-aaa1?surface=ops"');
     expect(html).toContain('class="composer"');
     expect(html).toContain("Privacy is chosen at submit and cannot be undone");
+    expect(html).toContain("Revise draft");
     for (const key of ["A", "E", "R"]) {
       expect(html).toContain(`class="kbd">${key}</span>`);
     }
