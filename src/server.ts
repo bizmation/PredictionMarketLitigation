@@ -466,6 +466,8 @@ export default {
               private: parsed.data.private,
               draftId: parsed.data.draftId,
               intent: parsed.data.intent,
+              key: parsed.data.key,
+              revertToVersion: parsed.data.revertToVersion,
               actorDisplayName: gate.operator.displayName
             }
           );
@@ -481,7 +483,7 @@ export default {
             case "budget_stopped":
               return jsonError(
                 budgetStopped(
-                  "Run spend reached the budget ceiling; revision did not complete.",
+                  "Run spend reached the budget ceiling; the change did not apply.",
                   result.turn
                 ),
                 { headers: ADMIN_CACHE_HEADERS }

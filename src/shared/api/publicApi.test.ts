@@ -1570,6 +1570,37 @@ describe("public mode (story 3.13)", () => {
   });
 });
 
+describe("public pipeline-config (story 3.17)", () => {
+  it("returns the seed list at version 0 with empty history when nothing has been written", async () => {
+    await testEnv.DB.prepare("DELETE FROM pipeline_config_versions").run();
+    const res = await worker.fetch!(get("/api/pipeline-config"), testEnv);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toContain("no-store");
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      key: "poll_sources",
+      version: 0,
+      history: []
+    });
+    expect(Array.isArray(body.sources)).toBe(true);
+    expect((body.sources as unknown[]).length).toBeGreaterThan(0);
+    expect(body).not.toHaveProperty("items");
+    expect(JSON.stringify(body)).not.toContain("steeringTurns");
+    expect(JSON.stringify(body)).not.toContain("@");
+  });
+
+  it("rejects POST /api/pipeline-config with 405 and allow GET, HEAD", async () => {
+    const res = await worker.fetch!(
+      new Request("https://pml.example.com/api/pipeline-config", {
+        method: "POST"
+      }),
+      testEnv
+    );
+    expect(res.status).toBe(405);
+    expect(res.headers.get("allow")).toBe("GET, HEAD");
+  });
+});
+
 describe("public run detail steering redaction (story 3.14)", () => {
   const TS = "2026-09-14T16:00:00.000Z";
   const secretAnswer = "private steward answer must not leak";

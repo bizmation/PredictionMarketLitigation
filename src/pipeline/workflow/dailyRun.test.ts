@@ -120,6 +120,11 @@ describe("daily run (story 3.3)", () => {
 
     const evidence = await evidenceRepo.listByRun(testEnv.DB, id);
     expect(evidence.map((e) => e.event)).toEqual(["run.started", "run.empty"]);
+    expect(evidence[0]?.payload).toMatchObject({
+      origin: "scheduled",
+      scheduledFor: date,
+      pollSourcesVersion: 0
+    });
     expect(evidence[1]?.payload).toEqual({ drafts: 0 });
   });
 

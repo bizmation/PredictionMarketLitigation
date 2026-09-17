@@ -24,6 +24,12 @@ function scripted(
   return { ok, status, json: async () => body };
 }
 
+function steeringPosts(fetchMock: ReturnType<typeof vi.fn>) {
+  return fetchMock.mock.calls.filter(([url]) =>
+    String(url).includes("/steering")
+  );
+}
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -53,6 +59,12 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Submit turn" }));
     await act(async () => {});
     expect(fetchMock).toHaveBeenCalledWith(
+      "/api/pipeline-config",
+      expect.objectContaining({
+        headers: expect.objectContaining({ accept: "application/json" })
+      })
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
       "/api/admin/runs/run-20260914-aaa1/steering",
       expect.objectContaining({
         method: "POST",
@@ -63,7 +75,7 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
         })
       })
     );
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(steeringPosts(fetchMock)).toHaveLength(1);
     expect(document.body.textContent).toContain("content withheld");
     expect(document.body.textContent).toContain("Submit turn");
   });
@@ -109,6 +121,7 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
         })
       })
     );
+    expect(steeringPosts(fetchMock)).toHaveLength(1);
     expect(onRevised).toHaveBeenCalledWith("d-1:r1");
     expect(onRevised).toHaveBeenCalledTimes(1);
   });
@@ -128,7 +141,7 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Submit turn" }));
     fireEvent.click(screen.getByRole("button", { name: "Submit turn" }));
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(steeringPosts(fetchMock)).toHaveLength(1);
     await act(async () => {
       resolveFetch?.(
         scripted({
@@ -318,5 +331,218 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
       );
     });
     expect(document.body.textContent).not.toContain("stale reply for draft A");
+  });
+
+  it("POSTs intent config from Steer pipeline", async () => {
+    let configGets = 0;
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes("/api/pipeline-config")) {
+        configGets += 1;
+        if (configGets === 1) {
+          return scripted({
+            key: "poll_sources",
+            version: 0,
+            sources: [],
+            history: []
+          });
+        }
+        return scripted({
+          key: "poll_sources",
+          version: 1,
+          sources: [],
+          history: [
+            {
+              version: 1,
+              key: "poll_sources",
+              prior: [],
+              next: [],
+              actor: "Patrick",
+              createdAt: "2026-09-14T16:00:00.000Z"
+            }
+          ]
+        });
+      }
+      return scripted({
+        id: "st-1",
+        runId: "run-20260914-aaa1",
+        draftId: "d-1",
+        actor: "Patrick",
+        role: "steward",
+        content: "Add the ND Cal docket to Tier-1.",
+        reply: '{"key":"poll_sources","value":[]}',
+        private: false,
+        revisedDraftId: null,
+        configVersion: 1,
+        createdAt: "2026-09-14T16:00:00.000Z"
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    await act(async () => {});
+    fireEvent.change(screen.getByLabelText("Steering turn"), {
+      target: { value: "Add the ND Cal docket to Tier-1." }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Steer pipeline" }));
+    await act(async () => {});
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/runs/run-20260914-aaa1/steering",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          content: "Add the ND Cal docket to Tier-1.",
+          private: false,
+          draftId: "d-1",
+          intent: "config"
+        })
+      })
+    );
+    expect(steeringPosts(fetchMock)).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Revert to seed" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Revert to version 1" })
+    ).toBeTruthy();
+  });
+
+  it("POSTs revertToVersion and key for a listed pipeline-config version", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes("/api/pipeline-config")) {
+        return scripted({
+          key: "poll_sources",
+          version: 1,
+          sources: [],
+          history: [
+            {
+              version: 1,
+              key: "poll_sources",
+              prior: [],
+              next: [],
+              actor: "Patrick",
+              createdAt: "2026-09-14T16:00:00.000Z"
+            }
+          ]
+        });
+      }
+      return scripted({
+        id: "st-2",
+        runId: "run-20260914-aaa1",
+        draftId: "d-1",
+        actor: "Patrick",
+        role: "steward",
+        content: "Revert poll_sources to version 1",
+        reply: null,
+        private: false,
+        revisedDraftId: null,
+        configVersion: 2,
+        createdAt: "2026-09-14T16:00:00.000Z"
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    await act(async () => {});
+    fireEvent.click(
+      screen.getByRole("button", { name: "Revert to version 1" })
+    );
+    await act(async () => {});
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/runs/run-20260914-aaa1/steering",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          content: "Revert poll_sources to version 1",
+          private: false,
+          draftId: "d-1",
+          intent: "config",
+          key: "poll_sources",
+          revertToVersion: 1
+        })
+      })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Revert to seed" }));
+    await act(async () => {});
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/runs/run-20260914-aaa1/steering",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          content: "Revert poll_sources to version 0",
+          private: false,
+          draftId: "d-1",
+          intent: "config",
+          key: "poll_sources",
+          revertToVersion: 0
+        })
+      })
+    );
+  });
+
+  it("shows a config budget-ceiling message on 409 budget_stopped", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (String(url).includes("/api/pipeline-config")) {
+          return scripted({
+            key: "poll_sources",
+            version: 0,
+            sources: [],
+            history: []
+          });
+        }
+        return scripted({ code: "budget_stopped" }, false, 409);
+      })
+    );
+    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    fireEvent.change(screen.getByLabelText("Steering turn"), {
+      target: { value: "Add a docket." }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Steer pipeline" }));
+    await act(async () => {});
+    expect(document.body.textContent).toContain(
+      "Config did not apply because spend hit the ceiling."
+    );
+    expect(document.body.textContent).not.toContain("Try again.");
+  });
+
+  it("shows a refused message on config 200 without configVersion and keeps the instruction", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (String(url).includes("/api/pipeline-config")) {
+          return scripted({
+            key: "poll_sources",
+            version: 0,
+            sources: [],
+            history: []
+          });
+        }
+        return scripted({
+          id: "st-1",
+          runId: "run-20260914-aaa1",
+          draftId: "d-1",
+          actor: "Patrick",
+          role: "steward",
+          content: "Switch the gate to YOLO.",
+          reply: '{"key":"mode","value":null}',
+          private: false,
+          revisedDraftId: null,
+          configVersion: null,
+          createdAt: "2026-09-14T16:00:00.000Z"
+        });
+      })
+    );
+    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    fireEvent.change(screen.getByLabelText("Steering turn"), {
+      target: { value: "Switch the gate to YOLO." }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Steer pipeline" }));
+    await act(async () => {});
+    expect(document.body.textContent).toContain(
+      "Those controls are unchanged; the request was refused."
+    );
+    expect(document.body.textContent).not.toContain(
+      '{"key":"mode","value":null}'
+    );
+    expect(
+      (screen.getByLabelText("Steering turn") as HTMLTextAreaElement).value
+    ).toBe("Switch the gate to YOLO.");
   });
 });
