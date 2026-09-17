@@ -1,5 +1,5 @@
 # generated: 2026-08-09
-# last_updated: 09-11-2026 19:07
+# last_updated: 09-17-2026 11:35
 # project: PML
 # project_key: NOKEY
 # tracking_system: file-system
@@ -83,7 +83,7 @@ development_status:
   3-13-autonomous-mode-yolo-bounds-mode-transparency: done
   # Added by sprint-change-proposal-2026-08-09 (operator steering, F9 / FR-46-50)
   3-14-steering-channel-foundation-action-policy-evidence: done
-  3-15-draft-interrogation-read-only: backlog
+  3-15-draft-interrogation-read-only: done
   3-16-conversational-draft-revision: backlog
   3-17-conversational-pipeline-steering: backlog
   3-18-standing-corrections-durable-guidance: backlog

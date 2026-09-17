@@ -1,10 +1,12 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { EmptyState } from "../../shared/ui";
 
 /**
- * Story 3.14 — operator steering composer. Privacy is chosen at submit
- * and cannot be undone. 403 fails closed to the signed-out EmptyState.
+ * Story 3.15 — operator steering composer. After a 200, the last steward
+ * reply (or “content withheld” when private) is shown under the composer.
+ * Privacy is chosen at submit and cannot be undone. 403 fails closed to
+ * the signed-out EmptyState. Does not change queue selection.
  */
 
 type SteeringPanelProps = {
@@ -20,7 +22,17 @@ export function SteeringPanel({ runId, draftId }: SteeringPanelProps) {
   const [isPrivate, setPrivate] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastReply, setLastReply] = useState<string | null>(null);
   const submitting = useRef(false);
+  const selectionRef = useRef({ runId, draftId });
+  selectionRef.current = { runId, draftId };
+
+  useEffect(() => {
+    setLastReply(null);
+    setError(null);
+    setContent("");
+    setPrivate(false);
+  }, [draftId, runId]);
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
@@ -28,6 +40,8 @@ export function SteeringPanel({ runId, draftId }: SteeringPanelProps) {
     submitting.current = true;
     setBusy(true);
     setError(null);
+    const submittedRunId = runId;
+    const submittedDraftId = draftId;
     try {
       const res = await fetch(`/api/admin/runs/${runId}/steering`, {
         method: "POST",
@@ -42,6 +56,12 @@ export function SteeringPanel({ runId, draftId }: SteeringPanelProps) {
           draftId
         })
       });
+      if (
+        selectionRef.current.runId !== submittedRunId ||
+        selectionRef.current.draftId !== submittedDraftId
+      ) {
+        return;
+      }
       if (res.status === 403) {
         setView({ status: "signedOut" });
         return;
@@ -49,6 +69,19 @@ export function SteeringPanel({ runId, draftId }: SteeringPanelProps) {
       if (!res.ok) {
         setError("Submit failed. Try again.");
         return;
+      }
+      let parsed: { private?: unknown; reply?: unknown } = {};
+      try {
+        parsed = (await res.json()) as { private?: unknown; reply?: unknown };
+      } catch {
+        parsed = {};
+      }
+      if (parsed.private === true) {
+        setLastReply("content withheld");
+      } else if (typeof parsed.reply === "string" && parsed.reply.length > 0) {
+        setLastReply(parsed.reply);
+      } else {
+        setLastReply(null);
       }
       setContent("");
       setPrivate(false);
@@ -105,6 +138,11 @@ export function SteeringPanel({ runId, draftId }: SteeringPanelProps) {
       {error ? (
         <p className="lastupd" style={{ marginTop: "var(--space-2)" }}>
           {error}
+        </p>
+      ) : null}
+      {lastReply != null ? (
+        <p className="lastupd" style={{ marginTop: "var(--space-2)" }}>
+          {lastReply}
         </p>
       ) : null}
     </form>

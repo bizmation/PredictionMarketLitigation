@@ -1645,6 +1645,7 @@ describe("admin steering (story 3.14)", () => {
     const turn = PublicSteeringTurnSchema.parse(JSON.parse(raw));
     expect(turn.actor).toBe(DISPLAY_NAME);
     expect(turn.content).toBe("Please explain the Nevada posture change.");
+    expect(turn.reply).toBeNull();
     const publicRes = await worker.fetch(
       get("/api/runs/run-20260914-eeee"),
       testEnv
@@ -1676,6 +1677,9 @@ describe("admin steering (story 3.14)", () => {
       realEnv()
     );
     expect(res.status).toBe(200);
+    const posted = PublicSteeringTurnSchema.parse(await res.json());
+    expect(posted.reply).toBeNull();
+    expect(posted.content).toBeNull();
     const publicRes = await worker.fetch(
       get("/api/runs/run-20260914-aa20"),
       testEnv
@@ -1686,6 +1690,14 @@ describe("admin steering (story 3.14)", () => {
     const turn = detail.evidence.find((e) => e.event === "steering.turn");
     expect(turn?.payload?.content).toBeNull();
     expect(JSON.stringify(detail)).not.toContain(secret);
+    expect(
+      detail.evidence.some(
+        (e) =>
+          e.event === "steering.applied" &&
+          e.payload != null &&
+          "reply" in e.payload
+      )
+    ).toBe(false);
   });
 
   it("returns 400 on a published Run", async () => {

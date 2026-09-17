@@ -3,12 +3,13 @@ import { z } from "zod";
 import { IsoUtcSchema } from "./common";
 
 /**
- * Steering channel contracts (Story 3.14).
+ * Steering channel contracts (Stories 3.14–3.15).
  *
  * Admin POST body is `{ content, private, draftId? }`. `private` is stored
  * at insert and is never updated. The public-safe turn payload keeps
- * actor/time/draftId/`private` and nulls `content` when the turn was marked
- * private at submit.
+ * actor/time/draftId/`private` and nulls `content` and `reply` when the
+ * turn was marked private at submit. `reply` is also null when steward is
+ * unconfigured or `complete()` failed.
  */
 
 export const SteeringPostBodySchema = z
@@ -44,6 +45,7 @@ export const PublicSteeringTurnSchema = z
     actor: z.string().min(1),
     role: z.literal("steward"),
     content: z.string().min(1).nullable(),
+    reply: z.string().min(1).nullable(),
     private: z.boolean(),
     createdAt: IsoUtcSchema
   })
@@ -52,8 +54,11 @@ export const PublicSteeringTurnSchema = z
 export type PublicSteeringTurn = z.infer<typeof PublicSteeringTurnSchema>;
 
 export function toPublicSteeringTurn(
-  turn: SteeringTurnRecord
+  turn: SteeringTurnRecord,
+  reply: string | null = null
 ): PublicSteeringTurn {
+  const publicReply =
+    turn.private || reply == null || reply.trim().length === 0 ? null : reply;
   return PublicSteeringTurnSchema.parse({
     id: turn.id,
     runId: turn.runId,
@@ -61,6 +66,7 @@ export function toPublicSteeringTurn(
     actor: turn.actorDisplayName,
     role: "steward",
     content: turn.private ? null : turn.content,
+    reply: publicReply,
     private: turn.private,
     createdAt: turn.createdAt
   });

@@ -1,7 +1,9 @@
 import type { Db } from "../../shared/db/client";
 import * as draftsRepo from "../../shared/db/repos/draftsRepo";
+import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import * as steeringTurnsRepo from "../../shared/db/repos/steeringTurnsRepo";
+import type { DraftRecord } from "../../shared/schemas/run";
 import {
   toPublicSteeringTurn,
   type PublicSteeringTurn,
@@ -12,11 +14,16 @@ import { evidenceId } from "../connectors/connector";
 import { parseToolRequest } from "../ai/actionPolicy";
 import { complete, invokeTool, type GatewayDeps } from "../ai/gateway";
 import { appendStmt } from "../projector/evidence";
-import { buildStewardPrompt } from "../agents/StewardAgent";
+import {
+  buildInterrogationPrompt,
+  buildStewardPrompt
+} from "../agents/StewardAgent";
 
 /**
- * Story 3.14 — persist one operator steering turn and public Evidence.
- * Does not write mode, budget, YOLO, guardrails, or ALLOWED_TOOLS.
+ * Story 3.15 — persist one operator steering turn, ground a steward
+ * interrogation in Draft fields + Run Evidence, and append a read-only
+ * `:reply` Evidence row. Does not write Drafts, mode, budget, YOLO,
+ * guardrails, standing guidance, live F1, or ALLOWED_TOOLS.
  * `complete({ role: "steward" })` runs only when a mapping exists; failures
  * of that call never roll back the turn.
  */
@@ -85,7 +92,7 @@ export async function submitTurn(
     };
   }
 
-  let draftBody: string | null = null;
+  let loadedDraft: DraftRecord | null = null;
   const draftId = input.draftId;
   if (draftId != null) {
     const draft = await draftsRepo.getById(db, draftId);
@@ -95,7 +102,13 @@ export async function submitTurn(
         message: "Draft does not belong to this Run."
       };
     }
-    draftBody = draft.body;
+    if (draft.outcome != null) {
+      return {
+        status: "invalid",
+        message: "Draft is not pending."
+      };
+    }
+    loadedDraft = draft;
   }
 
   const now = gatewayDeps.now ?? (() => new Date().toISOString());
@@ -134,33 +147,58 @@ export async function submitTurn(
   // Synthetic id: never a Draft row, so invokeTool cannot stamp guardrail_fail.
   const denyId = turn.id;
   const denyTexts = [content];
-  if (draftBody != null) denyTexts.push(draftBody);
+  if (loadedDraft != null) denyTexts.push(loadedDraft.body);
   try {
     await denyToolShaped(gatewayDeps, run.id, denyId, denyTexts);
   } catch {
     // Deny is best-effort after persist; the turn + applied receipt stay.
   }
 
+  let reply: string | null = null;
   const mapping = await resolveRoleModel(db, "steward");
   if (mapping) {
     try {
+      const prompt =
+        loadedDraft != null
+          ? buildInterrogationPrompt({
+              content,
+              draft: loadedDraft,
+              evidence: await evidenceRepo.listByRun(db, run.id)
+            })
+          : buildStewardPrompt({
+              content,
+              draftId: turn.draftId
+            });
       const result = await complete(gatewayDeps, {
         role: "steward",
         runId: run.id,
-        prompt: buildStewardPrompt({
-          content,
-          draftId: turn.draftId
-        })
+        prompt
       });
       try {
         await denyToolShaped(gatewayDeps, run.id, denyId, [result.text]);
       } catch {
         // Same as above: persist already succeeded.
       }
+      await db.batch([
+        appendStmt(db, {
+          id: evidenceId(run.id, "steering.applied", turn.id, "reply"),
+          runId: run.id,
+          event: "steering.applied",
+          payload: {
+            effect: "none",
+            turnId: turn.id,
+            draftId: turn.draftId,
+            reply: turn.private ? null : result.text,
+            private: turn.private
+          },
+          createdAt: now()
+        })
+      ]);
+      reply = result.text;
     } catch {
       // Persist already succeeded; a retry must not duplicate the turn.
     }
   }
 
-  return { status: "ok", turn: toPublicSteeringTurn(turn) };
+  return { status: "ok", turn: toPublicSteeringTurn(turn, reply) };
 }

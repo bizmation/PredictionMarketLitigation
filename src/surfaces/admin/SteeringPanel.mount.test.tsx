@@ -38,8 +38,9 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
         draftId: "d-1",
         actor: "Patrick",
         role: "steward",
-        content: "hello",
-        private: false,
+        content: null,
+        reply: null,
+        private: true,
         createdAt: "2026-09-14T16:00:00.000Z"
       })
     );
@@ -63,6 +64,8 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
       })
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(document.body.textContent).toContain("content withheld");
+    expect(document.body.textContent).toContain("Submit turn");
   });
 
   it("locks a second click before busy re-renders", async () => {
@@ -149,5 +152,88 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
       "Operator re-authentication needed"
     );
     expect(document.body.textContent).not.toContain("Submit turn");
+  });
+
+  it("shows the last public reply under the composer after 200", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        scripted({
+          id: "st-1",
+          runId: "run-20260914-aaa1",
+          draftId: "d-1",
+          actor: "Patrick",
+          role: "steward",
+          content: "why skipped",
+          reply: "federal-register was skipped",
+          private: false,
+          createdAt: "2026-09-14T16:00:00.000Z"
+        })
+      )
+    );
+    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    fireEvent.change(screen.getByLabelText("Steering turn"), {
+      target: { value: "why skipped" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Submit turn" }));
+    await act(async () => {});
+    expect(document.body.textContent).toContain("federal-register was skipped");
+    expect(document.body.textContent).toContain("Submit turn");
+    expect(document.body.textContent).not.toContain("content withheld");
+  });
+
+  it("clears composer content and private when the selected Draft changes", () => {
+    const { rerender } = render(
+      <SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />
+    );
+    fireEvent.change(screen.getByLabelText("Steering turn"), {
+      target: { value: "typed for draft A" }
+    });
+    fireEvent.click(screen.getByLabelText("Mark private at submit"));
+    rerender(<SteeringPanel runId="run-20260914-aaa1" draftId="d-2" />);
+    expect(
+      (screen.getByLabelText("Steering turn") as HTMLTextAreaElement).value
+    ).toBe("");
+    expect(
+      (screen.getByLabelText("Mark private at submit") as HTMLInputElement)
+        .checked
+    ).toBe(false);
+  });
+
+  it("ignores an in-flight reply after the selected Draft changes", async () => {
+    let resolveFetch: ((value: ScriptedResponse) => void) | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<ScriptedResponse>((resolve) => {
+            resolveFetch = resolve;
+          })
+      )
+    );
+    const { rerender } = render(
+      <SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />
+    );
+    fireEvent.change(screen.getByLabelText("Steering turn"), {
+      target: { value: "why skipped" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Submit turn" }));
+    rerender(<SteeringPanel runId="run-20260914-aaa1" draftId="d-2" />);
+    await act(async () => {
+      resolveFetch?.(
+        scripted({
+          id: "st-1",
+          runId: "run-20260914-aaa1",
+          draftId: "d-1",
+          actor: "Patrick",
+          role: "steward",
+          content: "why skipped",
+          reply: "stale reply for draft A",
+          private: false,
+          createdAt: "2026-09-14T16:00:00.000Z"
+        })
+      );
+    });
+    expect(document.body.textContent).not.toContain("stale reply for draft A");
   });
 });

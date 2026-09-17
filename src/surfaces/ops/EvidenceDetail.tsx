@@ -186,6 +186,7 @@ function stepLabel(event: EvidenceEvent): string {
     actor,
     withheld,
     payloadField(event.payload, "content"),
+    payloadField(event.payload, "reply"),
     payloadField(event.payload, "effect")
   ].filter((part): part is string => part != null);
   return extra.length > 0
