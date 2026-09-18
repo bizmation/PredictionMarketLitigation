@@ -715,3 +715,258 @@ describe("ApprovalQueue timeouts (story 3.19, jsdom mount)", () => {
     expect(decisions).toBe(2);
   });
 });
+
+describe("ApprovalQueue docket-event card (story 3.21)", () => {
+  const RECORD = {
+    caseId: "case-ri-furcolo",
+    occurredAt: "2026-09-15",
+    description:
+      "ORDER granting Motion for Preliminary Injunction. Defendants are enjoined.",
+    sourceUrl:
+      "https://www.courtlistener.com/docket/73375343/kalshiex-llc-v-mark-furcolo/?entry=12",
+    entryNumber: 12,
+    context: { caption: "KalshiEX LLC v. Furcolo" }
+  };
+
+  function docketDraft(
+    id: string,
+    overrides: {
+      confidence?: number;
+      disagrees?: boolean;
+      inference?: boolean;
+      statePatch?: unknown;
+    } = {}
+  ): DraftRecord {
+    const base = draftRecord(id);
+    const inference =
+      overrides.inference === false
+        ? {}
+        : {
+            inference: {
+              kind: "pi-granted",
+              favors: "platform",
+              confidence: overrides.confidence ?? 0.9,
+              basis: "ORDER granting Motion for Preliminary Injunction"
+            }
+          };
+    return {
+      ...base,
+      targetEntityType: "docket_events",
+      targetEntityId: "de-case-ri-furcolo-501",
+      body: "KalshiEX LLC v. Furcolo — docket entry 12, filed 2026-09-15: ORDER granting…",
+      diff: {
+        ...RECORD,
+        ...inference,
+        statePatch:
+          overrides.statePatch === undefined
+            ? { posture: { from: "pending", to: "platform" } }
+            : overrides.statePatch
+      },
+      evalSummary: {
+        status: "ok",
+        basis:
+          "Classification holds; favors reads the enjoined party correctly.",
+        citationCompleteness: 100,
+        disagreement: overrides.disagrees
+          ? { flagged: true, description: "Reviewer reads this as a TRO." }
+          : { flagged: false, description: null },
+        ineligible: ["posture_flip"]
+      }
+    };
+  }
+
+  function decisionBody(fetchMock: ReturnType<typeof stubQueueFetch>) {
+    const call = fetchMock.mock.calls.find((c) =>
+      String(c[0]).includes("/decision")
+    );
+    return JSON.parse(call![1]!.body as string);
+  }
+
+  it("renders the record above the inference with per-field Accept/Strip defaulting to Accepted when confident", async () => {
+    const fetchMock = stubQueueFetch([docketDraft("d-de")], {
+      body: decided(docketDraft("d-de"))
+    });
+    render(<ApprovalQueue threshold={70} />);
+    await act(async () => {});
+
+    const card = screen.getByTestId("docket-event-card");
+    expect(card.textContent).toContain(RECORD.description);
+    expect(card.querySelector(`a[href="${RECORD.sourceUrl}"]`)).not.toBeNull();
+    expect(card.textContent).toContain("pi-granted");
+    expect(card.textContent).toContain("90/100");
+    expect(card.textContent).toContain("Classification holds");
+    const rows = screen.getByTestId("accept-strip").querySelectorAll("li");
+    expect(
+      [...rows].map((row) => row.querySelector(".kicker")?.textContent)
+    ).toEqual(["kind", "favors", "posture"]);
+    expect(rows[2]!.textContent).toContain("pending → platform");
+    expect(rows[2]!.textContent).toContain("Accepted");
+    expect(screen.queryByText("Effect on the tracker")).toBeNull();
+
+    fireEvent.keyDown(document, { key: "a" });
+    await act(async () => {});
+    expect(decisionBody(fetchMock)).toEqual({
+      action: "approve",
+      acceptedFields: ["kind", "favors", "posture"]
+    });
+  });
+
+  it("Strip posture keeps kind/favors and posts the reduced acceptedFields; Accept restores it", async () => {
+    const fetchMock = stubQueueFetch([docketDraft("d-de")], {
+      body: decided(docketDraft("d-de"))
+    });
+    render(<ApprovalQueue threshold={70} />);
+    await act(async () => {});
+
+    fireEvent.click(screen.getByLabelText("Strip posture"));
+    const rows = screen.getByTestId("accept-strip").querySelectorAll("li");
+    expect(rows[2]!.textContent).toContain("Stripped");
+    expect(rows[0]!.textContent).toContain("Accepted");
+
+    fireEvent.click(screen.getByText("Approve"));
+    await act(async () => {});
+    expect(decisionBody(fetchMock)).toEqual({
+      action: "approve",
+      acceptedFields: ["kind", "favors"]
+    });
+  });
+
+  it("defaults every field to Stripped below the threshold or on reviewer disagreement, and A posts acceptedFields: []", async () => {
+    const fetchMock = stubQueueFetch(
+      [
+        docketDraft("d-low", { confidence: 0.6 }),
+        docketDraft("d-dis", { disagrees: true })
+      ],
+      { body: decided(docketDraft("d-low")) }
+    );
+    render(<ApprovalQueue threshold={70} />);
+    await act(async () => {});
+
+    let rows = screen.getByTestId("accept-strip").querySelectorAll("li");
+    expect(
+      [...rows].every((row) => row.textContent?.includes("Stripped"))
+    ).toBe(true);
+    fireEvent.keyDown(document, { key: "a" });
+    await act(async () => {});
+    expect(decisionBody(fetchMock)).toEqual({
+      action: "approve",
+      acceptedFields: []
+    });
+
+    fireEvent.keyDown(document, { key: "j" });
+    rows = screen.getByTestId("accept-strip").querySelectorAll("li");
+    expect(
+      [...rows].every((row) => row.textContent?.includes("Stripped"))
+    ).toBe(true);
+    expect(document.body.textContent).toContain(
+      "Reviewer reads this as a TRO."
+    );
+  });
+
+  it("does not carry a per-field override onto the next Draft that lands at the same index after a decision", async () => {
+    // Refetch after the decision answers with a different Draft first.
+    let queue = [docketDraft("d-first"), docketDraft("d-second")];
+    const fetchMock = vi.fn(
+      async (input: string | URL | Request): Promise<ScriptedResponse> => {
+        const url = String(input);
+        if (url.includes("/decision")) {
+          queue = [docketDraft("d-second")];
+          return scripted(decided(docketDraft("d-first")));
+        }
+        if (url.includes("/api/pipeline-config")) {
+          return scripted({
+            key: "poll_sources",
+            version: 0,
+            sources: [],
+            history: []
+          });
+        }
+        return scripted({ items: queue });
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ApprovalQueue threshold={70} />);
+    await act(async () => {});
+
+    fireEvent.click(screen.getByLabelText("Strip posture"));
+    fireEvent.keyDown(document, { key: "a" });
+    await act(async () => {});
+    expect(decisionBody(fetchMock)).toEqual({
+      action: "approve",
+      acceptedFields: ["kind", "favors"]
+    });
+    // d-second is now at index 0 with no override: defaults apply.
+    const rows = screen.getByTestId("accept-strip").querySelectorAll("li");
+    expect(rows[2]!.textContent).toContain("Accepted");
+  });
+
+  it("resets a per-field override when navigating with J/K", async () => {
+    const fetchMock = stubQueueFetch([docketDraft("d-1"), docketDraft("d-2")], {
+      body: decided(docketDraft("d-1"))
+    });
+    render(<ApprovalQueue threshold={70} />);
+    await act(async () => {});
+
+    fireEvent.click(screen.getByLabelText("Strip kind"));
+    expect(
+      screen.getByTestId("accept-strip").querySelectorAll("li")[0]!.textContent
+    ).toContain("Stripped");
+    fireEvent.keyDown(document, { key: "j" });
+    fireEvent.keyDown(document, { key: "k" });
+    expect(
+      screen.getByTestId("accept-strip").querySelectorAll("li")[0]!.textContent
+    ).toContain("Accepted");
+    fireEvent.keyDown(document, { key: "a" });
+    await act(async () => {});
+    expect(decisionBody(fetchMock)).toEqual({
+      action: "approve",
+      acceptedFields: ["kind", "favors", "posture"]
+    });
+  });
+
+  it("edit-then-approve carries acceptedFields; a record-only Draft has nothing to accept", async () => {
+    const fetchMock = stubQueueFetch(
+      [
+        docketDraft("d-edit"),
+        docketDraft("d-rec", { inference: false, statePatch: {} })
+      ],
+      {
+        body: {
+          ...decided(docketDraft("d-edit")),
+          outcome: "edited",
+          editedBody: "Operator summary."
+        }
+      }
+    );
+    render(<ApprovalQueue threshold={70} />);
+    await act(async () => {});
+
+    // `favors` rides with `kind`: stripping one strips the classification.
+    fireEvent.click(screen.getByLabelText("Strip favors"));
+    let rows = screen.getByTestId("accept-strip").querySelectorAll("li");
+    expect(rows[0]!.textContent).toContain("Stripped");
+    expect(rows[1]!.textContent).toContain("Stripped");
+    expect(rows[2]!.textContent).toContain("Accepted");
+    fireEvent.click(screen.getByLabelText("Accept kind"));
+    rows = screen.getByTestId("accept-strip").querySelectorAll("li");
+    expect(rows[1]!.textContent).toContain("Accepted");
+    fireEvent.click(screen.getByLabelText("Strip favors"));
+    expect(screen.getByTestId("docket-event-card").textContent).toContain(
+      "Edited text is a public note; the record is published verbatim."
+    );
+    fireEvent.keyDown(document, { key: "e" });
+    const editor = screen.getByLabelText("Edited draft body");
+    fireEvent.change(editor, { target: { value: "Operator summary." } });
+    fireEvent.keyDown(document, { key: "a" });
+    await act(async () => {});
+    expect(decisionBody(fetchMock)).toEqual({
+      action: "edit",
+      editedBody: "Operator summary.",
+      acceptedFields: ["posture"]
+    });
+
+    fireEvent.keyDown(document, { key: "j" });
+    expect(screen.queryByTestId("accept-strip")).toBeNull();
+    expect(document.body.textContent).toContain("No inference on this record");
+  });
+});

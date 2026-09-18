@@ -11,7 +11,7 @@ import {
   completeDailyStep,
   monitorAndPackage
 } from "../workflow/dailyRunSteps";
-import type { SourceCheck } from "./connector";
+import { SourceUnavailableError, type SourceCheck } from "./connector";
 
 const testEnv = env as Env;
 const NOW = "2026-09-20T16:00:00.000Z";
@@ -215,6 +215,107 @@ describe("source monitoring & draft packaging (story 3.4)", () => {
         (e) => (e.payload as { source?: string }).source === "ND Cal docket"
       )
     ).toBe(true);
+  });
+});
+
+describe("typed source skips (story 3.21)", () => {
+  beforeEach(async () => {
+    await testEnv.DB.prepare("DELETE FROM pipeline_config_versions").run();
+  });
+
+  it("records SourceUnavailableError as source.skipped { reason } with failed: true, siblings unaffected", async () => {
+    const runId = await newRun();
+    const checks: Record<string, SourceCheck> = {
+      CourtListener: () => {
+        throw new SourceUnavailableError("http_429", {
+          status: 429,
+          reason: "impostor",
+          tier: "tier2"
+        });
+      },
+      ...oneMaterial
+    };
+    const result = await monitorAndPackage(testEnv.DB, runId, checks);
+    expect(result).toEqual({ draftCount: 1, anyFailure: true });
+    const evidence = await evidenceRepo.listByRun(testEnv.DB, runId);
+    expect(
+      evidence.find(
+        (e) =>
+          e.event === "source.skipped" &&
+          (e.payload as { source?: string }).source === "CourtListener"
+      )?.payload
+    ).toEqual({
+      source: "CourtListener",
+      tier: "tier1",
+      reason: "http_429",
+      status: 429
+    });
+    expect(evidence.some((e) => e.event === "run.failed")).toBe(false);
+    expect(
+      evidence.filter(
+        (e) =>
+          e.event === "source.skipped" &&
+          (e.payload as { reason?: string }).reason === "not wired"
+      )
+    ).toHaveLength(POLL_SOURCES.length - 2);
+  });
+
+  it("marks the Run failed, never empty, when the only wired source is unconfigured", async () => {
+    const runId = await newRun();
+    const checks: Record<string, SourceCheck> = {
+      CourtListener: () => {
+        throw new SourceUnavailableError("unconfigured");
+      }
+    };
+    const result = await monitorAndPackage(testEnv.DB, runId, checks);
+    expect(result).toEqual({ draftCount: 0, anyFailure: true });
+    const skipped = (await evidenceRepo.listByRun(testEnv.DB, runId)).filter(
+      (e) => e.event === "source.skipped"
+    );
+    expect(
+      skipped.find(
+        (e) => (e.payload as { source?: string }).source === "CourtListener"
+      )?.payload
+    ).toMatchObject({ reason: "unconfigured" });
+  });
+
+  it("spreads a connector's fetched summary into source.fetched, even with zero entities", async () => {
+    const runId = await newRun();
+    const checks: Record<string, SourceCheck> = {
+      CourtListener: () => [
+        {
+          entities: [],
+          fetched: {
+            docketIds: ["73375343"],
+            fetchedAt: NOW,
+            dockets: [{ docketId: "73375343", latestEntryDate: "2026-09-15" }],
+            // Reserved keys always win over connector-authored ones.
+            source: "impostor",
+            itemCount: 99
+          }
+        }
+      ]
+    };
+    const result = await monitorAndPackage(testEnv.DB, runId, checks);
+    expect(result).toEqual({ draftCount: 0, anyFailure: false });
+    const evidence = await evidenceRepo.listByRun(testEnv.DB, runId);
+    expect(evidence.find((e) => e.event === "source.fetched")?.payload).toEqual(
+      {
+        source: "CourtListener",
+        tier: "tier1",
+        itemCount: 1,
+        docketIds: ["73375343"],
+        fetchedAt: NOW,
+        dockets: [{ docketId: "73375343", latestEntryDate: "2026-09-15" }]
+      }
+    );
+    expect(
+      evidence.some(
+        (e) =>
+          e.event === "source.skipped" &&
+          (e.payload as { source?: string }).source === "CourtListener"
+      )
+    ).toBe(false);
   });
 });
 

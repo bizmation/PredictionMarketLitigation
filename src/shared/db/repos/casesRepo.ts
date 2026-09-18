@@ -38,6 +38,8 @@ type DocketEventRow = {
   occurred_at: string;
   description: string;
   source_id: string;
+  kind: string | null;
+  favors: string | null;
   provenance_kind: string;
   published_at: string;
   updated_at: string;
@@ -265,7 +267,7 @@ export async function getCaseById(
       db
         .prepare(
           `SELECT id, case_id, occurred_at, description, source_id,
-                  provenance_kind, published_at, updated_at
+                  kind, favors, provenance_kind, published_at, updated_at
              FROM docket_events
             WHERE case_id = ?
          ORDER BY occurred_at DESC, id ASC`
@@ -353,6 +355,8 @@ export async function getCaseById(
       occurredAt: event.occurred_at,
       description: event.description,
       sourceId: event.source_id,
+      kind: event.kind,
+      favors: event.favors,
       provenanceKind: event.provenance_kind,
       publishedAt: event.published_at,
       updatedAt: event.updated_at,

@@ -8,7 +8,11 @@ import * as modeRepo from "../../shared/db/repos/modeRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import type { RunOrigin, RunSummary } from "../../shared/schemas/run";
 import { append } from "../projector/evidence";
-import { evidenceId } from "../connectors/connector";
+import { evidenceId, type SourceCheck } from "../connectors/connector";
+import {
+  COURTLISTENER_SOURCE_NAME,
+  createCourtListenerCheck
+} from "../connectors/courtListener";
 import {
   createWorkersAiProvider,
   type GatewayDeps,
@@ -79,6 +83,24 @@ function gatewayDepsFromEnv(env: Env, db: GatewayDeps["db"]): GatewayDeps {
   return {
     db,
     provider: createWorkersAiProvider(env) as LlmProvider
+  };
+}
+
+/**
+ * Story 3.21 — the live connector registry, keyed on the exact source name
+ * (3.17 makes names operator-editable; an unknown name falls back to
+ * `stubCheck` → `"not wired"`). The token is a per-Worker secret typed as
+ * optional on `Env`; absent → `source.skipped { reason: "unconfigured" }`.
+ */
+export function sourceChecksFromEnv(
+  env: Pick<Env, "COURTLISTENER_API_TOKEN">,
+  db: Db
+): Record<string, SourceCheck> {
+  return {
+    [COURTLISTENER_SOURCE_NAME]: createCourtListenerCheck({
+      db,
+      token: env.COURTLISTENER_API_TOKEN
+    })
   };
 }
 
@@ -217,7 +239,12 @@ export class DailyRunWorkflow extends WorkflowEntrypoint<Env, DailyRunParams> {
     if (!runId) return;
 
     const packaged = await step.do("run-daily-step", () =>
-      packageDailyRun(db, runId, gatewayDepsFromEnv(this.env, db))
+      packageDailyRun(
+        db,
+        runId,
+        gatewayDepsFromEnv(this.env, db),
+        sourceChecksFromEnv(this.env, db)
+      )
     );
 
     if (packaged.skip) return;

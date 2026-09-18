@@ -102,7 +102,9 @@ export type RunLogItem = z.infer<typeof RunLogItemSchema>;
  * FR17 ineligibility reasons persisted on a Draft for auto-approve
  * policy (3.13). Closed set — 3.5 records the eval/tier/threshold inputs;
  * 3.6 adds `guardrail_fail`; 3.13 adds `posture_flip` and
- * `party_characterization` so those escalate categories never auto-approve.
+ * `party_characterization` so those escalate categories never auto-approve;
+ * 3.21 adds `lifecycle_change` for a docket-event Draft whose derived
+ * `statePatch` would resolve a case.
  */
 export const INELIGIBLE_REASON_VALUES = [
   "tier2_only",
@@ -111,7 +113,8 @@ export const INELIGIBLE_REASON_VALUES = [
   "evals_not_run",
   "guardrail_fail",
   "posture_flip",
-  "party_characterization"
+  "party_characterization",
+  "lifecycle_change"
 ] as const;
 
 export const IneligibleReasonSchema = z.enum(INELIGIBLE_REASON_VALUES);

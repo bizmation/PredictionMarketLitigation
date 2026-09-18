@@ -113,6 +113,42 @@ describe("PendingDrafts", () => {
     expect(approvedOnly).not.toContain(NOT_LIVE_LABEL);
   });
 
+  it("renders a docket-event Draft as classification + derived patch, never a column of dashes (story 3.21)", () => {
+    const html = renderToStaticMarkup(
+      <PendingDrafts
+        drafts={[
+          draft({
+            targetEntityType: "docket_events",
+            targetEntityId: "de-case-ri-furcolo-501",
+            body: "KalshiEX LLC v. Furcolo — docket entry 12",
+            diff: {
+              caseId: "case-ri-furcolo",
+              occurredAt: "2026-09-15",
+              description: "ORDER granting Motion for Preliminary Injunction.",
+              sourceUrl:
+                "https://www.courtlistener.com/docket/73375343/x/?entry=12",
+              entryNumber: 12,
+              inference: {
+                kind: "pi-granted",
+                favors: "platform",
+                confidence: 0.9,
+                basis: "ORDER granting"
+              },
+              statePatch: { posture: { from: "pending", to: "platform" } }
+            }
+          })
+        ]}
+      />
+    );
+    expect(html).toContain("Classification");
+    expect(html).toContain("pi-granted · favors platform");
+    expect(html).toContain("Derived case state, if accepted");
+    expect(html).toContain("<del>pending</del>");
+    expect(html).toContain("<ins>platform</ins>");
+    expect(html).not.toContain("caseId");
+    expect(html).not.toContain("Proposed change to the tracker");
+  });
+
   it("renders a pending card inside the banner with body, diff, and Evidence link", () => {
     const html = renderToStaticMarkup(<PendingDrafts drafts={[draft()]} dev />);
     expect(html).toContain('class="drafts"');

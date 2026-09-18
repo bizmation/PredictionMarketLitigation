@@ -37,4 +37,12 @@ interface Env {
   OPERATOR_DISPLAY_NAME?: string;
   /** Exactly "true" enables the local bypass. .dev.vars only. */
   ACCESS_DEV_BYPASS?: string;
+  /**
+   * Story 3.21 — CourtListener REST API token (Patrick's account), set as a
+   * per-Worker secret (`pml-build` 2026-09-18; `pml` at cutover). Absent at
+   * runtime is a real state: the connector records
+   * `source.skipped { reason: "unconfigured" }` rather than assuming presence.
+   * Never logged, never in a prompt, never in an Evidence payload.
+   */
+  COURTLISTENER_API_TOKEN?: string;
 }

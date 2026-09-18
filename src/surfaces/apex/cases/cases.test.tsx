@@ -494,6 +494,41 @@ describe("CaseDetailPanel", () => {
     expect(html).toContain("Every event above links to a Tier-1 source");
   });
 
+  it("shows kind/favors chips on a classified development and none on a seed row (story 3.21)", () => {
+    const seedEvent = detailMock.docketEvents[0]!;
+    const html = renderToStaticMarkup(
+      <CaseDetailPanel
+        selected={flaherty}
+        circuits={mockCircuits}
+        states={mockStates}
+        selection={{
+          state: null,
+          circuit: null,
+          case: "case-flaherty",
+          issue: null
+        }}
+        commit={() => undefined}
+        detail={{
+          ...detailMock,
+          docketEvents: [
+            {
+              ...seedEvent,
+              id: "de-case-flaherty-77",
+              description: "ORDER granting Motion for Preliminary Injunction.",
+              kind: "pi-granted",
+              favors: "platform"
+            },
+            { ...seedEvent, kind: null, favors: null }
+          ]
+        }}
+        detailStatus="success"
+      />
+    );
+    expect(html).toContain("pi-granted");
+    expect(html).toContain("favors platform");
+    expect(html.match(/data-testid="development-chips"/g)).toHaveLength(1);
+  });
+
   it("does not claim events have Tier-1 sources when the docket is empty", () => {
     const html = renderToStaticMarkup(
       <CaseDetailPanel

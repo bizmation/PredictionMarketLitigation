@@ -3,6 +3,7 @@ import * as draftsRepo from "../../shared/db/repos/draftsRepo";
 import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
 import * as modeRepo from "../../shared/db/repos/modeRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
+import { defaultAcceptedFields } from "../../shared/schemas/docketInference";
 import type { DraftRecord, IneligibleReason } from "../../shared/schemas/run";
 import { evidenceId } from "../connectors/connector";
 import { append } from "../projector/evidence";
@@ -25,23 +26,51 @@ const BAKED_BLOCKERS: readonly IneligibleReason[] = [
   "evals_not_run",
   "guardrail_fail",
   "posture_flip",
-  "party_characterization"
+  "party_characterization",
+  "lifecycle_change"
 ];
 
-export function isPostureFlip(diff: unknown): boolean {
-  if (diff == null || typeof diff !== "object" || Array.isArray(diff)) {
-    return false;
-  }
-  const posture = (diff as Record<string, unknown>).posture;
+function isFieldChange(container: unknown, field: string): boolean {
   if (
-    posture == null ||
-    typeof posture !== "object" ||
-    Array.isArray(posture)
+    container == null ||
+    typeof container !== "object" ||
+    Array.isArray(container)
   ) {
     return false;
   }
-  const change = posture as { from?: unknown; to?: unknown };
+  const value = (container as Record<string, unknown>)[field];
+  if (value == null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const change = value as { from?: unknown; to?: unknown };
   return "from" in change && "to" in change && change.from !== change.to;
+}
+
+function statePatchOf(diff: unknown): unknown {
+  if (diff == null || typeof diff !== "object" || Array.isArray(diff)) {
+    return undefined;
+  }
+  return (diff as Record<string, unknown>).statePatch;
+}
+
+/**
+ * A posture change proposed either directly (`diff.posture`, 3.11 update
+ * targets) or derived by the 3.21 transition table (`diff.statePatch.posture`).
+ */
+export function isPostureFlip(diff: unknown): boolean {
+  return (
+    isFieldChange(diff, "posture") ||
+    isFieldChange(statePatchOf(diff), "posture")
+  );
+}
+
+/**
+ * Story 3.21 — a derived `lifecycle` or `decidedAt` change (a case
+ * resolving, or its decision date moving) escalates.
+ */
+export function isLifecycleChange(diff: unknown): boolean {
+  const patch = statePatchOf(diff);
+  return isFieldChange(patch, "lifecycle") || isFieldChange(patch, "decidedAt");
 }
 
 export function isPartyCharacterization(
@@ -71,6 +100,7 @@ export function reasonsFor(
     if ((BAKED_BLOCKERS as readonly string[]).includes(reason)) add(reason);
   }
   if (isPostureFlip(draft.diff)) add("posture_flip");
+  if (isLifecycleChange(draft.diff)) add("lifecycle_change");
   if (isPartyCharacterization(draft.targetEntityType)) {
     add("party_characterization");
   }
@@ -150,12 +180,24 @@ export async function autoApproveRun(db: Db, runId: string): Promise<void> {
       });
       continue;
     }
+    // 3.21 — a docket-event Draft publishes only what the queue would have
+    // accepted by default: everything when the drafter cleared the threshold
+    // and the reviewer agreed, else the record alone.
+    const acceptedFields =
+      draft.targetEntityType === "docket_events"
+        ? defaultAcceptedFields(
+            draft.diff,
+            live.threshold,
+            draft.evalSummary?.disagreement.flagged === true
+          )
+        : undefined;
     const result = await decide(db, {
       draftId: draft.id,
       action: "approve",
       operator: { displayName: YOLO_AGENT },
       now,
-      provenanceKind: "agent"
+      provenanceKind: "agent",
+      ...(acceptedFields == null ? {} : { acceptedFields })
     });
     if (result.status === "decided") {
       await appendApproveValidation(db, {

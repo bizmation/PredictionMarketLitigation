@@ -184,6 +184,49 @@ describe("public F1 API (story 2.1)", () => {
     expect(flaherty!.firstOccurredAt).not.toBe("2025-04-01");
   });
 
+  it("shows an accepted kind/favors on a published development (story 3.21)", async () => {
+    await testEnv.DB.batch([
+      testEnv.DB.prepare(
+        `INSERT INTO sources (id, owning_table, owning_id, url, title, tier, published_at)
+         VALUES ('src-de-case-flaherty-77', 'cases', 'case-flaherty',
+                 'https://www.courtlistener.com/docket/1/x/?entry=77',
+                 'RECAP docket entry 77', 'tier1', '2026-09-15')`
+      ),
+      testEnv.DB.prepare(
+        `INSERT INTO docket_events (id, case_id, occurred_at, description, source_id,
+            kind, favors, provenance_kind, published_at, updated_at)
+         VALUES ('de-case-flaherty-77', 'case-flaherty', '2026-09-15',
+                 'ORDER granting Motion for Preliminary Injunction.',
+                 'src-de-case-flaherty-77', 'pi-granted', 'platform', 'human',
+                 '2026-09-18T16:00:00.000Z', '2026-09-18T16:00:00.000Z')`
+      )
+    ]);
+    const res = await worker.fetch!(get("/api/cases/case-flaherty"), testEnv);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      docketEvents: Array<{
+        id: string;
+        kind: string | null;
+        favors: string | null;
+      }>;
+    };
+    expect(
+      body.docketEvents.find((e) => e.id === "de-case-flaherty-77")
+    ).toMatchObject({
+      kind: "pi-granted",
+      favors: "platform"
+    });
+    await expect(
+      testEnv.DB.prepare(
+        `INSERT INTO docket_events (id, case_id, occurred_at, description, source_id,
+            kind, favors, provenance_kind, published_at, updated_at)
+         VALUES ('de-case-flaherty-78', 'case-flaherty', '2026-09-15', 'x',
+                 'src-de-case-flaherty-77', 'weird', 'platform', 'human',
+                 '2026-09-18T16:00:00.000Z', '2026-09-18T16:00:00.000Z')`
+      ).run()
+    ).rejects.toThrow(/CHECK/);
+  });
+
   it("returns rich case detail with Tier-1 docket evidence", async () => {
     const res = await worker.fetch!(get("/api/cases/case-flaherty"), testEnv);
     expect(res.status).toBe(200);
@@ -191,7 +234,12 @@ describe("public F1 API (story 2.1)", () => {
       id: string;
       partyRole?: unknown;
       sources: Array<{ tier: string }>;
-      docketEvents: Array<{ source: { tier: string } }>;
+      docketEvents: Array<{
+        id: string;
+        kind?: unknown;
+        favors?: unknown;
+        source: { tier: string };
+      }>;
       issueTags: unknown[];
       states: unknown[];
       entities: Array<{ role: string }>;
@@ -202,6 +250,20 @@ describe("public F1 API (story 2.1)", () => {
     expect(body.docketEvents.length).toBeGreaterThan(0);
     expect(
       body.docketEvents.every((event) => event.source.tier === "tier1")
+    ).toBe(true);
+    // Story 3.21 — seed developments carry no inference; the keys are
+    // present and null so the apex chips have nothing to invent.
+    expect(
+      body.docketEvents
+        .filter(
+          (event) =>
+            !(event as { id: string }).id.startsWith("de-case-flaherty-77")
+        )
+        .every(
+          (event) =>
+            (event as { kind?: unknown }).kind === null &&
+            (event as { favors?: unknown }).favors === null
+        )
     ).toBe(true);
     expect(body.issueTags.length).toBeGreaterThan(0);
     expect(body.states.length).toBeGreaterThan(0);

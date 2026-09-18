@@ -256,6 +256,56 @@ function payloadGuidanceRefs(payload: unknown, key: string): string | null {
     : `${label} none`;
 }
 
+/** Story 3.21 — `acceptedFields` / `strippedFields` on `gate.decided`. */
+function payloadStringList(payload: unknown, key: string): string | null {
+  if (
+    payload === null ||
+    typeof payload !== "object" ||
+    Array.isArray(payload)
+  ) {
+    return null;
+  }
+  const value = (payload as Record<string, unknown>)[key];
+  if (!Array.isArray(value)) return null;
+  const items = value.filter(
+    (item): item is string => typeof item === "string" && item.length > 0
+  );
+  const label = key === "docketIds" ? "dockets" : key;
+  return items.length > 0 ? `${label} ${items.join(", ")}` : `${label} none`;
+}
+
+/** Story 3.21 — `inference { kind, favors }` on `draft.evaluated`. */
+function payloadInference(payload: unknown): string | null {
+  if (
+    payload === null ||
+    typeof payload !== "object" ||
+    Array.isArray(payload)
+  ) {
+    return null;
+  }
+  const inference = (payload as Record<string, unknown>).inference;
+  if (
+    inference === null ||
+    inference === undefined ||
+    typeof inference !== "object" ||
+    Array.isArray(inference)
+  ) {
+    return "inference" in (payload as Record<string, unknown>)
+      ? "inference dropped"
+      : null;
+  }
+  const row = inference as Record<string, unknown>;
+  const kind = typeof row.kind === "string" ? row.kind : null;
+  const favors = typeof row.favors === "string" ? row.favors : null;
+  if (kind == null && favors == null) return null;
+  return [
+    kind == null ? null : `kind ${kind}`,
+    favors == null ? null : `favors ${favors}`
+  ]
+    .filter((part): part is string => part != null)
+    .join(" · ");
+}
+
 function stepLabel(event: EvidenceEvent): string {
   const tool = payloadField(event.payload, "tool");
   const source = payloadField(event.payload, "source");
@@ -280,10 +330,17 @@ function stepLabel(event: EvidenceEvent): string {
     payloadNumber(event.payload, "version"),
     payloadRefused(event.payload),
     payloadField(event.payload, "reason"),
+    payloadField(event.payload, "ruleId"),
     payloadSourceSummary(event.payload, "prior"),
     payloadSourceSummary(event.payload, "next"),
     payloadGuidanceRefs(event.payload, "guidanceInForce"),
-    payloadGuidanceRefs(event.payload, "guidance")
+    payloadGuidanceRefs(event.payload, "guidance"),
+    payloadInference(event.payload),
+    payloadStringList(event.payload, "docketIds"),
+    payloadStringList(event.payload, "acceptedFields"),
+    payloadStringList(event.payload, "strippedFields"),
+    // 3.21 — the RECAP-lag caveat travels with the fetch it qualifies.
+    payloadField(event.payload, "note")
   ].filter((part): part is string => part != null);
   return extra.length > 0
     ? `${event.event} · ${extra.join(" · ")}`
@@ -405,6 +462,140 @@ function firstDecidedBy(drafts: DraftRecord[]): string | null {
     if (draft.decidedBy) return draft.decidedBy;
   }
   return null;
+}
+
+type DocketDraftView = {
+  description: string;
+  occurredAt: string;
+  sourceUrl: string;
+  inference: {
+    kind: string;
+    favors: string;
+    confidence: number;
+    basis: string;
+  } | null;
+  statePatch: Array<{ field: string; from: unknown; to: unknown }>;
+};
+
+/**
+ * Story 3.21 — a `docket_events` Draft carries the verbatim record, the
+ * drafter's inference and the code-derived `statePatch` inside `diff`.
+ * Readers see the reasoning; `gate.decided` (above) shows the override.
+ */
+function docketDraftView(draft: DraftRecord): DocketDraftView | null {
+  if (draft.targetEntityType !== "docket_events") return null;
+  const diff = draft.diff;
+  if (diff == null || typeof diff !== "object" || Array.isArray(diff)) {
+    return null;
+  }
+  const row = diff as Record<string, unknown>;
+  if (
+    typeof row.description !== "string" ||
+    typeof row.occurredAt !== "string" ||
+    typeof row.sourceUrl !== "string"
+  ) {
+    return null;
+  }
+  const inferenceRow =
+    row.inference != null &&
+    typeof row.inference === "object" &&
+    !Array.isArray(row.inference)
+      ? (row.inference as Record<string, unknown>)
+      : null;
+  const inference =
+    inferenceRow != null &&
+    typeof inferenceRow.kind === "string" &&
+    typeof inferenceRow.favors === "string" &&
+    typeof inferenceRow.confidence === "number" &&
+    typeof inferenceRow.basis === "string"
+      ? {
+          kind: inferenceRow.kind,
+          favors: inferenceRow.favors,
+          confidence: inferenceRow.confidence,
+          basis: inferenceRow.basis
+        }
+      : null;
+  const statePatch: DocketDraftView["statePatch"] = [];
+  if (
+    row.statePatch != null &&
+    typeof row.statePatch === "object" &&
+    !Array.isArray(row.statePatch)
+  ) {
+    for (const [field, change] of Object.entries(
+      row.statePatch as Record<string, unknown>
+    )) {
+      if (
+        change == null ||
+        typeof change !== "object" ||
+        Array.isArray(change) ||
+        !("to" in change)
+      ) {
+        continue;
+      }
+      const pair = change as { from?: unknown; to?: unknown };
+      statePatch.push({ field, from: pair.from ?? null, to: pair.to });
+    }
+  }
+  return {
+    description: row.description,
+    occurredAt: row.occurredAt,
+    sourceUrl: row.sourceUrl,
+    inference,
+    statePatch
+  };
+}
+
+function valueText(value: unknown): string {
+  if (value == null) return "—";
+  if (typeof value === "string") return value;
+  return JSON.stringify(value);
+}
+
+function DocketDraftBlock({ view }: { view: DocketDraftView }) {
+  return (
+    <div data-testid="docket-draft">
+      <div className="kicker">Record · {view.occurredAt}</div>
+      <p>{view.description}</p>
+      <p className="lastupd">
+        <a href={view.sourceUrl} target="_blank" rel="noopener">
+          Tier-1 · CourtListener ↗
+        </a>
+      </p>
+      <div className="kicker">Inference</div>
+      {view.inference == null ? (
+        <p className="muted">
+          No inference recorded — the drafter's answer was outside the
+          vocabulary and was dropped. The record stands alone.
+        </p>
+      ) : (
+        <dl className="kv">
+          <dt>Kind</dt>
+          <dd>{view.inference.kind}</dd>
+          <dt>Favors</dt>
+          <dd>{view.inference.favors}</dd>
+          <dt>Drafter confidence</dt>
+          <dd>{Math.round(view.inference.confidence * 100)}/100</dd>
+          <dt>Basis</dt>
+          <dd>{view.inference.basis}</dd>
+        </dl>
+      )}
+      <div className="kicker">Derived case state</div>
+      {view.statePatch.length === 0 ? (
+        <p className="muted">No case field would change.</p>
+      ) : (
+        <dl className="kv">
+          {view.statePatch.map((change) => (
+            <div key={change.field} style={{ display: "contents" }}>
+              <dt>{change.field}</dt>
+              <dd>
+                {valueText(change.from)} → {valueText(change.to)}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </div>
+  );
 }
 
 function ranEvals(
@@ -642,6 +833,12 @@ function EvidenceBody({ detail }: { detail: RunDetail }) {
                   </p>
                 ) : null}
                 <p>{draft.body}</p>
+                {(() => {
+                  const docket = docketDraftView(draft);
+                  return docket == null ? null : (
+                    <DocketDraftBlock view={docket} />
+                  );
+                })()}
                 {draft.editedBody ? (
                   <div className="diff">
                     <div className="col">

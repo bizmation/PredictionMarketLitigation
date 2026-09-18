@@ -28,6 +28,37 @@ type CaseDetailPanelProps = {
   detailStatus: CaseDetailLoad["status"];
 };
 
+const FAVORS_LABELS: Record<string, string> = {
+  platform: "favors platform",
+  state: "favors state",
+  none: "no side favored"
+};
+
+/**
+ * Story 3.21 — the operator-accepted classification of a connector-published
+ * entry. Absent on seed rows and on entries whose inference was stripped at
+ * the gate; the chips say what the record says, nothing more.
+ */
+function DevelopmentChips({
+  kind,
+  favors
+}: {
+  kind?: string | null;
+  favors?: string | null;
+}) {
+  if (kind == null && favors == null) return null;
+  return (
+    <span className="itag-row" data-testid="development-chips">
+      {kind != null ? <span className="itag">{kind}</span> : null}
+      {favors != null ? (
+        <span className={`itag ${favors === "none" ? "" : "primary"}`.trim()}>
+          {FAVORS_LABELS[favors] ?? favors}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 export function CaseDetailPanel({
   selected,
   circuits,
@@ -165,6 +196,7 @@ export function CaseDetailPanel({
                   </span>
                   <br />
                   {event.description}
+                  <DevelopmentChips kind={event.kind} favors={event.favors} />
                   <br />
                   <a href={event.source.url} target="_blank" rel="noopener">
                     {event.source.title} ↗

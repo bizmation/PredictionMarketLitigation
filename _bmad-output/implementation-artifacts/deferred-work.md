@@ -174,3 +174,9 @@ Ledger entries above are not edited; this block records where each Epic 3 entry 
 - source_spec: `spec-3-19-epic-3-hardening-timeouts-gateway-seed.md`
   summary: The 0017 idempotence test re-runs its own `INSERT … DO NOTHING`, not the migration's text, so `INSERT OR REPLACE` creeping into 0017 would pass the suite.
   evidence: D1 applies each migration once via `d1_migrations`, so the re-run only arises with a hand-seeded row; to pin, read the `0017` entry from `env.TEST_MIGRATIONS` in `gatewaySeed.test.ts`, steer the row via `setRoleModel`, re-apply, assert unchanged. [src/pipeline/workflow/gatewaySeed.test.ts]
+
+## Deferred from: code review of spec-3-21-first-live-connector.md (2026-09-18)
+
+- source_spec: `spec-3-21-first-live-connector.md`
+  summary: `DailyRunWorkflow.run` passing `sourceChecksFromEnv(env, db)` into `packageDailyRun` has no executing test; deleting the argument would silently make every production Run report CourtListener as "not wired" with the suite green.
+  evidence: The repo has no Workflow-entrypoint harness (only `server.test.ts` checks the export exists); `dailyRun.test.ts` calls `packageDailyRun(..., sourceChecksFromEnv(...))` directly. The spec's manual check (`Run now` on `build.*` → ops. `/runs/:id` shows `source.fetched` for CourtListener) is the stated verification; a fake-`step` harness would close it. [src/pipeline/workflow/dailyRun.ts:242]

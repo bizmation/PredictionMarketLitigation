@@ -8,6 +8,17 @@ import {
   fetchWithTimeout,
   isTimeoutError
 } from "../../shared/lib/timeouts";
+import {
+  acceptableFields,
+  coupledUnit,
+  defaultAcceptedFields,
+  InferenceSchema,
+  STATE_PATCH_FIELDS,
+  StatePatchSchema,
+  type Inference,
+  type StatePatch
+} from "../../shared/schemas/docketInference";
+import { AUTO_APPROVE_CONFIDENCE_THRESHOLD } from "../../shared/schemas/mode";
 import type { DraftRecord } from "../../shared/schemas/run";
 import { EmptyState, WarnChip } from "../../shared/ui";
 import { SteeringPanel } from "./SteeringPanel";
@@ -25,7 +36,15 @@ type ApprovalQueueProps = {
   items?: DraftRecord[];
   /** True in local development — Evidence links go through `?surface=ops`. */
   dev?: boolean;
+  /**
+   * Story 3.21 — the live YOLO threshold (0–100) from the shell's mode hook.
+   * Inference fields default to Accepted iff the drafter's confidence is at
+   * or above it and the reviewer did not disagree.
+   */
+  threshold?: number;
 };
+
+export const DOCKET_EVENTS_TARGET = "docket_events";
 
 type QueueView =
   | { status: "loading" }
@@ -192,6 +211,220 @@ function QueueDiff({ diff }: { diff: DraftRecord["diff"] }) {
   );
 }
 
+type DocketView = {
+  caseId: string;
+  occurredAt: string;
+  description: string;
+  sourceUrl: string;
+  entryNumber: number | null;
+  caption: string | null;
+  inference: Inference | null;
+  statePatch: StatePatch;
+  acceptable: string[];
+};
+
+/**
+ * Story 3.21 — read a `docket_events` Draft's `diff`: the connector's record
+ * (verbatim, read-only), the drafter's inference (if it survived the
+ * vocabulary check) and the derived `statePatch`. Anything malformed renders
+ * as absent rather than inventing a value.
+ */
+export function docketView(draft: DraftRecord): DocketView | null {
+  if (draft.targetEntityType !== DOCKET_EVENTS_TARGET) return null;
+  const diff = draft.diff;
+  if (diff === null || typeof diff !== "object" || Array.isArray(diff)) {
+    return null;
+  }
+  const row = diff as Record<string, unknown>;
+  if (
+    typeof row.caseId !== "string" ||
+    typeof row.occurredAt !== "string" ||
+    typeof row.description !== "string" ||
+    typeof row.sourceUrl !== "string"
+  ) {
+    return null;
+  }
+  const context =
+    row.context !== null &&
+    typeof row.context === "object" &&
+    !Array.isArray(row.context)
+      ? (row.context as Record<string, unknown>)
+      : null;
+  const inference = InferenceSchema.safeParse(row.inference);
+  const statePatch = StatePatchSchema.safeParse(row.statePatch);
+  return {
+    caseId: row.caseId,
+    occurredAt: row.occurredAt,
+    description: row.description,
+    sourceUrl: row.sourceUrl,
+    entryNumber: typeof row.entryNumber === "number" ? row.entryNumber : null,
+    caption: typeof context?.caption === "string" ? context.caption : null,
+    inference: inference.success ? inference.data : null,
+    statePatch: statePatch.success ? statePatch.data : {},
+    acceptable: acceptableFields(row)
+  };
+}
+
+/**
+ * Default per-field decision: Accept when the drafter's confidence clears
+ * the live threshold and the reviewer did not disagree; otherwise Strip.
+ * The operator overrides per field; nothing is published without approve.
+ */
+export function defaultAccepted(
+  draft: DraftRecord,
+  view: DocketView,
+  threshold: number
+): Record<string, boolean> {
+  const accepted = defaultAcceptedFields(
+    draft.diff,
+    threshold,
+    draft.evalSummary?.disagreement.flagged === true
+  );
+  const out: Record<string, boolean> = {};
+  for (const field of view.acceptable) out[field] = accepted.includes(field);
+  return out;
+}
+
+/** Toggle a field and its coupled partner together (classification / resolution units). */
+export function toggleAccepted(
+  current: Record<string, boolean>,
+  acceptable: readonly string[],
+  field: string,
+  next: boolean
+): Record<string, boolean> {
+  const out = { ...current };
+  for (const member of coupledUnit(field)) {
+    if (acceptable.includes(member)) out[member] = next;
+  }
+  return out;
+}
+
+function fieldValueText(field: string, view: DocketView): string {
+  if (field === "kind") return view.inference?.kind ?? "—";
+  if (field === "favors") return view.inference?.favors ?? "—";
+  const change = view.statePatch[field as (typeof STATE_PATCH_FIELDS)[number]];
+  if (change == null) return "—";
+  return `${diffValueText(change.from)} → ${diffValueText(change.to)}`;
+}
+
+function DocketEventCard({
+  draft,
+  view,
+  accepted,
+  onToggle
+}: {
+  draft: DraftRecord;
+  view: DocketView;
+  accepted: Record<string, boolean>;
+  onToggle: (field: string, next: boolean) => void;
+}) {
+  const disagreement = draft.evalSummary?.disagreement;
+  return (
+    <div data-testid="docket-event-card">
+      <div className="kicker" style={SECTION_LABEL_STYLE}>
+        Record — from the docket, verbatim
+      </div>
+      <p style={PROPOSED_TEXT_STYLE}>
+        <span className="kicker">
+          {view.caption ?? view.caseId}
+          {view.entryNumber != null ? ` · entry ${view.entryNumber}` : ""}
+          {` · ${view.occurredAt}`}
+        </span>
+        <br />
+        {view.description}
+        <br />
+        <a href={view.sourceUrl} target="_blank" rel="noopener">
+          Tier-1 · CourtListener ↗
+        </a>
+      </p>
+
+      <p className="lastupd">
+        Edited text is a public note; the record is published verbatim.
+      </p>
+
+      <div className="kicker" style={SECTION_LABEL_STYLE}>
+        Inference — the drafter's classification
+      </div>
+      {view.inference == null ? (
+        <p className="muted">
+          No inference on this record. The drafter's answer was outside the
+          vocabulary and was dropped; approving publishes the record only.
+        </p>
+      ) : (
+        <dl className="kv">
+          <dt>Kind</dt>
+          <dd>{view.inference.kind}</dd>
+          <dt>Favors</dt>
+          <dd>{view.inference.favors}</dd>
+          <dt>Drafter confidence</dt>
+          <dd>{Math.round(view.inference.confidence * 100)}/100</dd>
+          <dt>Basis</dt>
+          <dd>{view.inference.basis}</dd>
+          {draft.evalSummary?.basis ? (
+            <>
+              <dt>Reviewer notes</dt>
+              <dd>{draft.evalSummary.basis}</dd>
+            </>
+          ) : null}
+          {disagreement?.flagged ? (
+            <>
+              <dt>Reviewer disagreement</dt>
+              <dd>{disagreement.description}</dd>
+            </>
+          ) : null}
+        </dl>
+      )}
+
+      {view.acceptable.length > 0 ? (
+        <>
+          <div className="kicker" style={SECTION_LABEL_STYLE}>
+            Publish with the record — accept or strip per field
+          </div>
+          <ul className="steps" data-testid="accept-strip">
+            {view.acceptable.map((field) => {
+              const isAccepted = accepted[field] === true;
+              return (
+                <li key={field}>
+                  <span className="kicker">{field}</span>{" "}
+                  <span>{fieldValueText(field, view)}</span>{" "}
+                  <span
+                    className={isAccepted ? "run published" : "run rejected"}
+                  >
+                    {isAccepted ? "Accepted" : "Stripped"}
+                  </span>{" "}
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    aria-pressed={isAccepted}
+                    aria-label={`Accept ${field}`}
+                    onClick={() => onToggle(field, true)}
+                  >
+                    Accept
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    aria-pressed={!isAccepted}
+                    aria-label={`Strip ${field}`}
+                    onClick={() => onToggle(field, false)}
+                  >
+                    Strip
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          <p className="lastupd">
+            Stripping every field publishes the record alone. Kind and favors
+            travel together, as do lifecycle and decided date. Posture and
+            lifecycle changes never auto-approve.
+          </p>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 function FlagRow({ draft }: { draft: DraftRecord }) {
   const evalStatus = draft.evalSummary?.status;
   const evalsNotRun = evalStatus == null || evalStatus === "evals_not_run";
@@ -227,7 +460,8 @@ const SECTION_LABEL_STYLE = { margin: "var(--space-4) 0 var(--space-2)" };
 
 export function ApprovalQueue({
   items: injectedItems,
-  dev = false
+  dev = false,
+  threshold = AUTO_APPROVE_CONFIDENCE_THRESHOLD
 }: ApprovalQueueProps) {
   const [view, setView] = useState<QueueView>({ status: "loading" });
   const [reload, setReload] = useState(0);
@@ -241,6 +475,14 @@ export function ApprovalQueue({
     {}
   );
   const [busy, setBusy] = useState(false);
+  /**
+   * 3.21 — per-field Accept/Strip override, keyed by Draft id so the next
+   * Draft at the same index after a decision never inherits it.
+   */
+  const [accepted, setAccepted] = useState<{
+    id: string;
+    fields: Record<string, boolean>;
+  } | null>(null);
   const [steeringBusy, setSteeringBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingSelectId, setPendingSelectId] = useState<string | null>(null);
@@ -298,6 +540,7 @@ export function ApprovalQueue({
     setSelected(index);
     setEditing(false);
     setRejecting(false);
+    setAccepted(null);
     setPendingSelectId(null);
   }, [items, pendingSelectId]);
 
@@ -356,15 +599,25 @@ export function ApprovalQueue({
   function approveAction() {
     if (current == null || busy || steeringBusy) return;
     if (resolved[current.id]) return;
+    // 3.21 — a docket-event Draft carries the operator's per-field override.
+    const fields =
+      currentView == null
+        ? {}
+        : {
+            acceptedFields: currentView.acceptable.filter(
+              (field) => currentAccepted[field] === true
+            )
+          };
     if (editing) {
       if (editText.trim().length === 0) return;
       void postDecision(current.id, {
         action: "edit",
-        editedBody: editText
+        editedBody: editText,
+        ...fields
       });
       return;
     }
-    void postDecision(current.id, { action: "approve" });
+    void postDecision(current.id, { action: "approve", ...fields });
   }
 
   function toggleEdit() {
@@ -399,6 +652,7 @@ export function ApprovalQueue({
       setRejecting(false);
       setRejectText("");
       setRejectPrivate(false);
+      setAccepted(null);
       return;
     }
     if (key === "k") {
@@ -407,6 +661,7 @@ export function ApprovalQueue({
       setRejecting(false);
       setRejectText("");
       setRejectPrivate(false);
+      setAccepted(null);
       return;
     }
     const draft = items[Math.min(selected, items.length - 1)]!;
@@ -479,6 +734,13 @@ export function ApprovalQueue({
   }
 
   const current = items[Math.min(selected, items.length - 1)]!;
+  const currentView = docketView(current);
+  const currentAccepted =
+    currentView == null
+      ? {}
+      : accepted != null && accepted.id === current.id
+        ? accepted.fields
+        : defaultAccepted(current, currentView, threshold);
 
   const evidenceHref = surfaceHref("ops", {
     path: `/runs/${current.runId}`,
@@ -503,6 +765,7 @@ export function ApprovalQueue({
                 setRejecting(false);
                 setRejectText("");
                 setRejectPrivate(false);
+                setAccepted(null);
               }}
             >
               <span className="qt">{draftTitle(draft)}</span>
@@ -573,10 +836,31 @@ export function ApprovalQueue({
               <p style={PROPOSED_TEXT_STYLE}>{current.body}</p>
             )}
 
-            <div className="kicker" style={SECTION_LABEL_STYLE}>
-              Effect on the tracker
-            </div>
-            <QueueDiff diff={current.diff} />
+            {currentView != null ? (
+              <DocketEventCard
+                draft={current}
+                view={currentView}
+                accepted={currentAccepted}
+                onToggle={(field, next) =>
+                  setAccepted({
+                    id: current.id,
+                    fields: toggleAccepted(
+                      currentAccepted,
+                      currentView.acceptable,
+                      field,
+                      next
+                    )
+                  })
+                }
+              />
+            ) : (
+              <>
+                <div className="kicker" style={SECTION_LABEL_STYLE}>
+                  Effect on the tracker
+                </div>
+                <QueueDiff diff={current.diff} />
+              </>
+            )}
 
             <p
               className="lastupd"

@@ -77,6 +77,72 @@ afterEach(async () => {
   await restoreMode();
 });
 
+describe("yoloPolicy statePatch blockers (story 3.21)", () => {
+  const record = {
+    caseId: "case-ri-furcolo",
+    occurredAt: "2026-09-15",
+    description: "ORDER granting Motion for Preliminary Injunction.",
+    sourceUrl: "https://www.courtlistener.com/docket/73375343/x/?entry=12",
+    entryNumber: 12
+  };
+  const docket = (statePatch: unknown) =>
+    draft({
+      targetEntityType: "docket_events",
+      targetEntityId: "de-case-ri-furcolo-501",
+      diff: {
+        ...record,
+        inference: {
+          kind: "pi-granted",
+          favors: "platform",
+          confidence: 0.9,
+          basis: "granting"
+        },
+        statePatch
+      }
+    });
+
+  it("escalates a derived posture change as posture_flip", () => {
+    const flip = docket({ posture: { from: "pending", to: "platform" } });
+    expect(eligible(flip, 70)).toBe(false);
+    expect(reasonsFor(flip, 70)).toEqual(["posture_flip"]);
+  });
+
+  it("escalates a derived lifecycle change as lifecycle_change", () => {
+    const resolves = docket({
+      lifecycle: { from: "active", to: "resolved" },
+      decidedAt: { from: null, to: "2026-09-15" }
+    });
+    expect(eligible(resolves, 70)).toBe(false);
+    expect(reasonsFor(resolves, 70)).toEqual(["lifecycle_change"]);
+    const both = docket({
+      lifecycle: { from: "active", to: "resolved" },
+      posture: { from: "pending", to: "state" }
+    });
+    expect(reasonsFor(both, 70)).toEqual(["posture_flip", "lifecycle_change"]);
+  });
+
+  it("escalates a decidedAt-only patch as lifecycle_change", () => {
+    const dated = docket({ decidedAt: { from: null, to: "2026-09-15" } });
+    expect(eligible(dated, 70)).toBe(false);
+    expect(reasonsFor(dated, 70)).toEqual(["lifecycle_change"]);
+  });
+
+  it("admits a record-only docket Draft under the existing rules", () => {
+    expect(eligible(docket({}), 70)).toBe(true);
+    expect(eligible(docket(undefined), 70)).toBe(true);
+    expect(eligible({ ...docket({}), confidence: 60 }, 70)).toBe(false);
+    expect(
+      eligible(
+        {
+          ...docket({}),
+          evalSummary: { ...OK_EVAL, ineligible: ["lifecycle_change"] }
+        },
+        70
+      )
+    ).toBe(false);
+  });
+});
+
 describe("yoloPolicy eligible (story 3.13)", () => {
   it("admits a low-risk Draft at or above the live threshold", () => {
     expect(eligible(draft(), 70)).toBe(true);
@@ -359,4 +425,140 @@ describe("autoApproveRun (story 3.13)", () => {
       )
     ).toBe(false);
   });
+});
+
+describe("autoApproveRun docket_events (story 3.21)", () => {
+  const CASE_ID = "case-ri-furcolo";
+  let entrySeq = 7000;
+
+  async function seedYoloRun() {
+    const id = newRunId();
+    await runsRepo.insertRun(testEnv.DB, {
+      id,
+      origin: "scheduled",
+      mode: "yolo",
+      status: "awaiting",
+      startedAt: NOW,
+      completedAt: NOW,
+      spendCents: 0,
+      spendCurrency: "USD",
+      budgetCents: null,
+      scheduledFor: "2026-09-01"
+    });
+    return id;
+  }
+
+  async function seedDocketDraft(
+    runId: string,
+    inferenceConfidence: number,
+    reviewerDisagrees = false
+  ) {
+    const entryId = entrySeq++;
+    const targetEntityId = `de-${CASE_ID}-${entryId}`;
+    const id = `d:${runId}:CourtListener:docket_events:${targetEntityId}`;
+    await draftsRepo.insertDraft(testEnv.DB, {
+      id,
+      runId,
+      targetEntityType: "docket_events",
+      targetEntityId,
+      diff: {
+        caseId: CASE_ID,
+        occurredAt: "2026-09-15",
+        description: `NOTICE of Appearance (${entryId}).`,
+        sourceUrl: `https://www.courtlistener.com/docket/73375343/x/?entry=${entryId}`,
+        entryNumber: entryId,
+        entryId,
+        docketId: "73375343",
+        context: { caption: "KalshiEX LLC v. Furcolo" },
+        inference: {
+          kind: "appearance",
+          favors: "none",
+          confidence: inferenceConfidence,
+          basis: "NOTICE of Appearance"
+        },
+        statePatch: {}
+      },
+      body: `Record body ${entryId}.`,
+      tier2Only: false,
+      confidence: 90,
+      evalSummary: {
+        ...OK_EVAL,
+        disagreement: reviewerDisagrees
+          ? { flagged: true, description: "Reviewer reads this as a brief." }
+          : { flagged: false, description: null }
+      },
+      createdAt: NOW
+    });
+    return { id, targetEntityId };
+  }
+
+  async function eventRow(id: string) {
+    return testEnv.DB.prepare(
+      "SELECT kind, favors, provenance_kind FROM docket_events WHERE id = ?"
+    )
+      .bind(id)
+      .first<{
+        kind: string | null;
+        favors: string | null;
+        provenance_kind: string;
+      }>();
+  }
+
+  it("auto-approves a confident record-only docket Draft with the inference accepted, as agent", async () => {
+    const runId = await seedYoloRun();
+    const { id, targetEntityId } = await seedDocketDraft(runId, 0.9);
+    await autoApproveRun(testEnv.DB, runId);
+
+    expect((await draftsRepo.getById(testEnv.DB, id))?.outcome).toBe(
+      "approved"
+    );
+    expect(await eventRow(targetEntityId)).toEqual({
+      kind: "appearance",
+      favors: "none",
+      provenance_kind: "agent"
+    });
+    const events = await evidenceRepo.listByRun(testEnv.DB, runId);
+    expect(
+      events.find((e) => e.event === "yolo.validated")?.payload
+    ).toMatchObject({ verdict: "approve", draftId: id });
+    expect(
+      events.find((e) => e.event === "gate.decided")?.payload
+    ).toMatchObject({
+      outcome: "approved",
+      acceptedFields: ["kind", "favors"],
+      strippedFields: []
+    });
+  });
+
+  it.each([
+    ["drafter confidence below the threshold", 0.6, false],
+    ["reviewer disagreement", 0.9, true]
+  ])(
+    "publishes the record alone on %s",
+    async (_name, confidence, disagrees) => {
+      const runId = await seedYoloRun();
+      const { id, targetEntityId } = await seedDocketDraft(
+        runId,
+        confidence,
+        disagrees
+      );
+      await autoApproveRun(testEnv.DB, runId);
+      expect((await draftsRepo.getById(testEnv.DB, id))?.outcome).toBe(
+        "approved"
+      );
+      expect(await eventRow(targetEntityId)).toEqual({
+        kind: null,
+        favors: null,
+        provenance_kind: "agent"
+      });
+      expect(
+        (await evidenceRepo.listByRun(testEnv.DB, runId)).find(
+          (e) => e.event === "gate.decided"
+        )?.payload
+      ).toMatchObject({
+        acceptedFields: [],
+        strippedFields: ["kind", "favors"]
+      });
+    }
+  );
 });

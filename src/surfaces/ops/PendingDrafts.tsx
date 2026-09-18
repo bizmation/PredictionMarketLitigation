@@ -242,17 +242,63 @@ function FlagRow({ draft }: { draft: DraftRecord }) {
   );
 }
 
+/**
+ * Story 3.21 — a `docket_events` Draft's `diff` is a verbatim record plus
+ * `inference` / `statePatch`; only the derived patch is a field diff. Show
+ * the classification line and the patch, not a column of dashes.
+ */
+function docketParts(draft: DraftRecord): {
+  inference: string | null;
+  statePatch: unknown;
+} | null {
+  if (draft.targetEntityType !== "docket_events") return null;
+  const diff = draft.diff;
+  if (diff === null || typeof diff !== "object" || Array.isArray(diff)) {
+    return null;
+  }
+  const row = diff as Record<string, unknown>;
+  const inference =
+    row.inference !== null &&
+    typeof row.inference === "object" &&
+    !Array.isArray(row.inference)
+      ? (row.inference as Record<string, unknown>)
+      : null;
+  const line =
+    inference && typeof inference.kind === "string"
+      ? `${inference.kind}${
+          typeof inference.favors === "string"
+            ? ` · favors ${inference.favors}`
+            : ""
+        }`
+      : null;
+  return { inference: line, statePatch: row.statePatch ?? {} };
+}
+
 function DraftContent({ draft, dev }: { draft: DraftRecord; dev: boolean }) {
   const evidenceHref = surfaceHref("ops", {
     path: `/runs/${draft.runId}`,
     dev
   });
+  const docket = docketParts(draft);
 
   return (
     <>
       <p>{draft.body}</p>
-      <div className="kicker">Proposed change to the tracker</div>
-      <DraftDiff diff={draft.diff} />
+      {docket != null ? (
+        <>
+          <div className="kicker">Classification</div>
+          <p className={docket.inference == null ? "muted" : undefined}>
+            {docket.inference ?? "No inference recorded — record only."}
+          </p>
+          <div className="kicker">Derived case state, if accepted</div>
+          <DraftDiff diff={docket.statePatch} />
+        </>
+      ) : (
+        <>
+          <div className="kicker">Proposed change to the tracker</div>
+          <DraftDiff diff={draft.diff} />
+        </>
+      )}
       <p>
         <a href={evidenceHref}>Open the evidence for this run</a>
       </p>
