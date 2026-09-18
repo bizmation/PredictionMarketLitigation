@@ -206,6 +206,7 @@ All resolved 2026-08-10 by reading the live account, not by hand-transcription.
 | `POLICY_AUD` | secret | ☑ `0170fec17ba3f12af09260df14ffc4af237f7b85ae99577be57bd7bf637779bb` |
 | `OPERATOR_EMAIL` | secret | ☑ `patrick@bizmation.com` |
 | `OPERATOR_DISPLAY_NAME` | secret | ☑ `Patrick` |
+| `COURTLISTENER_API_TOKEN` | secret | ☑ set on `pml-build` 2026-09-18 (story 3.21); set on `pml` at cutover. Patrick's CourtListener REST token — absent means the connector records `source.skipped { reason: "unconfigured" }`, never a crash |
 | Account | — | ☑ Bizmation `86e17509826e809459ca9f0725363c16` |
 | Zone id | — | ☑ `6721b40b2ed914e6364597852938e516` |
 | Access app id | — | ☑ `b13e527e-4441-4940-b6dd-34e1809fd33d` |

@@ -1209,3 +1209,291 @@ describe("draftAndReview provider deadline (story 3.19)", () => {
     );
   });
 });
+
+describe("draftAndReview docket_events branch (story 3.21)", () => {
+  const RECORD = {
+    caseId: "case-ri-furcolo",
+    occurredAt: "2026-09-15",
+    description:
+      "ORDER granting Motion for Preliminary Injunction. Defendants are enjoined from enforcing the cease-and-desist.",
+    sourceUrl:
+      "https://www.courtlistener.com/docket/73375343/kalshiex-llc-v-mark-furcolo/?entry=12",
+    entryNumber: 12,
+    entryId: 501,
+    docketId: "73375343",
+    context: {
+      caption: "KalshiEX LLC v. Furcolo",
+      court: "United States District Court for the District of Rhode Island",
+      lifecycle: "active",
+      posture: "pending",
+      decidedAt: null,
+      parties: [{ name: "Kalshi", entityRole: "DCM", role: "plaintiff" }]
+    }
+  };
+  const RECORD_BODY =
+    "KalshiEX LLC v. Furcolo — docket entry 12, filed 2026-09-15: ORDER granting…";
+  const INFERENCE = {
+    kind: "pi-granted",
+    favors: "platform",
+    confidence: 0.91,
+    basis: "ORDER granting Motion for Preliminary Injunction … enjoined"
+  };
+
+  async function insertDocketDraft(runId: string, diff: unknown = RECORD) {
+    const id = `d:${runId}:CourtListener:docket_events:de-case-ri-furcolo-501`;
+    await draftsRepo.insertDraft(testEnv.DB, {
+      id,
+      runId,
+      targetEntityType: "docket_events",
+      targetEntityId: "de-case-ri-furcolo-501",
+      diff,
+      body: RECORD_BODY,
+      tier2Only: false,
+      confidence: null,
+      evalSummary: null,
+      createdAt: NOW
+    });
+    return id;
+  }
+
+  it("keeps the record verbatim, stores the inference and the derived statePatch, and projects both on draft.evaluated", async () => {
+    const runId = await insertRun();
+    const draftId = await insertDocketDraft(runId);
+    await seedConfig(DRAFTER_REVIEWER_ROLES);
+    const provider = fakeProvider([
+      { text: JSON.stringify(INFERENCE) },
+      { text: reviewJson({ confidence: 85 }) }
+    ]);
+
+    await draftAndReview(testEnv.DB, runId, deps(provider));
+    expect(provider.roles()).toEqual(["drafter-v1", "reviewer-v1"]);
+
+    const drafterPrompt = provider.prompts()[0]!;
+    expect(drafterPrompt).toContain(RECORD.description);
+    expect(drafterPrompt).toContain("KalshiEX LLC v. Furcolo");
+    expect(drafterPrompt).toContain("Current posture: pending");
+    expect(drafterPrompt).toContain("Kalshi (DCM) — plaintiff");
+    expect(drafterPrompt).toContain("pi-granted");
+    expect(drafterPrompt).toContain("never the movant");
+    expect(drafterPrompt).not.toContain('"body"');
+    const reviewerPrompt = provider.prompts()[1]!;
+    expect(reviewerPrompt).toContain(RECORD.description);
+    expect(reviewerPrompt).toContain('"kind":"pi-granted"');
+    expect(reviewerPrompt).toContain(
+      '"posture":{"from":"pending","to":"platform"}'
+    );
+
+    const draft = (await draftsRepo.getById(testEnv.DB, draftId))!;
+    expect(draft.body).toBe(RECORD_BODY);
+    expect(draft.diff).toEqual({
+      ...RECORD,
+      inference: INFERENCE,
+      statePatch: { posture: { from: "pending", to: "platform" } }
+    });
+    expect(draft.confidence).toBe(85);
+    expect(evalOf(draft).ineligible).toEqual(["posture_flip"]);
+
+    const [evaluated] = await evaluatedEvents(runId);
+    expect(evaluated?.payload).toMatchObject({
+      draftId,
+      inference: INFERENCE,
+      statePatch: { posture: { from: "pending", to: "platform" } },
+      reviewer: { confidence: 85, disagrees: false, disagreement: null }
+    });
+    const failed = (await evidenceRepo.listByRun(testEnv.DB, runId)).filter(
+      (e) => e.event === "guardrails.failed"
+    );
+    expect(failed).toHaveLength(0);
+  });
+
+  it("derives lifecycle, posture and decidedAt for a dispositive entry and stamps both blockers", async () => {
+    const runId = await insertRun();
+    const draftId = await insertDocketDraft(runId, {
+      ...RECORD,
+      description: "JUDGMENT entered in favor of Plaintiff. Case closed."
+    });
+    await seedConfig(DRAFTER_REVIEWER_ROLES);
+    const provider = fakeProvider([
+      {
+        text: JSON.stringify({
+          kind: "judgment",
+          favors: "platform",
+          confidence: 0.95,
+          basis: "JUDGMENT entered in favor of Plaintiff"
+        })
+      },
+      { text: reviewJson({ confidence: 90 }) }
+    ]);
+    await draftAndReview(testEnv.DB, runId, deps(provider));
+    const draft = (await draftsRepo.getById(testEnv.DB, draftId))!;
+    expect((draft.diff as { statePatch: unknown }).statePatch).toEqual({
+      lifecycle: { from: "active", to: "resolved" },
+      posture: { from: "pending", to: "platform" },
+      decidedAt: { from: null, to: "2026-09-15" }
+    });
+    expect(evalOf(draft).ineligible).toEqual([
+      "posture_flip",
+      "lifecycle_change"
+    ]);
+  });
+
+  it("drops an out-of-vocabulary inference, keeps the record, and records guardrails.failed inference.vocabulary in the same batch", async () => {
+    const runId = await insertRun();
+    const draftId = await insertDocketDraft(runId);
+    await seedConfig(DRAFTER_REVIEWER_ROLES);
+    const provider = fakeProvider([
+      {
+        text: JSON.stringify({
+          kind: "weird",
+          favors: "platform",
+          confidence: 0.8,
+          basis: "x"
+        })
+      },
+      { text: reviewJson({ confidence: 88 }) }
+    ]);
+    await draftAndReview(testEnv.DB, runId, deps(provider));
+    expect(provider.count()).toBe(2);
+    expect(provider.prompts()[1]).toContain("outside the vocabulary");
+
+    const draft = (await draftsRepo.getById(testEnv.DB, draftId))!;
+    expect(draft.diff).toEqual(RECORD);
+    expect(draft.body).toBe(RECORD_BODY);
+    expect(draft.confidence).toBe(88);
+    expect(evalOf(draft).status).toBe("ok");
+    expect(evalOf(draft).ineligible).toEqual(["guardrail_fail"]);
+
+    const events = await evidenceRepo.listByRun(testEnv.DB, runId);
+    const failed = events.find((e) => e.event === "guardrails.failed");
+    expect(failed?.payload).toEqual({
+      draftId,
+      ruleId: "inference.vocabulary"
+    });
+    const evaluated = events.find((e) => e.event === "draft.evaluated");
+    expect(evaluated?.payload).toMatchObject({
+      draftId,
+      inference: null,
+      statePatch: {}
+    });
+    // Retry is a no-op: evalSummary is set and guardrails.failed exists.
+    await draftAndReview(testEnv.DB, runId, deps(provider));
+    expect(provider.count()).toBe(2);
+  });
+
+  it("treats the legacy body/diff drafter shape as out-of-vocabulary — record keys are never replaced", async () => {
+    const runId = await insertRun();
+    const draftId = await insertDocketDraft(runId);
+    await seedConfig(DRAFTER_REVIEWER_ROLES);
+    const provider = fakeProvider([
+      {
+        text: drafterJson({
+          body: "Rewritten record",
+          diff: { description: { from: "x", to: "y" } }
+        })
+      },
+      { text: reviewJson() }
+    ]);
+    await draftAndReview(testEnv.DB, runId, deps(provider));
+    const draft = (await draftsRepo.getById(testEnv.DB, draftId))!;
+    expect(draft.body).toBe(RECORD_BODY);
+    expect(draft.diff).toEqual(RECORD);
+    expect(
+      (await evidenceRepo.listByRun(testEnv.DB, runId)).some(
+        (e) =>
+          e.event === "guardrails.failed" &&
+          (e.payload as { ruleId?: string }).ruleId === "inference.vocabulary"
+      )
+    ).toBe(true);
+  });
+
+  it("carries reviewer disagreement onto draft.evaluated", async () => {
+    const runId = await insertRun();
+    await insertDocketDraft(runId);
+    await seedConfig(DRAFTER_REVIEWER_ROLES);
+    const provider = fakeProvider([
+      { text: JSON.stringify(INFERENCE) },
+      { text: reviewJson(FLAGGED_REVIEW) }
+    ]);
+    await draftAndReview(testEnv.DB, runId, deps(provider));
+    const [evaluated] = await evaluatedEvents(runId);
+    expect(evaluated?.payload).toMatchObject({
+      inference: INFERENCE,
+      reviewer: {
+        confidence: 40,
+        disagrees: true,
+        disagreement: FLAGGED_REVIEW.disagreement
+      },
+      disagreement: { flagged: true, description: FLAGGED_REVIEW.disagreement }
+    });
+  });
+
+  it("re-classifies a revision from the record, stripping the parent's inference first", async () => {
+    const runId = await insertRun();
+    const parentId = await insertDocketDraft(runId, {
+      ...RECORD,
+      inference: INFERENCE,
+      statePatch: { posture: { from: "pending", to: "platform" } }
+    });
+    await testEnv.DB.prepare(
+      "UPDATE drafts SET eval_summary_json = ? WHERE id = ?"
+    )
+      .bind(
+        JSON.stringify({
+          status: "ok",
+          basis: "n",
+          citationCompleteness: 90,
+          disagreement: { flagged: false, description: null },
+          ineligible: ["posture_flip"]
+        }),
+        parentId
+      )
+      .run();
+    const childId = `${parentId}:r1`;
+    await draftsRepo.insertDraft(testEnv.DB, {
+      id: childId,
+      runId,
+      targetEntityType: "docket_events",
+      targetEntityId: "de-case-ri-furcolo-501",
+      diff: {
+        ...RECORD,
+        inference: INFERENCE,
+        statePatch: { posture: { from: "pending", to: "platform" } }
+      },
+      body: RECORD_BODY,
+      tier2Only: false,
+      confidence: null,
+      evalSummary: null,
+      parentDraftId: parentId,
+      revisionIndex: 1,
+      createdAt: NOW
+    });
+    await seedConfig(DRAFTER_REVIEWER_ROLES);
+    const provider = fakeProvider([
+      {
+        text: JSON.stringify({
+          kind: "procedural-order",
+          favors: "none",
+          confidence: 0.7,
+          basis: "ORDER"
+        })
+      },
+      { text: reviewJson() }
+    ]);
+    await draftAndReview(testEnv.DB, runId, deps(provider), {
+      revisionInstruction: "This is procedural, not a merits ruling."
+    });
+    expect(provider.prompts()[0]).toContain("Operator revision instruction");
+    const child = (await draftsRepo.getById(testEnv.DB, childId))!;
+    expect(child.diff).toEqual({
+      ...RECORD,
+      inference: {
+        kind: "procedural-order",
+        favors: "none",
+        confidence: 0.7,
+        basis: "ORDER"
+      },
+      statePatch: {}
+    });
+    expect(evalOf(child).ineligible).toEqual([]);
+  });
+});

@@ -33,6 +33,13 @@ export const CLIENT_GET_TIMEOUT_MS = 15_000;
 export const ADMIN_POST_TIMEOUT_MS = 30_000;
 /** One `SourceCheck` call inside `runConnector`. */
 export const CONNECTOR_TIMEOUT_MS = 60_000;
+/**
+ * One upstream HTTP request made by a live connector (story 3.21). Short
+ * enough that a connector polling several dockets in series still finishes
+ * inside `CONNECTOR_TIMEOUT_MS`; a hung request surfaces as the connector's
+ * own typed skip rather than the whole-source deadline.
+ */
+export const SOURCE_FETCH_TIMEOUT_MS = 12_000;
 /** One `provider.complete` call inside `gateway.complete`. */
 export const PROVIDER_TIMEOUT_MS = 60_000;
 /**

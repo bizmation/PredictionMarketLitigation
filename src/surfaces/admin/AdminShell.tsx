@@ -117,7 +117,7 @@ export function AdminShell({ dev = false, operator }: AdminShellProps) {
           title="Approval queue"
           why="Approve, edit-then-approve, or reject each pending draft. Every outcome is published."
         >
-          <ApprovalQueue />
+          <ApprovalQueue threshold={mode.threshold} />
         </SectionBand>
 
         <SectionBand

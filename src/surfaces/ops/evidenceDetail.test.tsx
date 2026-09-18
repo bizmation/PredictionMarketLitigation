@@ -958,3 +958,139 @@ describe("EvidenceDetail (story 3.8)", () => {
     expect(html).toContain("Citation did not hold.");
   });
 });
+
+describe("EvidenceDetail docket-event inference (story 3.21)", () => {
+  const record = {
+    caseId: "case-ri-furcolo",
+    occurredAt: "2026-09-15",
+    description:
+      "ORDER granting Motion for Preliminary Injunction. Defendants are enjoined.",
+    sourceUrl:
+      "https://www.courtlistener.com/docket/73375343/kalshiex-llc-v-mark-furcolo/?entry=12",
+    entryNumber: 12
+  };
+
+  it("renders the record, the inference, the derived patch, and the gate override", () => {
+    const html = renderToStaticMarkup(
+      <EvidenceDetail
+        runId="run-20260908-aaa1"
+        detail={detail({
+          status: "published",
+          drafts: [
+            draft({
+              id: "draft-de",
+              targetEntityType: "docket_events",
+              targetEntityId: "de-case-ri-furcolo-501",
+              body: "KalshiEX LLC v. Furcolo — docket entry 12",
+              outcome: "approved",
+              decidedAt: TS_DONE,
+              decidedBy: "Patrick",
+              diff: {
+                ...record,
+                inference: {
+                  kind: "pi-granted",
+                  favors: "platform",
+                  confidence: 0.91,
+                  basis: "ORDER granting Motion for Preliminary Injunction"
+                },
+                statePatch: { posture: { from: "pending", to: "platform" } }
+              }
+            })
+          ],
+          evidence: [
+            event({ id: "ev-0", seq: 0, event: "run.started", createdAt: TS }),
+            event({
+              id: "ev-1",
+              seq: 1,
+              event: "source.fetched",
+              payload: {
+                source: "CourtListener",
+                docketIds: ["73375343", "73133459"],
+                fetchedAt: TS,
+                note: "RECAP is crowd-sourced and may lag PACER."
+              }
+            }),
+            event({
+              id: "ev-2",
+              seq: 2,
+              event: "draft.evaluated",
+              payload: {
+                draftId: "draft-de",
+                inference: { kind: "pi-granted", favors: "platform" },
+                statePatch: { posture: { from: "pending", to: "platform" } }
+              }
+            }),
+            event({
+              id: "ev-3",
+              seq: 3,
+              event: "gate.decided",
+              payload: {
+                draftId: "draft-de",
+                outcome: "approved",
+                approvedText: "KalshiEX LLC v. Furcolo — docket entry 12",
+                acceptedFields: ["kind", "favors"],
+                strippedFields: ["posture"]
+              }
+            })
+          ]
+        })}
+      />
+    );
+    expect(html).toContain(
+      "source.fetched · CourtListener · dockets 73375343, 73133459 · RECAP is crowd-sourced and may lag PACER."
+    );
+    expect(html).toContain(
+      "draft.evaluated · draft-de · kind pi-granted · favors platform"
+    );
+    expect(html).toContain(
+      "gate.decided · draft-de · acceptedFields kind, favors · strippedFields posture"
+    );
+    expect(html).toContain('data-testid="docket-draft"');
+    expect(html).toContain("Record · 2026-09-15");
+    expect(html).toContain(record.description);
+    expect(html).toContain(`href="${record.sourceUrl}"`);
+    expect(html).toContain("pi-granted");
+    expect(html).toContain("91/100");
+    expect(html).toContain("pending → platform");
+    noLogin(html);
+  });
+
+  it("says the inference was dropped when the vocabulary check failed", () => {
+    const html = renderToStaticMarkup(
+      <EvidenceDetail
+        runId="run-20260908-aaa1"
+        detail={detail({
+          drafts: [
+            draft({
+              id: "draft-de",
+              targetEntityType: "docket_events",
+              targetEntityId: "de-case-ri-furcolo-501",
+              body: "record body",
+              diff: record
+            })
+          ],
+          evidence: [
+            event({
+              id: "ev-1",
+              seq: 1,
+              event: "guardrails.failed",
+              payload: { draftId: "draft-de", ruleId: "inference.vocabulary" }
+            }),
+            event({
+              id: "ev-2",
+              seq: 2,
+              event: "draft.evaluated",
+              payload: { draftId: "draft-de", inference: null, statePatch: {} }
+            })
+          ]
+        })}
+      />
+    );
+    expect(html).toContain(
+      "guardrails.failed · draft-de · inference.vocabulary"
+    );
+    expect(html).toContain("draft.evaluated · draft-de · inference dropped");
+    expect(html).toContain("No inference recorded");
+    expect(html).toContain("No case field would change.");
+  });
+});

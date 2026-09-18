@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { IsoDateSchema, IsoUtcSchema } from "./common";
+import { DocketEventKindSchema, FavorsSchema } from "./docketInference";
 import { EntitySchema } from "./entity";
 import { TierOneSourceSchema, SourceSchema } from "./source";
 import { StateSchema } from "./state";
@@ -46,12 +47,20 @@ export const CaseListItemSchema = CaseSchema.extend({
 
 export type CaseListItem = z.infer<typeof CaseListItemSchema>;
 
+/**
+ * `kind` / `favors` (story 3.21) are the operator-accepted classification of
+ * a connector-published entry; null on every seed row and on any entry whose
+ * inference was stripped at the gate. Optional on the wire so a payload
+ * from before 0018 still parses; the repo always emits them.
+ */
 export const DocketEventSchema = z.object({
   id: z.string().min(1),
   caseId: z.string().min(1),
   occurredAt: IsoDateSchema,
   description: z.string().min(1),
   sourceId: z.string().min(1),
+  kind: DocketEventKindSchema.nullable().optional(),
+  favors: FavorsSchema.nullable().optional(),
   provenanceKind: ProvenanceKindSchema,
   publishedAt: IsoUtcSchema,
   updatedAt: IsoUtcSchema

@@ -7,7 +7,11 @@ import * as modeRepo from "../../shared/db/repos/modeRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import * as standingGuidanceRepo from "../../shared/db/repos/standingGuidanceRepo";
 import type { GatewayDeps, LlmProvider } from "../ai/gateway";
-import { kickDailyRun, startOperatorRun } from "./dailyRun";
+import {
+  kickDailyRun,
+  sourceChecksFromEnv,
+  startOperatorRun
+} from "./dailyRun";
 import {
   afterPackaging,
   completeDailyStep,
@@ -528,6 +532,138 @@ describe("afterPackaging (story 3.5)", () => {
     expect((await runsRepo.getRunById(testEnv.DB, id))?.status).toBe("failed");
     const evidence = await evidenceRepo.listByRun(testEnv.DB, id);
     expect(evidence.some((e) => e.event === "run.failed")).toBe(true);
+  });
+});
+
+describe("sourceChecksFromEnv (story 3.21)", () => {
+  // Safely in the past: `completeDailyStep` stamps `completed_at` from the
+  // real clock and the CHECK requires it to follow `started_at`.
+  const NOW = "2026-09-01T16:00:00.000Z";
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  function provider(): LlmProvider {
+    return {
+      name: "fake",
+      complete: async () => ({
+        text: "{}",
+        inputTokens: 1,
+        outputTokens: 1,
+        costCents: 0
+      })
+    };
+  }
+
+  it("wires exactly CourtListener; the other sources stay not wired", async () => {
+    const checks = sourceChecksFromEnv(
+      { COURTLISTENER_API_TOKEN: undefined },
+      testEnv.DB
+    );
+    expect(Object.keys(checks)).toEqual(["CourtListener"]);
+  });
+
+  it("records source.skipped unconfigured for CourtListener and not wired for the rest when the token is absent", async () => {
+    const id = "run-20260901-0e00";
+    await runsRepo.insertRun(testEnv.DB, {
+      id,
+      origin: "scheduled",
+      mode: "hitl",
+      status: "running",
+      startedAt: NOW,
+      completedAt: null,
+      spendCents: 0,
+      spendCurrency: "USD",
+      budgetCents: null,
+      scheduledFor: "2026-09-01"
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const packaged = await packageDailyRun(
+      testEnv.DB,
+      id,
+      { db: testEnv.DB, provider: provider(), now: () => NOW },
+      sourceChecksFromEnv({ COURTLISTENER_API_TOKEN: undefined }, testEnv.DB)
+    );
+    expect(packaged).toEqual({
+      skip: false,
+      runId: id,
+      draftCount: 0,
+      anyFailure: true
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    const skipped = (await evidenceRepo.listByRun(testEnv.DB, id)).filter(
+      (e) => e.event === "source.skipped"
+    );
+    const reasons = Object.fromEntries(
+      skipped.map((e) => [
+        (e.payload as { source: string }).source,
+        (e.payload as { reason: string }).reason
+      ])
+    );
+    expect(reasons).toEqual({
+      CourtListener: "unconfigured",
+      "CFTC press": "not wired",
+      "SCOTUS docket": "not wired",
+      "Legal news leads": "not wired"
+    });
+    expect((await runsRepo.getRunById(testEnv.DB, id))?.status).toBe("failed");
+  });
+
+  it("polls CourtListener with the token and packages new entries", async () => {
+    const id = "run-20260901-0e01";
+    await runsRepo.insertRun(testEnv.DB, {
+      id,
+      origin: "manual",
+      mode: "hitl",
+      status: "running",
+      startedAt: NOW,
+      completedAt: null,
+      spendCents: 0,
+      spendCurrency: "USD",
+      budgetCents: null,
+      scheduledFor: "2026-09-01"
+    });
+    const fetchMock = vi.fn(
+      async (input: string | URL | Request, _init?: RequestInit) => {
+        const docket = new URL(String(input)).searchParams.get("docket");
+        return Response.json({
+          results:
+            docket === "73133459"
+              ? [
+                  {
+                    id: 9001,
+                    entry_number: 3,
+                    date_filed: "2026-09-20",
+                    description: "MINUTE ENTRY: status conference held."
+                  }
+                ]
+              : []
+        });
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const packaged = await packageDailyRun(
+      testEnv.DB,
+      id,
+      { db: testEnv.DB, provider: provider(), now: () => NOW },
+      sourceChecksFromEnv({ COURTLISTENER_API_TOKEN: "tok" }, testEnv.DB)
+    );
+    expect(packaged).toMatchObject({
+      skip: false,
+      draftCount: 1,
+      anyFailure: false
+    });
+    const drafts = await draftsRepo.listByRun(testEnv.DB, id);
+    expect(drafts[0]).toMatchObject({
+      targetEntityType: "docket_events",
+      targetEntityId: "de-case-il-cftc-9001"
+    });
+    const authHeaders = fetchMock.mock.calls.map((call) =>
+      new Headers((call[1] as RequestInit | undefined)?.headers).get(
+        "authorization"
+      )
+    );
+    expect(authHeaders.every((h) => h === "Token tok")).toBe(true);
   });
 });
 

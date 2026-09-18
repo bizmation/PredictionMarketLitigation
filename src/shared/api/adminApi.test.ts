@@ -2245,3 +2245,228 @@ describe("admin standing guidance steering (story 3.18)", () => {
     expect((await publicGuidance()).history).toHaveLength(0);
   });
 });
+
+describe("admin decision acceptedFields on docket_events (story 3.21)", () => {
+  const RUN_ID = "run-20260912-3d21";
+  const CASE_ID = "case-ri-furcolo";
+
+  function docketDiff(entryId: number) {
+    return JSON.stringify({
+      caseId: CASE_ID,
+      occurredAt: "2026-09-15",
+      description: `ORDER granting Motion for Preliminary Injunction (${entryId}).`,
+      sourceUrl: `https://www.courtlistener.com/docket/73375343/kalshiex-llc-v-mark-furcolo/?entry=${entryId}`,
+      entryNumber: entryId,
+      entryId,
+      docketId: "73375343",
+      context: { caption: "KalshiEX LLC v. Furcolo" },
+      inference: {
+        kind: "pi-granted",
+        favors: "platform",
+        confidence: 0.9,
+        basis: "ORDER granting"
+      },
+      statePatch: { posture: { from: "pending", to: "platform" } }
+    });
+  }
+
+  afterEach(async () => {
+    await testEnv.DB.prepare(
+      `UPDATE cases SET posture = 'pending', provenance_kind = 'human',
+              published_at = '2026-08-09T16:00:00.000Z',
+              updated_at = '2026-08-09T16:00:00.000Z'
+        WHERE id = ?`
+    )
+      .bind(CASE_ID)
+      .run();
+  });
+
+  it("strips posture through the wire, publishes the development with kind/favors, and shows it on the public case", async () => {
+    await seedRun(RUN_ID);
+    await seedPendingDraft(
+      "d-docket-strip",
+      RUN_ID,
+      "2026-09-12T16:05:00.000Z",
+      {
+        targetEntityType: "docket_events",
+        targetEntityId: `de-${CASE_ID}-8101`,
+        diffJson: docketDiff(8101)
+      }
+    );
+    const res = await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/drafts/d-docket-strip/decision", {
+        action: "approve",
+        acceptedFields: ["kind", "favors"]
+      }),
+      realEnv()
+    );
+    expect(res.status).toBe(200);
+    expect(DraftRecordSchema.safeParse(await res.json()).success).toBe(true);
+    expect(await evidencePayload("gate-decided-d-docket-strip")).toMatchObject({
+      outcome: "approved",
+      acceptedFields: ["kind", "favors"],
+      strippedFields: ["posture"]
+    });
+
+    const detail = await worker.fetch(get(`/api/cases/${CASE_ID}`), testEnv);
+    expect(detail.status).toBe(200);
+    const body = (await detail.json()) as {
+      posture: string;
+      docketEvents: Array<{
+        id: string;
+        kind: string | null;
+        favors: string | null;
+        description: string;
+        source: { tier: string; url: string };
+      }>;
+    };
+    expect(body.posture).toBe("pending");
+    expect(
+      body.docketEvents.find((e) => e.id === `de-${CASE_ID}-8101`)
+    ).toMatchObject({
+      kind: "pi-granted",
+      favors: "platform",
+      description: "ORDER granting Motion for Preliminary Injunction (8101).",
+      source: {
+        tier: "tier1",
+        url: "https://www.courtlistener.com/docket/73375343/kalshiex-llc-v-mark-furcolo/?entry=8101"
+      }
+    });
+  });
+
+  it("accepts posture through the wire and moves the public case", async () => {
+    await seedRun(RUN_ID);
+    await seedPendingDraft(
+      "d-docket-accept",
+      RUN_ID,
+      "2026-09-12T16:06:00.000Z",
+      {
+        targetEntityType: "docket_events",
+        targetEntityId: `de-${CASE_ID}-8102`,
+        diffJson: docketDiff(8102)
+      }
+    );
+    const res = await worker.fetch(
+      jsonPost(
+        await sign(EMAIL),
+        "/api/admin/drafts/d-docket-accept/decision",
+        {
+          action: "approve"
+        }
+      ),
+      realEnv()
+    );
+    expect(res.status).toBe(200);
+    const detail = await worker.fetch(get(`/api/cases/${CASE_ID}`), testEnv);
+    const body = (await detail.json()) as {
+      posture: string;
+      provenanceKind: string;
+    };
+    expect(body).toMatchObject({
+      posture: "platform",
+      provenanceKind: "human"
+    });
+  });
+
+  it("approves with acceptedFields: [] on the wire — record only, posture unchanged", async () => {
+    await seedRun(RUN_ID);
+    await seedPendingDraft(
+      "d-docket-empty",
+      RUN_ID,
+      "2026-09-12T16:06:30.000Z",
+      {
+        targetEntityType: "docket_events",
+        targetEntityId: `de-${CASE_ID}-8104`,
+        diffJson: docketDiff(8104)
+      }
+    );
+    const res = await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/drafts/d-docket-empty/decision", {
+        action: "approve",
+        acceptedFields: []
+      }),
+      realEnv()
+    );
+    expect(res.status).toBe(200);
+    expect(await evidencePayload("gate-decided-d-docket-empty")).toMatchObject({
+      outcome: "approved",
+      acceptedFields: [],
+      strippedFields: ["kind", "favors", "posture"]
+    });
+    const detail = await worker.fetch(get(`/api/cases/${CASE_ID}`), testEnv);
+    const body = (await detail.json()) as {
+      posture: string;
+      docketEvents: Array<{
+        id: string;
+        kind: string | null;
+        favors: string | null;
+      }>;
+    };
+    expect(body.posture).toBe("pending");
+    expect(
+      body.docketEvents.find((e) => e.id === `de-${CASE_ID}-8104`)
+    ).toMatchObject({
+      kind: null,
+      favors: null
+    });
+  });
+
+  it("forwards acceptedFields on the edit arm: classification kept, posture stripped", async () => {
+    await seedRun(RUN_ID);
+    await seedPendingDraft(
+      "d-docket-edit",
+      RUN_ID,
+      "2026-09-12T16:06:45.000Z",
+      {
+        targetEntityType: "docket_events",
+        targetEntityId: `de-${CASE_ID}-8105`,
+        diffJson: docketDiff(8105)
+      }
+    );
+    const res = await worker.fetch(
+      jsonPost(await sign(EMAIL), "/api/admin/drafts/d-docket-edit/decision", {
+        action: "edit",
+        editedBody: "Operator note on the record.",
+        // `favors` rides with `kind`; the queue always sends the pair.
+        acceptedFields: ["kind", "favors"]
+      }),
+      realEnv()
+    );
+    expect(res.status).toBe(200);
+    expect(await evidencePayload("gate-decided-d-docket-edit")).toMatchObject({
+      outcome: "edited",
+      acceptedFields: ["kind", "favors"],
+      strippedFields: ["posture"]
+    });
+    const detail = await worker.fetch(get(`/api/cases/${CASE_ID}`), testEnv);
+    const body = (await detail.json()) as { posture: string };
+    expect(body.posture).toBe("pending");
+  });
+
+  it.each([
+    ["non-string acceptedFields", { action: "approve", acceptedFields: [1] }],
+    ["a coupled half alone", { action: "approve", acceptedFields: ["kind"] }],
+    ["empty field name", { action: "approve", acceptedFields: [""] }],
+    [
+      "acceptedFields on reject",
+      { action: "reject", rejectReason: "x", acceptedFields: [] }
+    ]
+  ])("answers 400 for %s", async (_name, body) => {
+    await seedRun(RUN_ID);
+    await seedPendingDraft("d-docket-bad", RUN_ID, "2026-09-12T16:07:00.000Z", {
+      targetEntityType: "docket_events",
+      targetEntityId: `de-${CASE_ID}-8103`,
+      diffJson: docketDiff(8103)
+    });
+    const res = await worker.fetch(
+      jsonPost(
+        await sign(EMAIL),
+        "/api/admin/drafts/d-docket-bad/decision",
+        body
+      ),
+      realEnv()
+    );
+    expect(res.status).toBe(400);
+    expect((await draftRow("d-docket-bad")).outcome).toBeNull();
+  });
+});

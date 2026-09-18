@@ -60,10 +60,21 @@ function normalizeAdminPath(pathname: string): string {
   return decoded.replace(/\/{2,}/g, "/");
 }
 
+const AcceptedFieldsSchema = z.array(z.string().trim().min(1)).optional();
+
 const DecisionBodySchema = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("approve") }).strict(),
   z
-    .object({ action: z.literal("edit"), editedBody: z.string().trim().min(1) })
+    .object({
+      action: z.literal("approve"),
+      acceptedFields: AcceptedFieldsSchema
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal("edit"),
+      editedBody: z.string().trim().min(1),
+      acceptedFields: AcceptedFieldsSchema
+    })
     .strict(),
   z
     .object({
@@ -233,13 +244,15 @@ export default {
           if (parsed.data.action === "approve") {
             result = await decide(getDb(env), {
               ...common,
-              action: "approve"
+              action: "approve",
+              acceptedFields: parsed.data.acceptedFields
             });
           } else if (parsed.data.action === "edit") {
             result = await decide(getDb(env), {
               ...common,
               action: "edit",
-              editedBody: parsed.data.editedBody
+              editedBody: parsed.data.editedBody,
+              acceptedFields: parsed.data.acceptedFields
             });
           } else {
             // `private` moves the reason into the private column: the public

@@ -8,7 +8,7 @@ import { IsoUtcSchema } from "../../shared/schemas/common";
 import { type DraftRecord, type EvidenceEvent } from "../../shared/schemas/run";
 import { ProvenanceKindSchema } from "../../shared/schemas/vocabulary";
 import { appendStmt } from "../projector/evidence";
-import { applyF1Stmt } from "./f1Apply";
+import { applyF1Stmts, DOCKET_EVENTS_TARGET } from "./f1Apply";
 
 /**
  * Story 3.10/3.11 — the Approval Gate's decision module. The ONLY writer of
@@ -23,6 +23,11 @@ import { applyF1Stmt } from "./f1Apply";
  * `gate.decided` payload is public Evidence. Approve provenance is the
  * caller's: admin omits `provenanceKind` (defaults `human`); the YOLO path
  * passes `agent`. Mixed Runs label the caller, not the Run's stamped mode.
+ *
+ * Story 3.21 — approve/edit carry optional `acceptedFields` for a
+ * `docket_events` Draft (the inference and derived `statePatch` fields the
+ * operator kept; default all). `gate.decided` records `acceptedFields` /
+ * `strippedFields` so the override is public.
  */
 
 export const DECISION_ACTION_VALUES = ["approve", "edit", "reject"] as const;
@@ -40,7 +45,8 @@ const DecideInputSchema = z
         operator: OperatorSchema,
         now: IsoUtcSchema,
         action: z.literal("approve"),
-        provenanceKind: ProvenanceKindSchema.optional()
+        provenanceKind: ProvenanceKindSchema.optional(),
+        acceptedFields: z.array(z.string().min(1)).optional()
       })
       .strict(),
     z
@@ -49,7 +55,8 @@ const DecideInputSchema = z
         operator: OperatorSchema,
         now: IsoUtcSchema,
         action: z.literal("edit"),
-        editedBody: z.string().trim().min(1)
+        editedBody: z.string().trim().min(1),
+        acceptedFields: z.array(z.string().min(1)).optional()
       })
       .strict(),
     z
@@ -83,6 +90,8 @@ export type DecideInput = {
   now: string;
   /** Approve only. Admin omits it (defaults `human`); YOLO passes `agent`. */
   provenanceKind?: "human" | "agent";
+  /** Approve/edit only (3.21). Omitted → every acceptable field is accepted. */
+  acceptedFields?: string[];
 };
 
 export type DecideResult =
@@ -162,26 +171,31 @@ export async function decide(
     action === "approve" ? (parsed.data.provenanceKind ?? "human") : "human";
 
   const statements: D1PreparedStatement[] = [];
-  let draftStmtIndex = 0;
+  let acceptedFields: string[] = [];
+  let strippedFields: string[] = [];
 
   if (action !== "reject") {
     try {
-      statements.push(
-        await applyF1Stmt(db, {
-          draftId,
-          targetEntityType: existing.targetEntityType,
-          targetEntityId: existing.targetEntityId,
-          diff: existing.diff,
-          provenanceKind,
-          now,
-          approver: operator.displayName
-        })
-      );
-      draftStmtIndex = 1;
+      const applied = await applyF1Stmts(db, {
+        draftId,
+        targetEntityType: existing.targetEntityType,
+        targetEntityId: existing.targetEntityId,
+        diff: existing.diff,
+        provenanceKind,
+        now,
+        approver: operator.displayName,
+        acceptedFields: parsed.data.acceptedFields
+      });
+      statements.push(...applied.statements);
+      acceptedFields = applied.acceptedFields;
+      strippedFields = applied.strippedFields;
     } catch {
       return { status: "invalid" };
     }
   }
+  // The Draft UPDATE follows every F1 statement; its `meta.changes` is the
+  // retry guard (`already_decided` when a replay finds the row decided).
+  const draftStmtIndex = statements.length;
 
   let update: D1PreparedStatement;
   try {
@@ -220,7 +234,12 @@ export async function decide(
         decidedBy: operator.displayName,
         reason: publicReason,
         lineage,
-        approvedText
+        approvedText,
+        // 3.21 — the per-field override is public only where one exists;
+        // 3.10's update-target payloads keep their pinned shape.
+        ...(existing.targetEntityType === DOCKET_EVENTS_TARGET
+          ? { acceptedFields, strippedFields }
+          : {})
       },
       createdAt: now
     })
