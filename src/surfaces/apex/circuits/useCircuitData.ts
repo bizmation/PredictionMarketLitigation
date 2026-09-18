@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
 
+import {
+  CLIENT_GET_TIMEOUT_MS,
+  fetchWithTimeout
+} from "../../../shared/lib/timeouts";
 import type { CaseListItem } from "../../../shared/schemas/caseSchema";
 import type { Circuit } from "../../../shared/schemas/circuit";
 import type { State } from "../../../shared/schemas/state";
@@ -118,7 +122,7 @@ export function useCircuitData(): CircuitData {
       guard: (item: unknown) => boolean,
       settled: () => void
     ) => {
-      fetch(path, opts)
+      fetchWithTimeout(path, opts, CLIENT_GET_TIMEOUT_MS)
         .then((res) => (res.ok ? res.json() : null))
         .then((body: unknown) => {
           if (controller.signal.aborted) return;
@@ -126,7 +130,9 @@ export function useCircuitData(): CircuitData {
           if (items && items.every(guard)) apply(items);
         })
         .catch(() => {
-          // Fail closed. AbortError lands here too.
+          // Fail closed. AbortError and the 15 s TimeoutError land here too;
+          // `settled` below still marks the slice ready so the board renders
+          // its designed empty state rather than staying blank.
         })
         .finally(() => {
           if (!controller.signal.aborted) settled();

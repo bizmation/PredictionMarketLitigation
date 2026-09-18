@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
 
+import {
+  CLIENT_GET_TIMEOUT_MS,
+  fetchWithTimeout
+} from "../../../shared/lib/timeouts";
 import type { StateDetail } from "../../../shared/schemas/state";
 
 /**
@@ -78,10 +82,14 @@ export function useStateDetail(code: string | null, epoch = 0): DetailLoad {
     setDetail(null);
     setStatus("loading");
 
-    fetch(`/api/states/${code}`, {
-      signal: controller.signal,
-      headers: { accept: "application/json" }
-    })
+    fetchWithTimeout(
+      `/api/states/${code}`,
+      {
+        signal: controller.signal,
+        headers: { accept: "application/json" }
+      },
+      CLIENT_GET_TIMEOUT_MS
+    )
       .then((res) =>
         res.ok ? res.json() : Promise.reject(new Error("detail"))
       )

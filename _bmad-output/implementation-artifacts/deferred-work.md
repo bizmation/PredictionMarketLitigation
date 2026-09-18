@@ -159,3 +159,18 @@ Ledger entries above are not edited; this block records where each Epic 3 entry 
 - [→ 3.20] 3.2 config `provider` never matched to injected `LlmProvider`
 - [→ 3.20] 3.2 budget check `spend >= budget` vs would-push-over
 - [→ Epic 2 item 7] 2.10 `DONATE_URL` dead anchor — interim "Donations open soon" copy in 3.19; real URL is Patrick's decision
+
+## Deferred from: code review of spec-3-19-epic-3-hardening-timeouts-gateway-seed.md (2026-09-18)
+
+- source_spec: `spec-3-19-epic-3-hardening-timeouts-gateway-seed.md`
+  summary: `withDeadline` never cancels the underlying work — `LlmProvider.complete` and `SourceCheck` receive no `AbortSignal`, so a timed-out `env.AI.run` keeps running (and metering) and a hung connector keeps fetching in the background.
+  evidence: Both seams take only `{ model, prompt }` / `(source)`; adding a signal widens the provider contract (3.20 OpenRouter) and the connector contract (3.21 first live connector). [src/pipeline/ai/gateway.ts, src/pipeline/connectors/connector.ts]
+- source_spec: `spec-3-19-epic-3-hardening-timeouts-gateway-seed.md`
+  summary: Sequential per-source connector deadlines (60 s each) and per-Draft provider deadlines can exceed the Workflows step default of 10 minutes on a steered list of 10+ hung sources; a step timeout bypasses `packageDailyRun`'s catch so the Run is never marked `failed`.
+  evidence: Cloudflare docs (workflows/build/sleeping-and-retrying): default `WorkflowStepConfig` is `timeout: "10 minutes"`, `retries: { limit: 5, backoff: "exponential" }`; `dailyRun.ts` passes no step config. 4 seed sources today. 3.21 should either run connectors in parallel or set an explicit step `timeout` and mark the Run failed from the Workflow catch. [src/pipeline/workflow/dailyRun.ts:219]
+- source_spec: `spec-3-19-epic-3-hardening-timeouts-gateway-seed.md`
+  summary: `PendingDrafts` and `RunLog` hung-GET → designed empty state has no mount test (only `EvidenceDetail` covers the ops GET pattern).
+  evidence: `pendingDrafts.mount.test.tsx` and `runLog.test.tsx` script resolved responses only; both sites are one-line repeats of the tested `EvidenceDetail` pattern. [src/surfaces/ops/PendingDrafts.tsx, src/surfaces/ops/RunLog.tsx]
+- source_spec: `spec-3-19-epic-3-hardening-timeouts-gateway-seed.md`
+  summary: The 0017 idempotence test re-runs its own `INSERT … DO NOTHING`, not the migration's text, so `INSERT OR REPLACE` creeping into 0017 would pass the suite.
+  evidence: D1 applies each migration once via `d1_migrations`, so the re-run only arises with a hand-seeded row; to pin, read the `0017` entry from `env.TEST_MIGRATIONS` in `gatewaySeed.test.ts`, steer the row via `setRoleModel`, re-apply, assert unchanged. [src/pipeline/workflow/gatewaySeed.test.ts]

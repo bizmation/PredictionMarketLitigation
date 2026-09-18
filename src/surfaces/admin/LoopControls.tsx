@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 
 import { formatEtDateTime } from "../../shared/lib/dates";
+import {
+  ADMIN_POST_TIMEOUT_MS,
+  CLIENT_GET_TIMEOUT_MS,
+  fetchWithTimeout,
+  isAbortError,
+  isTimeoutError
+} from "../../shared/lib/timeouts";
 import type { RunLogItem } from "../../shared/schemas/run";
 import {
   EmptyState,
@@ -23,7 +30,13 @@ type LoopControlsProps = {
 type LoopView =
   | { status: "loading" }
   | { status: "signedOut" }
+  | { status: "timedOut" }
   | { status: "ready"; latest: RunLogItem | null };
+
+export const LOOP_TIMEOUT_NOTICE =
+  "The latest Run status did not load within 15 seconds. Showing the last known state.";
+export const RUN_TIMEOUT_NOTICE =
+  "No answer within 30 seconds. The run may or may not have started — the status below refreshes.";
 
 const ORIGINS = new Set(["scheduled", "catch-up", "manual"]);
 const MODES = new Set(["hitl", "yolo"]);
@@ -109,11 +122,17 @@ export function LoopControls({ latest: injectedLatest }: LoopControlsProps) {
 
     async function load() {
       try {
-        const res = await fetch("/api/admin/loop", {
-          signal: controller.signal,
-          credentials: "same-origin",
-          headers: { accept: "application/json" }
-        });
+        // One controller is shared across polls; the per-call deadline only
+        // aborts its own combined signal, never this controller.
+        const res = await fetchWithTimeout(
+          "/api/admin/loop",
+          {
+            signal: controller.signal,
+            credentials: "same-origin",
+            headers: { accept: "application/json" }
+          },
+          CLIENT_GET_TIMEOUT_MS
+        );
         if (cancelled) return;
         if (!res.ok) {
           setView({ status: "signedOut" });
@@ -127,9 +146,25 @@ export function LoopControls({ latest: injectedLatest }: LoopControlsProps) {
           return;
         }
         setView({ status: "ready", latest });
+        // A poll that timed out earlier is no longer stale; other notices
+        // (run trigger outcomes) stay until the next trigger clears them.
+        setNotice((current) =>
+          current === LOOP_TIMEOUT_NOTICE ? null : current
+        );
       } catch (err) {
         if (cancelled) return;
-        if (err instanceof Error && err.name === "AbortError") return;
+        if (isAbortError(err)) return;
+        if (isTimeoutError(err)) {
+          // Story 3.19 — a hung GET is not a sign-out. First load: a designed
+          // timed-out state with a retry. Later polls: keep the held row and
+          // say so.
+          if (viewRef.current.status === "ready") {
+            setNotice(LOOP_TIMEOUT_NOTICE);
+          } else {
+            setView({ status: "timedOut" });
+          }
+          return;
+        }
         setView({ status: "signedOut" });
       }
     }
@@ -157,18 +192,22 @@ export function LoopControls({ latest: injectedLatest }: LoopControlsProps) {
     setBusy(true);
     setNotice(null);
     try {
-      const res = await fetch("/api/admin/runs", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {
-          "content-type": "application/json",
-          accept: "application/json"
+      const res = await fetchWithTimeout(
+        "/api/admin/runs",
+        {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "content-type": "application/json",
+            accept: "application/json"
+          },
+          body: JSON.stringify({
+            origin: "manual",
+            ...(supersedePriorPublish ? { supersedePriorPublish: true } : {})
+          })
         },
-        body: JSON.stringify({
-          origin: "manual",
-          ...(supersedePriorPublish ? { supersedePriorPublish: true } : {})
-        })
-      });
+        ADMIN_POST_TIMEOUT_MS
+      );
       if (res.status === 403) {
         setView({ status: "signedOut" });
         setReload((value) => value + 1);
@@ -199,8 +238,12 @@ export function LoopControls({ latest: injectedLatest }: LoopControlsProps) {
       }
       setConfirming(false);
       setReload((value) => value + 1);
-    } catch {
-      setNotice("The run was not started. Try again.");
+    } catch (err) {
+      setNotice(
+        isTimeoutError(err)
+          ? RUN_TIMEOUT_NOTICE
+          : "The run was not started. Try again."
+      );
       setReload((value) => value + 1);
     } finally {
       setBusy(false);
@@ -216,6 +259,30 @@ export function LoopControls({ latest: injectedLatest }: LoopControlsProps) {
         Your session expired or the server refused to identify you. Pass the
         Cloudflare Access challenge again and these controls reload. Nothing
         here acted on your behalf.
+      </EmptyState>
+    );
+  }
+
+  if (!injected && view.status === "timedOut") {
+    return (
+      <EmptyState
+        title="Loop status did not load"
+        hint="The status request timed out after 15 seconds."
+      >
+        <p>
+          Nothing here acted on your behalf. The latest Run is still on the
+          public run log; try loading these controls again.
+        </p>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={() => {
+            setView({ status: "loading" });
+            setReload((value) => value + 1);
+          }}
+        >
+          Retry
+        </button>
       </EmptyState>
     );
   }

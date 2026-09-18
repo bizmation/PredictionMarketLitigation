@@ -39,8 +39,10 @@ export type RoleModelConfig = z.infer<typeof RoleModelConfigSchema>;
  * typed `role_not_configured` at call time), and no key outside the closed
  * set is admitted (`.strict()` rejects it). `.strict()` also rejects
  * inherited prototype keys, so a tampered JSON object cannot smuggle a
- * mapping in. Production does not seed a steward model id; tests INSERT
- * one when they need `complete({ role: "steward" })`.
+ * mapping in. Migration 0017 (story 3.19) seeds all five roles — steward
+ * included — to Workers AI with a 500-cent default budget; tests still
+ * upsert the exact map they need (including `{}` to assert the
+ * unconfigured path) rather than relying on the seed.
  */
 export const RoleModelMapSchema = z
   .object({

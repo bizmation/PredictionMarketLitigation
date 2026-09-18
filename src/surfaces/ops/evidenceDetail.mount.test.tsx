@@ -231,3 +231,151 @@ describe("EvidenceDetail live fetch/poll (jsdom mount)", () => {
     expect(document.body.textContent).not.toContain("Gate: HITL");
   });
 });
+
+describe("EvidenceDetail GET timeout (story 3.19, jsdom mount)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("reaches the designed error state after 15 s when GET /api/runs/:id never resolves", async () => {
+    const seen: AbortSignal[] = [];
+    const fetchMock = vi.fn<FetchStub>((input, init) => {
+      if (String(input).includes("/api/mode")) {
+        return Promise.resolve(
+          scriptedResponse({ status: 200, body: DEFAULT_APPROVAL_MODE })
+        );
+      }
+      if (init?.signal) seen.push(init.signal);
+      return new Promise(() => {});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<EvidenceDetail runId="run-20260908-aaa1" />);
+    await act(async () => {});
+    expect(runCalls(fetchMock)).toHaveLength(1);
+    expect(document.body.textContent).not.toContain("Evidence unavailable");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(14_999);
+    });
+    expect(document.body.textContent).not.toContain("Evidence unavailable");
+    expect(seen[0]?.aborted).toBe(false);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    // Chrome plus the designed error, never a blank page.
+    expect(seen[0]?.aborted).toBe(true);
+    expect(seen[0]?.reason?.name).toBe("TimeoutError");
+    expect(document.body.textContent).toContain("Evidence unavailable");
+    expect(document.body.textContent).toContain(
+      "The Evidence bundle could not be loaded."
+    );
+    expect(document.querySelector(".topbar")).not.toBeNull();
+  });
+
+  it("times out a hung poll GET during a live Run (never aborted by later ticks), keeps the held timeline per 3.8, and resumes polling", async () => {
+    const signals: AbortSignal[] = [];
+    const fetchMock = vi.fn<FetchStub>((input, init) => {
+      if (String(input).includes("/api/mode")) {
+        return Promise.resolve(
+          scriptedResponse({ status: 200, body: DEFAULT_APPROVAL_MODE })
+        );
+      }
+      if (init?.signal) signals.push(init.signal);
+      if (signals.length === 1) {
+        return Promise.resolve(
+          scriptedResponse({ status: 200, body: detail() })
+        );
+      }
+      return new Promise(() => {});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<EvidenceDetail runId="run-20260908-aaa1" />);
+    await act(async () => {});
+    expect(document.body.textContent).toContain("run.started");
+
+    // Second poll hangs; further ticks must not abort it or start another.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4000);
+    });
+    expect(runCalls(fetchMock)).toHaveLength(2);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8000);
+    });
+    expect(runCalls(fetchMock)).toHaveLength(2);
+    expect(signals[1]?.aborted).toBe(false);
+    expect(document.body.textContent).toContain("run.started");
+
+    // 15 s after the hung poll started (t = 4 s + 15 s).
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(7000);
+    });
+    expect(signals[1]?.aborted).toBe(true);
+    expect(signals[1]?.reason?.name).toBe("TimeoutError");
+    // A later-poll failure keeps the held detail (3.8 held-detail rule), so
+    // the designed state here is the last known timeline, not the error
+    // EmptyState — and the poll loop is free again.
+    expect(document.body.textContent).toContain("run.started");
+    expect(document.body.textContent).not.toContain("Evidence unavailable");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4000);
+    });
+    expect(runCalls(fetchMock)).toHaveLength(3);
+    expect(signals[2]?.aborted).toBe(false);
+  });
+
+  it("reaches the designed error state when the first GET of a live Run hangs, with later ticks not aborting it", async () => {
+    const signals: AbortSignal[] = [];
+    const fetchMock = vi.fn<FetchStub>((input, init) => {
+      if (String(input).includes("/api/mode")) {
+        return Promise.resolve(
+          scriptedResponse({ status: 200, body: DEFAULT_APPROVAL_MODE })
+        );
+      }
+      if (init?.signal) signals.push(init.signal);
+      return new Promise(() => {});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<EvidenceDetail runId="run-20260908-aaa1" />);
+    await act(async () => {});
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12_000);
+    });
+    expect(runCalls(fetchMock)).toHaveLength(1);
+    expect(signals[0]?.aborted).toBe(false);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(signals[0]?.reason?.name).toBe("TimeoutError");
+    expect(document.body.textContent).toContain("Evidence unavailable");
+    expect(document.querySelector(".topbar")).not.toBeNull();
+  });
+
+  it("does not leak the deadline timer or show an error on unmount mid-fetch", async () => {
+    const fetchMock = vi.fn<FetchStub>((input) => {
+      if (String(input).includes("/api/mode")) {
+        return Promise.resolve(
+          scriptedResponse({ status: 200, body: DEFAULT_APPROVAL_MODE })
+        );
+      }
+      return new Promise(() => {});
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { unmount } = render(<EvidenceDetail runId="run-20260908-aaa1" />);
+    await act(async () => {});
+    unmount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20_000);
+    });
+    expect(document.body.textContent).not.toContain("Evidence unavailable");
+    expect(runCalls(fetchMock)).toHaveLength(1);
+  });
+});

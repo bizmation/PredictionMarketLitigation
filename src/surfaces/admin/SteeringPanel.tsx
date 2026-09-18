@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
+import {
+  CLIENT_GET_TIMEOUT_MS,
+  STEERING_POST_TIMEOUT_MS,
+  fetchWithTimeout,
+  isTimeoutError
+} from "../../shared/lib/timeouts";
 import { EmptyState } from "../../shared/ui";
 
 /**
@@ -25,6 +31,14 @@ type SteeringPanelProps = {
 };
 
 type View = { status: "ready" } | { status: "signedOut" };
+
+export const STEERING_TIMEOUT_MESSAGE = `No answer within ${Math.round(STEERING_POST_TIMEOUT_MS / 1000)} seconds. The turn may still have been recorded — check the Run's Evidence before resubmitting.`;
+
+function submitFailureMessage(err: unknown): string {
+  return isTimeoutError(err)
+    ? STEERING_TIMEOUT_MESSAGE
+    : "Submit failed. Try again.";
+}
 
 type PipelineHistoryItem = {
   version: number;
@@ -131,10 +145,14 @@ export function SteeringPanel({
 
   async function loadPipelineConfig() {
     try {
-      const res = await fetch("/api/pipeline-config", {
-        credentials: "same-origin",
-        headers: { accept: "application/json" }
-      });
+      const res = await fetchWithTimeout(
+        "/api/pipeline-config",
+        {
+          credentials: "same-origin",
+          headers: { accept: "application/json" }
+        },
+        CLIENT_GET_TIMEOUT_MS
+      );
       if (!res.ok) return;
       const parsed = parsePipelineConfig(await res.json());
       if (parsed != null) setPipelineConfig(parsed);
@@ -145,10 +163,14 @@ export function SteeringPanel({
 
   async function loadGuidance() {
     try {
-      const res = await fetch("/api/standing-guidance", {
-        credentials: "same-origin",
-        headers: { accept: "application/json" }
-      });
+      const res = await fetchWithTimeout(
+        "/api/standing-guidance",
+        {
+          credentials: "same-origin",
+          headers: { accept: "application/json" }
+        },
+        CLIENT_GET_TIMEOUT_MS
+      );
       if (!res.ok) return;
       const parsed = parseStandingGuidance(await res.json());
       if (parsed != null) setGuidance(parsed);
@@ -177,15 +199,24 @@ export function SteeringPanel({
   } | null> {
     const submittedRunId = runId;
     const submittedDraftId = draftId;
-    const res = await fetch(`/api/admin/runs/${runId}/steering`, {
-      method: "POST",
-      credentials: "same-origin",
-      headers: {
-        "content-type": "application/json",
-        accept: "application/json"
+    // Story 3.19 — a hung steering POST rejects with a TimeoutError after
+    // STEERING_POST_TIMEOUT_MS (a revise runs drafter + reviewer, each under
+    // the 60 s provider deadline, so this outlasts both); every caller's
+    // `finally` clears `submitting`/busy so the queue's keyboard controls
+    // come back.
+    const res = await fetchWithTimeout(
+      `/api/admin/runs/${runId}/steering`,
+      {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json"
+        },
+        body: JSON.stringify(body)
       },
-      body: JSON.stringify(body)
-    });
+      STEERING_POST_TIMEOUT_MS
+    );
     if (
       selectionRef.current.runId !== submittedRunId ||
       selectionRef.current.draftId !== submittedDraftId
@@ -306,8 +337,8 @@ export function SteeringPanel({
       }
       setContent("");
       setPrivate(false);
-    } catch {
-      setError("Submit failed. Try again.");
+    } catch (err) {
+      setError(submitFailureMessage(err));
     } finally {
       submitting.current = false;
       setBusy(false);
@@ -347,8 +378,8 @@ export function SteeringPanel({
         setLastReply(null);
       }
       void loadPipelineConfig();
-    } catch {
-      setError("Submit failed. Try again.");
+    } catch (err) {
+      setError(submitFailureMessage(err));
     } finally {
       submitting.current = false;
       setBusy(false);

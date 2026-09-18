@@ -45,8 +45,21 @@ const REPO_URL = "https://github.com/bizmation/PredictionMarketLitigation";
 
 // FR39 — donations at launch. The real target is an open question (see the
 // story's Open Question 1); this is a clearly-marked placeholder, not a live
-// Ko-fi / Buy Me a Coffee / GitHub Sponsors URL.
+// Ko-fi / Buy Me a Coffee / GitHub Sponsors URL. Story 3.19: while it is not
+// an http(s) URL, both donation CTAs render as non-link placeholders
+// (`role="link" aria-disabled="true"`, the APG disabled-link pattern) with a
+// visible "donations open soon" note instead of a dead anchor; drop a real
+// URL here and the plain anchors come back unchanged.
 const DONATE_URL = "#coffee";
+
+export const DONATIONS_OPEN_SOON = "donations open soon";
+
+/** True only for a real, absolute http(s) destination. */
+export function isDonateUrlLive(url: string): boolean {
+  return /^https?:\/\//i.test(url);
+}
+
+const donationsLive = isDonateUrlLive(DONATE_URL);
 
 type ApexShellProps = {
   /** True in local development — routes cross-surface links via ?surface=. */
@@ -199,9 +212,22 @@ export function ApexShell({ dev = false }: ApexShellProps) {
                 >
                   Public repository
                 </a>
-                <a className="btn btn-ghost" href={DONATE_URL}>
-                  Buy me a coffee
-                </a>
+                {donationsLive ? (
+                  <a className="btn btn-ghost" href={DONATE_URL}>
+                    Buy me a coffee
+                  </a>
+                ) : (
+                  /* oxlint-disable jsx-a11y/prefer-tag-over-role -- APG disabled-link pattern; an <a> without href trips anchor-is-valid */
+                  <span
+                    className="btn btn-ghost donate-soon"
+                    role="link"
+                    aria-disabled="true"
+                  >
+                    Buy me a coffee
+                    <span className="muted"> · {DONATIONS_OPEN_SOON}</span>
+                  </span>
+                  /* oxlint-enable jsx-a11y/prefer-tag-over-role */
+                )}
               </div>
               <p className="bizmation">Powered by Bizmation.</p>
             </div>
@@ -245,7 +271,14 @@ export function ApexShell({ dev = false }: ApexShellProps) {
           { href: opsHref, label: "ops.", external: true },
           { href: REPO_URL, label: "Repository", external: true },
           { href: "#correct", label: "Corrections" },
-          { href: DONATE_URL, label: "Support the project" }
+          donationsLive
+            ? { href: DONATE_URL, label: "Support the project" }
+            : {
+                href: DONATE_URL,
+                label: "Support the project",
+                disabled: true,
+                hint: DONATIONS_OPEN_SOON
+              }
         ]}
         note="General legal information — not legal advice."
       />

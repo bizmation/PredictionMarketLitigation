@@ -2,6 +2,10 @@ import { useEffect, useState } from "react";
 
 import { formatEtDateTime } from "../../shared/lib/dates";
 import { surfaceHref } from "../../shared/lib/surface";
+import {
+  CLIENT_GET_TIMEOUT_MS,
+  fetchWithTimeout
+} from "../../shared/lib/timeouts";
 import type { RunLogItem } from "../../shared/schemas/run";
 import {
   EmptyState,
@@ -84,10 +88,14 @@ function useRunLog(): RunLogItem[] | null {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/api/runs", {
-      signal: controller.signal,
-      headers: { accept: "application/json" }
-    })
+    fetchWithTimeout(
+      "/api/runs",
+      {
+        signal: controller.signal,
+        headers: { accept: "application/json" }
+      },
+      CLIENT_GET_TIMEOUT_MS
+    )
       .then((res) => (res.ok ? res.json() : null))
       .then((body: unknown) => {
         if (controller.signal.aborted) return;
@@ -99,6 +107,8 @@ function useRunLog(): RunLogItem[] | null {
         setItems([]);
       })
       .catch(() => {
+        // Unmount abort stays silent; a TimeoutError (story 3.19) lands in
+        // the designed empty state like any other fetch failure.
         if (controller.signal.aborted) return;
         setItems([]);
       });

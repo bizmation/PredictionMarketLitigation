@@ -86,6 +86,27 @@ function publicTurnPayload(turn: SteeringTurnRecord): Record<string, unknown> {
   };
 }
 
+/**
+ * Story 3.19 — the four best-effort Evidence writes (config revert/apply,
+ * guidance record/revoke) run after their version row has committed. When
+ * the Evidence batch throws, the operator still gets `ok` (the row is real)
+ * but the projection is missing the rows it should have; name every lost
+ * event (the batch also carries the `steering.applied` effect row) so the
+ * gap is diagnosable from logs instead of silent.
+ */
+export const EVIDENCE_LOST_WARNING = "steering.evidence_lost";
+
+function warnEvidenceLost(
+  turn: Pick<SteeringTurnRecord, "runId" | "id">,
+  event: "config.steered" | "guidance.recorded" | "guidance.revoked"
+): void {
+  console.warn(EVIDENCE_LOST_WARNING, {
+    runId: turn.runId,
+    turnId: turn.id,
+    events: [event, "steering.applied"]
+  });
+}
+
 async function denyToolShaped(
   gatewayDeps: GatewayDeps,
   runId: string,
@@ -428,6 +449,7 @@ async function steerPipelineConfig(
         });
       } catch {
         // Version write already committed; Evidence is best-effort.
+        warnEvidenceLost(input.turn, "config.steered");
       }
       return { status: "ok", version: row.version, reply: null };
     } catch {
@@ -488,6 +510,7 @@ async function steerPipelineConfig(
       });
     } catch {
       // Version write already committed; Evidence is best-effort.
+      warnEvidenceLost(input.turn, "config.steered");
     }
     return { status: "ok", version: row.version, reply };
   } catch (err) {
@@ -625,6 +648,7 @@ async function steerGuidance(
       });
     } catch {
       // Version row already committed; Evidence is best-effort.
+      warnEvidenceLost(input.turn, "guidance.revoked");
     }
     return { status: "ok", itemId: row.itemId, version: row.version };
   }
@@ -670,6 +694,7 @@ async function steerGuidance(
     });
   } catch {
     // Version row already committed; Evidence is best-effort.
+    warnEvidenceLost(input.turn, "guidance.recorded");
   }
   return { status: "ok", itemId: row.itemId, version: row.version };
 }

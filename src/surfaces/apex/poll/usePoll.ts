@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import {
+  CLIENT_GET_TIMEOUT_MS,
+  fetchWithTimeout
+} from "../../../shared/lib/timeouts";
 import type { PollResults, PollVoteBody } from "../../../shared/schemas/poll";
 
 /**
@@ -57,11 +61,15 @@ export function usePoll(): PollState & {
   useEffect(() => {
     const controller = new AbortController();
     setStatus("loading");
-    fetch("/api/poll/results", {
-      signal: controller.signal,
-      credentials: "same-origin",
-      headers: { accept: "application/json" }
-    })
+    fetchWithTimeout(
+      "/api/poll/results",
+      {
+        signal: controller.signal,
+        credentials: "same-origin",
+        headers: { accept: "application/json" }
+      },
+      CLIENT_GET_TIMEOUT_MS
+    )
       .then((res) => (res.ok ? res.json() : null))
       .then((body: unknown) => {
         if (controller.signal.aborted) return;
@@ -91,15 +99,21 @@ export function usePoll(): PollState & {
     if (inFlight.current) return false;
     inFlight.current = true;
     try {
-      const res = await fetch("/api/poll/votes", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {
-          "content-type": "application/json",
-          accept: "application/json"
+      // Public POST; the client GET deadline applies (a vote is one small
+      // write, and `inFlight` must not stay latched behind a hung request).
+      const res = await fetchWithTimeout(
+        "/api/poll/votes",
+        {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "content-type": "application/json",
+            accept: "application/json"
+          },
+          body: JSON.stringify(body)
         },
-        body: JSON.stringify(body)
-      });
+        CLIENT_GET_TIMEOUT_MS
+      );
       if (!res.ok) return false;
       const data: unknown = await res.json();
       if (isPollResults(data)) {

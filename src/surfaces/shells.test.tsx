@@ -4,7 +4,8 @@ import { describe, expect, it } from "vitest";
 import type { DraftRecord } from "../shared/schemas/run";
 import App from "../app";
 import { AdminShell } from "./admin/AdminShell";
-import { ApexShell } from "./apex/ApexShell";
+import { SiteFooter } from "../shared/ui/SiteFooter";
+import { ApexShell, isDonateUrlLive } from "./apex/ApexShell";
 import { OpsShell } from "./ops/OpsShell";
 
 const apex = () => renderToStaticMarkup(<ApexShell />);
@@ -246,6 +247,11 @@ describe("ApexShell trust furniture and ops handoff (story 2.10)", () => {
     expect(trustSection).toContain("Not legal advice");
     expect(trustSection).toContain("Corrections welcome");
     expect(trustSection).toContain("Buy me a coffee");
+    // Story 3.19 — DONATE_URL is a placeholder, so the CTA is text with a
+    // visible "donations open soon" note, never a dead anchor.
+    expect(trustSection).toContain("donations open soon");
+    expect(trustSection).toContain('role="link" aria-disabled="true"');
+    expect(trustSection).not.toContain('href="#coffee"');
     expect(trustSection).toContain("Public repository");
     expect(trustSection).toContain('id="correct"');
     // No fake form, no fake tracking ID (AC2) — form elements in the shell,
@@ -267,6 +273,9 @@ describe("ApexShell trust furniture and ops handoff (story 2.10)", () => {
     expect(footer).toBeDefined();
     expect(footer![0]).toContain("Corrections");
     expect(footer![0]).toContain("Support the project");
+    expect(footer![0]).toContain("donations open soon");
+    expect(footer![0]).not.toContain('href="#coffee"');
+    expect(html).not.toContain('href="#coffee"');
     // No fake pipeline claims (v1 honesty)
     expect(html).not.toContain("pending right now");
     expect(html).not.toContain("two pending");
@@ -400,5 +409,47 @@ describe("App /runs/:runId (story 3.8)", () => {
         });
       }
     }
+  });
+});
+
+describe("ApexShell donations placeholder (story 3.19)", () => {
+  it("renders both donation CTAs as non-link text with the open-soon note while DONATE_URL is a placeholder", () => {
+    const html = apex();
+    const trustSection = html.match(
+      /<section class="band" id="trust"[\s\S]*?<\/section>/
+    )?.[0];
+    expect(trustSection).toMatch(
+      /<span class="btn btn-ghost donate-soon" role="link" aria-disabled="true">Buy me a coffee<span class="muted"> · donations open soon<\/span><\/span>/
+    );
+    const footer = html.match(/<footer class="foot">[\s\S]*?<\/footer>/)![0];
+    expect(footer).toMatch(
+      /<span class="foot-soon" role="link" aria-disabled="true">Support the project<span class="muted"> · donations open soon<\/span><\/span>/
+    );
+    expect(html).not.toContain('href="#coffee"');
+  });
+
+  it("isDonateUrlLive admits only absolute http(s) URLs", () => {
+    expect(isDonateUrlLive("#coffee")).toBe(false);
+    expect(isDonateUrlLive("")).toBe(false);
+    expect(isDonateUrlLive("javascript:void(0)")).toBe(false);
+    expect(isDonateUrlLive("/donate")).toBe(false);
+    expect(isDonateUrlLive("https://ko-fi.com/example")).toBe(true);
+    expect(isDonateUrlLive("http://example.org/coffee")).toBe(true);
+  });
+
+  it("renders a live donation link as a plain anchor, as before", () => {
+    const html = renderToStaticMarkup(
+      <SiteFooter
+        label="x"
+        links={[
+          { href: "https://ko-fi.com/example", label: "Support the project" }
+        ]}
+      />
+    );
+    expect(html).toContain(
+      '<a href="https://ko-fi.com/example">Support the project</a>'
+    );
+    expect(html).not.toContain("donations open soon");
+    expect(html).not.toContain("aria-disabled");
   });
 });

@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
 
+import {
+  CLIENT_GET_TIMEOUT_MS,
+  fetchWithTimeout
+} from "../../../shared/lib/timeouts";
 import type {
   EntityFootprint,
   EntityListItem,
@@ -113,10 +117,14 @@ export function useEntityLedger(): EntityLedger {
   useEffect(() => {
     const controller = new AbortController();
     setStatus("loading");
-    fetch("/api/entities", {
-      signal: controller.signal,
-      headers: { accept: "application/json" }
-    })
+    fetchWithTimeout(
+      "/api/entities",
+      {
+        signal: controller.signal,
+        headers: { accept: "application/json" }
+      },
+      CLIENT_GET_TIMEOUT_MS
+    )
       .then((res) => (res.ok ? res.json() : null))
       .then((body: unknown) => {
         if (controller.signal.aborted) return;

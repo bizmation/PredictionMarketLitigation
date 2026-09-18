@@ -9,7 +9,11 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { DraftRecord } from "../../shared/schemas/run";
-import { ApprovalQueue } from "./ApprovalQueue";
+import {
+  ApprovalQueue,
+  DECISION_TIMEOUT_NOTICE,
+  QUEUE_TIMEOUT_NOTICE
+} from "./ApprovalQueue";
 
 /**
  * Story 3.10 — the live fetch and keyboard wiring of the admin queue
@@ -572,5 +576,142 @@ describe("ApprovalQueue live fetch and keyboard (jsdom mount)", () => {
         })
       );
     });
+  });
+});
+
+describe("ApprovalQueue timeouts (story 3.19, jsdom mount)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("shows the timed-out EmptyState with Retry, not re-auth, when the queue GET hangs 15 s", async () => {
+    vi.useFakeTimers();
+    let queueCalls = 0;
+    const fetchMock = vi.fn((input: string | URL | Request) => {
+      if (String(input) === "/api/admin/queue") {
+        queueCalls += 1;
+        if (queueCalls === 1) return new Promise<never>(() => {});
+        return Promise.resolve(scripted({ items: [draftRecord("d-a")] }));
+      }
+      return Promise.resolve(
+        scripted({ key: "poll_sources", version: 0, sources: [], history: [] })
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ApprovalQueue />);
+    await act(async () => {});
+    expect(document.body.textContent).toBe("");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    expect(document.body.textContent).toContain("Queue did not load");
+    expect(document.body.textContent).not.toContain(
+      "Operator re-authentication needed"
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await act(async () => {});
+    expect(queueCalls).toBe(2);
+    expect(document.body.textContent).toContain(
+      "Nevada posture proposal body."
+    );
+  });
+
+  it("keeps the loaded queue with QUEUE_TIMEOUT_NOTICE when the post-decision reload hangs 15 s, and clears it on the next successful load", async () => {
+    vi.useFakeTimers();
+    let queueGets = 0;
+    const fetchMock = vi.fn((input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/decision")) {
+        return Promise.resolve(scripted(decided(draftRecord("d-a"))));
+      }
+      if (url !== "/api/admin/queue") {
+        return Promise.resolve(
+          scripted({
+            key: "poll_sources",
+            version: 0,
+            sources: [],
+            history: []
+          })
+        );
+      }
+      queueGets += 1;
+      if (queueGets === 2) return new Promise<never>(() => {});
+      return Promise.resolve(
+        scripted({ items: [draftRecord("d-a"), draftRecord("d-b")] })
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ApprovalQueue />);
+    await act(async () => {});
+    expect(document.body.textContent).toContain(
+      "Nevada posture proposal body."
+    );
+
+    fireEvent.keyDown(document, { key: "a" });
+    await act(async () => {});
+    expect(queueGets).toBe(2);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    // Loaded queue stays; no timed-out EmptyState, no re-auth.
+    expect(document.body.textContent).toContain(
+      "Nevada posture proposal body."
+    );
+    expect(document.body.textContent).not.toContain("Queue did not load");
+    expect(document.body.textContent).toContain(QUEUE_TIMEOUT_NOTICE);
+
+    // J still moves selection and the next decision's reload succeeds and
+    // clears the notice.
+    fireEvent.keyDown(document, { key: "j" });
+    fireEvent.keyDown(document, { key: "a" });
+    await act(async () => {});
+    expect(queueGets).toBe(3);
+    expect(document.body.textContent).not.toContain(QUEUE_TIMEOUT_NOTICE);
+  });
+
+  it("clears busy, re-enables A, and shows a notice when the decision POST hangs 30 s", async () => {
+    vi.useFakeTimers();
+    let decisions = 0;
+    const fetchMock = vi.fn((input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/decision")) {
+        decisions += 1;
+        return new Promise<never>(() => {});
+      }
+      if (url.includes("/api/pipeline-config")) {
+        return Promise.resolve(
+          scripted({
+            key: "poll_sources",
+            version: 0,
+            sources: [],
+            history: []
+          })
+        );
+      }
+      return Promise.resolve(scripted({ items: [draftRecord("d-a")] }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ApprovalQueue />);
+    await act(async () => {});
+
+    fireEvent.keyDown(document, { key: "a" });
+    await act(async () => {});
+    expect(decisions).toBe(1);
+    // Busy: a second A is ignored while the POST is in flight.
+    fireEvent.keyDown(document, { key: "a" });
+    await act(async () => {});
+    expect(decisions).toBe(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000);
+    });
+    expect(document.body.textContent).toContain(DECISION_TIMEOUT_NOTICE);
+    expect(document.body.textContent).not.toContain(
+      "Operator re-authentication needed"
+    );
+    // Keyboard controls are live again.
+    fireEvent.keyDown(document, { key: "a" });
+    await act(async () => {});
+    expect(decisions).toBe(2);
   });
 });

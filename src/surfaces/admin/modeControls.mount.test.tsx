@@ -9,7 +9,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_APPROVAL_MODE } from "../../shared/schemas/mode";
-import { ModeControls } from "./ModeControls";
+import { MODE_TIMEOUT_NOTICE, ModeControls } from "./ModeControls";
 
 type ScriptedResponse = {
   ok: boolean;
@@ -148,5 +148,57 @@ describe("ModeControls live fetch (jsdom mount)", () => {
     await act(async () => {});
     expect((slider as HTMLInputElement).value).toBe("70");
     expect(document.body.textContent).not.toContain("YOLO");
+  });
+});
+
+describe("ModeControls POST timeout (story 3.19, jsdom mount)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("re-enables the controls with a notice and re-fetches GET /api/mode when the POST hangs 30 s", async () => {
+    vi.useFakeTimers();
+    let gets = 0;
+    const fetchMock = vi.fn((input: RequestInfo, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/api/admin/mode") && init?.method === "POST") {
+        return new Promise<never>(() => {});
+      }
+      gets += 1;
+      // The server did apply the change; the resync GET reveals it.
+      return Promise.resolve(
+        scripted(
+          gets === 1
+            ? DEFAULT_APPROVAL_MODE
+            : { ...DEFAULT_APPROVAL_MODE, mode: "yolo" }
+        )
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ModeControls />);
+    await act(async () => {});
+    expect(gets).toBe(1);
+
+    const toggle = screen.getByRole("button", { name: "Autonomous mode" });
+    const slider = screen.getByLabelText("Auto-approve threshold");
+    fireEvent.click(toggle);
+    await act(async () => {});
+    expect((toggle as HTMLButtonElement).disabled).toBe(true);
+    expect((slider as HTMLInputElement).disabled).toBe(true);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(29_999);
+    });
+    expect((toggle as HTMLButtonElement).disabled).toBe(true);
+    expect(document.body.textContent).not.toContain(MODE_TIMEOUT_NOTICE);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect((toggle as HTMLButtonElement).disabled).toBe(false);
+    expect((slider as HTMLInputElement).disabled).toBe(false);
+    expect(document.body.textContent).toContain(MODE_TIMEOUT_NOTICE);
+    expect(gets).toBe(2);
+    expect(document.body.textContent).toContain("Autonomous mode is ON");
   });
 });
