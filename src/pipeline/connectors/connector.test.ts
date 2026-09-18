@@ -1,12 +1,16 @@
 import { env } from "cloudflare:workers";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import * as draftsRepo from "../../shared/db/repos/draftsRepo";
 import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
 import * as pipelineConfigRepo from "../../shared/db/repos/pipelineConfigRepo";
+import { CONNECTOR_TIMEOUT_MS } from "../../shared/lib/timeouts";
 import { POLL_SOURCES } from "./sources";
-import { monitorAndPackage } from "../workflow/dailyRunSteps";
+import {
+  completeDailyStep,
+  monitorAndPackage
+} from "../workflow/dailyRunSteps";
 import type { SourceCheck } from "./connector";
 
 const testEnv = env as Env;
@@ -211,5 +215,141 @@ describe("source monitoring & draft packaging (story 3.4)", () => {
         (e) => (e.payload as { source?: string }).source === "ND Cal docket"
       )
     ).toBe(true);
+  });
+});
+
+describe("connector timeouts (story 3.19)", () => {
+  beforeEach(async () => {
+    await testEnv.DB.prepare("DELETE FROM pipeline_config_versions").run();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /**
+   * A Run whose `started_at` is safely in the past so `completeDailyStep`
+   * (real clock) satisfies `completed_at >= started_at`.
+   */
+  async function pastRun(): Promise<string> {
+    const id = `run-20260910-${(seq++).toString(16).padStart(4, "0")}`;
+    await runsRepo.insertRun(testEnv.DB, {
+      id,
+      origin: "scheduled",
+      mode: "hitl",
+      status: "running",
+      startedAt: "2026-09-10T16:00:00.000Z",
+      completedAt: null,
+      spendCents: 0,
+      spendCurrency: "USD",
+      budgetCents: null,
+      scheduledFor: "2026-09-10"
+    });
+    return id;
+  }
+
+  /** A check that never resolves; each call pushes a `called` promise. */
+  function hungCheck(): SourceCheck & { calls: Promise<void>[] } {
+    const calls: Promise<void>[] = [];
+    const fires: Array<() => void> = [];
+    const pending = () => {
+      let fire: () => void = () => {};
+      calls.push(
+        new Promise<void>((resolve) => {
+          fire = resolve;
+        })
+      );
+      fires.push(fire);
+    };
+    // Pre-create enough entries for every source; a call fires the next.
+    for (let i = 0; i < POLL_SOURCES.length; i++) pending();
+    let index = 0;
+    const check: SourceCheck = () => {
+      fires[index]?.();
+      index += 1;
+      return new Promise<never>(() => {});
+    };
+    return Object.assign(check, { calls });
+  }
+
+  it("skips a hung source with reason timeout, marks it failed, and still polls the siblings", async () => {
+    const runId = await pastRun();
+    const hung = hungCheck();
+    const checks: Record<string, SourceCheck> = {
+      CourtListener: hung,
+      ...oneMaterial
+    };
+    vi.useFakeTimers();
+    const pending = monitorAndPackage(testEnv.DB, runId, checks);
+    await hung.calls[0];
+    await vi.advanceTimersByTimeAsync(CONNECTOR_TIMEOUT_MS);
+    const result = await pending;
+    expect(vi.getTimerCount()).toBe(0);
+    vi.useRealTimers();
+
+    expect(result).toEqual({ draftCount: 1, anyFailure: true });
+    const evidence = await evidenceRepo.listByRun(testEnv.DB, runId);
+    const skipped = evidence.filter((e) => e.event === "source.skipped");
+    expect(
+      skipped.find(
+        (e) => (e.payload as { source?: string }).source === "CourtListener"
+      )?.payload
+    ).toEqual({
+      source: "CourtListener",
+      tier: "tier1",
+      reason: "timeout",
+      timeoutMs: CONNECTOR_TIMEOUT_MS
+    });
+    expect(evidence.some((e) => e.event === "run.failed")).toBe(false);
+    expect(
+      evidence.some(
+        (e) =>
+          e.event === "source.fetched" &&
+          (e.payload as { source?: string }).source === "CFTC press"
+      )
+    ).toBe(true);
+    // Sibling Drafts still reach the gate: drafts → awaiting under 3.4.
+    await completeDailyStep(testEnv.DB, runId, result);
+    expect((await runsRepo.getRunById(testEnv.DB, runId))?.status).toBe(
+      "awaiting"
+    );
+  });
+
+  it("marks the Run failed, never empty, when every source times out with zero drafts", async () => {
+    const runId = await pastRun();
+    const hung = hungCheck();
+    const checks: Record<string, SourceCheck> = {};
+    for (const source of POLL_SOURCES) checks[source.name] = hung;
+    vi.useFakeTimers();
+    const pending = monitorAndPackage(testEnv.DB, runId, checks);
+    for (let i = 0; i < POLL_SOURCES.length; i++) {
+      await hung.calls[i];
+      await vi.advanceTimersByTimeAsync(CONNECTOR_TIMEOUT_MS);
+    }
+    const result = await pending;
+    expect(vi.getTimerCount()).toBe(0);
+    vi.useRealTimers();
+
+    expect(result).toEqual({ draftCount: 0, anyFailure: true });
+    const evidence = await evidenceRepo.listByRun(testEnv.DB, runId);
+    const skipped = evidence.filter((e) => e.event === "source.skipped");
+    expect(skipped).toHaveLength(POLL_SOURCES.length);
+    expect(
+      skipped.every(
+        (e) => (e.payload as { reason?: string }).reason === "timeout"
+      )
+    ).toBe(true);
+    await completeDailyStep(testEnv.DB, runId, result);
+    expect((await runsRepo.getRunById(testEnv.DB, runId))?.status).toBe(
+      "failed"
+    );
+    expect(evidence.some((e) => e.event === "run.empty")).toBe(false);
+  });
+
+  it("does not fire the deadline for a check that answers in time", async () => {
+    const runId = await newRun();
+    vi.useFakeTimers();
+    const result = await monitorAndPackage(testEnv.DB, runId, wiredEmpty);
+    expect(result).toEqual({ draftCount: 0, anyFailure: false });
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

@@ -234,6 +234,14 @@ footer.foot .wrap {
 footer.foot a {
   color: var(--color-neutral-800);
 }
+/* Story 3.19 — a footer destination that is not open yet: an href-less
+   placeholder, not a dead link. Reads as the label plus a muted
+   "· donations open soon". */
+footer.foot .foot-soon {
+  color: var(--color-neutral-700);
+  cursor: default;
+  text-decoration: none;
+}
 
 /* ---- posture + status ------------------------------------
    One axis, five steps: the darker the fill, the worse for
@@ -2360,6 +2368,16 @@ header.masthead h1 {
   gap: var(--space-3);
   flex-wrap: wrap;
   margin-top: var(--space-6);
+}
+/* Story 3.19 — the donation CTA while no real destination exists: keeps the
+   button footprint, drops the affordance, names the state. */
+.trust-ctas .donate-soon {
+  color: var(--color-neutral-700);
+  cursor: default;
+  text-decoration: none;
+}
+.trust-ctas .donate-soon:hover {
+  background: transparent;
 }
 .bizmation {
   font-size: 12px;

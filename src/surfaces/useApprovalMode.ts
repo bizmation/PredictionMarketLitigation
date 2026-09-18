@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 
 import {
+  CLIENT_GET_TIMEOUT_MS,
+  fetchWithTimeout
+} from "../shared/lib/timeouts";
+import {
   ApprovalModeSchema,
   DEFAULT_APPROVAL_MODE,
   type ApprovalMode
@@ -27,10 +31,14 @@ export function useApprovalMode(injected?: ApprovalMode): {
       return;
     }
     const controller = new AbortController();
-    fetch("/api/mode", {
-      signal: controller.signal,
-      headers: { accept: "application/json" }
-    })
+    fetchWithTimeout(
+      "/api/mode",
+      {
+        signal: controller.signal,
+        headers: { accept: "application/json" }
+      },
+      CLIENT_GET_TIMEOUT_MS
+    )
       .then((res) => (res.ok ? res.json() : null))
       .then((body: unknown) => {
         if (controller.signal.aborted) return;
@@ -38,7 +46,8 @@ export function useApprovalMode(injected?: ApprovalMode): {
         if (parsed.success) setMode(parsed.data);
       })
       .catch(() => {
-        // Keep HITL default. Never imply YOLO on a public GET error.
+        // Keep HITL default. Never imply YOLO on a public GET error or a
+        // 15 s timeout (story 3.19).
       });
     return () => controller.abort();
   }, [injected]);

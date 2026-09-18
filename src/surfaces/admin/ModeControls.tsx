@@ -2,6 +2,12 @@ import { useEffect, useState } from "react";
 
 import { formatEtDateTime } from "../../shared/lib/dates";
 import {
+  ADMIN_POST_TIMEOUT_MS,
+  CLIENT_GET_TIMEOUT_MS,
+  fetchWithTimeout,
+  isTimeoutError
+} from "../../shared/lib/timeouts";
+import {
   ApprovalModeSchema,
   DEFAULT_APPROVAL_MODE,
   type ApprovalMode
@@ -22,6 +28,9 @@ type ModeControlsProps = {
 
 type View = { status: "ready"; mode: ApprovalMode } | { status: "signedOut" };
 
+export const MODE_TIMEOUT_NOTICE =
+  "No answer within 30 seconds; showing the server's current mode.";
+
 export function ModeControls({
   current,
   onChange,
@@ -33,6 +42,8 @@ export function ModeControls({
     mode: current ?? DEFAULT_APPROVAL_MODE
   });
   const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [resync, setResync] = useState(0);
   const [localThreshold, setLocalThreshold] = useState(
     (current ?? DEFAULT_APPROVAL_MODE).threshold
   );
@@ -44,10 +55,14 @@ export function ModeControls({
       return;
     }
     const controller = new AbortController();
-    fetch("/api/mode", {
-      signal: controller.signal,
-      headers: { accept: "application/json" }
-    })
+    fetchWithTimeout(
+      "/api/mode",
+      {
+        signal: controller.signal,
+        headers: { accept: "application/json" }
+      },
+      CLIENT_GET_TIMEOUT_MS
+    )
       .then((res) => (res.ok ? res.json() : null))
       .then((body: unknown) => {
         if (controller.signal.aborted) return;
@@ -57,10 +72,10 @@ export function ModeControls({
         setLocalThreshold(parsed.data.threshold);
       })
       .catch(() => {
-        // Fail closed: keep HITL/70.
+        // Fail closed: keep HITL/70 (also on a 15 s timeout, story 3.19).
       });
     return () => controller.abort();
-  }, [injected, current]);
+  }, [injected, current, resync]);
 
   function confirmedThreshold(): number {
     return view.status === "ready"
@@ -79,16 +94,21 @@ export function ModeControls({
 
   async function post(body: { mode?: "hitl" | "yolo"; threshold?: number }) {
     setBusy(true);
+    setNotice(null);
     try {
-      const res = await fetch("/api/admin/mode", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {
-          "content-type": "application/json",
-          accept: "application/json"
+      const res = await fetchWithTimeout(
+        "/api/admin/mode",
+        {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "content-type": "application/json",
+            accept: "application/json"
+          },
+          body: JSON.stringify(body)
         },
-        body: JSON.stringify(body)
-      });
+        ADMIN_POST_TIMEOUT_MS
+      );
       if (res.status === 403) {
         setView({ status: "signedOut" });
         return;
@@ -105,8 +125,15 @@ export function ModeControls({
       setView({ status: "ready", mode: parsed.data });
       setLocalThreshold(parsed.data.threshold);
       onChange?.(parsed.data);
-    } catch {
+    } catch (err) {
+      // Network error or 30 s timeout (story 3.19): the local slider snaps
+      // back, and a timeout re-fetches GET /api/mode so a change the server
+      // did apply is not shown stale.
       restoreThreshold();
+      if (isTimeoutError(err)) {
+        setNotice(MODE_TIMEOUT_NOTICE);
+        setResync((value) => value + 1);
+      }
     } finally {
       setBusy(false);
     }
@@ -131,6 +158,7 @@ export function ModeControls({
   return (
     <div className="modepanel">
       <div>
+        {notice ? <p className="muted">{notice}</p> : null}
         <div className="switchrow">
           <button
             type="button"

@@ -10,6 +10,11 @@ import type {
 } from "topojson-specification";
 
 import { formatEtDate } from "../../../shared/lib/dates";
+import {
+  CLIENT_GET_TIMEOUT_MS,
+  fetchWithTimeout,
+  isAbortError
+} from "../../../shared/lib/timeouts";
 import type { Case } from "../../../shared/schemas/caseSchema";
 import type { Circuit } from "../../../shared/schemas/circuit";
 import type { State } from "../../../shared/schemas/state";
@@ -112,10 +117,14 @@ export function CircuitMap({
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/geo/states-10m.json", {
-      signal: controller.signal,
-      headers: { accept: "application/json" }
-    })
+    fetchWithTimeout(
+      "/geo/states-10m.json",
+      {
+        signal: controller.signal,
+        headers: { accept: "application/json" }
+      },
+      CLIENT_GET_TIMEOUT_MS
+    )
       .then((res) => {
         if (!res.ok) throw new Error("topology");
         return res.json();
@@ -125,7 +134,9 @@ export function CircuitMap({
         setTopo(body);
       })
       .catch((err: unknown) => {
-        if (err instanceof DOMException && err.name === "AbortError") return;
+        // Unmount abort stays silent; a 15 s TimeoutError (story 3.19) is
+        // the same designed "map unavailable" state as a bad topology.
+        if (isAbortError(err)) return;
         setFailed(true);
       });
     return () => controller.abort();

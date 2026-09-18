@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
 
+import {
+  CLIENT_GET_TIMEOUT_MS,
+  fetchWithTimeout
+} from "../../../shared/lib/timeouts";
 import type { CaseDetail } from "../../../shared/schemas/caseSchema";
 
 /**
@@ -100,10 +104,14 @@ export function useCaseDetail(id: string | null, epoch = 0): CaseDetailLoad {
     setDetail(null);
     setStatus("loading");
 
-    fetch(`/api/cases/${encodeURIComponent(id)}`, {
-      signal: controller.signal,
-      headers: { accept: "application/json" }
-    })
+    fetchWithTimeout(
+      `/api/cases/${encodeURIComponent(id)}`,
+      {
+        signal: controller.signal,
+        headers: { accept: "application/json" }
+      },
+      CLIENT_GET_TIMEOUT_MS
+    )
       .then((res) =>
         res.ok ? res.json() : Promise.reject(new Error("detail"))
       )

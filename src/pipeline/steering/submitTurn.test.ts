@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import worker from "../../server";
 import * as draftsRepo from "../../shared/db/repos/draftsRepo";
@@ -9,6 +9,8 @@ import * as steeringTurnsRepo from "../../shared/db/repos/steeringTurnsRepo";
 import type { EvalSummary } from "../../shared/schemas/run";
 import { RunDetailSchema } from "../../shared/schemas/run";
 import { PublicPipelineConfigSchema } from "../../shared/schemas/pipelineConfig";
+import { PROVIDER_TIMEOUT_MS } from "../../shared/lib/timeouts";
+import { failBatchAfter } from "../../test/failingDb";
 import {
   PublicStandingGuidanceSchema,
   STANDING_GUIDANCE_CAP,
@@ -25,7 +27,7 @@ import {
   ensureRun,
   monitorAndPackage
 } from "../workflow/dailyRunSteps";
-import { submitTurn } from "./submitTurn";
+import { EVIDENCE_LOST_WARNING, submitTurn } from "./submitTurn";
 
 /**
  * Story 3.14 — steering submit I/O matrix against Miniflare D1.
@@ -2303,5 +2305,433 @@ describe("submitTurn standing guidance I/O matrix (story 3.18)", () => {
     expect(
       await (await worker.fetch!(get("/api/mode"), testEnv)).json()
     ).toEqual(beforeMode);
+  });
+});
+
+describe("submitTurn hardening (story 3.19)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  /** A provider whose `complete` never resolves; `called` fires on entry. */
+  function hungProvider(): LlmProvider & { called: Promise<void> } {
+    let fire: () => void = () => {};
+    const called = new Promise<void>((resolve) => {
+      fire = resolve;
+    });
+    return {
+      name: "fake",
+      called,
+      complete: () => {
+        fire();
+        return new Promise(() => {});
+      }
+    };
+  }
+
+  it("steward hang on ask: after the provider deadline the turn is persisted, reply null, no throw", async () => {
+    const runId = await insertRun("awaiting");
+    await seedSteward();
+    const provider = hungProvider();
+    vi.useFakeTimers();
+    const pending = submitTurn(testEnv.DB, deps(provider), {
+      runId,
+      content: "Why did Nevada flip?",
+      private: false,
+      actorDisplayName: ACTOR
+    });
+    await provider.called;
+    await vi.advanceTimersByTimeAsync(PROVIDER_TIMEOUT_MS);
+    const result = await pending;
+    vi.useRealTimers();
+
+    // Existing 3.14 outcome for a steward `provider_error`: the turn is the
+    // receipt, the reply is null, nothing 500s.
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.turn.reply).toBeNull();
+    expect(await steeringTurnsRepo.listByRun(testEnv.DB, runId)).toHaveLength(
+      1
+    );
+    const evidence = await evidenceRepo.listByRun(testEnv.DB, runId);
+    expect(evidence.some((e) => e.event === "steering.turn")).toBe(true);
+    expect(replyApplied(evidence)).toBeUndefined();
+    expect(evidence.some((e) => e.event === "run.stopped")).toBe(false);
+    expect((await runsRepo.getRunById(testEnv.DB, runId))?.status).toBe(
+      "awaiting"
+    );
+    const calls = await testEnv.DB.prepare(
+      "SELECT COUNT(*) AS count FROM llm_calls WHERE run_id = ?"
+    )
+      .bind(runId)
+      .first<{ count: number }>();
+    expect(calls?.count).toBe(0);
+  });
+
+  it("steward hang on config: turn persisted, result invalid, no version row", async () => {
+    await testEnv.DB.prepare("DELETE FROM pipeline_config_versions").run();
+    const runId = await insertRun("awaiting");
+    await seedSteward();
+    const provider = hungProvider();
+    vi.useFakeTimers();
+    const pending = submitTurn(testEnv.DB, deps(provider), {
+      runId,
+      content: "Add the ND Cal docket.",
+      private: false,
+      intent: "config",
+      actorDisplayName: ACTOR
+    });
+    await provider.called;
+    await vi.advanceTimersByTimeAsync(PROVIDER_TIMEOUT_MS);
+    const result = await pending;
+    vi.useRealTimers();
+
+    expect(result.status).toBe("invalid");
+    expect(await steeringTurnsRepo.listByRun(testEnv.DB, runId)).toHaveLength(
+      1
+    );
+    const versions = await testEnv.DB.prepare(
+      "SELECT COUNT(*) AS count FROM pipeline_config_versions"
+    ).first<{ count: number }>();
+    expect(versions?.count).toBe(0);
+  });
+
+  it("r2 revise: revising r1 after its eval landed appends :r1:r2, keeps the chain, and leaves F1 unchanged", async () => {
+    const runId = await insertRun("awaiting");
+    const rootId = await insertDraft(runId, `d:${runId}:nv`, EVAL_OK);
+    await seedDrafterReviewer();
+    const beforeF1 = await f1Snapshot();
+
+    const first = await submitTurn(
+      testEnv.DB,
+      deps(scriptedProvider([DRAFTER_JSON, REVIEWER_JSON])),
+      {
+        runId,
+        draftId: rootId,
+        content: "Tighten the Nevada holding.",
+        private: false,
+        intent: "revise",
+        actorDisplayName: ACTOR
+      }
+    );
+    expect(first.status).toBe("ok");
+    const r1Id = `${rootId}:r1`;
+    const r1 = await draftsRepo.getById(testEnv.DB, r1Id);
+    expect(r1?.evalSummary).not.toBeNull();
+    expect(r1?.outcome).toBeNull();
+
+    const R2_BODY = "Second revision of the Nevada holding.";
+    const r2Drafter = JSON.stringify({
+      body: R2_BODY,
+      diff: { posture: { from: "untracked", to: "banned" } }
+    });
+    const r2Reviewer = JSON.stringify({
+      confidence: 61,
+      citationCompleteness: 85,
+      notes: "second eval",
+      disagrees: false,
+      disagreement: ""
+    });
+    const provider = scriptedProvider([r2Drafter, r2Reviewer]);
+    const second = await submitTurn(testEnv.DB, deps(provider), {
+      runId,
+      draftId: r1Id,
+      content: "Cite the docket entry directly.",
+      private: false,
+      intent: "revise",
+      actorDisplayName: ACTOR
+    });
+    expect(second.status).toBe("ok");
+    if (second.status !== "ok") return;
+    const r2Id = `${r1Id}:r2`;
+    expect(second.turn.revisedDraftId).toBe(r2Id);
+    expect(provider.count()).toBe(2);
+    expect(provider.prompts()[0]).toContain("Cite the docket entry directly.");
+
+    const r2 = await draftsRepo.getById(testEnv.DB, r2Id);
+    expect(r2?.runId).toBe(runId);
+    expect(r2?.parentDraftId).toBe(r1Id);
+    expect(r2?.revisionIndex).toBe(2);
+    expect(r2?.body).toBe(R2_BODY);
+    expect(r2?.confidence).toBe(61);
+    expect(r2?.evalSummary?.status).toBe("ok");
+    expect(r2?.outcome).toBeNull();
+
+    // Chain preserved: root → r1 → r2, prior tips not decided.
+    const all = await draftsRepo.listByRun(testEnv.DB, runId);
+    expect(all.map((row) => row.id).sort()).toEqual(
+      [rootId, r1Id, r2Id].sort()
+    );
+    expect(all.every((row) => row.outcome == null)).toBe(true);
+    const lineage = draftsRepo.lineageFromRoot(r2!, all).map((row) => row.id);
+    expect(lineage).toEqual([rootId, r1Id, r2Id]);
+    expect(draftsRepo.pendingTips(all).map((row) => row.id)).toEqual([r2Id]);
+
+    const detail = await publicDetail(runId);
+    const revised = detail.evidence.filter((e) => e.event === "draft.revised");
+    expect(revised).toHaveLength(2);
+    expect(
+      revised.some(
+        (e) =>
+          (e.payload as { draftId?: string; parentDraftId?: string })
+            .draftId === r2Id
+      )
+    ).toBe(true);
+    const r2Revised = revised.find(
+      (e) => (e.payload as { draftId?: string }).draftId === r2Id
+    );
+    expect(r2Revised?.payload).toMatchObject({ parentDraftId: r1Id });
+    expect(await f1Snapshot()).toEqual(beforeF1);
+    expect((await runsRepo.getRunById(testEnv.DB, runId))?.status).toBe(
+      "awaiting"
+    );
+  });
+
+  it("config apply: when the Evidence batch throws after the version row, result ok, row present, warning names config.steered", async () => {
+    await testEnv.DB.prepare("DELETE FROM pipeline_config_versions").run();
+    const runId = await insertRun("awaiting");
+    await seedSteward();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const steerJson = JSON.stringify({
+      key: "poll_sources",
+      value: POLL_SOURCES.map((source) => ({
+        name: source.name,
+        url: source.url,
+        tier: source.tier
+      })).slice(0, 2)
+    });
+    // batch #1 = turn receipt, batch #2 = config.steered + steering.applied.
+    const db = failBatchAfter(testEnv.DB, 2);
+    const result = await submitTurn(
+      db,
+      deps(fakeProvider({ text: steerJson })),
+      {
+        runId,
+        content: "Drop the last two sources.",
+        private: false,
+        intent: "config",
+        actorDisplayName: ACTOR
+      }
+    );
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.turn.configVersion).toBe(1);
+    expect(db.batchCalls()).toBe(2);
+
+    const versions = await testEnv.DB.prepare(
+      "SELECT version FROM pipeline_config_versions ORDER BY version"
+    ).all<{ version: number }>();
+    expect(versions.results?.map((row) => row.version)).toEqual([1]);
+
+    const evidence = await evidenceRepo.listByRun(testEnv.DB, runId);
+    expect(evidence.some((e) => e.event === "steering.turn")).toBe(true);
+    expect(evidence.some((e) => e.event === "config.steered")).toBe(false);
+    expect(
+      evidence.some(
+        (e) =>
+          e.event === "steering.applied" &&
+          (e.payload as { effect?: string }).effect === "steered"
+      )
+    ).toBe(false);
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(EVIDENCE_LOST_WARNING, {
+      runId,
+      turnId: result.turn.id,
+      events: ["config.steered", "steering.applied"]
+    });
+  });
+
+  it("config revert: when the Evidence batch throws after the version row, result ok, row present, warning names the lost events", async () => {
+    await testEnv.DB.prepare("DELETE FROM pipeline_config_versions").run();
+    const runId = await insertRun("awaiting");
+    await seedSteward();
+    // A prior version to revert past: v1 via a steward apply on the real db.
+    const steerJson = JSON.stringify({
+      key: "poll_sources",
+      value: POLL_SOURCES.map((source) => ({
+        name: source.name,
+        url: source.url,
+        tier: source.tier
+      })).slice(0, 2)
+    });
+    const applied = await submitTurn(
+      testEnv.DB,
+      deps(fakeProvider({ text: steerJson })),
+      {
+        runId,
+        content: "Drop the last two sources.",
+        private: false,
+        intent: "config",
+        actorDisplayName: ACTOR
+      }
+    );
+    expect(applied.status).toBe("ok");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const provider = fakeProvider({ text: "steward must not run" });
+    // batch #1 = turn receipt, batch #2 = config.steered + steering.applied.
+    const db = failBatchAfter(testEnv.DB, 2);
+    const result = await submitTurn(db, deps(provider), {
+      runId,
+      content: "Revert poll_sources to version 0",
+      private: false,
+      intent: "config",
+      key: "poll_sources",
+      revertToVersion: 0,
+      actorDisplayName: ACTOR
+    });
+    expect(provider.count()).toBe(0);
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.turn.configVersion).toBe(2);
+    expect(db.batchCalls()).toBe(2);
+
+    const versions = await testEnv.DB.prepare(
+      "SELECT version FROM pipeline_config_versions ORDER BY version"
+    ).all<{ version: number }>();
+    expect(versions.results?.map((row) => row.version)).toEqual([1, 2]);
+
+    const evidence = await evidenceRepo.listByRun(testEnv.DB, runId);
+    const steered = evidence.filter((e) => e.event === "config.steered");
+    expect(steered).toHaveLength(1);
+    expect(steered[0]?.payload).toMatchObject({ version: 1 });
+    expect(
+      evidence.some(
+        (e) =>
+          e.event === "steering.applied" &&
+          (e.payload as { turnId?: string }).turnId === result.turn.id &&
+          (e.payload as { effect?: string }).effect === "steered"
+      )
+    ).toBe(false);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(EVIDENCE_LOST_WARNING, {
+      runId,
+      turnId: result.turn.id,
+      events: ["config.steered", "steering.applied"]
+    });
+  });
+
+  it("guidance record: when the Evidence batch throws after the guidance row, result ok, row present, warning names guidance.recorded", async () => {
+    await testEnv.DB.prepare("DELETE FROM standing_guidance").run();
+    const runId = await insertRun("awaiting");
+    await seedSteward();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const provider = fakeProvider({ text: "steward must not run" });
+    const db = failBatchAfter(testEnv.DB, 2);
+    const result = await submitTurn(db, deps(provider), {
+      runId,
+      content: "Always name the circuit.",
+      private: false,
+      intent: "guidance",
+      actorDisplayName: ACTOR
+    });
+    expect(provider.count()).toBe(0);
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.turn.guidanceVersion).toBe(1);
+    const itemId = result.turn.guidanceItemId!;
+    expect(db.batchCalls()).toBe(2);
+
+    const rows = await testEnv.DB.prepare(
+      "SELECT item_id, version, status FROM standing_guidance"
+    ).all<{ item_id: string; version: number; status: string }>();
+    expect(rows.results).toEqual([
+      { item_id: itemId, version: 1, status: "active" }
+    ]);
+
+    const evidence = await evidenceRepo.listByRun(testEnv.DB, runId);
+    expect(evidence.some((e) => e.event === "steering.turn")).toBe(true);
+    expect(evidence.some((e) => e.event === "guidance.recorded")).toBe(false);
+    expect(
+      evidence.some(
+        (e) =>
+          e.event === "steering.applied" &&
+          (e.payload as { effect?: string }).effect === "guidance"
+      )
+    ).toBe(false);
+
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(EVIDENCE_LOST_WARNING, {
+      runId,
+      turnId: result.turn.id,
+      events: ["guidance.recorded", "steering.applied"]
+    });
+  });
+
+  it("guidance revoke: when the Evidence batch throws after the revoked row, result ok, row present, warning names the lost events", async () => {
+    await testEnv.DB.prepare("DELETE FROM standing_guidance").run();
+    const runId = await insertRun("awaiting");
+    await seedSteward();
+    const recorded = await submitTurn(
+      testEnv.DB,
+      deps(fakeProvider({ text: "steward must not run" })),
+      {
+        runId,
+        content: "Always name the circuit.",
+        private: false,
+        intent: "guidance",
+        actorDisplayName: ACTOR
+      }
+    );
+    expect(recorded.status).toBe("ok");
+    if (recorded.status !== "ok") return;
+    const itemId = recorded.turn.guidanceItemId!;
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const provider = fakeProvider({ text: "steward must not run" });
+    const db = failBatchAfter(testEnv.DB, 2);
+    const result = await submitTurn(db, deps(provider), {
+      runId,
+      content: "No longer applies.",
+      private: false,
+      intent: "guidance",
+      guidanceItemId: itemId,
+      revoke: true,
+      actorDisplayName: ACTOR
+    });
+    expect(provider.count()).toBe(0);
+    expect(result.status).toBe("ok");
+    if (result.status !== "ok") return;
+    expect(result.turn.guidanceVersion).toBe(2);
+    expect(db.batchCalls()).toBe(2);
+
+    const rows = await testEnv.DB.prepare(
+      "SELECT item_id, version, status FROM standing_guidance ORDER BY version"
+    ).all<{ item_id: string; version: number; status: string }>();
+    expect(rows.results).toEqual([
+      { item_id: itemId, version: 1, status: "active" },
+      { item_id: itemId, version: 2, status: "revoked" }
+    ]);
+
+    const evidence = await evidenceRepo.listByRun(testEnv.DB, runId);
+    expect(evidence.some((e) => e.event === "guidance.recorded")).toBe(true);
+    expect(evidence.some((e) => e.event === "guidance.revoked")).toBe(false);
+    expect(
+      evidence.some(
+        (e) =>
+          e.event === "steering.applied" &&
+          (e.payload as { turnId?: string }).turnId === result.turn.id &&
+          (e.payload as { effect?: string }).effect === "guidance"
+      )
+    ).toBe(false);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(EVIDENCE_LOST_WARNING, {
+      runId,
+      turnId: result.turn.id,
+      events: ["guidance.revoked", "steering.applied"]
+    });
+  });
+
+  it("failBatchAfter passes every other batch through to the real target", async () => {
+    const db = failBatchAfter(testEnv.DB, 3);
+    const stmt = () => db.prepare("SELECT 1 AS one");
+    await db.batch([stmt()]);
+    await db.batch([stmt()]);
+    await expect(db.batch([stmt()])).rejects.toThrow("failBatchAfter");
+    await db.batch([stmt()]);
+    expect(db.batchCalls()).toBe(4);
+    const row = await db.prepare("SELECT 2 AS two").first<{ two: number }>();
+    expect(row?.two).toBe(2);
   });
 });

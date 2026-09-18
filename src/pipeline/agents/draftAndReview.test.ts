@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import * as draftsRepo from "../../shared/db/repos/draftsRepo";
 import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
@@ -7,6 +7,7 @@ import * as modeRepo from "../../shared/db/repos/modeRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import * as standingGuidanceRepo from "../../shared/db/repos/standingGuidanceRepo";
 import type { EvalSummary } from "../../shared/schemas/run";
+import { PROVIDER_TIMEOUT_MS } from "../../shared/lib/timeouts";
 import type { GatewayDeps, LlmProvider } from "../ai/gateway";
 import { completeDailyStep } from "../workflow/dailyRunSteps";
 import {
@@ -1122,5 +1123,89 @@ describe("draftAndReview standing guidance (story 3.18)", () => {
       guidance: [{ itemId: "sg:a", version: 1 }]
     });
     expect(secondRow?.payload).toMatchObject({ guidance: [] });
+  });
+});
+
+describe("draftAndReview provider deadline (story 3.19)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /**
+   * First call hangs forever (the drafter for Draft 01); later calls answer
+   * from the script. `firstCall` resolves when the hung call is entered so
+   * the test can advance the fake clock only once the deadline is armed.
+   */
+  function hangFirstProvider(
+    script: Array<{ text: string }>
+  ): LlmProvider & { count: () => number; firstCall: Promise<void> } {
+    let calls = 0;
+    let fire: () => void = () => {};
+    const firstCall = new Promise<void>((resolve) => {
+      fire = resolve;
+    });
+    return {
+      name: "fake",
+      count: () => calls,
+      firstCall,
+      complete: async ({ model }) => {
+        const index = calls;
+        calls += 1;
+        if (index === 0) {
+          fire();
+          return new Promise(() => {});
+        }
+        const step = script[index - 1];
+        return {
+          text: step?.text ?? `unscripted reply from ${model}`,
+          inputTokens: 3,
+          outputTokens: 5,
+          costCents: 0
+        };
+      }
+    };
+  }
+
+  it("stamps a hung Draft evals_not_run after the deadline, keeps siblings going, and never stops the Run", async () => {
+    const runId = await insertRun();
+    const hungId = await insertShellDraft(runId, { id: `d:${runId}:01` });
+    const okId = await insertShellDraft(runId, { id: `d:${runId}:02` });
+    await seedConfig(DRAFTER_REVIEWER_ROLES);
+    const provider = hangFirstProvider([
+      { text: drafterJson() },
+      { text: reviewJson() }
+    ]);
+
+    vi.useFakeTimers();
+    const pending = draftAndReview(testEnv.DB, runId, deps(provider));
+    await provider.firstCall;
+    await vi.advanceTimersByTimeAsync(PROVIDER_TIMEOUT_MS);
+    const result = await pending;
+    expect(vi.getTimerCount()).toBe(0);
+    vi.useRealTimers();
+
+    expect(result.budgetStopped).toBe(false);
+    expect(provider.count()).toBe(3);
+    const drafts = await draftsRepo.listByRun(testEnv.DB, runId);
+    const hung = evalOf(drafts.find((d) => d.id === hungId)!);
+    expect(hung.status).toBe("evals_not_run");
+    expect(hung.ineligible).toContain("evals_not_run");
+    expect(evalOf(drafts.find((d) => d.id === okId)!).status).toBe("ok");
+    expect(drafts.find((d) => d.id === okId)?.confidence).toBe(72);
+
+    const evaluated = await evaluatedEvents(runId);
+    expect(
+      evaluated.map((e) => (e.payload as { draftId: string }).draftId).sort()
+    ).toEqual([hungId, okId].sort());
+    const evidence = await evidenceRepo.listByRun(testEnv.DB, runId);
+    expect(evidence.some((e) => e.event === "run.stopped")).toBe(false);
+    expect((await runsRepo.getRunById(testEnv.DB, runId))?.status).toBe(
+      "running"
+    );
+
+    await finalizeIfRunning(runId, { draftCount: 2, anyFailure: false });
+    expect((await runsRepo.getRunById(testEnv.DB, runId))?.status).toBe(
+      "awaiting"
+    );
   });
 });

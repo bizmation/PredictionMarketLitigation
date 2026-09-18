@@ -8,7 +8,8 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { SteeringPanel } from "./SteeringPanel";
+import { STEERING_POST_TIMEOUT_MS } from "../../shared/lib/timeouts";
+import { STEERING_TIMEOUT_MESSAGE, SteeringPanel } from "./SteeringPanel";
 
 type ScriptedResponse = {
   ok: boolean;
@@ -1013,5 +1014,64 @@ describe("SteeringPanel standing guidance (story 3.18)", () => {
     await act(async () => {});
     expect(steeringPosts(fetchMock)).toHaveLength(1);
     expect(document.body.textContent).toContain("Guidance recorded");
+  });
+});
+
+describe("SteeringPanel POST timeout (story 3.19, jsdom mount)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("clears busy, re-enables the queue, and shows a designed error when the steering POST hangs past STEERING_POST_TIMEOUT_MS", async () => {
+    vi.useFakeTimers();
+    const onSubmittingChange = vi.fn();
+    const fetchMock = vi.fn((_input: string | URL, init?: RequestInit) => {
+      if (init?.method === "POST") return new Promise<never>(() => {});
+      return Promise.resolve(
+        scripted({ version: 0, sources: [], history: [] })
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <SteeringPanel
+        runId="run-20260914-aaa1"
+        draftId="d-1"
+        onSubmittingChange={onSubmittingChange}
+      />
+    );
+    await act(async () => {});
+    fireEvent.change(screen.getByLabelText("Steering turn"), {
+      target: { value: "hello" }
+    });
+    const submit = screen.getByRole("button", { name: "Submit turn" });
+    fireEvent.click(submit);
+    await act(async () => {});
+    expect(steeringPosts(fetchMock)).toHaveLength(1);
+    expect((submit as HTMLButtonElement).disabled).toBe(true);
+    expect(onSubmittingChange).toHaveBeenLastCalledWith(true);
+
+    // Outlasts the 30 s admin POST deadline: a slow revise is not a timeout.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(STEERING_POST_TIMEOUT_MS - 1);
+    });
+    expect(STEERING_POST_TIMEOUT_MS).toBeGreaterThan(30_000);
+    expect((submit as HTMLButtonElement).disabled).toBe(true);
+    expect(document.body.textContent).not.toContain(STEERING_TIMEOUT_MESSAGE);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect((submit as HTMLButtonElement).disabled).toBe(false);
+    expect(onSubmittingChange).toHaveBeenLastCalledWith(false);
+    expect(document.body.textContent).toContain(STEERING_TIMEOUT_MESSAGE);
+    expect(STEERING_TIMEOUT_MESSAGE).toContain("130 seconds");
+    // The composer keeps the operator's text: a timed-out turn is not lost.
+    expect(
+      (screen.getByLabelText("Steering turn") as HTMLTextAreaElement).value
+    ).toBe("hello");
+    // A second submit is possible again (busy really cleared).
+    fireEvent.click(submit);
+    await act(async () => {});
+    expect(steeringPosts(fetchMock)).toHaveLength(2);
   });
 });

@@ -3,6 +3,10 @@ import { useEffect, useState } from "react";
 import { formatEtDateTime } from "../../shared/lib/dates";
 import { nextRunAtUtc } from "../../shared/lib/schedule";
 import { surfaceHref } from "../../shared/lib/surface";
+import {
+  CLIENT_GET_TIMEOUT_MS,
+  fetchWithTimeout
+} from "../../shared/lib/timeouts";
 import type { DraftRecord, RunLogItem } from "../../shared/schemas/run";
 import { RUN_SCHEDULE_TIMEZONE } from "../../shared/schemas/vocabulary";
 import {
@@ -66,17 +70,22 @@ function useSchedule(): Schedule {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/api/schedule", {
-      signal: controller.signal,
-      headers: { accept: "application/json" }
-    })
+    fetchWithTimeout(
+      "/api/schedule",
+      {
+        signal: controller.signal,
+        headers: { accept: "application/json" }
+      },
+      CLIENT_GET_TIMEOUT_MS
+    )
       .then((res) => (res.ok ? res.json() : null))
       .then((body: unknown) => {
         if (controller.signal.aborted) return;
         if (isSchedule(body)) setSchedule(body);
       })
       .catch(() => {
-        // Keep the local nextRunAtUtc() computation. Schedule is deterministic.
+        // Keep the local nextRunAtUtc() computation (also on a 15 s timeout,
+        // story 3.19). Schedule is deterministic.
       });
 
     return () => controller.abort();

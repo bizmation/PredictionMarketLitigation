@@ -2,6 +2,10 @@ import type { Development } from "../../../shared/schemas/development";
 import type { ApexKpis } from "../../../shared/schemas/kpi";
 import { useEffect, useState } from "react";
 
+import {
+  CLIENT_GET_TIMEOUT_MS,
+  fetchWithTimeout
+} from "../../../shared/lib/timeouts";
 /**
  * Fetch the apex orientation payload. Pattern copied from useAdminSession:
  * useEffect + AbortController, fail closed, no query library, no React 19 use().
@@ -64,16 +68,16 @@ export function useOrientation(): Orientation {
       headers: { accept: "application/json" }
     };
 
-    fetch("/api/kpis", opts)
+    fetchWithTimeout("/api/kpis", opts, CLIENT_GET_TIMEOUT_MS)
       .then((res) => (res.ok ? res.json() : null))
       .then((body: unknown) => {
         if (isKpis(body)) setKpis(body);
       })
       .catch(() => {
-        // Fail closed: keep empty KPIs. AbortError lands here too.
+        // Fail closed: keep empty KPIs. AbortError and TimeoutError land here.
       });
 
-    fetch("/api/developments", opts)
+    fetchWithTimeout("/api/developments", opts, CLIENT_GET_TIMEOUT_MS)
       .then((res) => (res.ok ? res.json() : null))
       .then((body: unknown) => {
         const items =
@@ -83,7 +87,7 @@ export function useOrientation(): Orientation {
         if (isDevelopmentList(items)) setDevelopments(items);
       })
       .catch(() => {
-        // Fail closed: keep empty feed. AbortError lands here too.
+        // Fail closed: keep empty feed. AbortError and TimeoutError land here.
       });
 
     return () => controller.abort();

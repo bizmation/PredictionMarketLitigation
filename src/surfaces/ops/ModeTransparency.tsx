@@ -2,6 +2,10 @@ import { useEffect, useState } from "react";
 
 import { formatEtDateTime } from "../../shared/lib/dates";
 import {
+  CLIENT_GET_TIMEOUT_MS,
+  fetchWithTimeout
+} from "../../shared/lib/timeouts";
+import {
   ApprovalModeSchema,
   DEFAULT_APPROVAL_MODE,
   type ApprovalMode
@@ -28,10 +32,14 @@ export function ModeTransparency({ current }: ModeTransparencyProps) {
       return;
     }
     const controller = new AbortController();
-    fetch("/api/mode", {
-      signal: controller.signal,
-      headers: { accept: "application/json" }
-    })
+    fetchWithTimeout(
+      "/api/mode",
+      {
+        signal: controller.signal,
+        headers: { accept: "application/json" }
+      },
+      CLIENT_GET_TIMEOUT_MS
+    )
       .then((res) => (res.ok ? res.json() : null))
       .then((body: unknown) => {
         if (controller.signal.aborted) return;
@@ -39,7 +47,8 @@ export function ModeTransparency({ current }: ModeTransparencyProps) {
         if (parsed.success) setMode(parsed.data);
       })
       .catch(() => {
-        // Keep HITL default. Never imply YOLO on a public GET error.
+        // Keep HITL default. Never imply YOLO on a public GET error or a
+        // 15 s timeout (story 3.19).
       });
     return () => controller.abort();
   }, [injected, current]);

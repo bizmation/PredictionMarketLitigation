@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { formatEtDateTime } from "../../shared/lib/dates";
+import {
+  CLIENT_GET_TIMEOUT_MS,
+  fetchWithTimeout,
+  isAbortError
+} from "../../shared/lib/timeouts";
 import { surfaceHref } from "../../shared/lib/surface";
 import type {
   DraftRecord,
@@ -703,16 +708,25 @@ export function EvidenceDetail({
     }
 
     let cancelled = false;
-    let controller = new AbortController();
+    let inFlight = false;
+    const controller = new AbortController();
 
     async function load() {
-      controller.abort();
-      controller = new AbortController();
+      // Story 3.19 — never abort a live request from the poll tick: that
+      // would swallow a hung GET as AbortError every 4 s and the 15 s
+      // TimeoutError could never fire. One request at a time; unmount is
+      // the only abort.
+      if (inFlight) return;
+      inFlight = true;
       try {
-        const res = await fetch(`/api/runs/${runId}`, {
-          signal: controller.signal,
-          headers: { accept: "application/json" }
-        });
+        const res = await fetchWithTimeout(
+          `/api/runs/${runId}`,
+          {
+            signal: controller.signal,
+            headers: { accept: "application/json" }
+          },
+          CLIENT_GET_TIMEOUT_MS
+        );
         if (cancelled) return;
         const body: unknown = res.ok ? await res.json() : undefined;
         if (cancelled) return;
@@ -720,9 +734,13 @@ export function EvidenceDetail({
         setView(mapped.view);
       } catch (err) {
         if (cancelled) return;
-        if (err instanceof Error && err.name === "AbortError") return;
+        // Unmount abort stays silent; a TimeoutError (story 3.19) lands in
+        // the same designed "Evidence unavailable" state as a network error.
+        if (isAbortError(err)) return;
         const mapped = mapEvidenceFetch(0, undefined, viewRef.current);
         setView(mapped.view);
+      } finally {
+        inFlight = false;
       }
     }
 

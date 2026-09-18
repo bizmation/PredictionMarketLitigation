@@ -8,6 +8,7 @@ import {
   GATEWAY_ROLE_VALUES,
   type GatewayRole
 } from "../../shared/schemas/vocabulary";
+import { PROVIDER_TIMEOUT_MS, withDeadline } from "../../shared/lib/timeouts";
 import { defaultBudgetCents, resolveRoleModel } from "../config/modelRoles";
 import { evidenceId } from "../connectors/connector";
 import { GUARDRAIL_RULE_ID, isToolAllowed } from "./actionPolicy";
@@ -28,8 +29,10 @@ import { GUARDRAIL_RULE_ID, isToolAllowed } from "./actionPolicy";
  *   3. load the Run, resolve the role→model from D1 config (`role_not_configured`)
  *   4. resolve + enforce the budget ceiling BEFORE the provider call
  *      (`budget_stopped` — marks the Run stopped + `run.stopped` evidence)
- *   5. delegate to the provider; on error, surface a typed `provider_error`
- *      with no spend row written
+ *   5. delegate to the provider under `PROVIDER_TIMEOUT_MS` (story 3.19);
+ *      on error or deadline, surface a typed `provider_error` with no
+ *      spend row written — a hung model is a per-Draft `evals_not_run`,
+ *      never a budget stop and never a Run failure by itself
  *   6. record the call + bump spend; return the result
  */
 
@@ -186,10 +189,15 @@ export async function complete(
     );
   }
 
-  // 5. Delegate to the provider.
+  // 5. Delegate to the provider. The deadline wraps the provider seam (not
+  //    `env.AI.run`) so fakes and any later provider inherit it.
   let completion: Awaited<ReturnType<LlmProvider["complete"]>>;
   try {
-    completion = await provider.complete({ model: mapping.model, prompt });
+    completion = await withDeadline(
+      provider.complete({ model: mapping.model, prompt }),
+      PROVIDER_TIMEOUT_MS,
+      mapping.provider
+    );
   } catch (cause) {
     throw new GatewayError(
       "provider_error",

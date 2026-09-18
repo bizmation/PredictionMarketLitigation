@@ -1,7 +1,8 @@
 import { env } from "cloudflare:workers";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import * as runsRepo from "../../shared/db/repos/runsRepo";
+import { PROVIDER_TIMEOUT_MS } from "../../shared/lib/timeouts";
 import {
   complete,
   createWorkersAiProvider,
@@ -520,6 +521,88 @@ describe("gateway.complete (story 3.2)", () => {
       .bind(RUN_ID)
       .first<{ count: number }>();
     expect(calls?.count).toBe(0);
+  });
+});
+
+describe("gateway.complete provider deadline (story 3.19)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function hungProvider(): LlmProvider & { called: Promise<void> } {
+    let fire: () => void = () => {};
+    const called = new Promise<void>((resolve) => {
+      fire = resolve;
+    });
+    return {
+      name: "fake",
+      called,
+      complete: () => {
+        fire();
+        return new Promise(() => {});
+      }
+    };
+  }
+
+  it("maps a hung provider to provider_error after PROVIDER_TIMEOUT_MS with no spend row and no Run change", async () => {
+    await insertRun();
+    await seedConfig({ drafter: { provider: "fake", model: "slow-v1" } }, 500);
+    const provider = hungProvider();
+    vi.useFakeTimers();
+    const pending = complete(deps(provider), {
+      role: "drafter",
+      runId: RUN_ID,
+      prompt: "draft"
+    });
+    const settled = pending.then(
+      () => "resolved",
+      (err: unknown) => err
+    );
+    await provider.called;
+    await vi.advanceTimersByTimeAsync(PROVIDER_TIMEOUT_MS - 1);
+    // Still pending one tick before the deadline.
+    let done = false;
+    void settled.then(() => {
+      done = true;
+    });
+    await Promise.resolve();
+    expect(done).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    const err = await settled;
+    vi.useRealTimers();
+
+    expect(err).toMatchObject({ name: "GatewayError", code: "provider_error" });
+    expect(String((err as Error).message)).toContain("fake");
+    expect(String((err as Error).message)).toContain("60000 ms");
+
+    const calls = await testEnv.DB.prepare(
+      "SELECT COUNT(*) AS count FROM llm_calls WHERE run_id = ?"
+    )
+      .bind(RUN_ID)
+      .first<{ count: number }>();
+    expect(calls?.count).toBe(0);
+    const run = await runsRepo.getRunById(testEnv.DB, RUN_ID);
+    expect(run?.status).toBe("running");
+    expect(run?.spendCents).toBe(0);
+    const stopped = await testEnv.DB.prepare(
+      "SELECT COUNT(*) AS count FROM evidence_events WHERE run_id = ? AND event = 'run.stopped'"
+    )
+      .bind(RUN_ID)
+      .first<{ count: number }>();
+    expect(stopped?.count).toBe(0);
+  });
+
+  it("does not fire the deadline on a provider that answers in time", async () => {
+    await insertRun();
+    await seedConfig({ drafter: { provider: "fake", model: "fast-v1" } }, 500);
+    vi.useFakeTimers();
+    const result = await complete(deps(fakeProvider()), {
+      role: "drafter",
+      runId: RUN_ID,
+      prompt: "draft"
+    });
+    expect(result.text).toBe("fake reply from fast-v1");
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
 

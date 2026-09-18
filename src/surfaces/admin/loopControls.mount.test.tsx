@@ -9,7 +9,11 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { RunLogItem } from "../../shared/schemas/run";
-import { LoopControls } from "./LoopControls";
+import {
+  LOOP_TIMEOUT_NOTICE,
+  LoopControls,
+  RUN_TIMEOUT_NOTICE
+} from "./LoopControls";
 
 function item(overrides: Partial<RunLogItem> = {}): RunLogItem {
   return {
@@ -225,5 +229,104 @@ describe("LoopControls live fetch (jsdom mount)", () => {
       String(call[0]).includes("/api/admin/loop")
     );
     expect(loopGets.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("LoopControls timeouts (story 3.19, jsdom mount)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("shows the timed-out EmptyState, not re-auth, when the loop GET hangs 15 s", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise(() => {}))
+    );
+    render(<LoopControls />);
+    await act(async () => {});
+    expect(document.body.textContent).toBe("");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    expect(document.body.textContent).toContain("Loop status did not load");
+    expect(document.body.textContent).not.toContain(
+      "Operator re-authentication needed"
+    );
+    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+  });
+
+  it("keeps the held row with LOOP_TIMEOUT_NOTICE when a poll hangs 15 s, and clears the notice once a poll succeeds", async () => {
+    vi.useFakeTimers();
+    const running = item({
+      id: "run-20261111-0002",
+      status: "running",
+      completedAt: null,
+      approvalOutcome: null
+    });
+    let gets = 0;
+    const fetchMock = vi.fn(() => {
+      gets += 1;
+      if (gets === 2) return new Promise<never>(() => {});
+      return Promise.resolve(scripted({ latest: running }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LoopControls />);
+    await act(async () => {});
+    expect(document.body.textContent).toContain("run-20261111-0002");
+
+    // 4 s poll hangs; 15 s later it times out but the row is held.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_000);
+    });
+    expect(gets).toBe(2);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    expect(document.body.textContent).toContain("run-20261111-0002");
+    expect(document.body.textContent).toContain(LOOP_TIMEOUT_NOTICE);
+    expect(document.body.textContent).not.toContain("Loop status did not load");
+
+    // Next successful poll clears the stale-notice.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(4_000);
+    });
+    expect(gets).toBeGreaterThanOrEqual(3);
+    expect(document.body.textContent).not.toContain(LOOP_TIMEOUT_NOTICE);
+    expect(document.body.textContent).toContain("run-20261111-0002");
+  });
+
+  it("clears busy and shows a notice when POST /api/admin/runs hangs 30 s", async () => {
+    vi.useFakeTimers();
+    let posts = 0;
+    const fetchMock = vi.fn((_input: string | URL, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        posts += 1;
+        return new Promise<never>(() => {});
+      }
+      return Promise.resolve(scripted({ latest: null }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LoopControls />);
+    await act(async () => {});
+    const runNow = screen.getByRole("button", { name: "Run now" });
+    fireEvent.click(runNow);
+    await act(async () => {});
+    expect(posts).toBe(1);
+    expect((runNow as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(29_999);
+    });
+    expect((runNow as HTMLButtonElement).disabled).toBe(true);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(document.body.textContent).toContain(RUN_TIMEOUT_NOTICE);
+    const after = screen.getByRole("button", { name: "Run now" });
+    expect((after as HTMLButtonElement).disabled).toBe(false);
+    // The GET reload after the timeout keeps the controls on the loop row.
+    expect(document.body.textContent).toContain("No runs yet.");
   });
 });

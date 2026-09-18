@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
 
+import {
+  CLIENT_GET_TIMEOUT_MS,
+  fetchWithTimeout
+} from "../../shared/lib/timeouts";
 /**
  * Ask the Worker who the operator is (story 1.4 AC4, closed 2026-08-10).
  *
@@ -39,14 +43,19 @@ export function useAdminSession(): AdminSession | undefined {
     // Abort on unmount so a slow response cannot set state on a dead component.
     const controller = new AbortController();
 
-    fetch("/api/admin/session", {
-      signal: controller.signal,
-      // The Access JWT rides either the Cf-Access-Jwt-Assertion header (which
-      // Access injects at the edge) or the CF_Authorization cookie. The cookie
-      // is HttpOnly, which is why this asks the server rather than reading it.
-      credentials: "same-origin",
-      headers: { accept: "application/json" }
-    })
+    fetchWithTimeout(
+      "/api/admin/session",
+      {
+        signal: controller.signal,
+        // The Access JWT rides either the Cf-Access-Jwt-Assertion header
+        // (which Access injects at the edge) or the CF_Authorization cookie.
+        // The cookie is HttpOnly, which is why this asks the server rather
+        // than reading it.
+        credentials: "same-origin",
+        headers: { accept: "application/json" }
+      },
+      CLIENT_GET_TIMEOUT_MS
+    )
       .then((res) => (res.ok ? res.json() : null))
       .then((body: unknown) => {
         const displayName = (body as AdminSession | null)?.displayName;
@@ -55,9 +64,10 @@ export function useAdminSession(): AdminSession | undefined {
         }
       })
       .catch(() => {
-        // Deliberately silent. A failure here means "not signed in", which the
-        // strip already says by default. Surfacing it would put an error in
-        // front of the operator for the ordinary case of an expired session.
+        // Deliberately silent. A failure (or 15 s timeout, story 3.19) here
+        // means "not signed in", which the strip already says by default.
+        // Surfacing it would put an error in front of the operator for the
+        // ordinary case of an expired session.
       });
 
     return () => controller.abort();

@@ -2,6 +2,12 @@ import { useEffect, useRef, useState } from "react";
 
 import { formatEtDateTime } from "../../shared/lib/dates";
 import { surfaceHref } from "../../shared/lib/surface";
+import {
+  ADMIN_POST_TIMEOUT_MS,
+  CLIENT_GET_TIMEOUT_MS,
+  fetchWithTimeout,
+  isTimeoutError
+} from "../../shared/lib/timeouts";
 import type { DraftRecord } from "../../shared/schemas/run";
 import { EmptyState, WarnChip } from "../../shared/ui";
 import { SteeringPanel } from "./SteeringPanel";
@@ -24,7 +30,13 @@ type ApprovalQueueProps = {
 type QueueView =
   | { status: "loading" }
   | { status: "signedOut" }
+  | { status: "timedOut" }
   | { status: "ready"; items: DraftRecord[] };
+
+export const QUEUE_TIMEOUT_NOTICE =
+  "The queue did not refresh within 15 seconds. Showing the last loaded queue.";
+export const DECISION_TIMEOUT_NOTICE =
+  "No answer within 30 seconds. The decision may or may not have been recorded; the queue has refreshed — check before acting again.";
 
 type ResolvedDecision = {
   outcome: "approved" | "edited" | "rejected";
@@ -232,27 +244,46 @@ export function ApprovalQueue({
   const [steeringBusy, setSteeringBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingSelectId, setPendingSelectId] = useState<string | null>(null);
+  const viewRef = useRef(view);
+  viewRef.current = view;
 
   useEffect(() => {
     if (injectedItems !== undefined) return;
     const controller = new AbortController();
-    fetch("/api/admin/queue", {
-      signal: controller.signal,
-      credentials: "same-origin",
-      headers: { accept: "application/json" }
-    })
+    fetchWithTimeout(
+      "/api/admin/queue",
+      {
+        signal: controller.signal,
+        credentials: "same-origin",
+        headers: { accept: "application/json" }
+      },
+      CLIENT_GET_TIMEOUT_MS
+    )
       .then((res) => (res.ok ? res.json() : null))
       .then((body: unknown) => {
         if (controller.signal.aborted) return;
         const raw = unwrapQueueItems(body);
         if (raw && raw.every(isQueueItem)) {
           setView({ status: "ready", items: raw as DraftRecord[] });
+          setNotice((current) =>
+            current === QUEUE_TIMEOUT_NOTICE ? null : current
+          );
           return;
         }
         setView({ status: "signedOut" });
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         if (controller.signal.aborted) return;
+        // Story 3.19 — a hung queue GET is a designed timed-out state, not a
+        // sign-out. With a queue already loaded, keep it and say so.
+        if (isTimeoutError(err)) {
+          if (viewRef.current.status === "ready") {
+            setNotice(QUEUE_TIMEOUT_NOTICE);
+          } else {
+            setView({ status: "timedOut" });
+          }
+          return;
+        }
         setView({ status: "signedOut" });
       });
     return () => controller.abort();
@@ -274,15 +305,19 @@ export function ApprovalQueue({
     setBusy(true);
     setNotice(null);
     try {
-      const res = await fetch(`/api/admin/drafts/${id}/decision`, {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {
-          "content-type": "application/json",
-          accept: "application/json"
+      const res = await fetchWithTimeout(
+        `/api/admin/drafts/${id}/decision`,
+        {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "content-type": "application/json",
+            accept: "application/json"
+          },
+          body: JSON.stringify(body)
         },
-        body: JSON.stringify(body)
-      });
+        ADMIN_POST_TIMEOUT_MS
+      );
       if (res.ok) {
         const record = (await res.json()) as Partial<DraftRecord>;
         const outcome =
@@ -306,9 +341,11 @@ export function ApprovalQueue({
           "The decision was not recorded. The queue has refreshed; try again."
         );
       }
-    } catch {
+    } catch (err) {
       setNotice(
-        "The decision was not recorded. The queue has refreshed; try again."
+        isTimeoutError(err)
+          ? DECISION_TIMEOUT_NOTICE
+          : "The decision was not recorded. The queue has refreshed; try again."
       );
     } finally {
       setBusy(false);
@@ -390,6 +427,29 @@ export function ApprovalQueue({
   }, []);
 
   if (items === null) {
+    if (view.status === "timedOut") {
+      return (
+        <EmptyState
+          title="Queue did not load"
+          hint="The queue request timed out after 15 seconds."
+        >
+          <p>
+            Nothing here acted on your behalf. Pending drafts are still on the
+            public ops. feed; try loading the queue again.
+          </p>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => {
+              setView({ status: "loading" });
+              setReload((value) => value + 1);
+            }}
+          >
+            Retry
+          </button>
+        </EmptyState>
+      );
+    }
     if (view.status === "signedOut") {
       return (
         <EmptyState
