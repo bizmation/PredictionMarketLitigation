@@ -130,3 +130,32 @@
 - source_spec: `spec-3-18-standing-corrections-durable-guidance.md`
   summary: Best-effort `guidance.recorded` / `guidance.revoked` Evidence after the `standing_guidance` row has no partial-failure test (same for 3.17's `config.steered` catch); a lost receipt is silent while HTTP says ok.
   evidence: No DB fault-injection harness exists in the repo (only `vi.spyOn` use is `actionPolicy.test.ts`); closing this needs a shared failing-batch helper used by both 3.17 and 3.18 catches, plus a `console.warn` in each catch so the gap is discoverable in logs. [src/pipeline/steering/submitTurn.ts]
+
+## Dispositions: sprint-change-proposal-2026-09-17 (Epic 3 clean-up, approved 2026-09-17)
+
+Ledger entries above are not edited; this block records where each Epic 3 entry went.
+
+- [closed-resolved] 3.3 catch-up/manual Runs no production trigger — 3.12 `POST /api/admin/runs` (`server.ts:79`)
+- [closed-resolved] 3.2 `run.stopped` raw INSERT — `gateway.ts:164` uses `appendStmt`
+- [closed-resolved] 3.3 persist `next_run_at` — 3.7 computes via `nextRunAtUtc` by design
+- [closed-resolved] 3.16 live-browser round-trip — superseded by the first material Run (→ 3.21)
+- [closed-resolved] 3.2 `setRoleModel` last-write-wins — single operator; `version` bump atomic
+- [closed-accepted] 3.2 no `gateway.config_changed` Evidence — `version` bump is the audit; config is global, Evidence is per-Run
+- [closed-accepted] 3.2 `llm_calls.currency` hardcoded USD
+- [closed-accepted] 3.2 `GatewayInput` prompt-only
+- [closed-accepted] 3.2 successful LLM calls in `llm_calls`, not `evidence_events`
+- [closed-accepted] 3.12 LoopControls 4 s poll never timer-asserted
+- [closed-accepted] 3.12 attach-run replay fallback untested — staging cron exercises it
+- [→ 3.19] 3.4 connector hang — 60 s deadline
+- [→ 3.19] 3.2 provider `complete` / `AI.run` no timeout — 60 s deadline
+- [→ 3.19] 3.8 `GET /runs/:id` no client timeout — 15 s
+- [→ 3.19] 3.9 `GET /api/drafts` no client timeout — 15 s
+- [→ 3.19] 3.12 trigger POST / ApprovalQueue no timeout — 30 s
+- [→ 3.19] 3.2 empty `gateway_config` — migration 0017 seed (Workers AI, 500¢)
+- [→ 3.19] 3.1 `runs(started_at)` index — migration 0017
+- [→ 3.19] 3.1 epic-context stale identifiers — fixed 2026-09-17 in `epic-3-context.md`
+- [→ 3.19] 3.18 / 3.17 best-effort Evidence untested — `console.warn` + shared failing-batch helper
+- [→ 3.19] 3.16 second revise (r2+) untested — e2e case
+- [→ 3.20] 3.2 config `provider` never matched to injected `LlmProvider`
+- [→ 3.20] 3.2 budget check `spend >= budget` vs would-push-over
+- [→ Epic 2 item 7] 2.10 `DONATE_URL` dead anchor — interim "Donations open soon" copy in 3.19; real URL is Patrick's decision

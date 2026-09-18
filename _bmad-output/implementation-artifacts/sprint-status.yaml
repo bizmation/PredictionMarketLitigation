@@ -1,5 +1,5 @@
 # generated: 2026-08-09
-# last_updated: 09-17-2026 17:54
+# last_updated: 09-17-2026 21:30
 # project: PML
 # project_key: NOKEY
 # tracking_system: file-system
@@ -36,7 +36,7 @@
 # - Source epics: _bmad-output/planning-artifacts/epics.md (35 stories, readiness punch list applied 2026-08-09)
 
 generated: 2026-08-09
-last_updated: 09-17-2026 17:54
+last_updated: 09-17-2026 21:30
 project: PML
 project_key: NOKEY
 tracking_system: file-system
@@ -87,6 +87,10 @@ development_status:
   3-16-conversational-draft-revision: done
   3-17-conversational-pipeline-steering: done
   3-18-standing-corrections-durable-guidance: done
+  # Added by sprint-change-proposal-2026-09-17 (Epic 3 hardening + deferred closure)
+  3-19-epic-3-hardening-timeouts-gateway-seed: backlog
+  3-20-openrouter-provider-via-ai-gateway: backlog
+  3-21-first-live-connector: backlog
   epic-3-retrospective: optional
 
   # Epic 4: Governance Narrative & Invited Check
@@ -106,8 +110,9 @@ action_items:
       (Worker pml-build, own D1 pml-build), deploy:build script, post-deploy smoke
       checklist, DNS record"
     owner: "agent + Patrick"
-    status: open
+    status: done
     ref: "_bmad-output/implementation-artifacts/epic-2-retro-2026-09-04.md"
+    note: "Done 2026-09-08; redeployed at migration 0016 on 2026-09-17 (sprint-change-proposal-2026-09-17)"
   - id: "epic-2-retro-item-2-fix-cross-story-honesty-defect-batch-pol"
     epic: 2
     action: "Fix cross-story honesty defect batch: poll docketed-28-July chrome vs
@@ -158,18 +163,28 @@ action_items:
     action: "Record remote D1 migration state; apply 0005 to staging DB first with
       runbook update"
     owner: "agent"
-    status: open
+    status: done
     ref: "_bmad-output/implementation-artifacts/epic-2-retro-2026-09-04.md"
+    note: "Done — deploy-runbook records pml-build at 0001–0016 (2026-09-17)"
   - id: "epic-2-retro-item-9-restore-locate-prd-md-into-planning-arti"
     epic: 2
     action: "Restore/locate prd.md into planning artifacts so story FR citations resolve"
     owner: "Patrick"
-    status: open
+    status: done
     ref: "_bmad-output/implementation-artifacts/epic-2-retro-2026-09-04.md"
+    note: "Resolved — prds/prd-PML-2026-06-18/prd.md is referenced by epics.md"
   - id: "epic-2-retro-item-10-standing-agreement-one-merged-pr-per-sto"
     epic: 2
     action: "Standing agreement: one merged PR per story before the next story is
       contexted"
     owner: "team"
-    status: open
+    status: done
     ref: "_bmad-output/implementation-artifacts/epic-2-retro-2026-09-04.md"
+    note: "Norm followed for 3.14–3.18; closed as a working agreement (2026-09-17)"
+  - id: "epic-3-cc-item-1-backfill-epics-md-stories-3-14-to-3-21"
+    epic: 3
+    action: "Insert stories 3.14–3.21 into epics.md (currently only in the 2026-08-09 and
+      2026-09-17 sprint change proposals)"
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-17.md"

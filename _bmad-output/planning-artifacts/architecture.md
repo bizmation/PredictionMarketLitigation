@@ -18,6 +18,7 @@ updated: '2026-08-09'
 amendments:
   - '2026-08-09: Locked multi-agent orchestration + OpenRouter role→model routing via AI Gateway'
   - '2026-08-09 (post-epics sync): UX-promoted scope deltas — ECharts issue map, poll tally endpoint, moderated corrections→GitHub Issues API (supersedes "no deep integration"), long-scroll apex with URL-param deep links, journal content in D1, Vitest mandate storied (see §Post-Epics Amendments)'
+  - '2026-09-17: Initial role→model pin is Workers AI (gap #5 resolved by migration 0017); OpenRouter remains the required primary router, delivered by Story 3.20. Timeout policy: 15 s client GET / 30 s admin POST / 60 s connector + provider (sprint-change-proposal-2026-09-17 §4.1)'
 ---
 
 # Architecture Decision Document
