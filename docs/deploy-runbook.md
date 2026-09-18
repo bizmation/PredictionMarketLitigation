@@ -249,13 +249,16 @@ These live in `.env` (gitignored via `.gitignore:248`; **this repo is public**).
 3. **Record remote migration state here** as it lands — production D1 is still at `0001`–`0004`; `0005` (poll votes) and onward are staged on `pml-build` first, deliberately (retro V-2).
 4. **This is where Epic 3 work deploys.** Pipeline stories (3.2+) verify on `build.` before any production decision.
 
-**Live check — 2026-09-17 (Cloudflare bindings MCP + HTTP + browser + `wrangler deploy -e build`). Do not treat this as a production deploy.**
+**Live check — 2026-09-17, second deploy after PRs #33/#34 (`npm run deploy:build` + HTTP). Do not treat this as a production deploy.**
 
 | Check | Result |
 |---|---|
-| Worker `pml-build` | version `32a0fb9c-d9ec-4fc1-9cec-af1cb320382a`; Custom Domain `build.predictionmarketlitigation.com` only; workflow `daily-run`; crons 16:00Z / 17:00Z |
-| D1 `pml-build` | id `9e83494a-016e-4bff-9e07-7fca3a159a83`; migrations `0001`–`0013` applied (`0005` poll votes and Epic 3 tables are on staging, not production) |
+| Worker `pml-build` | version `ede146a4-597e-47d9-807c-1782bee0c979` (main `a453872`, stories 3.17 + 3.18); prior `32a0fb9c` through 3.13; Custom Domain `build.predictionmarketlitigation.com` only; workflow `daily-run`; crons 16:00Z / 17:00Z |
+| D1 `pml-build` | id `9e83494a-016e-4bff-9e07-7fca3a159a83`; migrations `0001`–`0016` applied (`0014` revision chain, `0015` config versions, `0016` standing guidance landed this deploy; `0005` poll votes and Epic 3 tables are on staging, not production) |
 | `GET /api/mode` on `build.` | `{"mode":"hitl","threshold":70,...}` — 3.13 is on staging |
+| `GET /api/pipeline-config` on `build.` | 200, `cache-control: no-store`, `version: 0` seed list — 3.17 is on staging |
+| `GET /api/standing-guidance` on `build.` | 200, `cache-control: no-store`, `{"cap":12,"maxChars":600,"inForce":[],"history":[]}` — 3.18 is on staging |
+| Anonymous `POST /api/admin/runs/:id/steering` | 403 — Worker-side operator gate holds |
 | `https://build.predictionmarketlitigation.com/` | 200 SPA tracker |
 | `https://predictionmarketlitigation.com/` | 200 **landing page**, SHA-256 unchanged through this deploy |
 | `https://ops.predictionmarketlitigation.com/` | 200 **same landing page** as apex (Worker `pml`). Do not point `ops.` at `pml-build` until cutover |
@@ -274,7 +277,7 @@ When Epics 3–4 are done on `build.`, graduate the app to the root. This is a h
 **When Patrick gives the go-ahead:**
 
 1. **Snapshot the landing page** (already backed up in-repo from `df4b431`). Confirm `curl https://predictionmarketlitigation.com/` is still that page immediately before the swap.
-2. **Catch `pml-build` up** (`npm run deploy:build`) so the Worker and D1 `0001`–latest match `main`. Smoke `build.` end-to-end. (Done through `0013` / version `32a0fb9c` on 2026-09-17; re-run if `main` has moved.)
+2. **Catch `pml-build` up** (`npm run deploy:build`) so the Worker and D1 `0001`–latest match `main`. Smoke `build.` end-to-end. (Done through `0016` / version `ede146a4` on 2026-09-17 from main `a453872`; re-run if `main` has moved.)
 3. **Decide the D1 story.** Production D1 `pml` is still at `0001`–`0004` (no `poll_votes`, no Epic 3 tables). Either (a) apply remaining migrations to `pml` and keep that database as canonical, or (b) rebind the production Worker to `pml-build` (or dump/restore). Do not invent a third database.
 4. **Move Custom Domains, not code paths.** Per [Workers custom domains](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/), a Custom Domain is the origin for **all paths** of one hostname. Cutover is: attach `predictionmarketlitigation.com` (and then `ops.`) to the app Worker, and **remove** those hostnames from the landing-page Worker `pml` so two Workers never share a hostname.
 5. **`ops.` is part of the same cutover.** Today it serves the landing page. After the swap it must be the ops. shell (`hostname.startsWith("ops.")` in `surface.ts`). Do not move apex without `ops.` or the tracker’s `ops.` links keep landing on the brochure.
