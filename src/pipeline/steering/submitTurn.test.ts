@@ -1318,6 +1318,85 @@ describe("submitTurn config I/O matrix (story 3.17)", () => {
     expect((await publicConfig()).sources).toEqual(steeredList());
   });
 
+  it("fails closed on a tool-shaped config reply and writes no version", async () => {
+    await resetPipelineConfig();
+    const runId = await insertRun("awaiting");
+    await seedSteward();
+    const text = JSON.stringify({
+      tool: "publish_f1",
+      key: "poll_sources",
+      value: steeredList()
+    });
+    const result = await submitTurn(testEnv.DB, deps(fakeProvider({ text })), {
+      runId,
+      content: "Add the ND Cal docket to Tier-1.",
+      private: false,
+      intent: "config",
+      actorDisplayName: ACTOR
+    });
+    expect(result.status).toBe("invalid");
+    if (result.status !== "invalid") return;
+    expect(result.message).toBe("Config did not apply.");
+    const config = await publicConfig();
+    expect(config.version).toBe(0);
+    expect(config.history).toHaveLength(0);
+    const detail = await publicDetail(runId);
+    expect(detail.evidence.some((e) => e.event === "config.steered")).toBe(
+      false
+    );
+    expect(
+      detail.evidence.some(
+        (e) =>
+          e.event === "steering.applied" &&
+          (e.payload as { effect?: string }).effect === "steered"
+      )
+    ).toBe(false);
+    expect(detail.evidence.some((e) => e.event === "guardrails.failed")).toBe(
+      true
+    );
+  });
+
+  it("fails closed when a tool-shaped config reply is wrapped in a markdown fence", async () => {
+    await resetPipelineConfig();
+    const runId = await insertRun("awaiting");
+    await seedSteward();
+    const text =
+      "```json\n" +
+      JSON.stringify({
+        tool: "publish_f1",
+        key: "poll_sources",
+        value: steeredList()
+      }) +
+      "\n```";
+    const result = await submitTurn(testEnv.DB, deps(fakeProvider({ text })), {
+      runId,
+      content: "Add the ND Cal docket to Tier-1.",
+      private: false,
+      intent: "config",
+      actorDisplayName: ACTOR
+    });
+    expect(result.status).toBe("invalid");
+    if (result.status !== "invalid") return;
+    expect(result.message).toBe("Config did not apply.");
+    const config = await publicConfig();
+    expect(config.version).toBe(0);
+    expect(config.history).toHaveLength(0);
+    const detail = await publicDetail(runId);
+    expect(detail.evidence.some((e) => e.event === "config.steered")).toBe(
+      false
+    );
+    expect(
+      detail.evidence.some(
+        (e) =>
+          e.event === "steering.applied" &&
+          (e.payload as { effect?: string }).effect === "steered"
+      )
+    ).toBe(false);
+    expect(detail.evidence.some((e) => e.event === "guardrails.failed")).toBe(
+      true
+    );
+  });
+
   it("uses the steered list and version on the next Run package", async () => {
     await resetPipelineConfig();
     const awaitingId = await insertRun("awaiting");
@@ -1420,6 +1499,29 @@ describe("submitTurn config I/O matrix (story 3.17)", () => {
       }))
     );
     expect(restoredConfig.history).toHaveLength(3);
+  });
+
+  it("fails closed when a revert key is not poll_sources", async () => {
+    await resetPipelineConfig();
+    const runId = await insertRun("awaiting");
+    await seedSteward();
+    const provider = fakeProvider({ text: "steward must not run" });
+    const result = await submitTurn(testEnv.DB, deps(provider), {
+      runId,
+      content: "Revert poll_sources to version 0",
+      private: false,
+      intent: "config",
+      key: "mode",
+      revertToVersion: 0,
+      actorDisplayName: ACTOR
+    });
+    expect(result.status).toBe("invalid");
+    if (result.status !== "invalid") return;
+    expect(result.message).toBe("Config did not apply.");
+    expect(provider.count()).toBe(0);
+    const config = await publicConfig();
+    expect(config.version).toBe(0);
+    expect(config.history).toHaveLength(0);
   });
 
   it("refuses YOLO/budget/mode/guardrails/allowlist writes and leaves those controls unchanged", async () => {

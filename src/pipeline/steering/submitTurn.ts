@@ -470,17 +470,21 @@ async function steerPipelineConfig(
         pollSources: effective.sources
       })
     });
+    // Fence-stripping is what makes a fenced `{ key, value }` apply. The
+    // tool check has to see that same text, or a fenced `tool` key rides
+    // along and still versions poll_sources.
+    const stewardText = stripMarkdownFence(result.text);
     try {
       await denyToolShaped(gatewayDeps, input.turn.runId, input.turn.id, [
-        result.text
+        stewardText
       ]);
     } catch {
       // Persist already succeeded.
     }
-    if (parseToolRequest(result.text) != null) {
+    if (parseToolRequest(stewardText) != null) {
       return { status: "invalid" };
     }
-    const proposal = parseConfigProposal(result.text);
+    const proposal = parseConfigProposal(stewardText);
     if (proposal == null) return { status: "invalid" };
     const reply = input.turn.private ? null : result.text;
     if (proposal.key !== PIPELINE_CONFIG_KEY) {

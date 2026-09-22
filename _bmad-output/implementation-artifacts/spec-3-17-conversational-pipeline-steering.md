@@ -95,6 +95,41 @@ deferred: []
 - Given a successful private config turn, when I open ops. Evidence, then instruction text is withheld and key/version/effect remain
 - Given ordinary Submit turn or Revise draft, when I reload `GET /api/pipeline-config`, then the list is unchanged
 
+### Review Findings
+
+2026-09-21 — follow-up review. 4 layers, 27 findings — 0 decision-needed, 4 patch, 0 defer, 23 rejected.
+
+- [x] [Review][Patch] Fenced tool-shaped steward JSON still versions `poll_sources` [src/pipeline/steering/submitTurn.ts:480]
+- [x] [Review][Patch] Config `intent` has no test that tool-shaped steward text fails closed [src/pipeline/steering/submitTurn.test.ts:1201]
+- [x] [Review][Patch] Revert with a non-`poll_sources` key is untested [src/pipeline/steering/submitTurn.ts:432]
+- [x] [Review][Patch] Successful Steer pipeline shows the raw steward JSON in the composer [src/surfaces/admin/SteeringPanel.tsx:310]
+
+#### Rejected
+
+- `low` — Refusal Evidence throw returns `invalid` — only when the `config.steered` insert throws; there is no version row to preserve, and reporting `refused` would claim a public receipt that was not written.
+- `false` — Admin composer omits the effective list and history fields — AC1 is `GET /api/pipeline-config` plus ops. `/runs/:id`; both carry version, actor, time, prior, and next, and the panel's specified job is revert buttons.
+- `false` — `key` / `revertToVersion` are unconstrained on ask and revise — only the config branch reads them, and a revert whose `key` is not `poll_sources` returns `invalid` before `revertTo`.
+- `low` — Empty `poll_sources` can wipe monitoring — not an everyday steward result; `min(1)` would add policy the spec does not state.
+- `low` — Identical `new_value` still appends a version — clicking the current version is a misclick; a no-op compare adds a branch for a list that does not change.
+- `false` — Shared 409 copy now says “the change did not apply” — the spec allows that generic ceiling; the composer still shows the revision-specific sentence.
+- `false` — `pipelineConfigRepo` imports the connector seed loader — the Code Map requires that loader.
+- `false` — Any 200 without a numeric `configVersion` is treated as a refusal — a successful steer always returns a number; `null` is the refusal signal, and `invalid` is HTTP 400.
+- `false` — Preamble before a markdown fence fails parse — the prompt requires JSON only, and unparseable text is specified to return `invalid`.
+- `low` — Admin HTTP suite skips the governance-refusal path — `submitTurn` already asserts `config.steered` refused and `configVersion: null`; the route returns that turn unchanged.
+- `false` — Tool-shaped config text writes no refusal Evidence — `denyToolShaped` records `guardrails.failed` before the branch returns `invalid`; `config.steered` is for a parsed forbidden key.
+- `false` — `complete()` runs before `denyToolShaped` — `submitTurn` denies tool-shaped operator content before `complete()`; the later call scans the steward reply, same as ask.
+- `low` — `run.started` version can disagree with the sources `monitorAndPackage` polls — the window is the gap between those two workflow steps; passing a snapshot adds parameters.
+- `low` — A corrupt latest version row reports seed at version 0 — normal writes validate before insert; this is corrupt D1.
+- `low` — Spec Change Log is empty — the applied patches are already in the triage log and Auto Run Result; filling the changelog edits this spec.
+- `low` — Steward can return an empty `poll_sources` array — same as the empty-list row above.
+- `low` — Duplicate source names collide on `evidenceId` — `INSERT OR IGNORE` drops the second event; duplicate names are not an everyday operator path, and a uniqueness refine adds schema policy.
+- `low` — Latest-row parse failure falls back to seed — same as the corrupt-row row above.
+- `low` — Refusal Evidence failure is remapped to `invalid` — same as the refusal-insert row above.
+- `low` — A steer between `ensureRun` and `monitorAndPackage` mismatches version and sources — same as the in-flight re-read row above.
+- `low` — A concurrent steer can overwrite a newer full list — two operators steering the same key during one `complete()` is not everyday; the fix is an optimistic-concurrency branch.
+- `low` — Success Evidence is best-effort after the version write — tested on purpose so a committed version is not reported as `invalid`; ops. can miss `config.steered` only when that insert throws, and `GET /api/pipeline-config` still shows the row.
+- `low` — Governance-refusal Evidence failure surfaces as `invalid` — same as the refusal-insert row above.
+
 ## Spec Change Log
 
 ## Review Triage Log

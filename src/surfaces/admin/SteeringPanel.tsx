@@ -307,6 +307,13 @@ export function SteeringPanel({
       }
       if (parsed.private === true) {
         setLastReply("content withheld");
+      } else if (
+        intent === "config" &&
+        typeof parsed.configVersion === "number"
+      ) {
+        setLastReply(
+          `Pipeline sources updated to version ${parsed.configVersion}; they take effect on the next Run.`
+        );
       } else if (typeof parsed.reply === "string" && parsed.reply.length > 0) {
         setLastReply(parsed.reply);
       } else {

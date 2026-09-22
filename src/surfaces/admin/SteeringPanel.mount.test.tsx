@@ -398,6 +398,15 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
       })
     );
     expect(steeringPosts(fetchMock)).toHaveLength(1);
+    expect(document.body.textContent).toContain(
+      "Pipeline sources updated to version 1; they take effect on the next Run."
+    );
+    expect(document.body.textContent).not.toContain(
+      '{"key":"poll_sources","value":[]}'
+    );
+    expect(
+      (screen.getByLabelText("Steering turn") as HTMLTextAreaElement).value
+    ).toBe("");
     expect(screen.getByRole("button", { name: "Revert to seed" })).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Revert to version 1" })
