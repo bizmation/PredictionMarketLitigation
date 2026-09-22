@@ -229,6 +229,28 @@ describe("EvidenceDetail (story 3.8)", () => {
     noLogin(html);
   });
 
+  it("renders spend from run.spendCents even when llm call costCents is 0 (story 3.20)", () => {
+    const html = renderToStaticMarkup(
+      <EvidenceDetail
+        runId="run-20260908-aaa1"
+        detail={detail({
+          spendCents: 12,
+          llmCalls: [
+            call({
+              id: "call-1",
+              costCents: 0,
+              tokens: { input: 11, output: 7 }
+            })
+          ]
+        })}
+        dev
+      />
+    );
+    expect(html).toContain("$0.12");
+    expect(html).toContain(">18<");
+    expect(html).not.toContain("$0.00");
+  });
+
   it("prints run.superseded · priorRunId on the Evidence timeline", () => {
     const html = renderToStaticMarkup(
       <EvidenceDetail

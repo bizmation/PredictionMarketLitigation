@@ -26,10 +26,7 @@ import * as runsRepo from "./shared/db/repos/runsRepo";
 import { IsoDateSchema } from "./shared/schemas/common";
 import { ModePostBodySchema } from "./shared/schemas/mode";
 import { etCalendarDate } from "./shared/lib/schedule";
-import {
-  createWorkersAiProvider,
-  type LlmProvider
-} from "./pipeline/ai/gateway";
+import { llmProvidersFromEnv } from "./pipeline/ai/gateway";
 import { decide } from "./pipeline/gate/approval";
 import { submitTurn } from "./pipeline/steering/submitTurn";
 import { SteeringPostBodySchema } from "./shared/schemas/steering";
@@ -471,7 +468,7 @@ export default {
             db,
             {
               db,
-              provider: createWorkersAiProvider(env) as LlmProvider
+              providers: llmProvidersFromEnv(env)
             },
             {
               runId,

@@ -1795,8 +1795,8 @@ describe("admin steering (story 3.14)", () => {
     )
       .bind(
         JSON.stringify({
-          drafter: { provider: "fake", model: "drafter-v1" },
-          reviewer: { provider: "fake", model: "reviewer-v1" }
+          drafter: { provider: "workersai", model: "drafter-v1" },
+          reviewer: { provider: "workersai", model: "reviewer-v1" }
         }),
         TS
       )
@@ -1855,7 +1855,7 @@ describe("admin pipeline config steering (story 3.17)", () => {
     )
       .bind(
         JSON.stringify({
-          steward: { provider: "fake", model: "steward-v1" }
+          steward: { provider: "workersai", model: "steward-v1" }
         }),
         TS
       )

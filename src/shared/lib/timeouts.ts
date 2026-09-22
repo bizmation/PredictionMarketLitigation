@@ -169,3 +169,43 @@ export async function withDeadline<T>(
     if (timer !== undefined) clearTimeout(timer);
   }
 }
+
+/**
+ * Story 3.20 — like `withDeadline`, but owns an `AbortController` whose
+ * signal is handed to `factory`. When the timer wins the controller is
+ * aborted and the race still rejects with `DeadlineError` (not the abort
+ * reason), so gateway callers keep mapping timeouts to `provider_error`.
+ */
+export async function withAbortableDeadline<T>(
+  factory: (signal: AbortSignal) => Promise<T>,
+  ms: number,
+  label: string
+): Promise<T> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await new Promise<T>((resolve, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(new DeadlineError(label, ms));
+      }, ms);
+      factory(controller.signal).then(
+        (value) => {
+          if (timer !== undefined) clearTimeout(timer);
+          timer = undefined;
+          resolve(value);
+        },
+        (err: unknown) => {
+          // Abort-induced rejection is noise — the timer already (or will)
+          // reject with DeadlineError.
+          if (controller.signal.aborted) return;
+          if (timer !== undefined) clearTimeout(timer);
+          timer = undefined;
+          reject(err);
+        }
+      );
+    });
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}

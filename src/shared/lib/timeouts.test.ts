@@ -9,6 +9,7 @@ import {
   fetchWithTimeout,
   isAbortError,
   isTimeoutError,
+  withAbortableDeadline,
   withDeadline
 } from "./timeouts";
 
@@ -71,6 +72,54 @@ describe("withDeadline (story 3.19)", () => {
     expect((err as DeadlineError).label).toBe("workersai");
     expect((err as DeadlineError).ms).toBe(5_000);
     expect(String(err)).toContain("workersai");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("withAbortableDeadline (story 3.20)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("passes a live signal and resolves when the factory settles first", async () => {
+    let seen: AbortSignal | undefined;
+    const result = await withAbortableDeadline(
+      async (signal) => {
+        seen = signal;
+        expect(signal.aborted).toBe(false);
+        return 7;
+      },
+      1_000,
+      "openrouter"
+    );
+    expect(result).toBe(7);
+    expect(seen?.aborted).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("aborts the signal and rejects with DeadlineError when the timer wins", async () => {
+    let seen: AbortSignal | undefined;
+    const raced = withAbortableDeadline(
+      (signal) =>
+        new Promise<never>((_, reject) => {
+          seen = signal;
+          signal.addEventListener("abort", () => reject(signal.reason));
+        }),
+      5_000,
+      "openrouter"
+    );
+    const settled = raced.then(
+      () => "resolved",
+      (err: unknown) => err
+    );
+    await vi.advanceTimersByTimeAsync(5_000);
+    const err = await settled;
+    expect(err).toBeInstanceOf(DeadlineError);
+    expect((err as DeadlineError).label).toBe("openrouter");
+    expect(seen?.aborted).toBe(true);
     expect(vi.getTimerCount()).toBe(0);
   });
 });
