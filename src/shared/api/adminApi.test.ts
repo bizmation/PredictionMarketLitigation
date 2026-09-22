@@ -1924,6 +1924,91 @@ describe("admin pipeline config steering (story 3.17)", () => {
     expect(JSON.stringify(detail)).not.toContain(EMAIL);
   });
 
+  it("OpenRouter steward config-steer hits the AI Gateway chat URL (story 3.20)", async () => {
+    const SECRET = "sk-or-admin-test-do-not-leak";
+    await resetPipelineConfig();
+    await seedRun("run-20260922-c020");
+    await seedPendingDraft("d-c020-nv", "run-20260922-c020");
+    await testEnv.DB.prepare(
+      `INSERT INTO gateway_config (id, version, roles_json, default_budget_cents, updated_at)
+       VALUES ('current', 1, ?, 500, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         roles_json = excluded.roles_json,
+         default_budget_cents = excluded.default_budget_cents,
+         updated_at = excluded.updated_at`
+    )
+      .bind(
+        JSON.stringify({
+          steward: {
+            provider: "openrouter",
+            model: "anthropic/claude-sonnet-4"
+          }
+        }),
+        TS
+      )
+      .run();
+    const seed = await publicConfig();
+    const steered = [...seed.sources, EXTRA];
+    const requestUrl = (input: RequestInfo | URL) =>
+      typeof input === "string"
+        ? input
+        : input instanceof URL
+          ? input.toString()
+          : input.url;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (requestUrl(input).includes("/openrouter/chat/completions")) {
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    key: "poll_sources",
+                    value: steered
+                  })
+                }
+              }
+            ]
+          }),
+          { status: 200 }
+        );
+      }
+      return Response.json({ keys: [jwk] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const res = await worker.fetch(
+      jsonPost(
+        await sign(EMAIL),
+        "/api/admin/runs/run-20260922-c020/steering",
+        {
+          content: "Add the ND Cal docket to Tier-1.",
+          private: false,
+          draftId: "d-c020-nv",
+          intent: "config"
+        }
+      ),
+      {
+        ...realEnv(),
+        OPENROUTER_API_KEY: SECRET,
+        AI_GATEWAY_ID: "pml-gateway",
+        CLOUDFLARE_ACCOUNT_ID: "acct-123"
+      } as Env
+    );
+    expect(res.status).toBe(200);
+    const openRouterCalls = fetchMock.mock.calls.filter((call) =>
+      requestUrl(call[0]!).includes("/openrouter/chat/completions")
+    );
+    expect(openRouterCalls).toHaveLength(1);
+    expect(requestUrl(openRouterCalls[0]![0]!)).toBe(
+      "https://gateway.ai.cloudflare.com/v1/acct-123/pml-gateway/openrouter/chat/completions"
+    );
+    expect(JSON.stringify(await res.json())).not.toContain(SECRET);
+    const config = await publicConfig();
+    expect(config.sources.some((row) => row.name === "ND Cal docket")).toBe(
+      true
+    );
+  });
+
   it("reverts poll_sources to version 0 and keeps both history rows", async () => {
     await resetPipelineConfig();
     await seedRun("run-20260917-c018");

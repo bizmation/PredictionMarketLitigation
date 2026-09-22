@@ -73,7 +73,10 @@ export async function kickDailyRun(
   }
 }
 
-function gatewayDepsFromEnv(env: Env, db: GatewayDeps["db"]): GatewayDeps {
+export function gatewayDepsFromEnv(
+  env: Env,
+  db: GatewayDeps["db"]
+): GatewayDeps {
   // Empty registry (no AI binding, no OpenRouter secrets) →
   // gateway_not_configured; draftAndReview marks that Draft evals_not_run.
   return { db, providers: llmProvidersFromEnv(env) };

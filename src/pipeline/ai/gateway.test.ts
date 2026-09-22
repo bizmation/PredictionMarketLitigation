@@ -753,7 +753,7 @@ describe("gateway.complete provider select + estimate (story 3.20)", () => {
         return new Response(
           JSON.stringify({
             choices: [{ message: { content: "openrouter reply" } }],
-            usage: { prompt_tokens: 11, completion_tokens: 7 }
+            usage: { prompt_tokens: 600, completion_tokens: 401 }
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         );
@@ -774,9 +774,9 @@ describe("gateway.complete provider select + estimate (story 3.20)", () => {
 
     expect(result.text).toBe("openrouter reply");
     expect(result.provider).toBe("openrouter");
-    expect(result.costCents).toBeGreaterThanOrEqual(1);
-    expect(result.inputTokens).toBe(11);
-    expect(result.outputTokens).toBe(7);
+    expect(result.costCents).toBe(2);
+    expect(result.inputTokens).toBe(600);
+    expect(result.outputTokens).toBe(401);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0]!;
@@ -789,6 +789,10 @@ describe("gateway.complete provider select + estimate (story 3.20)", () => {
       "Content-Type": "application/json"
     });
     expect(init?.signal).toBeInstanceOf(AbortSignal);
+    expect(JSON.parse(String(init?.body))).toEqual({
+      model: "anthropic/claude-sonnet-4",
+      messages: [{ role: "user", content: prompt }]
+    });
 
     const row = await testEnv.DB.prepare(
       `SELECT provider, model, tokens_json, cost_cents FROM llm_calls WHERE run_id = ?`
@@ -803,9 +807,9 @@ describe("gateway.complete provider select + estimate (story 3.20)", () => {
     expect(row).toMatchObject({
       provider: "openrouter",
       model: "anthropic/claude-sonnet-4",
-      cost_cents: 1
+      cost_cents: 2
     });
-    expect(JSON.parse(row!.tokens_json)).toEqual({ input: 11, output: 7 });
+    expect(JSON.parse(row!.tokens_json)).toEqual({ input: 600, output: 401 });
     expect(JSON.stringify(row)).not.toContain(SECRET);
     expect(prompt).not.toContain(SECRET);
     const evidence = await testEnv.DB.prepare(
@@ -816,7 +820,7 @@ describe("gateway.complete provider select + estimate (story 3.20)", () => {
     expect(JSON.stringify(evidence.results)).not.toContain(SECRET);
 
     const run = await runsRepo.getRunById(testEnv.DB, RUN_ID);
-    expect(run?.spendCents).toBe(1);
+    expect(run?.spendCents).toBe(2);
   });
 
   it("OpenRouter missing usage still records costCents 1 and null tokens", async () => {
@@ -861,6 +865,81 @@ describe("gateway.complete provider select + estimate (story 3.20)", () => {
       .first<{ tokens_json: string | null; cost_cents: number }>();
     expect(row?.tokens_json).toBeNull();
     expect(row?.cost_cents).toBe(1);
+  });
+
+  it("complete selects openrouter vs workersai from llmProvidersFromEnv by name", async () => {
+    const workersRun = vi.fn(async () => ({
+      response: "workers reply",
+      usage: { prompt_tokens: 3, completion_tokens: 4 }
+    }));
+    const providers = llmProvidersFromEnv({
+      AI: { run: workersRun },
+      OPENROUTER_API_KEY: SECRET,
+      AI_GATEWAY_ID: "pml-gateway",
+      CLOUDFLARE_ACCOUNT_ID: "acct-123"
+    } as unknown as Env);
+    expect(providers.map((p) => p.name)).toEqual(["workersai", "openrouter"]);
+
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL) =>
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { content: "openrouter reply" } }],
+            usage: { prompt_tokens: 11, completion_tokens: 7 }
+          }),
+          { status: 200 }
+        )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await insertRun({ budgetCents: 500 });
+    await seedConfig(
+      {
+        drafter: { provider: "openrouter", model: "anthropic/claude-sonnet-4" }
+      },
+      500
+    );
+    const openrouterResult = await complete(
+      {
+        db: testEnv.DB,
+        providers,
+        now: () => NOW,
+        newId: deterministicNewId
+      },
+      { role: "drafter", runId: RUN_ID, prompt: "via registry" }
+    );
+    expect(openrouterResult.provider).toBe("openrouter");
+    expect(openrouterResult.text).toBe("openrouter reply");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]![0])).toBe(
+      "https://gateway.ai.cloudflare.com/v1/acct-123/pml-gateway/openrouter/chat/completions"
+    );
+    expect(workersRun).not.toHaveBeenCalled();
+
+    fetchMock.mockClear();
+    await insertRun({ budgetCents: 500 });
+    await seedConfig(
+      {
+        drafter: {
+          provider: "workersai",
+          model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+        }
+      },
+      500
+    );
+    const workersResult = await complete(
+      {
+        db: testEnv.DB,
+        providers,
+        now: () => NOW,
+        newId: deterministicNewId
+      },
+      { role: "drafter", runId: RUN_ID, prompt: "via registry" }
+    );
+    expect(workersResult.provider).toBe("workersai");
+    expect(workersResult.text).toBe("workers reply");
+    expect(workersRun).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

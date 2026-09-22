@@ -3,8 +3,8 @@ title: 'Story 3.20: OpenRouter Provider via AI Gateway'
 type: 'feature'
 created: '2026-09-22'
 status: 'done'
-review_loop_iteration: 0
-followup_review_recommended: true
+review_loop_iteration: 1
+followup_review_recommended: false
 baseline_commit: 9f99b9c9a6a43b00ce52ff8daa3e2491432f1b57
 baseline_revision: 9f99b9c9a6a43b00ce52ff8daa3e2491432f1b57
 context:
@@ -85,6 +85,35 @@ deferred: []
 - Given remaining budget below the provider estimate, when `complete` runs, then it throws `budget_stopped` before `provider.complete`
 - Given any secret value, when the call is recorded, then that value is not in the prompt, the `llm_calls` row, or Evidence
 
+### Review Findings
+
+2026-09-22 — follow-up review. 4 layers, 25 findings — 0 decision-needed, 3 patch, 1 defer, 21 rejected.
+
+- [x] [Review][Patch] OpenRouter fetch test never asserts model, role, or prompt body [src/pipeline/ai/gateway.test.ts:731]
+- [x] [Review][Patch] OpenRouter recorded `costCents` is only pinned at 1 [src/pipeline/ai/gateway.ts:464]
+- [x] [Review][Patch] Production two-provider registry is never used where `complete()` is called [src/pipeline/ai/gateway.ts:400]
+- [x] [Review][Defer] OpenRouter path `/chat/completions` vs `/v1/chat/completions` [src/pipeline/ai/gateway.ts:422] — deferred: Cloudflare's OpenRouter page prose/SDK uses `…/openrouter/chat/completions` (what the spec and tests pin) while the same page's cURL uses `…/openrouter/v1/chat/completions`. A live POST to both paths would settle it.
+
+#### Rejected
+
+- `medium` — No `cf-aig-authorization` header — spec Always names three secrets and `Authorization: Bearer` the OpenRouter key; adding a gateway token is a spec change. An operator who authenticates the gateway can turn auth off.
+- `low` — No `max_tokens` / input-only estimate can still record spend over the ceiling — Design Notes chose that formula; an output reserve is already residual risk on this spec.
+- `false` — `estimateCents` throwing escapes untyped — OpenRouter's estimate is `Math.max(1, ceil(prompt.length / 4 / 1000))` and does not throw (`blind-hunter` + `edge-case-hunter`).
+- `false` — NaN or negative estimate skips the gate — the OpenRouter formula is finite and at least 1 (`blind-hunter` + `edge-case-hunter`).
+- `low` — Non-number usage tokens can NaN `costCents` after a paid fetch — OpenRouter usage is numeric JSON; a type guard is an extra branch (`blind-hunter` + `edge-case-hunter`).
+- `low` — Deploy runbook omits the three secrets — spec Manual checks are none; secrets are set at deploy, like the CourtListener token.
+- `false` — Account or gateway ids are unescaped — those ids are single path segments (`blind-hunter` + `edge-case-hunter`).
+- `low` — Whitespace-only secrets register OpenRouter — `wrangler secret put` of a real key is the everyday path; a blank secret already fails as `provider_error`.
+- `false` — `withAbortableDeadline` drops factory rejections and aborts without a reason — timeout rejects with `DeadlineError` as specified; a pre-timeout factory failure still rejects when the signal is not aborted.
+- `false` — Leakage test is tautological on Evidence / the local prompt variable — the stub already asserts `init.body` does not contain the key, and `llm_calls` is stringified.
+- `false` — Setting the three secrets does not change traffic — 0017 stays Workers AI by Never; residual risk already names `setRoleModel`.
+- `false` — `gatewaySeed.test.ts` still injects a single `"workersai"` fake — that file pins the 0017 seed and must not require the three secrets.
+- `low` — HTTP / non-JSON / non-text OpenRouter failures have no dedicated tests — those throws already become `provider_error` in the existing catch.
+- `low` — Fetch omits `cf-aig-metadata` — not in the Always line; joining AI Gateway logs is extra headers.
+- `low` — Ops test `not.toContain("$0.00")` is brittle — `$0.12` and token sum 18 are the matrix pins.
+- `low` — Spec Change Log is still empty — filling it edits this spec; patches live in the triage log.
+- `low` — Two concurrent `complete()` calls can both pass the estimate — one operator; a lock is extra.
+
 ## Spec Change Log
 
 ## Review Triage Log
@@ -117,6 +146,32 @@ deferred: []
   - `[false]` `[reject]` Deadline abort is a sibling of `withDeadline` — same as the sibling row
   - `[false]` `[reject]` Ceiling and zero-estimate rows are not in the 3.20 block — the existing budget-stop test still refuses when spend equals the ceiling and estimate is absent
   - `[false]` `[reject]` Admin seeds changed from `fake` to `workersai` — name matching requires the config provider to be the registered provider
+
+### 2026-09-22 — Follow-up review pass
+- verdicts: 25 findings — high 0, medium 4, low 11, false 9, maybe-false 1
+- findings:
+  - `[maybe-false]` `[defer]` OpenRouter path `/chat/completions` vs `/v1/chat/completions` — Cloudflare prose/SDK vs cURL disagree; live POST would settle it
+  - `[medium]` `[patch]` Fetch test never asserts model, `role: "user"`, or prompt body
+  - `[medium]` `[patch]` Recorded `costCents` from usage is only pinned at 1
+  - `[medium]` `[patch]` `complete()` never runs against `llmProvidersFromEnv` with both providers
+  - `[medium]` `[reject]` No `cf-aig-authorization` — fourth secret would edit this spec; unauthenticated gateway is allowed
+  - `[low]` `[reject]` No `max_tokens` / post-call overrun — Design Notes
+  - `[false]` `[reject]` Throwing `estimateCents` — OpenRouter arithmetic does not throw
+  - `[false]` `[reject]` NaN/negative estimate — OpenRouter formula is ≥ 1
+  - `[low]` `[reject]` Non-number usage — extra type guard
+  - `[low]` `[reject]` Runbook omits secrets — spec Manual checks none
+  - `[false]` `[reject]` Unescaped account/gateway ids — single path segments
+  - `[low]` `[reject]` Whitespace-only secrets — fails as `provider_error`
+  - `[false]` `[reject]` Abortable deadline drops errors — `DeadlineError` is the specified timeout outcome
+  - `[false]` `[reject]` Leakage Evidence/prompt asserts — body and `llm_calls` are checked
+  - `[false]` `[reject]` Secrets do not flip 0017 traffic — Never line
+  - `[false]` `[reject]` `gatewaySeed` still uses a `workersai` fake — seed test
+  - `[low]` `[reject]` HTTP/JSON fixtures — already `provider_error`
+  - `[low]` `[reject]` `cf-aig-metadata` — extra headers
+  - `[low]` `[reject]` `$0.00` absence — matrix pins `$0.12` / 18
+  - `[low]` `[reject]` Empty Spec Change Log — would edit this spec
+  - `[low]` `[reject]` Concurrent `complete()` — one operator
+- patches applied: fetch body `{ model, messages }`; usage `cost_cents` 2 at 1001 tokens; `complete(llmProvidersFromEnv)` both ways; exported `gatewayDepsFromEnv`; admin OpenRouter steer URL
 
 ## Design Notes
 
@@ -154,7 +209,7 @@ Follow-up review recommended: true. Two medium entries were patched (registry wi
 
 Patch counts by verdict: high 0, medium 2, low 1.
 
-Verification: `npm test` — 1008 passed. `npm run check` — oxfmt/oxlint/tsc exit 0.
+Verification: `npm test` — 1012 passed. `npm run check` — oxfmt/oxlint/tsc exit 0.
 
-Residual risk: live OpenRouter needs the three Worker secrets and a `setRoleModel` to `openrouter`. CI stubs `fetch`.
+Residual risk: live OpenRouter needs the three Worker secrets and a `setRoleModel` to `openrouter`. CI stubs `fetch`. Cloudflare's OpenRouter page prose/SDK vs cURL path (`/chat/completions` vs `/v1/chat/completions`) is deferred until a live POST.
 

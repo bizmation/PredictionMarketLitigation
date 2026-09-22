@@ -8,6 +8,7 @@ import * as runsRepo from "../../shared/db/repos/runsRepo";
 import * as standingGuidanceRepo from "../../shared/db/repos/standingGuidanceRepo";
 import type { GatewayDeps, LlmProvider } from "../ai/gateway";
 import {
+  gatewayDepsFromEnv,
   kickDailyRun,
   sourceChecksFromEnv,
   startOperatorRun
@@ -532,6 +533,37 @@ describe("afterPackaging (story 3.5)", () => {
     expect((await runsRepo.getRunById(testEnv.DB, id))?.status).toBe("failed");
     const evidence = await evidenceRepo.listByRun(testEnv.DB, id);
     expect(evidence.some((e) => e.event === "run.failed")).toBe(true);
+  });
+});
+
+describe("gatewayDepsFromEnv (story 3.20)", () => {
+  it("registers workersai and openrouter when AI and the three secrets are set", () => {
+    const deps = gatewayDepsFromEnv(
+      {
+        AI: { run: async () => ({ response: "x" }) },
+        OPENROUTER_API_KEY: "sk-or-test",
+        AI_GATEWAY_ID: "gw",
+        CLOUDFLARE_ACCOUNT_ID: "acct"
+      } as unknown as Env,
+      testEnv.DB
+    );
+    expect(deps.providers?.map((p) => p.name)).toEqual([
+      "workersai",
+      "openrouter"
+    ]);
+  });
+
+  it("omits openrouter when any secret is missing", () => {
+    const deps = gatewayDepsFromEnv(
+      {
+        AI: { run: async () => ({ response: "x" }) },
+        OPENROUTER_API_KEY: "sk-or-test",
+        AI_GATEWAY_ID: "gw"
+      } as unknown as Env,
+      testEnv.DB
+    );
+    expect(deps.providers?.map((p) => p.name)).toEqual(["workersai"]);
+    expect(deps.providers?.map((p) => p.name)).not.toContain("openrouter");
   });
 });
 
