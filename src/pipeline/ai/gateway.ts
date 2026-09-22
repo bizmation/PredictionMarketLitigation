@@ -8,7 +8,10 @@ import {
   GATEWAY_ROLE_VALUES,
   type GatewayRole
 } from "../../shared/schemas/vocabulary";
-import { PROVIDER_TIMEOUT_MS, withDeadline } from "../../shared/lib/timeouts";
+import {
+  PROVIDER_TIMEOUT_MS,
+  withAbortableDeadline
+} from "../../shared/lib/timeouts";
 import { defaultBudgetCents, resolveRoleModel } from "../config/modelRoles";
 import { evidenceId } from "../connectors/connector";
 import { GUARDRAIL_RULE_ID, isToolAllowed } from "./actionPolicy";
@@ -27,13 +30,17 @@ import { GUARDRAIL_RULE_ID, isToolAllowed } from "./actionPolicy";
  *   1. validate the role vocabulary (`unknown_role`)
  *   2. fail closed if no provider is configured (`gateway_not_configured`)
  *   3. load the Run, resolve the role→model from D1 config (`role_not_configured`)
- *   4. resolve + enforce the budget ceiling BEFORE the provider call
- *      (`budget_stopped` — marks the Run stopped + `run.stopped` evidence)
- *   5. delegate to the provider under `PROVIDER_TIMEOUT_MS` (story 3.19);
- *      on error or deadline, surface a typed `provider_error` with no
- *      spend row written — a hung model is a per-Draft `evals_not_run`,
- *      never a budget stop and never a Run failure by itself
- *   6. record the call + bump spend; return the result
+ *   4. select the provider whose `name` equals the config's provider
+ *      (`gateway_not_configured` on mismatch / missing)
+ *   5. resolve + enforce the budget ceiling BEFORE the provider call
+ *      (`budget_stopped` — marks the Run stopped + `run.stopped` evidence);
+ *      also refuse when `spend + estimateCents > budget`
+ *   6. delegate to the provider under `PROVIDER_TIMEOUT_MS` (story 3.19)
+ *      with an abortable deadline signal (story 3.20); on error or deadline,
+ *      surface a typed `provider_error` with no spend row written — a hung
+ *      model is a per-Draft `evals_not_run`, never a budget stop and never a
+ *      Run failure by itself
+ *   7. record the call + bump spend; return the result
  */
 
 export class GatewayError extends Error {
@@ -47,14 +54,19 @@ export class GatewayError extends Error {
 }
 
 /**
- * The provider contract the gateway delegates to. The default is the existing
- * Workers AI binding; the seam exists so tests can inject a fake and a later
- * paid provider (OpenRouter via AI Gateway) slots in without touching the
- * budget/enforcement logic. `costCents` is real integer cents.
+ * The provider contract the gateway delegates to. Production registers
+ * Workers AI and (when secrets are set) OpenRouter; tests inject a fake
+ * whose `name` matches the seeded config. `costCents` is real integer cents.
  */
 export interface LlmProvider {
   readonly name: string;
-  complete(args: { model: string; prompt: string }): Promise<{
+  /** Optional pre-call estimate in integer cents; missing means 0. */
+  estimateCents?(args: { model: string; prompt: string }): number;
+  complete(args: {
+    model: string;
+    prompt: string;
+    signal?: AbortSignal;
+  }): Promise<{
     text: string;
     inputTokens: number | null;
     outputTokens: number | null;
@@ -64,7 +76,13 @@ export interface LlmProvider {
 
 export interface GatewayDeps {
   db: Db;
-  provider: LlmProvider;
+  /**
+   * Single injected provider (tests). Used when its `name` matches the
+   * role→model config and no matching entry exists in `providers`.
+   */
+  provider?: LlmProvider | null;
+  /** Production registry; selected by `name === mapping.provider`. */
+  providers?: LlmProvider[];
   /** Supplies `now()` output; injectable for deterministic evidence timestamps. */
   now?: () => string;
   /** Random id supplier; injectable for deterministic call/evidence ids. */
@@ -105,11 +123,49 @@ export interface InvokeToolResult {
 
 const CURRENCY = "USD";
 
+function selectProvider(
+  deps: GatewayDeps,
+  providerName: string
+): LlmProvider | undefined {
+  const fromList = deps.providers?.find((p) => p.name === providerName);
+  if (fromList) return fromList;
+  if (deps.provider && deps.provider.name === providerName) {
+    return deps.provider;
+  }
+  return undefined;
+}
+
+async function refuseBudget(
+  deps: GatewayDeps,
+  run: NonNullable<Awaited<ReturnType<typeof runsRepo.getRunById>>>,
+  runId: string,
+  message: string
+): Promise<never> {
+  const now = deps.now ?? (() => new Date().toISOString());
+  // Budget-stop: mark the Run stopped + write run.stopped evidence ONLY when
+  // it is still `running` — a terminal Run (stopped/published/failed/rejected)
+  // must still throw but must not be re-marked or re-evidenced (idempotent).
+  if (run.status === "running") {
+    const timestamp = now();
+    await deps.db.batch([
+      runsRepo.markStoppedStmt(deps.db, runId, timestamp),
+      appendStmt(deps.db, {
+        id: `ev-budget-stop-${runId}`,
+        runId,
+        event: "run.stopped",
+        payload: { reason: "budget_stopped" },
+        createdAt: timestamp
+      })
+    ]);
+  }
+  throw new GatewayError("budget_stopped", message);
+}
+
 export async function complete(
   deps: GatewayDeps,
   input: GatewayInput
 ): Promise<GatewayResult> {
-  const { db, provider } = deps;
+  const { db } = deps;
   const now = deps.now ?? (() => new Date().toISOString());
   const newId = deps.newId ?? (() => crypto.randomUUID());
   const { role, runId, prompt } = input;
@@ -125,7 +181,10 @@ export async function complete(
   }
 
   // 2. Provider must be configured (fail closed).
-  if (!provider) {
+  if (
+    !deps.provider &&
+    !(deps.providers != null && deps.providers.length > 0)
+  ) {
     throw new GatewayError(
       "gateway_not_configured",
       "No AI provider configured for the gateway."
@@ -145,7 +204,16 @@ export async function complete(
     );
   }
 
-  // 4. Budget ceiling, enforced BEFORE the provider call (integer cents).
+  // 4. Provider whose name equals the config (mismatch → gateway_not_configured).
+  const provider = selectProvider(deps, mapping.provider);
+  if (!provider) {
+    throw new GatewayError(
+      "gateway_not_configured",
+      `No AI provider named '${mapping.provider}' is registered.`
+    );
+  }
+
+  // 5. Budget ceiling, enforced BEFORE the provider call (integer cents).
   //    The design leans on the recorded ledger for spend, but the ceiling is
   //    authoritative from the Run row (fall back to the config default).
   const budget = run.budgetCents ?? (await defaultBudgetCents(db));
@@ -157,25 +225,21 @@ export async function complete(
   }
   const spend = await llmCallsRepo.totalSpendForRun(db, runId);
   if (spend >= budget) {
-    // Budget-stop: mark the Run stopped + write run.stopped evidence ONLY when
-    // it is still `running` — a terminal Run (stopped/published/failed/rejected)
-    // must still throw but must not be re-marked or re-evidenced (idempotent).
-    if (run.status === "running") {
-      const timestamp = now();
-      await db.batch([
-        runsRepo.markStoppedStmt(db, runId, timestamp),
-        appendStmt(db, {
-          id: `ev-budget-stop-${runId}`,
-          runId,
-          event: "run.stopped",
-          payload: { reason: "budget_stopped" },
-          createdAt: timestamp
-        })
-      ]);
-    }
-    throw new GatewayError(
-      "budget_stopped",
+    await refuseBudget(
+      deps,
+      run,
+      runId,
       `Spend ${spend} reached the ceiling ${budget}; call refused.`
+    );
+  }
+  const estimateCents =
+    provider.estimateCents?.({ model: mapping.model, prompt }) ?? 0;
+  if (spend + estimateCents > budget) {
+    await refuseBudget(
+      deps,
+      run,
+      runId,
+      `Spend ${spend} plus estimate ${estimateCents} would pass the ceiling ${budget}; call refused.`
     );
   }
   const awaitingRoles =
@@ -189,12 +253,12 @@ export async function complete(
     );
   }
 
-  // 5. Delegate to the provider. The deadline wraps the provider seam (not
-  //    `env.AI.run`) so fakes and any later provider inherit it.
+  // 6. Delegate to the provider. The abortable deadline wraps the provider
+  //    seam so OpenRouter's fetch can cancel; Workers AI ignores the signal.
   let completion: Awaited<ReturnType<LlmProvider["complete"]>>;
   try {
-    completion = await withDeadline(
-      provider.complete({ model: mapping.model, prompt }),
+    completion = await withAbortableDeadline(
+      (signal) => provider.complete({ model: mapping.model, prompt, signal }),
       PROVIDER_TIMEOUT_MS,
       mapping.provider
     );
@@ -205,7 +269,7 @@ export async function complete(
     );
   }
 
-  // 6. Record the call (Evidence) + bump Run spend.
+  // 7. Record the call (Evidence) + bump Run spend.
   const timestamp = now();
   const tokens =
     completion.inputTokens == null && completion.outputTokens == null
@@ -301,9 +365,11 @@ export function createWorkersAiProvider(env: Env): LlmProvider | null {
   if (!env.AI) return null;
   return {
     name: "workersai",
-    async complete({ model, prompt }) {
-      // Workers AI zero-dollar path: cost is 0 until a paid provider lands; the
-      // gateway still records the call so budget accounting is real.
+    async complete({ model, prompt, signal: _signal }) {
+      // Workers AI zero-dollar path: cost is 0; the gateway still records the
+      // call so budget accounting is real. The binding's third argument is
+      // gateway options only — the deadline signal cannot cancel `env.AI.run`
+      // (Cloudflare docs, worker-binding-methods, 2026-09-17).
       const result = (await env.AI.run(model, {
         prompt
       })) as {
@@ -318,6 +384,89 @@ export function createWorkersAiProvider(env: Env): LlmProvider | null {
         inputTokens: result.usage?.prompt_tokens ?? null,
         outputTokens: result.usage?.completion_tokens ?? null,
         costCents: 0
+      };
+    }
+  };
+}
+
+function nonEmptySecret(value: string | undefined): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
+/**
+ * Production provider registry: Workers AI when `env.AI` is bound, OpenRouter
+ * when all three secrets are set. Shared by the Workflow and the steering POST.
+ */
+export function llmProvidersFromEnv(env: Env): LlmProvider[] {
+  return [createWorkersAiProvider(env), createOpenRouterProvider(env)].filter(
+    (p): p is LlmProvider => p != null
+  );
+}
+
+/**
+ * Story 3.20 — OpenRouter through the AI Gateway provider endpoint. Present
+ * only when `OPENROUTER_API_KEY`, `AI_GATEWAY_ID`, and `CLOUDFLARE_ACCOUNT_ID`
+ * are all non-empty. Does not call `env.AI.run`.
+ */
+export function createOpenRouterProvider(env: Env): LlmProvider | null {
+  const apiKey = env.OPENROUTER_API_KEY;
+  const gatewayId = env.AI_GATEWAY_ID;
+  const accountId = env.CLOUDFLARE_ACCOUNT_ID;
+  if (
+    !nonEmptySecret(apiKey) ||
+    !nonEmptySecret(gatewayId) ||
+    !nonEmptySecret(accountId)
+  ) {
+    return null;
+  }
+  const url = `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayId}/openrouter/chat/completions`;
+  return {
+    name: "openrouter",
+    estimateCents({ prompt }) {
+      // Input-side only: promptChars/4 tokens, 1 cent per 1,000, minimum 1.
+      return Math.max(1, Math.ceil(prompt.length / 4 / 1000));
+    },
+    async complete({ model, prompt, signal }) {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: "user", content: prompt }]
+        }),
+        signal
+      });
+      if (!response.ok) {
+        throw new Error(`OpenRouter gateway HTTP ${response.status}`);
+      }
+      const body = (await response.json()) as {
+        choices?: Array<{ message?: { content?: unknown } }>;
+        usage?: { prompt_tokens?: number; completion_tokens?: number };
+      };
+      const text = body.choices?.[0]?.message?.content;
+      if (typeof text !== "string") {
+        throw new Error("non-text model output");
+      }
+      const usage = body.usage;
+      if (usage == null) {
+        return {
+          text,
+          inputTokens: null,
+          outputTokens: null,
+          costCents: 1
+        };
+      }
+      const inputTokens = usage.prompt_tokens ?? null;
+      const outputTokens = usage.completion_tokens ?? null;
+      const totalTokens = (inputTokens ?? 0) + (outputTokens ?? 0);
+      return {
+        text,
+        inputTokens,
+        outputTokens,
+        costCents: Math.max(1, Math.ceil(totalTokens / 1000))
       };
     }
   };

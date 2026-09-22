@@ -5,8 +5,10 @@ import * as runsRepo from "../../shared/db/repos/runsRepo";
 import { PROVIDER_TIMEOUT_MS } from "../../shared/lib/timeouts";
 import {
   complete,
+  createOpenRouterProvider,
   createWorkersAiProvider,
   invokeTool,
+  llmProvidersFromEnv,
   type LlmProvider
 } from "./gateway";
 
@@ -151,7 +153,7 @@ describe("gateway.complete (story 3.2)", () => {
       complete(
         {
           db: testEnv.DB,
-          provider: null as unknown as LlmProvider,
+          provider: null,
           now: () => NOW,
           newId: deterministicNewId
         },
@@ -521,6 +523,423 @@ describe("gateway.complete (story 3.2)", () => {
       .bind(RUN_ID)
       .first<{ count: number }>();
     expect(calls?.count).toBe(0);
+  });
+});
+
+describe("gateway.complete provider select + estimate (story 3.20)", () => {
+  const SECRET = "sk-or-test-secret-do-not-leak";
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("Workers AI uses env.AI.run, records costCents 0, and does not fetch", async () => {
+    await insertRun({ budgetCents: 500 });
+    await seedConfig(
+      {
+        drafter: {
+          provider: "workersai",
+          model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+        }
+      },
+      500
+    );
+    const run = vi.fn(async () => ({
+      response: "workers reply",
+      usage: { prompt_tokens: 3, completion_tokens: 4 }
+    }));
+    const provider = createWorkersAiProvider({
+      AI: { run }
+    } as unknown as Env);
+    expect(provider).not.toBeNull();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await complete(
+      {
+        db: testEnv.DB,
+        providers: [provider!],
+        now: () => NOW,
+        newId: deterministicNewId
+      },
+      { role: "drafter", runId: RUN_ID, prompt: "seeded drafter" }
+    );
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.costCents).toBe(0);
+    expect(result.provider).toBe("workersai");
+    const row = await testEnv.DB.prepare(
+      `SELECT cost_cents FROM llm_calls WHERE run_id = ?`
+    )
+      .bind(RUN_ID)
+      .first<{ cost_cents: number }>();
+    expect(row?.cost_cents).toBe(0);
+  });
+
+  it("throws gateway_not_configured on provider name mismatch and makes no fetch", async () => {
+    await insertRun({ budgetCents: 500 });
+    await seedConfig(
+      { drafter: { provider: "openrouter", model: "openrouter/auto" } },
+      500
+    );
+    const workersOnly: LlmProvider = {
+      name: "workersai",
+      complete: async () => ({
+        text: "nope",
+        inputTokens: 1,
+        outputTokens: 1,
+        costCents: 0
+      })
+    };
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      complete(
+        {
+          db: testEnv.DB,
+          providers: [workersOnly],
+          now: () => NOW,
+          newId: deterministicNewId
+        },
+        { role: "drafter", runId: RUN_ID, prompt: "hi" }
+      )
+    ).rejects.toMatchObject({ code: "gateway_not_configured" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    const calls = await testEnv.DB.prepare(
+      "SELECT COUNT(*) AS count FROM llm_calls WHERE run_id = ?"
+    )
+      .bind(RUN_ID)
+      .first<{ count: number }>();
+    expect(calls?.count).toBe(0);
+  });
+
+  it("refuses when spend + estimate would push over the ceiling", async () => {
+    await insertRun({ budgetCents: 500 });
+    await recordPriorSpend(490);
+    await seedConfig(
+      { drafter: { provider: "fake", model: "fake-model-v1" } },
+      null
+    );
+    let providerCalls = 0;
+    const provider: LlmProvider = {
+      name: "fake",
+      estimateCents: () => 20,
+      complete: async () => {
+        providerCalls += 1;
+        return { text: "x", inputTokens: 1, outputTokens: 1, costCents: 1 };
+      }
+    };
+    await expect(
+      complete(deps(provider), {
+        role: "drafter",
+        runId: RUN_ID,
+        prompt: "hi"
+      })
+    ).rejects.toMatchObject({
+      code: "budget_stopped",
+      message: expect.stringContaining(
+        "plus estimate 20 would pass the ceiling"
+      )
+    });
+    expect(providerCalls).toBe(0);
+    const run = await runsRepo.getRunById(testEnv.DB, RUN_ID);
+    expect(run?.status).toBe("stopped");
+  });
+
+  it("proceeds when spend + estimate fits under the ceiling", async () => {
+    await insertRun({ budgetCents: 500 });
+    await recordPriorSpend(490);
+    await seedConfig(
+      { drafter: { provider: "fake", model: "fake-model-v1" } },
+      null
+    );
+    const provider: LlmProvider = {
+      name: "fake",
+      estimateCents: () => 10,
+      complete: async () => ({
+        text: "ok",
+        inputTokens: 1,
+        outputTokens: 1,
+        costCents: 0
+      })
+    };
+    const result = await complete(deps(provider), {
+      role: "drafter",
+      runId: RUN_ID,
+      prompt: "hi"
+    });
+    expect(result.text).toBe("ok");
+  });
+
+  it("createOpenRouterProvider returns null when any secret is missing", () => {
+    expect(createOpenRouterProvider({} as Env)).toBeNull();
+    expect(
+      createOpenRouterProvider({
+        OPENROUTER_API_KEY: SECRET,
+        AI_GATEWAY_ID: "gw",
+        CLOUDFLARE_ACCOUNT_ID: ""
+      } as Env)
+    ).toBeNull();
+    expect(
+      createOpenRouterProvider({
+        OPENROUTER_API_KEY: SECRET,
+        AI_GATEWAY_ID: "",
+        CLOUDFLARE_ACCOUNT_ID: "acct"
+      } as Env)
+    ).toBeNull();
+    expect(
+      createOpenRouterProvider({
+        OPENROUTER_API_KEY: "",
+        AI_GATEWAY_ID: "gw",
+        CLOUDFLARE_ACCOUNT_ID: "acct"
+      } as Env)
+    ).toBeNull();
+  });
+
+  it("OpenRouter estimateCents is 1 for a short prompt and 2 for 8000 characters", () => {
+    const provider = createOpenRouterProvider({
+      OPENROUTER_API_KEY: SECRET,
+      AI_GATEWAY_ID: "gw",
+      CLOUDFLARE_ACCOUNT_ID: "acct"
+    } as Env);
+    expect(provider!.estimateCents!({ model: "m", prompt: "hi" })).toBe(1);
+    expect(
+      provider!.estimateCents!({ model: "m", prompt: "x".repeat(8000) })
+    ).toBe(2);
+  });
+
+  it("llmProvidersFromEnv includes openrouter only when all three secrets are set", () => {
+    const withSecrets = llmProvidersFromEnv({
+      AI: { run: async () => ({ response: "x" }) },
+      OPENROUTER_API_KEY: SECRET,
+      AI_GATEWAY_ID: "gw",
+      CLOUDFLARE_ACCOUNT_ID: "acct"
+    } as unknown as Env);
+    expect(withSecrets.map((p) => p.name)).toEqual(["workersai", "openrouter"]);
+
+    const missingOne = llmProvidersFromEnv({
+      AI: { run: async () => ({ response: "x" }) },
+      OPENROUTER_API_KEY: SECRET,
+      AI_GATEWAY_ID: "gw"
+    } as unknown as Env);
+    expect(missingOne.map((p) => p.name)).toEqual(["workersai"]);
+    expect(missingOne.map((p) => p.name)).not.toContain("openrouter");
+  });
+
+  it("OpenRouter under budget: hits gateway URL, records tokens and costCents >= 1, key absent from prompt", async () => {
+    await insertRun({ budgetCents: 500 });
+    await seedConfig(
+      {
+        drafter: { provider: "openrouter", model: "anthropic/claude-sonnet-4" }
+      },
+      500
+    );
+    const provider = createOpenRouterProvider({
+      OPENROUTER_API_KEY: SECRET,
+      AI_GATEWAY_ID: "pml-gateway",
+      CLOUDFLARE_ACCOUNT_ID: "acct-123"
+    } as Env);
+    expect(provider).not.toBeNull();
+
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body)) as {
+          model: string;
+          messages: Array<{ role: string; content: string }>;
+        };
+        expect(body.messages[0]?.content).not.toContain(SECRET);
+        return new Response(
+          JSON.stringify({
+            choices: [{ message: { content: "openrouter reply" } }],
+            usage: { prompt_tokens: 600, completion_tokens: 401 }
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const prompt = "draft this claim without embedding secrets";
+    const result = await complete(
+      {
+        db: testEnv.DB,
+        providers: [provider!],
+        now: () => NOW,
+        newId: deterministicNewId
+      },
+      { role: "drafter", runId: RUN_ID, prompt }
+    );
+
+    expect(result.text).toBe("openrouter reply");
+    expect(result.provider).toBe("openrouter");
+    expect(result.costCents).toBe(2);
+    expect(result.inputTokens).toBe(600);
+    expect(result.outputTokens).toBe(401);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toBe(
+      "https://gateway.ai.cloudflare.com/v1/acct-123/pml-gateway/openrouter/chat/completions"
+    );
+    expect(init?.method).toBe("POST");
+    expect(init?.headers).toMatchObject({
+      Authorization: `Bearer ${SECRET}`,
+      "Content-Type": "application/json"
+    });
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
+    expect(JSON.parse(String(init?.body))).toEqual({
+      model: "anthropic/claude-sonnet-4",
+      messages: [{ role: "user", content: prompt }]
+    });
+
+    const row = await testEnv.DB.prepare(
+      `SELECT provider, model, tokens_json, cost_cents FROM llm_calls WHERE run_id = ?`
+    )
+      .bind(RUN_ID)
+      .first<{
+        provider: string;
+        model: string;
+        tokens_json: string;
+        cost_cents: number;
+      }>();
+    expect(row).toMatchObject({
+      provider: "openrouter",
+      model: "anthropic/claude-sonnet-4",
+      cost_cents: 2
+    });
+    expect(JSON.parse(row!.tokens_json)).toEqual({ input: 600, output: 401 });
+    expect(JSON.stringify(row)).not.toContain(SECRET);
+    expect(prompt).not.toContain(SECRET);
+    const evidence = await testEnv.DB.prepare(
+      `SELECT payload_json FROM evidence_events WHERE run_id = ?`
+    )
+      .bind(RUN_ID)
+      .all<{ payload_json: string }>();
+    expect(JSON.stringify(evidence.results)).not.toContain(SECRET);
+
+    const run = await runsRepo.getRunById(testEnv.DB, RUN_ID);
+    expect(run?.spendCents).toBe(2);
+  });
+
+  it("OpenRouter missing usage still records costCents 1 and null tokens", async () => {
+    await insertRun({ budgetCents: 500 });
+    await seedConfig(
+      { drafter: { provider: "openrouter", model: "openrouter/auto" } },
+      500
+    );
+    const provider = createOpenRouterProvider({
+      OPENROUTER_API_KEY: SECRET,
+      AI_GATEWAY_ID: "gw",
+      CLOUDFLARE_ACCOUNT_ID: "acct"
+    } as Env);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              choices: [{ message: { content: "no usage" } }]
+            }),
+            { status: 200 }
+          )
+      )
+    );
+    const result = await complete(
+      {
+        db: testEnv.DB,
+        providers: [provider!],
+        now: () => NOW,
+        newId: deterministicNewId
+      },
+      { role: "drafter", runId: RUN_ID, prompt: "hi" }
+    );
+    expect(result.costCents).toBe(1);
+    expect(result.inputTokens).toBeNull();
+    expect(result.outputTokens).toBeNull();
+    const row = await testEnv.DB.prepare(
+      `SELECT tokens_json, cost_cents FROM llm_calls WHERE run_id = ?`
+    )
+      .bind(RUN_ID)
+      .first<{ tokens_json: string | null; cost_cents: number }>();
+    expect(row?.tokens_json).toBeNull();
+    expect(row?.cost_cents).toBe(1);
+  });
+
+  it("complete selects openrouter vs workersai from llmProvidersFromEnv by name", async () => {
+    const workersRun = vi.fn(async () => ({
+      response: "workers reply",
+      usage: { prompt_tokens: 3, completion_tokens: 4 }
+    }));
+    const providers = llmProvidersFromEnv({
+      AI: { run: workersRun },
+      OPENROUTER_API_KEY: SECRET,
+      AI_GATEWAY_ID: "pml-gateway",
+      CLOUDFLARE_ACCOUNT_ID: "acct-123"
+    } as unknown as Env);
+    expect(providers.map((p) => p.name)).toEqual(["workersai", "openrouter"]);
+
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL) =>
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { content: "openrouter reply" } }],
+            usage: { prompt_tokens: 11, completion_tokens: 7 }
+          }),
+          { status: 200 }
+        )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await insertRun({ budgetCents: 500 });
+    await seedConfig(
+      {
+        drafter: { provider: "openrouter", model: "anthropic/claude-sonnet-4" }
+      },
+      500
+    );
+    const openrouterResult = await complete(
+      {
+        db: testEnv.DB,
+        providers,
+        now: () => NOW,
+        newId: deterministicNewId
+      },
+      { role: "drafter", runId: RUN_ID, prompt: "via registry" }
+    );
+    expect(openrouterResult.provider).toBe("openrouter");
+    expect(openrouterResult.text).toBe("openrouter reply");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]![0])).toBe(
+      "https://gateway.ai.cloudflare.com/v1/acct-123/pml-gateway/openrouter/chat/completions"
+    );
+    expect(workersRun).not.toHaveBeenCalled();
+
+    fetchMock.mockClear();
+    await insertRun({ budgetCents: 500 });
+    await seedConfig(
+      {
+        drafter: {
+          provider: "workersai",
+          model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+        }
+      },
+      500
+    );
+    const workersResult = await complete(
+      {
+        db: testEnv.DB,
+        providers,
+        now: () => NOW,
+        newId: deterministicNewId
+      },
+      { role: "drafter", runId: RUN_ID, prompt: "via registry" }
+    );
+    expect(workersResult.provider).toBe("workersai");
+    expect(workersResult.text).toBe("workers reply");
+    expect(workersRun).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

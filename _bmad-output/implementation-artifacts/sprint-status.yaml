@@ -1,5 +1,5 @@
 # generated: 2026-08-09
-# last_updated: 09-22-2026 07:14
+# last_updated: 09-22-2026 10:45
 # project: PML
 # project_key: NOKEY
 # tracking_system: file-system
@@ -89,7 +89,7 @@ development_status:
   3-18-standing-corrections-durable-guidance: done
   # Added by sprint-change-proposal-2026-09-17 (Epic 3 hardening + deferred closure)
   3-19-epic-3-hardening-timeouts-gateway-seed: done
-  3-20-openrouter-provider-via-ai-gateway: backlog
+  3-20-openrouter-provider-via-ai-gateway: done
   3-21-first-live-connector: review
   epic-3-retrospective: optional
 

@@ -45,4 +45,13 @@ interface Env {
    * Never logged, never in a prompt, never in an Evidence payload.
    */
   COURTLISTENER_API_TOKEN?: string;
+  /**
+   * Story 3.20 — OpenRouter via AI Gateway. All three must be non-empty for
+   * `createOpenRouterProvider` to register; any missing → provider absent →
+   * `gateway_not_configured` when a role maps to `openrouter`. Per-Worker
+   * secrets only — never wrangler.jsonc vars, never D1, never a prompt.
+   */
+  OPENROUTER_API_KEY?: string;
+  AI_GATEWAY_ID?: string;
+  CLOUDFLARE_ACCOUNT_ID?: string;
 }

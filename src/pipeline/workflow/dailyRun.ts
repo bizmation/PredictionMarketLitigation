@@ -13,11 +13,7 @@ import {
   COURTLISTENER_SOURCE_NAME,
   createCourtListenerCheck
 } from "../connectors/courtListener";
-import {
-  createWorkersAiProvider,
-  type GatewayDeps,
-  type LlmProvider
-} from "../ai/gateway";
+import { llmProvidersFromEnv, type GatewayDeps } from "../ai/gateway";
 import {
   ensureRun,
   finishFailed,
@@ -77,13 +73,13 @@ export async function kickDailyRun(
   }
 }
 
-function gatewayDepsFromEnv(env: Env, db: GatewayDeps["db"]): GatewayDeps {
-  // Tests omit the AI binding; complete() then throws gateway_not_configured
-  // and draftAndReview marks that Draft evals_not_run (per-Draft catch).
-  return {
-    db,
-    provider: createWorkersAiProvider(env) as LlmProvider
-  };
+export function gatewayDepsFromEnv(
+  env: Env,
+  db: GatewayDeps["db"]
+): GatewayDeps {
+  // Empty registry (no AI binding, no OpenRouter secrets) →
+  // gateway_not_configured; draftAndReview marks that Draft evals_not_run.
+  return { db, providers: llmProvidersFromEnv(env) };
 }
 
 /**
