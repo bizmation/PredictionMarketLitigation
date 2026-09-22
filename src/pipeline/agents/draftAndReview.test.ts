@@ -1098,6 +1098,36 @@ describe("draftAndReview standing guidance (story 3.18)", () => {
     expect(evalOf(draft).ineligible).toContain("guardrail_fail");
   });
 
+  it("attributes in-force guidance on draft.evaluated when the reviewer returns tool JSON", async () => {
+    await resetGuidance();
+    const seeded = await seedGuidance(GUIDANCE_A, "sg:reviewer-deny");
+    const runId = await insertRun();
+    const draftId = await insertShellDraft(runId);
+    await seedConfig(DRAFTER_REVIEWER_ROLES);
+    const provider = fakeProvider([
+      { text: drafterJson() },
+      { text: '{"tool":"web_search"}' }
+    ]);
+
+    await draftAndReview(testEnv.DB, runId, deps(provider));
+    expect(provider.count()).toBe(2);
+    expect(provider.prompts()[0]).toContain("Standing guidance:");
+    expect(provider.prompts()[1]).not.toContain("Standing guidance:");
+
+    const evidence = await evidenceRepo.listByRun(testEnv.DB, runId);
+    const denied = evidence.filter((e) => e.event === "guardrails.failed");
+    expect(denied).toHaveLength(1);
+    expect(denied[0]?.payload).toMatchObject({
+      draftId,
+      tool: "web_search"
+    });
+    const evaluated = evidence.find((e) => e.event === "draft.evaluated");
+    expect(evaluated?.payload).toMatchObject({
+      draftId,
+      guidance: [{ itemId: seeded.itemId, version: seeded.version }]
+    });
+  });
+
   it("attributes no guidance to Drafts stamped evals_not_run after a budget stop", async () => {
     await resetGuidance();
     await seedGuidance(GUIDANCE_A, "sg:a");

@@ -5,6 +5,7 @@ created: '2026-09-17'
 status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
+followup_review_recommended: false
 baseline_commit: 32974ed8ebfc0098ade4843ebd20fe99950e645e
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context.md'
@@ -140,6 +141,37 @@ warnings:
   - `[false]` `[reject]` AC "nothing is written" at cap vs persisted turn + receipt Evidence — the frozen matrix row states "Turn persisted; no row"; the AC's "nothing" is the guidance row, as the test pins
   - `[false]` `[reject]` Observation: a tool-shaped guidance turn is denied then still recorded — the frozen containment row accepts this (drafter echo is denied; `denyToolShaped` receipts the turn), consistent with 3.15
 
+### 2026-09-22 — Review pass
+- verdicts: 27 findings — high 0, medium 1, low 13, false 13, maybe-false 0
+- findings:
+  - `[low]` `[reject]` Private checkbox still applies to Record and Revoke — carried: `beginEdit` still clears private and record/revoke still POST `isPrivate`; server refusal is the frozen contract
+  - `[low]` `[patch]` Revoke success copy omitted the same-run Revise effect — copy now says the next Run and any Revise draft from now on will not see it
+  - `[false]` `[reject]` Guidance 409 budget copy is dead and wrong for revoke — `steerGuidance` never returns `budget_stopped`, so that message is not shown
+  - `[low]` `[reject]` `guidance.recorded` step line ends in a bare version digit — pinned `payloadNumber` format; prefixing it would branch the shared labeler
+  - `[false]` `[reject]` Empty guidance arrays print `guidance none` — implementation notes require the array on every `draft.evaluated`, and the empty summary is the pinned step line
+  - `[false]` `[reject]` Best-effort Evidence catches are empty and omit `console.warn` — `warnEvidenceLost` already warns; the missing fault-injection test is the carried defer below
+  - `[false]` `[reject]` No client length counter — the matrix refuses over-length on the server after the turn is persisted
+  - `[low]` `[reject]` In-force rows render the full item — that text is what Edit prefills; truncation would hide it
+  - `[false]` `[reject]` Client parse skips malformed `inForce` entries — `getPublic` Zod-parses the whole body, so this server does not emit a partial list
+  - `[false]` `[reject]` Spec Change Log is empty — the fix would edit this spec
+  - `[false]` `[reject]` `review_loop_iteration` is 0 beside an existing triage log — a follow-up pass resets it to 0; the fix would edit this spec
+  - `[low]` `[reject]` Guidance POSTs `draftId` and `denyToolShaped` also scans the draft body — the pending-draft gate is the already-rejected open-Run path; the catch does not stop `steerGuidance`, and a denied drafter reply does not store tool JSON as the body
+  - `[false]` `[reject]` A tool-shaped guidance turn is still stored — carried: the frozen containment row accepts deny-then-record
+  - `[false]` `[reject]` Public item schema omits the length cap — `appendVersion` and `revoke` parse `StandingGuidanceVersionSchema` before insert
+  - `[low]` `[reject]` No focused `standingGuidanceRepo` unit file — submit and public API tests already cover ordering, revoke, and unknown ids
+  - `[low]` `[reject]` `deferred-work.md` entry is not a one-line bullet — ledger formatting, not an operator path
+  - `[low]` `[reject]` A second concurrent revoke can append another revoked row — single operator; the fix is an atomic status check
+  - `[low]` `[reject]` An edit can reactivate an item if a revoke lands between the check and the insert — same concurrent-operator window
+  - `[low]` `[reject]` Two concurrent new items can pass the cap — carried: in-force count is still checked then inserted, not atomic
+  - `[low]` `[reject]` Budget-stopped remaining Drafts get `guidance: []` — implementation notes say never-prompted Drafts carry an empty list; budget stops are not everyday
+  - `[medium]` `[patch]` Reviewer tool-deny `draft.evaluated` did not assert guidance refs — added a `draftAndReview` test that seeds in-force guidance, returns reviewer tool JSON, and expects those refs plus `guardrails.failed`
+  - `[low]` `[reject]` No single test pins same-Run revise guidance against an empty `run.started` snapshot — the two surfaces are specified to differ and are tested separately
+  - `[false]` `[reject]` Length applies to edit and revoke reasons — schema comment and implementation notes: only the cap is new-item-only
+  - `[false]` `[reject]` Already-revoked edit or revoke is its own invalid — implementation notes refuse reinstating through edit
+  - `[false]` `[reject]` Ops step lines summarize guidance beyond the raw events — the Code Map names `EvidenceDetail` for those labels
+  - `[low]` `[defer]` Best-effort Evidence after the version row is still untested — carried: no fault-injection harness; not deferred again
+  - `[false]` `[reject]` Steering POST echoes `guidanceItemId` and `guidanceVersion` — admin composer reads `guidanceVersion` for the success sentence; not a second surface
+
 ## Design Notes
 
 Guidance is operator text, not steward output, so there is no LLM in the write path and no parse failure mode. Versions per item (not global) keep edit/revoke lineage readable: `sg:abc` v1 → v2 → v3 (revoked). "Influenced" is attributed honestly as "present in the drafter prompt" — the same standard `guardrails.passed.context` already uses; the system does not claim to know what the model weighed.
@@ -152,3 +184,25 @@ Guidance is operator text, not steward output, so there is no LLM in the write p
 
 **Manual checks (if no CLI):**
 - `/admin#queue` Record guidance → ops. `/runs/:id` shows `guidance.recorded`; trigger a Run → `run.started` lists it; Revoke → next Run excludes it; Submit/Revise/Steer do not change `GET /api/standing-guidance`
+
+## Auto Run Result
+
+Status: done
+
+Summary: Follow-up review of standing corrections. Revoke success copy now says a same-Run Revise drops the item, matching Record and Edit. A `draftAndReview` test locks `draft.evaluated.guidance` when the reviewer returns tool JSON.
+
+Files changed:
+- `src/surfaces/admin/SteeringPanel.tsx` — revoke success sentence includes the current Run's Revise path
+- `src/surfaces/admin/SteeringPanel.mount.test.tsx` — expected revoke copy
+- `src/pipeline/agents/draftAndReview.test.ts` — reviewer tool-deny still attributes in-force guidance
+- this spec — 2026-09-22 triage and this result
+
+Review: 4 layers, 27 findings — 0 high, 1 medium, 13 low, 13 false, 0 maybe-false. Patches: revoke copy; reviewer tool-deny guidance assertion. Carried, not re-deferred: best-effort Evidence still has no fault-injection test. Rejected private-checkbox client guard, dead guidance budget copy, bare version digit, empty `guidance none` labels, empty Evidence catches, client length counter, full-text rows, malformed `inForce` skipping, spec changelog and `review_loop_iteration`, draft-body tool scan, tool-shaped guidance still stored, public schema length, repo unit file, deferred-work formatting, concurrent revoke/edit/cap, budget-stop empty attribution, same-Run snapshot test, length on edit/revoke, already-revoked refusal, EvidenceDetail labels, and POST `guidanceVersion` echo.
+
+Follow-up review recommended: false. This pass patched no `high` (one `medium`, one `low`).
+
+Patch counts by verdict: high 0, medium 1, low 1.
+
+Verification: `npm test` — 996 passed. `npm run check` — oxfmt/oxlint/tsc exit 0.
+
+Residual risk: two operators can still pass the cap or double-revoke; Evidence after the version row can still be lost without a fault-injection test. `warnEvidenceLost` logs that loss.

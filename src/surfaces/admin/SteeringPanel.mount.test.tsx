@@ -922,7 +922,7 @@ describe("SteeringPanel standing guidance (story 3.18)", () => {
     );
     expect(steeringPosts(fetchMock)).toHaveLength(1);
     expect(document.body.textContent).toContain(
-      "Guidance revoked; the next Run will not see it."
+      "Guidance revoked; the next Run and any Revise draft from now on will not see it."
     );
     expect(document.body.textContent).toContain(
       "Standing guidance in force: 0 of 12"

@@ -336,7 +336,7 @@ export function SteeringPanel({
             : null;
         setLastReply(
           guidanceOptions?.revoke === true
-            ? "Guidance revoked; the next Run will not see it."
+            ? "Guidance revoked; the next Run and any Revise draft from now on will not see it."
             : version != null && version > 1
               ? `Guidance updated to version ${version}; it takes effect on the next Run and on any Revise draft from now on.`
               : "Guidance recorded; it takes effect on the next Run and on any Revise draft from now on."
