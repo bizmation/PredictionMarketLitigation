@@ -747,3 +747,380 @@ describe("CourtListener connector (story 3.21)", () => {
     }
   });
 });
+
+// Story 3.27: exercise the real connector, timeout wrapper, and D1 Evidence
+// with deterministic upstream responses; no live credentials or requests.
+describe("CourtListener credential boundary (story 3.27)", () => {
+  let entryId = 30_000;
+  const freshEntry = () => ({
+    id: ++entryId,
+    entry_number: entryId,
+    date_filed: "2026-09-24",
+    description: "New docket entry for pagination boundary verification."
+  });
+  const pagePath = "/api/rest/v4/docket-entries/";
+
+  it.each([
+    [
+      "absolute",
+      `https://www.courtlistener.com${pagePath}?docket=${FURCOLO}&cursor=2`
+    ],
+    ["root-relative", `${pagePath}?docket=${FURCOLO}&cursor=2`],
+    ["query-relative", `?docket=${FURCOLO}&cursor=2`],
+    ["path-relative", `./?docket=${FURCOLO}&cursor=2`],
+    ["percent-encoded cursor", `?docket=${FURCOLO}&cursor=%2F%3D`]
+  ])(
+    "preserves %s same-origin next links and authorized paging",
+    async (_, next) => {
+      const secondUrl = new URL(next, entriesUrl(FURCOLO)).href;
+      const calls = stubFetch((docket, url) => {
+        if (docket !== FURCOLO) return { status: 200 };
+        return {
+          status: 200,
+          body: {
+            results: [freshEntry()],
+            next: url === secondUrl ? null : next
+          }
+        };
+      });
+      const runId = await newRun();
+      expect(await runConnector(testEnv.DB, runId, SOURCE, check())).toEqual({
+        draftCount: 2,
+        failed: false
+      });
+      expect(calls.filter(({ url }) => url === secondUrl)).toHaveLength(1);
+      for (const { url, init } of calls) {
+        expect(new URL(url).origin).toBe("https://www.courtlistener.com");
+        expect(new Headers(init?.headers).get("authorization")).toBe(
+          `Token ${TOKEN}`
+        );
+        expect(init?.redirect).toBe("manual");
+      }
+      expect(docketSummary(await fetchedPayload(runId), FURCOLO)).toMatchObject(
+        {
+          pages: 2,
+          newEntries: 2,
+          truncated: false
+        }
+      );
+    }
+  );
+
+  it.each([
+    `https://attacker.invalid/collect?secret=${TOKEN}`,
+    "//attacker.invalid/collect",
+    `http://www.courtlistener.com${pagePath}`,
+    `https://www.courtlistener.com.attacker.invalid${pagePath}`,
+    `https://www.courtlistener.com@attacker.invalid${pagePath}`,
+    `https://${TOKEN}@www.courtlistener.com${pagePath}`,
+    `https://www.courtlistener.com:444${pagePath}`,
+    `https://courtlistener.com${pagePath}`,
+    "https://[malformed",
+    "?cursor=%ZZ",
+    "?cursor=%F",
+    "?cursor=%",
+    "javascript:alert(1)",
+    "data:application/json,{}",
+    "https:\\attacker.invalid\\collect",
+    "https://www.courtlistener.com\n.attacker.invalid/collect",
+    "",
+    " "
+  ])("rejects unsafe next URL %j before issuing a request", async (next) => {
+    const calls = stubFetch((docket) =>
+      docket === FURCOLO
+        ? { status: 200, body: { results: [freshEntry()], next } }
+        : { status: 200 }
+    );
+    const runId = await newRun();
+    expect(await runConnector(testEnv.DB, runId, SOURCE, check())).toEqual({
+      draftCount: 0,
+      failed: false // Other dockets succeeded; keep the per-docket failure visible.
+    });
+    expect(
+      calls.filter(
+        ({ url }) => new URL(url).searchParams.get("docket") === FURCOLO
+      )
+    ).toHaveLength(1);
+    expect(
+      calls.every(
+        ({ url }) =>
+          url === entriesUrl(new URL(url).searchParams.get("docket")!)
+      )
+    ).toBe(true);
+    const payload = await fetchedPayload(runId);
+    expect(docketSummary(payload, FURCOLO)).toEqual({
+      docketId: FURCOLO,
+      caseId: FURCOLO_CASE,
+      error: "unsafe_url"
+    });
+    const evidence = JSON.stringify(
+      await evidenceRepo.listByRun(testEnv.DB, runId)
+    );
+    expect(evidence).not.toContain(TOKEN);
+    expect(evidence).not.toContain("attacker.invalid");
+  });
+
+  it("resolves a later relative link against the current page, not the initial page", async () => {
+    const secondUrl = `https://www.courtlistener.com/api/rest/v4/pages/two?docket=${FURCOLO}`;
+    const thirdUrl = `https://www.courtlistener.com/api/rest/v4/pages/three?docket=${FURCOLO}`;
+    const calls = stubFetch((docket, url) => {
+      if (docket !== FURCOLO) return { status: 200 };
+      return {
+        status: 200,
+        body: {
+          results: [freshEntry()],
+          next:
+            url === thirdUrl
+              ? null
+              : url === secondUrl
+                ? `three?docket=${FURCOLO}`
+                : secondUrl
+        }
+      };
+    });
+    const runId = await newRun();
+    expect(await runConnector(testEnv.DB, runId, SOURCE, check())).toEqual({
+      draftCount: 3,
+      failed: false
+    });
+    expect(
+      calls
+        .filter(
+          ({ url }) => new URL(url).searchParams.get("docket") === FURCOLO
+        )
+        .map(({ url }) => url)
+    ).toEqual([entriesUrl(FURCOLO), secondUrl, thirdUrl]);
+  });
+
+  it("does not report an all-docket unsafe pagination response as an empty success", async () => {
+    const calls = stubFetch(() => ({
+      status: 200,
+      body: { results: [freshEntry()], next: "//attacker.invalid/collect" }
+    }));
+    const runId = await newRun();
+    expect(await runConnector(testEnv.DB, runId, SOURCE, check())).toEqual({
+      draftCount: 0,
+      failed: true
+    });
+    expect(
+      calls.every(
+        ({ url }) => new URL(url).origin === "https://www.courtlistener.com"
+      )
+    ).toBe(true);
+    const payload = await fetchedPayload(runId);
+    expect(
+      (payload!.dockets as Array<{ error: string }>).every(
+        ({ error }) => error === "unsafe_url"
+      )
+    ).toBe(true);
+  });
+
+  it.each([301, 302, 303, 307, 308])(
+    "rejects HTTP %i redirects without forwarding credentials or reading the body",
+    async (status) => {
+      const destination = `https://attacker.invalid/collect?secret=${TOKEN}`;
+      const calls: Array<{ url: string; init?: RequestInit }> = [];
+      const readBody = vi.fn(async () => destination);
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+          const url = String(input);
+          calls.push({ url, init });
+          // Simulate Workers' follow-mode credential forwarding to make removal
+          // of manual mode observable, even with this deterministic transport.
+          if (init?.redirect !== "manual")
+            calls.push({ url: destination, init });
+          return {
+            status,
+            ok: false,
+            headers: new Headers({ location: destination }),
+            text: readBody,
+            json: readBody
+          };
+        })
+      );
+      const runId = await newRun();
+      expect(await runConnector(testEnv.DB, runId, SOURCE, check())).toEqual({
+        draftCount: 0,
+        failed: true
+      });
+      expect(readBody).not.toHaveBeenCalled();
+      expect(calls.length).toBeGreaterThan(0);
+      expect(
+        calls.every(
+          ({ url, init }) =>
+            new URL(url).origin === "https://www.courtlistener.com" &&
+            init?.redirect === "manual"
+        )
+      ).toBe(true);
+      const payload = await fetchedPayload(runId);
+      expect(
+        (payload!.dockets as Array<{ error: string; status: number }>).every(
+          (d) => d.error === "redirect" && d.status === status
+        )
+      ).toBe(true);
+      const evidence = JSON.stringify(
+        await evidenceRepo.listByRun(testEnv.DB, runId)
+      );
+      expect(evidence).not.toContain(TOKEN);
+      expect(evidence).not.toContain("attacker.invalid");
+    }
+  );
+
+  it("also rejects a same-origin redirect instead of adding a redirect-following path", async () => {
+    const calls = vi.fn(
+      async (_input: string | URL | Request, init?: RequestInit) => {
+        expect(init?.redirect).toBe("manual");
+        return new Response(TOKEN, {
+          status: 302,
+          headers: { location: `${entriesUrl(FURCOLO)}&redirected=1` }
+        });
+      }
+    );
+    vi.stubGlobal("fetch", calls);
+    const runId = await newRun();
+    expect(await runConnector(testEnv.DB, runId, SOURCE, check())).toEqual({
+      draftCount: 0,
+      failed: true
+    });
+    expect(
+      calls.mock.calls.every(
+        ([input]) => !String(input).includes("redirected=1")
+      )
+    ).toBe(true);
+    expect((await fetchedPayload(runId))!.dockets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ error: "redirect", status: 302 })
+      ])
+    );
+    const evidence = JSON.stringify(
+      await evidenceRepo.listByRun(testEnv.DB, runId)
+    );
+    expect(evidence).not.toContain(TOKEN);
+    expect(evidence).not.toContain("redirected=1");
+  });
+
+  it("rejects a malformed pagination value rather than silently declaring completion", async () => {
+    stubFetch(() => ({
+      status: 200,
+      body: { results: [freshEntry()], next: { url: "//attacker.invalid" } }
+    }));
+    const runId = await newRun();
+    expect(await runConnector(testEnv.DB, runId, SOURCE, check())).toEqual({
+      draftCount: 0,
+      failed: true
+    });
+    expect((await fetchedPayload(runId))!.dockets).toEqual(
+      expect.arrayContaining([expect.objectContaining({ error: "malformed" })])
+    );
+  });
+
+  it.each(["empty", "baseline", "page-cap"])(
+    "rejects an unsafe next link even at the %s stopping boundary",
+    async (boundary) => {
+      let pages = 0;
+      const calls = stubFetch((docket) => {
+        if (docket !== FURCOLO) return { status: 200 };
+        pages += 1;
+        return {
+          status: 200,
+          body: {
+            results:
+              boundary === "empty"
+                ? []
+                : [
+                    {
+                      ...freshEntry(),
+                      date_filed:
+                        boundary === "baseline" ? "1900-01-01" : "2026-09-24"
+                    }
+                  ],
+            next:
+              boundary === "page-cap" && pages < COURTLISTENER_MAX_PAGES
+                ? `${entriesUrl(FURCOLO)}&cursor=${pages}`
+                : "//attacker.invalid/collect"
+          }
+        };
+      });
+      const runId = await newRun();
+      expect(await runConnector(testEnv.DB, runId, SOURCE, check())).toEqual({
+        draftCount: 0,
+        failed: false
+      });
+      expect(pages).toBe(boundary === "page-cap" ? COURTLISTENER_MAX_PAGES : 1);
+      expect(
+        calls.every(
+          ({ url }) => new URL(url).origin === "https://www.courtlistener.com"
+        )
+      ).toBe(true);
+      expect(docketSummary(await fetchedPayload(runId), FURCOLO)).toMatchObject(
+        { error: "unsafe_url" }
+      );
+    }
+  );
+
+  it.each(["unsafe-next", "later-redirect"])(
+    "preserves a healthy docket's Draft alongside %s failure",
+    async (failure) => {
+      const healthy = freshEntry();
+      const secondUrl = `${entriesUrl(FURCOLO)}&cursor=redirect`;
+      const calls: Array<{ url: string; init?: RequestInit }> = [];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+          const url = String(input);
+          calls.push({ url, init });
+          const docket = new URL(url).searchParams.get("docket");
+          if (url === secondUrl) {
+            return new Response(TOKEN, {
+              status: 307,
+              headers: { location: `https://attacker.invalid/${TOKEN}` }
+            });
+          }
+          return Response.json(
+            docket === ILLINOIS
+              ? { results: [healthy], next: null }
+              : docket === FURCOLO
+                ? {
+                    results: [freshEntry()],
+                    next:
+                      failure === "later-redirect"
+                        ? secondUrl
+                        : "//attacker.invalid/collect"
+                  }
+                : { results: [] }
+          );
+        })
+      );
+      const runId = await newRun();
+      expect(await runConnector(testEnv.DB, runId, SOURCE, check())).toEqual({
+        draftCount: 1,
+        failed: false
+      });
+      const drafts = await draftsRepo.listByRun(testEnv.DB, runId);
+      expect(drafts).toHaveLength(1);
+      expect(JSON.stringify(drafts)).toContain(ILLINOIS_CASE);
+      expect(JSON.stringify(drafts)).not.toContain(FURCOLO_CASE);
+      const payload = await fetchedPayload(runId);
+      expect(docketSummary(payload, ILLINOIS)).toMatchObject({ newEntries: 1 });
+      expect(docketSummary(payload, FURCOLO)).toMatchObject({
+        error: failure === "later-redirect" ? "redirect" : "unsafe_url"
+      });
+      expect(calls.filter(({ url }) => url === secondUrl)).toHaveLength(
+        failure === "later-redirect" ? 1 : 0
+      );
+      expect(
+        calls.every(
+          ({ url, init }) =>
+            new URL(url).origin === "https://www.courtlistener.com" &&
+            init?.redirect === "manual"
+        )
+      ).toBe(true);
+      const evidence = JSON.stringify(
+        await evidenceRepo.listByRun(testEnv.DB, runId)
+      );
+      expect(evidence).not.toContain(TOKEN);
+      expect(evidence).not.toContain("attacker.invalid");
+    }
+  );
+});
