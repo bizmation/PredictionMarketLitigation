@@ -24,7 +24,8 @@ export async function resolveRoleModel(
 }
 
 /**
- * The fallback budget ceiling for Runs without their own `budget_cents`.
+ * The configured ceiling snapshotted onto new Runs, and the gateway fallback
+ * for historical Runs without their own `budget_cents`.
  * Returns `null` when no config row is recorded — the gateway reads that as
  * fail-closed (deny), never unlimited.
  */

@@ -1265,3 +1265,109 @@ describe("mode stamp + YOLO hook (story 3.13)", () => {
     ).toBeNull();
   });
 });
+
+describe("Run budget snapshots (story 3.25)", () => {
+  let sequence = 0;
+  async function create(origin: "scheduled" | "manual" | "catch-up") {
+    const date = `2027-01-${String(++sequence).padStart(2, "0")}`;
+    if (origin === "scheduled") return ensureRun(testEnv.DB, origin, date);
+    const result = await startOperatorRun(
+      testEnv.DB,
+      {
+        create: async ({ params }) => {
+          expect(
+            (await runsRepo.getRunById(testEnv.DB, params.runId!))?.budgetCents
+          ).toBe(
+            (
+              await testEnv.DB.prepare(
+                "SELECT default_budget_cents AS budget FROM gateway_config WHERE id = 'current'"
+              ).first<{ budget: number | null }>()
+            )?.budget ?? null
+          );
+        }
+      },
+      { origin, scheduledFor: date, now: new Date(`${date}T16:00:00.000Z`) }
+    );
+    if (result.status !== "started") throw new Error(result.status);
+    return result.run.id;
+  }
+
+  it("snapshots 500, zero, null and missing config for every origin; retries keep their recorded ceiling", async () => {
+    const saved = await testEnv.DB.prepare(
+      "SELECT * FROM gateway_config WHERE id = 'current'"
+    ).first<{
+      version: number;
+      roles_json: string;
+      default_budget_cents: number | null;
+      updated_at: string;
+    }>();
+    try {
+      for (const budget of [500, 0, null, "absent"] as const) {
+        await testEnv.DB.prepare("DELETE FROM gateway_config").run();
+        if (budget !== "absent") {
+          await testEnv.DB.prepare(
+            "INSERT INTO gateway_config (id, version, roles_json, default_budget_cents, updated_at) VALUES ('current', 1, '{}', ?, '2027-01-01T00:00:00.000Z')"
+          )
+            .bind(budget)
+            .run();
+        }
+        for (const origin of ["scheduled", "manual", "catch-up"] as const) {
+          const id = await create(origin);
+          const run = (await runsRepo.getRunById(testEnv.DB, id))!;
+          expect(run.budgetCents).toBe(budget === "absent" ? null : budget);
+          await testEnv.DB.prepare(
+            "INSERT INTO gateway_config (id, version, roles_json, default_budget_cents, updated_at) VALUES ('current', 1, '{}', 900, '2027-01-01T00:00:00.000Z') ON CONFLICT(id) DO UPDATE SET default_budget_cents = 900"
+          ).run();
+          expect(
+            await ensureRun(
+              testEnv.DB,
+              origin,
+              run.scheduledFor!,
+              origin === "scheduled" ? undefined : id
+            )
+          ).toBe(id);
+          if (origin !== "scheduled") {
+            const retry = await startOperatorRun(
+              testEnv.DB,
+              {
+                create: async () => {
+                  throw new Error("retry must not create workflow");
+                }
+              },
+              { origin, scheduledFor: run.scheduledFor!, now: new Date() }
+            );
+            expect(retry.status).toBe("started");
+          }
+          expect((await runsRepo.getRunById(testEnv.DB, id))?.budgetCents).toBe(
+            run.budgetCents
+          );
+          const fresh = await create(origin);
+          expect(
+            (await runsRepo.getRunById(testEnv.DB, fresh))?.budgetCents
+          ).toBe(900);
+          if (budget === "absent")
+            await testEnv.DB.prepare("DELETE FROM gateway_config").run();
+          else
+            await testEnv.DB.prepare(
+              "UPDATE gateway_config SET default_budget_cents = ?"
+            )
+              .bind(budget)
+              .run();
+        }
+      }
+    } finally {
+      await testEnv.DB.prepare("DELETE FROM gateway_config").run();
+      if (saved)
+        await testEnv.DB.prepare(
+          "INSERT INTO gateway_config (id, version, roles_json, default_budget_cents, updated_at) VALUES ('current', ?, ?, ?, ?)"
+        )
+          .bind(
+            saved.version,
+            saved.roles_json,
+            saved.default_budget_cents,
+            saved.updated_at
+          )
+          .run();
+    }
+  });
+});

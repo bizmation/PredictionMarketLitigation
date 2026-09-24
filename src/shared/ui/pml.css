@@ -829,6 +829,7 @@ td .cite {
 }
 .spend {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-6);
   border-top: 1px solid var(--color-divider);
   border-bottom: 1px solid var(--color-divider);

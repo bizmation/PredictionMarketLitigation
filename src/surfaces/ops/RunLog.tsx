@@ -154,6 +154,7 @@ export function RunLog({ items: injectedItems, dev = false }: RunLogProps) {
           <th scope="col">Mode</th>
           <th scope="col">Steps</th>
           <th scope="col">Spend</th>
+          <th scope="col">Budget ceiling</th>
           <th scope="col">Approval</th>
         </tr>
       </thead>
@@ -187,6 +188,11 @@ export function RunLog({ items: injectedItems, dev = false }: RunLogProps) {
               <td>{item.mode}</td>
               <td className="num">{item.eventCount}</td>
               <td className="num">{formatUsdCents(item.spendCents)}</td>
+              <td className="num">
+                {item.budgetCents === null
+                  ? "Not recorded"
+                  : formatUsdCents(item.budgetCents)}
+              </td>
               <td>
                 {item.approvalOutcome ?? <span className="muted">—</span>}
               </td>

@@ -1116,3 +1116,21 @@ describe("EvidenceDetail docket-event inference (story 3.21)", () => {
     expect(html).toContain("No case field would change.");
   });
 });
+
+it.each([
+  [500, "$5.00"],
+  [0, "$0.00"],
+  [null, "Not recorded"]
+] as const)(
+  "renders recorded budget %s distinctly from spend",
+  (budgetCents, label) => {
+    const html = renderToStaticMarkup(
+      <EvidenceDetail
+        runId="run-20260908-aaa1"
+        detail={detail({ budgetCents })}
+      />
+    );
+    expect(html).toContain(`<b>${label}</b><span>Budget ceiling</span>`);
+    expect(html).toContain("<b>$0.47</b><span>Spend</span>");
+  }
+);

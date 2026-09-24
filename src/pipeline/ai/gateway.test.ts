@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ensureRun } from "../workflow/dailyRunSteps";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import { PROVIDER_TIMEOUT_MS } from "../../shared/lib/timeouts";
 import {
@@ -1231,5 +1232,67 @@ describe("role→model config repo (story 3.2 config)", () => {
       .run();
     // The `.strict()` role map rejects the unknown key rather than serving it.
     await expect(readConfig(testEnv.DB)).rejects.toThrow();
+  });
+});
+
+describe("snapshotted Run budget enforcement (story 3.25)", () => {
+  it.each([0, 500])(
+    "stops a production-created Run at its own %s-cent ceiling after config increases",
+    async (budget) => {
+      await seedConfig(
+        { drafter: { provider: "fake", model: "fake-model-v1" } },
+        budget
+      );
+      RUN_ID = await ensureRun(
+        testEnv.DB,
+        "scheduled",
+        budget === 0 ? "2027-03-01" : "2027-03-02"
+      );
+      if (budget > 0) await recordPriorSpend(budget);
+      await seedConfig(
+        { drafter: { provider: "fake", model: "fake-model-v1" } },
+        900
+      );
+      const provider = fakeProvider();
+      await expect(
+        complete(
+          { ...deps(provider), now: () => new Date().toISOString() },
+          {
+            role: "drafter",
+            runId: RUN_ID,
+            prompt: "hi"
+          }
+        )
+      ).rejects.toMatchObject({ code: "budget_stopped" });
+      expect(provider.count()).toBe(0);
+      expect(await runsRepo.getRunById(testEnv.DB, RUN_ID)).toMatchObject({
+        budgetCents: budget,
+        status: "stopped"
+      });
+      const evidence = await testEnv.DB.prepare(
+        "SELECT payload_json FROM evidence_events WHERE run_id = ? AND event = 'run.stopped'"
+      )
+        .bind(RUN_ID)
+        .first<{ payload_json: string }>();
+      expect(JSON.parse(evidence!.payload_json)).toMatchObject({
+        reason: "budget_stopped"
+      });
+    }
+  );
+
+  it("fails closed for a production-created null budget on a valid provider/model call", async () => {
+    await seedConfig(
+      { drafter: { provider: "fake", model: "fake-model-v1" } },
+      null
+    );
+    const runId = await ensureRun(testEnv.DB, "scheduled", "2027-03-03");
+    const provider = fakeProvider();
+    await expect(
+      complete(
+        { ...deps(provider), now: () => new Date().toISOString() },
+        { role: "drafter", runId, prompt: "hi" }
+      )
+    ).rejects.toMatchObject({ code: "gateway_not_configured" });
+    expect(provider.count()).toBe(0);
   });
 });

@@ -185,3 +185,28 @@ describe("OpsShell run log (story 3.7)", () => {
     expect(html).not.toContain("not yet scheduled");
   });
 });
+
+it.each([
+  [500, "$5.00"],
+  [0, "$0.00"],
+  [null, "Not recorded"]
+] as const)(
+  "renders recorded budget %s distinctly from spend",
+  (budgetCents, label) => {
+    const html = renderToStaticMarkup(
+      <RunLog
+        items={[
+          item({
+            id: "run-20260908-b025",
+            origin: "scheduled",
+            status: "running",
+            budgetCents
+          })
+        ]}
+      />
+    );
+    expect(html).toContain('<th scope="col">Budget ceiling</th>');
+    expect(html).toContain(`<td class="num">${label}</td>`);
+    expect(html).toContain("$0.47");
+  }
+);

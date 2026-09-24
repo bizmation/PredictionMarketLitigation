@@ -1,3 +1,4 @@
+import { defaultBudgetCents } from "../config/modelRoles";
 import type { Db } from "../../shared/db/client";
 import * as modeRepo from "../../shared/db/repos/modeRepo";
 import * as pipelineConfigRepo from "../../shared/db/repos/pipelineConfigRepo";
@@ -61,6 +62,7 @@ export async function ensureRun(
   const id = existing?.id ?? runId ?? runIdFor(scheduledFor, origin);
   if (!existing) {
     const live = await modeRepo.get(db);
+    const budgetCents = await defaultBudgetCents(db);
     try {
       await runsRepo.insertRun(db, {
         id,
@@ -71,7 +73,7 @@ export async function ensureRun(
         completedAt: null,
         spendCents: 0,
         spendCurrency: "USD",
-        budgetCents: null,
+        budgetCents,
         scheduledFor
       });
     } catch {
