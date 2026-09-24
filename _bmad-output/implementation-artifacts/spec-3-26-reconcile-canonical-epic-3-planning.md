@@ -46,3 +46,5 @@ context: []
 ## Verification
 
 Source-parity validation passed for all eight historical AC blocks and all FR46–50 consequences. IDs 3.1–3.37 are unique in epics and tracking; local source links resolve; UX B8/C4 and FR coverage are present. `npm run check` and `git diff --check` passed after review patches. No runtime code changed; required CI will run the full suite on the PR.
+
+- Required CI run 36037980580 passed check and the full real-Worker/Miniflare test suite on implementation commit 5c34401e4b787709a5a16cefa9601b6b63630626. Story/action completion is carried in PR #42; the final metadata commit is also subject to required CI before merge.
