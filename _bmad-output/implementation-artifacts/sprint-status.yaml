@@ -1,5 +1,5 @@
 # generated: 2026-08-09
-# last_updated: 09-24-2026 12:41
+# last_updated: 09-24-2026 13:20
 # project: PML
 # project_key: NOKEY
 # tracking_system: file-system
@@ -36,7 +36,7 @@
 # - Source epics: _bmad-output/planning-artifacts/epics.md (35 stories, readiness punch list applied 2026-08-09)
 
 generated: 2026-08-09
-last_updated: 09-24-2026 12:41
+last_updated: 09-24-2026 13:28
 project: PML
 project_key: NOKEY
 tracking_system: file-system
@@ -67,7 +67,8 @@ development_status:
   epic-2-retrospective: done
 
   # Epic 3: Governed Daily Loop (Pipeline → Gate → Live)
-  epic-3: in-progress
+  # All 25 stories complete; operational acceptance follow-ups remain below.
+  epic-3: done
   3-1-run-draft-evidence-data-model: done
   3-2-ai-gateway-budget-envelope-role-model-config: done
   3-3-daily-run-workflow-empty-runs: done
@@ -92,10 +93,10 @@ development_status:
   3-20-openrouter-provider-via-ai-gateway: done
   3-21-first-live-connector: done
   # Added by sprint-change-proposal-2026-09-23 (staging ops host)
-  3-22-staging-ops-host: backlog
-  3-23-fail-a-total-courtlistener-outage: review
-  3-24-retire-pipeline-not-live-copy: review
-  3-25-stamp-run-budget-ceiling: review
+  3-22-staging-ops-host: done
+  3-23-fail-a-total-courtlistener-outage: done
+  3-24-retire-pipeline-not-live-copy: done
+  3-25-stamp-run-budget-ceiling: done
   epic-3-retrospective: done
 
   # Epic 4: Governance Narrative & Invited Check
@@ -198,39 +199,100 @@ action_items:
     action: "Fail a CourtListener poll when every docket errors, and store a scrubbed
       response reason, so the Run is failed rather than empty"
     owner: "agent"
-    status: open
+    status: done
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
+    note: "Closed by story 3.23; tested and included in the 2026-09-24 staging deploy."
+
   - id: "epic-3-retro-item-13-retire-apex-copy-that-says-the-daily-pip"
     epic: 3
     action: "Retire apex copy that says the daily pipeline is not live, and drive
       the pending-drafts line from the draft API"
     owner: "agent"
-    status: open
+    status: in-progress
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
+    note: "Story 3.24 retired stale copy. Live pending-draft count remains unwired."
+
   - id: "epic-3-retro-item-14-make-the-ops-shell-reachable-on-staging"
     epic: 3
     action: "Make the ops shell reachable on staging, then open the run log, one evidence
       page, and the pending-drafts band there"
     owner: "agent + Patrick"
-    status: open
+    status: done
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
+    note: "Story 3.22 deployed ops-build and browser-verified run log, Evidence and
+      empty pending-drafts band on 2026-09-24."
+
   - id: "epic-3-retro-item-15-stamp-the-configured-budget-ceiling-onto"
     epic: 3
     action: "Stamp the configured budget ceiling onto each new Run so public budgetCents
       is not null"
     owner: "agent"
-    status: open
+    status: done
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
+    note: "Story 3.25 snapshots and displays the budget ceiling; included in 2026-09-24
+      staging deploy. Legacy Runs remain Not recorded."
+
   - id: "epic-3-retro-item-16-reconcile-epics-md-status-words-to-await"
     epic: 3
     action: "Reconcile epics.md status words to awaiting / stopped / run.stopped"
     owner: "agent"
-    status: open
+    status: done
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
+    note: "Verified epics.md stories 3.1 and 3.7 use awaiting / stopped / run.stopped;
+      budget-stopped is explicitly only a display label."
+
   - id: "epic-3-retro-item-17-deploy-current-main-to-pml-build-after-t"
     epic: 3
     action: "Deploy current main to pml-build after the connector fix, record the
       next Run, and confirm which OpenRouter gateway path returns 200"
+    owner: "agent + Patrick"
+    status: in-progress
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
+    note: "Current implementation deployed 2026-09-24 as 98ed45b4-f131-4d40-b5b7-944138869779.
+      Post-deploy Run and authenticated OpenRouter 200 verification remain outstanding."
+  - id: "epic-3-retro-gate-transaction-safety"
+    epic: 3
+    action: "Make approval readiness, revision-tip validation, stale-field checks,
+      sealed Draft protection and Run finalization transactional; cover overlapping
+      decisions and revisions (R1-R4)."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
+  - id: "epic-3-retro-paid-budget-accounting-safety"
+    epic: 3
+    action: "Reserve concurrent paid spend, bound output under an explicit cost policy,
+      and atomically update the LLM ledger and Run spend (R5-R7)."
+    owner: "agent + Patrick (cost policy)"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
+  - id: "epic-3-retro-workflow-replay-admission-safety"
+    epic: 3
+    action: "Recover persisted Drafts on workflow replay, consume the recorded config
+      version, surface non-duplicate dispatch failures and enforce cross-origin Run
+      admission (R8-R11)."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
+  - id: "epic-3-retro-connector-pagination-origin"
+    epic: 3
+    action: "Restrict CourtListener pagination destinations to the intended HTTPS
+      API origin before forwarding authorization (R12)."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
+  - id: "epic-3-retro-executing-workflow-regression"
+    epic: 3
+    action: "Execute DailyRunWorkflow.run in regression tests for connector forwarding,
+      material draft review and failure paths; assert persisted evaluated awaiting
+      Drafts (R15)."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
+  - id: "epic-3-retro-live-governed-loop-acceptance"
+    epic: 3
+    action: "Demonstrate a real docket Draft through named approval to published F1
+      with matching public Evidence after fixes; coordinate with existing post-deploy
+      Run and gateway item 17 (R18)."
     owner: "agent + Patrick"
     status: open
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"

@@ -119,3 +119,82 @@ describe("surfaceHref", () => {
     );
   });
 });
+
+describe("staging surfaces", () => {
+  it.each(["/", "/runs/run-20260908-aaa1"])("resolves ops-build %s", (path) => {
+    expect(
+      resolveSurface(
+        new URL(`https://ops-build.predictionmarketlitigation.com${path}`)
+      )
+    ).toBe("ops");
+  });
+
+  it("keeps admin path precedence on ops-build", () => {
+    expect(
+      resolveSurface(
+        new URL(
+          "https://ops-build.predictionmarketlitigation.com/admin?surface=apex"
+        ),
+        { allowQueryOverride: true }
+      )
+    ).toBe("admin");
+  });
+
+  it.each([
+    "build.predictionmarketlitigation.com",
+    "ops-build.evil.example",
+    "ops-build.predictionmarketlitigation.com.evil"
+  ])("does not resolve %s as ops", (hostname) => {
+    expect(resolveSurface(new URL(`https://${hostname}/`))).toBe("apex");
+  });
+
+  it.each([
+    "build.predictionmarketlitigation.com",
+    "ops-build.predictionmarketlitigation.com"
+  ])("uses staging ops links from %s", (hostname) => {
+    expect(surfaceHref("ops", { hostname })).toBe(
+      "https://ops-build.predictionmarketlitigation.com"
+    );
+    expect(
+      surfaceHref("ops", {
+        hostname,
+        path: "runs/run-20260908-aaa1?view=events#draft-1"
+      })
+    ).toBe(
+      "https://ops-build.predictionmarketlitigation.com/runs/run-20260908-aaa1?view=events#draft-1"
+    );
+    expect(surfaceHref("apex", { hostname })).toBe(
+      "https://predictionmarketlitigation.com"
+    );
+    expect(surfaceHref("admin", { hostname, path: "/queue" })).toBe(
+      "/admin/queue"
+    );
+    expect(
+      surfaceHref("ops", {
+        hostname,
+        dev: true,
+        path: "/runs/run-20260908-aaa1?view=events"
+      })
+    ).toBe("/runs/run-20260908-aaa1?view=events&surface=ops");
+  });
+
+  it.each([
+    "",
+    "predictionmarketlitigation.com",
+    "ops.predictionmarketlitigation.com",
+    "unknown.example",
+    "ops-build.evil.example",
+    "ops-build.predictionmarketlitigation.com.evil"
+  ])("keeps production origin for %s", (hostname) => {
+    expect(surfaceHref("ops", { hostname, path: "/runs?id=1#events" })).toBe(
+      "https://ops.predictionmarketlitigation.com/runs?id=1#events"
+    );
+  });
+
+  it("defaults safely without a browser", () => {
+    expect(typeof window).toBe("undefined");
+    expect(surfaceHref("ops")).toBe(
+      "https://ops.predictionmarketlitigation.com"
+    );
+  });
+});

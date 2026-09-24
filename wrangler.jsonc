@@ -256,6 +256,10 @@
         {
           "pattern": "build.predictionmarketlitigation.com",
           "custom_domain": true
+        },
+        {
+          "pattern": "ops-build.predictionmarketlitigation.com",
+          "custom_domain": true
         }
       ]
     }

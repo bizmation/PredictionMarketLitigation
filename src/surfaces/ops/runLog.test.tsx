@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { formatEtDateTime } from "../../shared/lib/dates";
 import type { RunLogItem } from "../../shared/schemas/run";
@@ -210,3 +210,23 @@ it.each([
     expect(html).toContain("$0.47");
   }
 );
+
+it.each([
+  "build.predictionmarketlitigation.com",
+  "ops-build.predictionmarketlitigation.com"
+])("keeps rendered Evidence links on staging from %s", (hostname) => {
+  vi.stubGlobal("window", { location: new URL(`https://${hostname}/`) });
+  try {
+    const html = renderToStaticMarkup(<RunLog items={mixed} />);
+    for (const run of mixed) {
+      expect(html).toContain(
+        `href="https://ops-build.predictionmarketlitigation.com/runs/${run.id}"`
+      );
+    }
+    expect(html).not.toContain(
+      'href="https://ops.predictionmarketlitigation.com'
+    );
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});

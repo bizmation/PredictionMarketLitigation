@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { DraftRecord } from "../shared/schemas/run";
 import App from "../app";
@@ -452,4 +452,45 @@ describe("ApexShell donations placeholder (story 3.19)", () => {
     expect(html).not.toContain("donations open soon");
     expect(html).not.toContain("aria-disabled");
   });
+});
+
+describe("staging App in production mode", () => {
+  it.each([
+    ["build.predictionmarketlitigation.com", "/", "brief"],
+    ["ops-build.predictionmarketlitigation.com", "/", "drafts"],
+    [
+      "ops-build.predictionmarketlitigation.com",
+      "/runs/run-20260908-aaa1",
+      "evidence"
+    ],
+    ["ops-build.predictionmarketlitigation.com", "/admin", "queue"]
+  ])(
+    "renders %s%s and keeps ops navigation on staging",
+    (hostname, path, band) => {
+      vi.stubEnv("DEV", false);
+      vi.stubGlobal("window", {
+        location: new URL(`https://${hostname}${path}`)
+      });
+      try {
+        const html = renderToStaticMarkup(<App />);
+        expect(html).toContain(`id="${band}"`);
+        if (band === "drafts") {
+          expect(html).toContain('href="#runs"');
+          expect(html).toContain('href="#drafts"');
+        } else {
+          expect(html).toContain(
+            'href="https://ops-build.predictionmarketlitigation.com'
+          );
+        }
+        expect(html).not.toContain(
+          'href="https://ops.predictionmarketlitigation.com'
+        );
+        expect(html).not.toContain("?surface=");
+        if (band === "evidence") expect(html).not.toContain('id="runs"');
+      } finally {
+        vi.unstubAllGlobals();
+        vi.unstubAllEnvs();
+      }
+    }
+  );
 });

@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { DraftRecord } from "../../shared/schemas/run";
 import { ApprovalQueue, isQueueItem } from "./ApprovalQueue";
@@ -152,4 +152,22 @@ describe("ApprovalQueue markup", () => {
     const html = renderToStaticMarkup(<ApprovalQueue items={[draft()]} />);
     expect(html).not.toContain("Not live · awaiting approval");
   });
+});
+
+it.each([
+  "build.predictionmarketlitigation.com",
+  "ops-build.predictionmarketlitigation.com"
+])("keeps rendered Evidence links on staging from %s", (hostname) => {
+  vi.stubGlobal("window", { location: new URL(`https://${hostname}/`) });
+  try {
+    const html = renderToStaticMarkup(<ApprovalQueue items={[draft()]} />);
+    expect(html).toContain(
+      'href="https://ops-build.predictionmarketlitigation.com/runs/run-20260912-aaa1"'
+    );
+    expect(html).not.toContain(
+      'href="https://ops.predictionmarketlitigation.com'
+    );
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });

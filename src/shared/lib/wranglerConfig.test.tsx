@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -174,3 +175,44 @@ if (!hasServerBuild) {
     `[wranglerConfig.test] skipped ai-binding check: ${distPmlConfig} absent. Run \`npm run build\` first for the full check.`
   );
 }
+
+describe("staging domain ownership", () => {
+  it("binds both staging hosts only to the existing pml-build Worker", () => {
+    const parsed = ts.parseConfigFileTextToJson(
+      "wrangler.jsonc",
+      readFileSync("wrangler.jsonc", "utf8")
+    );
+    expect(parsed.error).toBeUndefined();
+    const config = parsed.config;
+    expect(config.name).toBe("pml");
+    expect(config.routes).toEqual([
+      { pattern: "predictionmarketlitigation.com", custom_domain: true },
+      { pattern: "ops.predictionmarketlitigation.com", custom_domain: true }
+    ]);
+    const build = config.env.build;
+    expect(build.name).toBe("pml-build");
+    expect(build.routes).toEqual([
+      { pattern: "build.predictionmarketlitigation.com", custom_domain: true },
+      {
+        pattern: "ops-build.predictionmarketlitigation.com",
+        custom_domain: true
+      }
+    ]);
+    expect(build.workers_dev).toBe(false);
+    expect(build.preview_urls).toBe(false);
+    expect(build.d1_databases).toEqual([
+      {
+        binding: "DB",
+        database_name: "pml-build",
+        database_id: "9e83494a-016e-4bff-9e07-7fca3a159a83",
+        migrations_dir: "migrations"
+      }
+    ]);
+    expect(build.assets.directory).toBe("./dist/client");
+    expect(build.assets.run_worker_first).toEqual(
+      config.assets.run_worker_first
+    );
+    expect(build.ai).toEqual(config.ai);
+    expect(build.workflows).toEqual(config.workflows);
+  });
+});
