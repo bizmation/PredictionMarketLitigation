@@ -14,8 +14,10 @@ date: '2026-08-09'
 lastStep: 8
 status: 'complete'
 completedAt: '2026-08-09'
-updated: '2026-08-09'
+updated: '2026-09-24'
 amendments:
+  - '2026-09-24: Reconciled approved August 9 steering architecture (F9 / FR46–50) in story 3.26; recorded later implementation refinements.'
+  - '2026-09-24: Approved corrective transaction, budget, Workflow and acceptance invariants; implementation remains in stories 3.27–3.37.'
   - '2026-08-09: Locked multi-agent orchestration + OpenRouter role→model routing via AI Gateway'
   - '2026-08-09 (post-epics sync): UX-promoted scope deltas — ECharts issue map, poll tally endpoint, moderated corrections→GitHub Issues API (supersedes "no deep integration"), long-scroll apex with URL-param deep links, journal content in D1, Vitest mandate storied (see §Post-Epics Amendments)'
   - '2026-09-17: Initial role→model pin is Workers AI (gap #5 resolved by migration 0017); OpenRouter remains the required primary router, delivered by Story 3.20. Timeout policy: 15 s client GET / 30 s admin POST / 60 s connector + provider (sprint-change-proposal-2026-09-17 §4.1)'
@@ -169,6 +171,8 @@ npm create cloudflare@latest -- pml --template cloudflare/agents-starter
 
 ### Data Architecture
 
+Required corrective consistency rules: [Epic 3 corrective invariants](#epic-3-corrective-invariants--approved-2026-09-24).
+
 - **Canonical store:** Cloudflare D1 (SQLite) for F1 entities (cases, states, circuits, cert signal), pending/public Drafts, Evidence/run log rows, journal metadata
 - **In-flight state:** Durable Objects via Agents SDK for Run orchestration, step status, HITL wait coordination
 - **Validation:** Zod (current latest verified: **4.4.3** at decision time) — shared schemas for API + Draft diffs + Evidence
@@ -200,7 +204,7 @@ npm create cloudflare@latest -- pml --template cloudflare/agents-starter
 
 **Requirement:** The platform must support multiple agents per Run, each bound to a configurable model, with an orchestrator that dispatches work and a reviewer that evaluates drafts — under full operator control of which models power which roles. Cloudflare OS is **not** used to orchestrate this; **Agents SDK + Workflows** are.
 
-**Orchestration pattern (per daily Run):**
+**Orchestration pattern (per daily Run):** See the [corrective flow](#epic-3-corrective-invariants--approved-2026-09-24) for required atomic and retry boundaries; these are obligations pending the corrective builds.
 
 ```text
 Cron / schedule
@@ -210,6 +214,11 @@ Cron / schedule
        → Reviewer / eval agent [model: roles.reviewer]
        → package Drafts + Evidence (+ disagreement flag if drafter≠reviewer)
        → waitForApproval (HITL) OR YOLO agent [model: roles.yolo]
+            ↕ steward [model: roles.steward] ← authenticated operator
+              interrogate / revise Draft / steer config / record guidance
+              revised Drafts re-enter guardrails and evaluation
+              writes via validated handlers: Drafts, config, guidance + Evidence
+              never: live F1 publish or governance-control mutation
        → approvalGate.publish → live F1   (never an agent-direct tool)
 ```
 
@@ -221,6 +230,9 @@ Cron / schedule
 | `drafter` | Material-change → Draft field diffs + citations | Required configurable model |
 | `reviewer` | Confidence/eval, citation completeness, escalate categories | Required configurable model (may differ from drafter) |
 | `yolo` | Autonomous approve within policy bounds only | Required when Autonomous mode enabled |
+| `steward` | Operator interrogation, revision instructions, pipeline steering and guidance capture | Configurable model; no publish tool; governance-control mutation denied by policy |
+
+**Corrective execution contract:** [Epic 3 corrective invariants and flow](#epic-3-corrective-invariants--approved-2026-09-24) govern reservation, accounting and replay boundaries; the overview below remains a component map.
 
 **Model routing (design criterion):**
 - Single code path: `pipeline/ai/gateway.ts` — agents call `gateway.complete({ role, … })` only
@@ -353,7 +365,8 @@ Cron / schedule
 ### Communication Patterns
 
 **Event System Patterns (Evidence / workflow progress):**
-- Step/event names: `dot.case` lowercase — `run.started`, `source.fetched`, `draft.created`, `gate.awaiting_approval`, `gate.approved`, `run.budget_stopped`
+- Step/event names: `dot.case` lowercase — `run.started`, `source.fetched`, `draft.created`, `gate.awaiting_approval`, `gate.decided`, `run.stopped`
+- Steering vocabulary: `steering.turn`, `steering.applied`, `draft.revised`, `config.steered`, `guidance.recorded`, `guidance.revoked`. The August proposal’s illustrative `steering.denied` was refined in the [3.14 implementation contract](../implementation-artifacts/spec-3-14-steering-channel-foundation-action-policy-evidence.md): denied tools produce `guardrails.failed`; config refusal is `config.steered` with `refused: true` per 3.17. Do not invent a `steering.denied` schema value.
 - Payload: `{ type, at, runId, ... }` validated by Zod
 - Public Evidence is append-oriented projection rows, not raw CF log dump
 
@@ -720,3 +733,37 @@ Recorded after the UX design handoff and `epics.md` promoted additional v1 scope
 ### Testing mandate storied
 
 - The "add Vitest in early stories" intent is now enforced in `epics.md`: Vitest setup in Story 1.1; required coverage ACs on Run lifecycle (3.3), enforcement-layer injection/allowlist fixtures (3.6), and gate write-path/idempotent publish (3.11). CI/CD + dev/staging/prod environments + custom domains are Story 1.5.
+
+
+## Epic 3 corrective invariants — approved 2026-09-24
+
+This amendment governs data consistency, the central gateway, and Workflow execution. It specifies required behavior for stories 3.27–3.34; it does not assert the fixes are deployed. See [the approved proposal](sprint-change-proposal-2026-09-24.md).
+
+Approval and revision changes must share an atomic eligibility boundary. Every accepted field update compares its expected previous value at publication. A decided Draft is immutable. Paid dispatch requires durable bounded reservation; settlement and public totals share an authoritative accounting source. Unknown paid outcomes retain conservative liability until reconciled. Workflow replay recovers persisted Run artifacts and consumes pinned configuration. All Run origins share active-date admission. Connector credentials are attached only after validating the destination, including redirects.
+
+Implementing stories must record concrete schema and transaction decisions against actual platform capabilities. The existing Cloudflare stack remains in place. This corrective sequence governs the atomic and retry boundaries of the earlier component overview. An uncertain provider outcome is not a completed evaluation. Any explicit not-run outcome must be recorded with its reason, pass server readiness rules for human review, and cannot authorize YOLO; retaining accounting liability alone never makes a Draft ready. The owning implementation story defines the reconciliation mechanism.
+
+```mermaid
+flowchart TD
+    A[Atomic active-date claim] --> B[Pin source configuration]
+    B --> C[Recover or persist Run package]
+    C --> D[Reserve bounded paid liability]
+    D --> E[Dispatch provider call]
+    E --> Q{Outcome known?}
+    Q -->|Yes| F[Idempotent settlement]
+    Q -->|No| U[Retain liability and reconcile outcome]
+    U -. Evidence of outcome before retry .-> Q
+    F --> G[Completed evaluation or explicit not-run reason]
+    G --> H[Guarded decision and atomic F1 commit]
+    C -. Replay recovers persisted artifacts .-> C
+    H -. Repeated decision cannot republish .-> H
+```
+
+
+### Steering reconciliation — story 3.26
+
+[August 9 §4.6](sprint-change-proposal-2026-08-09.md#46-architecture-updates) is the approved steering architecture amendment. Canonical requirements are now F9/FR46–50 in the PRD and stories 3.14–3.18 in epics.md; UX B8/C4 define public projection and the private composer. Steward requests may affect Drafts, pipeline config and standing guidance only through validated application handlers; they never grant a live-F1 publish tool or permission to change governance controls. Influence must remain attributable through steering Evidence. The illustrative role→model JSON above predates the steering role; operational configuration includes steward (3.14/3.19/3.20), and illustrative model names are not current deployment pins.
+
+Status vocabulary is `awaiting`, `stopped`, and `run.stopped`; earlier `awaiting-approval`/`run.budget_stopped` examples are historical sketches, not schema authority. September 17 accepted global model-config version auditing in place of per-Run `gateway.config_changed` Evidence; pipeline steering still emits `config.steered`. Required corrective invariants above remain outstanding until their owning stories pass.
+
+The generic 30-second admin POST deadline has one approved exception: the steering composer uses `2 × PROVIDER_TIMEOUT_MS + 10_000` (130 seconds), as Patrick decided in [3.19 frozen boundaries](../implementation-artifacts/spec-3-19-epic-3-hardening-timeouts-gateway-seed.md). The Workers AI seed remains the initial configuration; enabling OpenRouter uses an explicit versioned configuration change rather than rewriting the seed.

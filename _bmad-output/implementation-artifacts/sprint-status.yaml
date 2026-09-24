@@ -1,5 +1,5 @@
 # generated: 2026-08-09
-# last_updated: 09-24-2026 13:20
+# last_updated: 09-24-2026 13:57
 # project: PML
 # project_key: NOKEY
 # tracking_system: file-system
@@ -33,10 +33,10 @@
 # - Stories can be worked in parallel if team capacity allows
 # - Developer typically creates next story after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
-# - Source epics: _bmad-output/planning-artifacts/epics.md (35 stories, readiness punch list applied 2026-08-09)
+# - Source epics: _bmad-output/planning-artifacts/epics.md; 3.14–3.21 backfill tracked in 3.26.
 
 generated: 2026-08-09
-last_updated: 09-24-2026 13:28
+last_updated: 09-24-2026 13:57
 project: PML
 project_key: NOKEY
 tracking_system: file-system
@@ -67,8 +67,8 @@ development_status:
   epic-2-retrospective: done
 
   # Epic 3: Governed Daily Loop (Pipeline → Gate → Live)
-  # All 25 stories complete; operational acceptance follow-ups remain below.
-  epic-3: done
+  # Original 25 stories complete; approved corrective stories 3.26–3.37 remain.
+  epic-3: in-progress
   3-1-run-draft-evidence-data-model: done
   3-2-ai-gateway-budget-envelope-role-model-config: done
   3-3-daily-run-workflow-empty-runs: done
@@ -97,9 +97,24 @@ development_status:
   3-23-fail-a-total-courtlistener-outage: done
   3-24-retire-pipeline-not-live-copy: done
   3-25-stamp-run-budget-ceiling: done
+  # Added by approved sprint-change-proposal-2026-09-24
+  3-26-reconcile-canonical-epic-3-planning: review
+  3-27-constrain-connector-pagination-credentials: backlog
+  3-28-enforce-evaluation-readiness-and-sealed-drafts: backlog
+  3-29-make-publication-and-run-finalization-atomic: backlog
+  3-30-define-and-enforce-bounded-provider-cost: backlog
+  3-31-reserve-and-settle-paid-calls-atomically: backlog
+  3-32-recover-durable-packages-and-pin-consumed-configuration: backlog
+  3-33-make-run-admission-and-dispatch-failures-explicit: backlog
+  3-34-test-the-executing-dailyrunworkflow: backlog
+  3-35-drive-apex-pending-copy-from-public-draft-data: backlog
+  3-36-verify-the-corrected-staging-run-and-gateway: backlog
+  3-37-prove-the-live-governed-loop-and-reassess-epic-3: backlog
+  # Retrospective completed; verdict remains rejected until 3.37 reassessment.
   epic-3-retrospective: done
 
   # Epic 4: Governance Narrative & Invited Check
+  # Entry gate: story 3.37 and accepted Epic 3 corrective retrospective evidence.
   epic-4: backlog
   4-1-interactive-nine-layer-explainer: backlog
   4-2-explainer-live-status-hooks: backlog
@@ -188,6 +203,7 @@ action_items:
     ref: "_bmad-output/implementation-artifacts/epic-2-retro-2026-09-04.md"
     note: "Norm followed for 3.14–3.18; closed as a working agreement (2026-09-17)"
   - id: "epic-3-cc-item-1-backfill-epics-md-stories-3-14-to-3-21"
+    # Approved corrective stories: 3.26; close only on linked evidence.
     epic: 3
     action: "Insert stories 3.14–3.21 into epics.md (currently only in the 2026-08-09
       and 2026-09-17 sprint change proposals)"
@@ -204,6 +220,7 @@ action_items:
     note: "Closed by story 3.23; tested and included in the 2026-09-24 staging deploy."
 
   - id: "epic-3-retro-item-13-retire-apex-copy-that-says-the-daily-pip"
+    # Approved corrective stories: 3.35; close only on linked evidence.
     epic: 3
     action: "Retire apex copy that says the daily pipeline is not live, and drive
       the pending-drafts line from the draft API"
@@ -242,6 +259,7 @@ action_items:
       budget-stopped is explicitly only a display label."
 
   - id: "epic-3-retro-item-17-deploy-current-main-to-pml-build-after-t"
+    # Approved corrective stories: 3.36; close only on linked evidence.
     epic: 3
     action: "Deploy current main to pml-build after the connector fix, record the
       next Run, and confirm which OpenRouter gateway path returns 200"
@@ -251,6 +269,7 @@ action_items:
     note: "Current implementation deployed 2026-09-24 as 98ed45b4-f131-4d40-b5b7-944138869779.
       Post-deploy Run and authenticated OpenRouter 200 verification remain outstanding."
   - id: "epic-3-retro-gate-transaction-safety"
+    # Approved corrective stories: 3.28, 3.29; close only on linked evidence.
     epic: 3
     action: "Make approval readiness, revision-tip validation, stale-field checks,
       sealed Draft protection and Run finalization transactional; cover overlapping
@@ -259,6 +278,7 @@ action_items:
     status: open
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
   - id: "epic-3-retro-paid-budget-accounting-safety"
+    # Approved corrective stories: 3.30, 3.31; close only on linked evidence.
     epic: 3
     action: "Reserve concurrent paid spend, bound output under an explicit cost policy,
       and atomically update the LLM ledger and Run spend (R5-R7)."
@@ -266,6 +286,7 @@ action_items:
     status: open
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
   - id: "epic-3-retro-workflow-replay-admission-safety"
+    # Approved corrective stories: 3.32, 3.33; close only on linked evidence.
     epic: 3
     action: "Recover persisted Drafts on workflow replay, consume the recorded config
       version, surface non-duplicate dispatch failures and enforce cross-origin Run
@@ -274,6 +295,7 @@ action_items:
     status: open
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
   - id: "epic-3-retro-connector-pagination-origin"
+    # Approved corrective stories: 3.27; close only on linked evidence.
     epic: 3
     action: "Restrict CourtListener pagination destinations to the intended HTTPS
       API origin before forwarding authorization (R12)."
@@ -281,6 +303,7 @@ action_items:
     status: open
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
   - id: "epic-3-retro-executing-workflow-regression"
+    # Approved corrective stories: 3.34; close only on linked evidence.
     epic: 3
     action: "Execute DailyRunWorkflow.run in regression tests for connector forwarding,
       material draft review and failure paths; assert persisted evaluated awaiting
@@ -289,6 +312,7 @@ action_items:
     status: open
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
   - id: "epic-3-retro-live-governed-loop-acceptance"
+    # Approved corrective stories: 3.37; close only on linked evidence.
     epic: 3
     action: "Demonstrate a real docket Draft through named approval to published F1
       with matching public Evidence after fixes; coordinate with existing post-deploy

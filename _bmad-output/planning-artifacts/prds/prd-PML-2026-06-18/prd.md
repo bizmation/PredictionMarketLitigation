@@ -2,7 +2,7 @@
 title: "PRD: PML (PredictionMarketLitigation)"
 status: final
 created: 2026-06-18
-updated: 2026-08-09
+updated: 2026-09-24
 ---
 
 # PRD: PML (PredictionMarketLitigation)
@@ -162,6 +162,8 @@ A reader can track non-litigation regulatory activity — CFTC rulemakings (NPRM
 
 ### 5.2 F2 — Autonomous Daily Update Pipeline
 
+*Cross-ref: Pipeline configuration may also be steered conversationally per F9 / FR-48, within F9 containment bounds.*
+
 **Description:** A scheduled, governed agent fleet that runs **every calendar day** (365 days/year, no weekend/holiday skip), monitors Tier-1 and Tier-2 sources, detects material changes, and produces **drafts** for F1 views (and related content). Drafts never publish themselves — they enter the Approval Gate (F3). Each execution is a uniquely identified **Run** that emits an **Evidence record** for `ops.` (F5). This feature is the primary **loop harness** under test: schedule → observe → draft → hand off → evidence. **Every Run is publicly inspectable** — complete harness transparency for any site visitor who wants it (surface detail in F5; obligation starts here).
 
 **Functional Requirements:**
@@ -222,6 +224,8 @@ Anyone visiting the site can inspect harness Runs end-to-end — not only operat
 
 ### 5.3 F3 — Approval Gate (Human-in-the-Loop default; Autonomous/"YOLO" mode optional)
 
+*Cross-ref: Operator course correction is extended by F9 / FR-46–47. The Approval Gate remains the sole path to live F1 regardless of steering.*
+
 **Description:** The keystone control: **live F1 tracker content** does not change until a Draft clears the Approval Gate — while the Draft itself and the approval process remain **radically public** (full draft text visible pre-approval on `ops.`, per F2 FR-13). Default mode is **Human-in-the-Loop** (Patrick approves). Optional **Autonomous ("YOLO")** mode lets an audited **approval agent** approve within bounded action policy; Patrick alone can enable it. Both modes ship in v1. Transparency is the product; the gate protects *canonical published truth*, not secrecy of the machine's work.
 
 **Functional Requirements:**
@@ -275,6 +279,8 @@ Every published item is labeled **human-approved** or **agent-approved**.
 **F3 LOCKED (2026-08-09).**
 
 ### 5.4 F4 — Governed Execution (the 9-layer spine — Mantle / enforcement)
+
+*Cross-ref: The steering channel is an L4 action-policy surface and an L6 authorized-context surface; see FR-49–50.*
 
 **Description:** Capability requirements for the enforceable **governance spine** that every Run passes through. Maps to Patrick's Core/Mantle/Crust model; tooling is deferred to architecture. v1 ships a working spine (**not** full nine-layer maturity — deepen in public). Runtime *mechanism* for context files is architectural; the PRD requires the *capability*: agents act only on authorized context (L6) and published output exposes provenance (L8). Vendor consoles (CF/AWS) are never the public system of record — Evidence is **fully projected** onto `ops.` (F5).
 
@@ -346,6 +352,8 @@ The system can package Run evidence into a reviewable compliance-oriented bundle
 **F4 LOCKED (2026-08-09).** Spine maturity; full projected traces on `ops.`; public step-level status.
 
 ### 5.5 F5 — Public `ops.` Transparency Dashboard (Crust / display)
+
+*Cross-ref: `ops.` projects steering turns per FR-50.*
 
 **Description:** The public Crust surface — canonical home is the **`ops.` subdomain** (e.g. `ops.predictionmarketlitigation.com`). Receipts for each Run: full projected traces/steps, lineage, evals, budget, pending/full Drafts, approval decision, mode, and disagreement flags. This is how the governance thesis becomes verifiable. Deep inter-agent disagreement exploration is phase-in; v1 always records whether disagreement occurred. Main site links here for discoverability; it does not host a second full dashboard.
 
@@ -480,6 +488,70 @@ Donations ship at launch; ads are out of v1 pending neutrality review.
 
 **F8 LOCKED (2026-08-09).** Donations at launch; corrections on main + `ops.`.
 
+### 5.9 F9 — Operator Steering & Course Correction
+
+Source: [approved August 9 proposal §4.1](../../sprint-change-proposal-2026-08-09.md#41-prd--new-feature-section-f9); canonical backfill in story 3.26.
+
+**Description:** An authenticated conversational channel between the operator and the agent fleet, enabling the operator to interrogate a Draft's reasoning, revise a Draft by instruction, steer pipeline configuration, and record standing guidance that improves future Runs. Steering is a *drafting-side* capability: it never bypasses the Approval Gate and never reaches live F1 except through it. Every steering turn that influences output is public Evidence — the channel is governed and projected, not a private back office.
+
+**Relationship to locked features:** F9 extends F2 (pipeline configuration), F3 (operator surface) and F4 (L4 action policy, L6 authorized context, L7 observability, L8 lineage). It contradicts no locked requirement. F9 is distinct from FR-37/FR-45 reader corrections, which remain a public, moderated, non-runtime path.
+
+#### FR-46: Draft interrogation `[v1]`
+The operator can question a pending Draft conversationally and receive grounded answers about its basis.
+
+*Consequences (testable):*
+- Operator can ask why a field diff was proposed, which sources were weighed, what was skipped and why, and how the confidence/eval band was derived.
+- Answers cite the Run's own Evidence records; the steward states "not recorded" rather than reconstructing plausible reasoning after the fact.
+- Interrogation performs **no writes** to Drafts, config, or live F1.
+- Interrogation turns are Evidence-projected per FR-50.
+
+#### FR-47: Conversational Draft revision `[v1]`
+The operator can instruct the agent to revise a pending Draft in natural language; the agent regenerates the Draft.
+
+*Consequences (testable):*
+- A revision instruction produces a new Draft version scoped to the same Run ID (no duplicate Draft set, FR-22).
+- The **original agent Draft, every intermediate revision, and the final approved text** are all preserved and publicly diffable on `ops.` (extends FR-14's before/after requirement to N revisions).
+- Revision writes to Drafts only. Publish remains exclusively the Approval Gate path (FR-21).
+- A revised Draft re-enters guardrails and reviewer evaluation before it is approvable; revision cannot be used to route around a failed guardrail (FR-20).
+- A revised Draft's confidence/eval badge is recomputed, never inherited.
+
+#### FR-48: Conversational pipeline steering `[v1]`
+The operator can modify source and pipeline configuration by instruction — adding a docket to Tier-1, adjusting escalation categories, changing monitoring scope.
+
+*Consequences (testable):*
+- Config changes are versioned, attributed, timestamped, and revertible; prior versions are retained.
+- Each change writes an audited ops event visible on `ops.` (parity with the FR-16 mode-change audit and the architecture's role→model audit rule).
+- **Out of reach of conversation (enforced as action policy, not prompt):** YOLO auto-approve threshold, per-Run budget ceiling, Autonomous mode enablement, guardrail rule set, action-policy allowlist. Chat may read and explain these; only explicit admin form actions may change them.
+- Config changes take effect on the next Run and are attributable in that Run's lineage.
+
+#### FR-49: Standing corrections and durable guidance `[v1]`
+Operator corrections accumulate into durable guidance that agents consult on future Runs.
+
+*Consequences (testable):*
+- The operator can promote a correction to standing guidance, and can list, edit, and revoke every standing item.
+- Standing guidance is **authorized context under FR-23** — versioned, attributable in lineage, and publicly readable on `ops.`
+- A Run's Evidence states which standing guidance items were in force and which influenced a Draft.
+- Guidance is advisory to drafting only. It cannot grant tool permissions, alter action policy, or change approval bounds.
+- Guidance is capped and reviewable so it cannot grow into an unbounded, unauditable prompt.
+
+#### FR-50: Steering transparency and containment `[v1]`
+The steering channel is itself governed, bounded, and publicly projected.
+
+*Consequences (testable):*
+- Steering turns are public on `ops.` **by default**, attached to the Run and Draft they touched.
+- **Publication timing (RESOLVED 2026-08-09):** turns publish at **turn completion, immediately** — on submit, with no operator publish step, no review queue, and no curation gap. Token-level / as-you-type streaming to the public surface is **prohibited**: the operator is a licensed attorney and mid-composition legal reasoning about named parties would publish unreviewed party characterizations, which FR-17 requires be escalated for review, not broadcast. Turn-complete publication preserves the unedited-transcript property the transparency thesis depends on while keeping the redaction decision (below) meaningful.
+- Mirroring FR-14's reject-reason precedent, the operator may mark a specific turn (or portion) **private** — the decision is made **at submit, before the turn is published**, since post-hoc redaction of an already-public turn is not achievable against scrapers and archives. The *existence* of the private turn, its timestamp, and its effect on the Draft remain public. Redaction of content is permitted; concealment of causation is not.
+- The steward agent operates under a scoped identity with **no live-F1 publish tool** (FR-21, FR-23).
+- Prompt-injected content in a Draft or source under discussion cannot escalate steward permissions — demonstrated by adversarial fixture test (parity with FR-20 / readiness note G1).
+- Steering is available only to the authenticated operator identity; the public observes, never steers.
+- Steering spend is attributed to the Run and counts against the budget envelope (FR-19).
+
+**Numbering note:** F9 sits in the feature namespace (F1–F9) and is unrelated to the nine governance layers (L1–L9). Flagged for the explainer copy in Epic 4 to avoid reader confusion.
+
+**Implementation interpretation:** FR48 source escalation changes mean source tier changes within `poll_sources`, not edits to FR17 approval reason codes. FR49 uses 12 in-force guidance items, 600 characters each, with manual list/edit/revoke review; no expiry timer. See the approved implementation boundaries in [3.17](../../../implementation-artifacts/spec-3-17-conversational-pipeline-steering.md) and [3.18](../../../implementation-artifacts/spec-3-18-standing-corrections-durable-guidance.md). These decisions do not waive the [September 24 corrective acceptance requirements](../../sprint-change-proposal-2026-09-24.md).
+
+---
+
 ## 6. Cross-Cutting NFRs
 
 - **Reliability / cadence:** Scheduled Run every calendar day; empty Runs required; catch-up supplements with flagged Runs; gaps visible (FR-8, FR-10, FR-12).
@@ -541,6 +613,8 @@ Donations ship at launch; ads are out of v1 pending neutrality review.
 - F6: interactive 9-layer explainer **on `ops.`** + light live hooks (FR-31–FR-32) — LOCKED.
 - F7: build journal **on `ops.`** + evidence-linked posts + series navigation (FR-33–FR-35); not all L1–L9 posts must exist at launch — LOCKED.
 - F8: trust furniture, corrections on main+`ops.`, public repo, **donations at launch**, ads phase-in (FR-36–FR-39) — LOCKED.
+
+- F9: operator interrogation, conversational Draft revision, bounded pipeline steering, standing guidance and public containment (FR-46–FR-50), approved 2026-08-09; Approval Gate remains the only publish path.
 
 **Phase-in after v1:**
 - F1: FR-3 rich filter/search, FR-5 timeline, FR-6 player map, FR-7 regulatory tracker; market-derived cert later if ToS resolved.
@@ -626,3 +700,10 @@ Directional, passion/community-calibrated (not investor OKRs). Private career ou
 | A11 | ~~strawman~~ → **RESOLVED:** F1–F8 and cross-cutting locked at Finalize 2026-08-09 | decision log |
 | A12 | v1 must exercise both HITL and Autonomous approval paths for loop-harness testing | §3.1 / §11 |
 | A13 | Showcase-native harness criterion A; CF vs AgentCore shortlist; pick in architecture | §7 / §14.8 |
+
+
+## Epic 3 acceptance clarification — approved 2026-09-24
+
+Applies to FR19, FR22 and FR24, with FR8 and the existing approval requirements preserved. Source: `../../sprint-change-proposal-2026-09-24.md`. This is a required acceptance contract; implementation remains tracked in corrective stories 3.26–3.37.
+
+Epic 3 acceptance requires server-enforced evaluation readiness and immutable decided Drafts; atomic eligibility, state comparison, publication and completion; conservative reservation of paid liability with consistent accounting; replay preserving material work and consumed configuration; and observed staging lineage from a real source through named approval to F1. Explicit completed evals_not_run remains human-reviewable under FR24. Multiple sequential Runs per date remain permitted under FR8.

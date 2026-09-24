@@ -235,6 +235,12 @@ Complementary disclosure that Runs/Drafts are AI-produced and gate-controlled; c
 
 ---
 
+#### B8. Public steering projection `[v1]` — FR-50
+
+Source: [approved August 9 proposal §4.7](sprint-change-proposal-2026-08-09.md#47-ux-brief-pack-updates).
+
+No-login view of steering turns attached to their Run and Draft. Renders the revision chain original → revisions → approved. Turns appear as they are submitted (turn-granular, not token-streamed); a live Run's steering view may poll. Privately-marked content shows a redaction placeholder that still displays timestamp, actor, and the effect on the Draft. Needs a designed empty state: most Runs will have no steering at all, and "nobody had to intervene" must read as a healthy, first-class state rather than missing data.
+
 ### C. Admin (private) — Approval Gate actions (F3)
 
 #### C1. Operator action queue `[v1]` — FR-14–15
@@ -254,6 +260,16 @@ Every published item labeled **human-approved** or **agent-approved** on the pub
 
 ---
 
+#### C4. Operator steering panel `[v1]` — FR-46–49
+
+Source: [approved August 9 proposal §4.7](sprint-change-proposal-2026-08-09.md#47-ux-brief-pack-updates).
+
+Authenticated conversational panel on the selected Draft inside the approval queue. Must preserve queue keyboard parity (J/K/A/E/R plus a steering binding). Shows the Draft revision chain with the instruction that caused each revision. **Implementation refinement:** [3.15 frozen boundaries](../implementation-artifacts/spec-3-15-draft-interrogation-read-only.md) retain J/K/A/E/R and inline steering without adding a new hotkey; the earlier extra-binding request is preserved here as source history, not a claim that it exists. Refusals (governance controls out of reach) render as calm, explanatory states — not errors.
+
+**Publication model to design against (resolved 2026-08-09):** the composer is private; **submit is publication**. Each completed turn goes public on `ops.` immediately, with no publish step and no review queue. The design problem this creates is the *submit moment* — it is simultaneously "send to agent" and "publish to the world under my name," and the panel must make that unmistakable without making the operator hesitant to steer. The per-turn private/redact control belongs **in the composer, adjacent to submit** — not in a post-hoc turn menu, since redaction after publication is unachievable. Design the composer so a lawyer can think in it and the transcript can still be honest.
+
+---
+
 ## 7. Interaction principles (apply site-wide)
 
 1. **Interactive by default** — hover, drill, filter; no static poster maps as the primary experience.
@@ -265,6 +281,8 @@ Every published item labeled **human-approved** or **agent-approved** on the pub
 7. **Last-updated is UI** — visible on F1 views; recent changes get "updated" badge.
 8. **Two audiences, one system** — apex serves "where does litigation stand?"; `ops.` serves "show me the receipts." Cross-links without merging the jobs.
 
+9. **Steering is public.** Any surface where the operator instructs the agent must make the public-by-default nature visible at the moment of typing, not merely in a policy page.
+
 ---
 
 ## 8. Explicit non-goals for v1 UX
@@ -272,7 +290,7 @@ Every published item labeled **human-approved** or **agent-approved** on the pub
 Do not design these as launch requirements:
 - Market-derived cert % from Kalshi/Robinhood
 - Ads / ad mediation
-- Rich inter-agent disagreement explorer (flag only)
+- Rich inter-agent disagreement explorer (flag only). Operator↔agent steering (F9) is in v1 scope as of 2026-08-09; the excluded agent-vs-agent explorer is unrelated.
 - Full nine-layer maturity UI for every layer's deep status
 - Timeline / "what's next" calendar (FR-5)
 - Player / party map (FR-6)
@@ -292,6 +310,8 @@ Propose named journeys covering at least:
 3. **Governance skeptic** — arrive via journal or hire-me narrative → `ops.` explainer → open a Run Evidence → see pending Draft labeled not-live → see human-approved publish + spend.
 4. **Operator morning loop** — scheduled Run → pending Draft queue → edit/approve or reject → F1 updates → Evidence shows diff.
 5. **Correction path** — reader spots error on apex or `ops.` → submits correction → sees acknowledgment ID.
+
+6. **Course correction** — operator opens a flawed pending Draft → interrogates its basis → issues a revision instruction → reviews the regenerated Draft and recomputed badge → approves → promotes the correction to standing guidance → confirms on the next Run that the mistake did not recur.
 
 For each journey: entry, happy path, empty/error/pending states, mobile considerations.
 
@@ -357,3 +377,12 @@ A visitor should be able to:
 | Case-law survey (mock data only) | `docs/research/aug926-prediction_markets_case_law_survey.md` | Realistic captions/states — not a UX spec |
 
 If this pack conflicts with the PRD, **the PRD wins**. Architecture stack choices are out of scope for UX unless they change user-visible surfaces (they should not for v1 IA).
+
+
+## Epic 3 corrective states — approved 2026-09-24
+
+Applies to B1/B2 Run and Evidence, B3 pending Drafts, C1 review queue, and the apex masthead. See [the approved proposal](sprint-change-proposal-2026-09-24.md). These states are acceptance requirements for the corrective stories, not a statement of current implementation.
+
+Evaluation in progress is visible and decision controls are unavailable until the server reports eligibility. Completed explicit evals_not_run shows its reason and permits authorized human review. Stale or superseded decisions explain the conflict, offer refresh, and preserve unsent edits. Cost projections distinguish reserved/estimated liability from recorded spend. Pending count shares its source with the pending band and represents loading, error and stale states without asserting zero.
+
+Keep the current screen hierarchy and accessibility conventions. Annotate existing screen states and transitions; no new major screen is required.
