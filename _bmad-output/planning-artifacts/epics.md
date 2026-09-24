@@ -552,9 +552,9 @@ So that the daily loop has a single source of truth before agents or UIs are wir
 
 **Given** the F1 schema from Story 2.1
 **When** migrations add `runs`, `drafts`, `evidence_events` (and related lineage/step tables as needed)
-**Then** a Run has id, timestamps, origin (`scheduled` | `catch-up` | `manual`), status (including empty, failed, budget-stopped, awaiting-approval, published), mode, spend fields
+**Then** a Run has id, timestamps, origin (`scheduled` | `catch-up` | `manual`), status (including empty, failed, stopped, awaiting, published), mode, spend fields. The public chip for `stopped` reads budget-stopped
 **And** a Draft references a Run, proposed F1 entity diffs, full body text, flags (e.g. Tier-2-only), confidence/eval summary, and approval outcome fields
-**And** Evidence events/steps can represent fetching → drafting → guardrails → awaiting-approval → published/rejected/budget-stopped
+**And** Evidence events/steps can represent fetching → drafting → guardrails → awaiting → published/rejected/`run.stopped`
 **And** public read APIs can list Runs and fetch Run detail stubs (UI may still be empty)
 **And** secrets are never stored in public-projected fields
 
@@ -569,7 +569,7 @@ So that spend is controlled, attributable, and visible for Evidence.
 **Given** Worker bindings for AI Gateway / OpenRouter credentials
 **When** agents call `gateway.complete({ role, … })` only (no ad-hoc provider SDKs)
 **Then** versioned role→model config exists for orchestrator/drafter/reviewer/yolo (OpenRouter supported)
-**And** exceeding the per-Run budget stops further paid calls and marks the Run `budget-stopped` (FR19)
+**And** exceeding the per-Run budget stops further paid calls and marks the Run `stopped` with reason `budget_stopped` (FR19). The public chip still reads budget-stopped
 **And** each LLM call records role, provider, model, tokens/spend for Evidence projection (FR24)
 **And** changing role→model is an audited ops event
 **And** keys/credentials never appear in prompts or public artifacts
@@ -655,7 +655,7 @@ So that I can see every harness attempt—including boring and failed ones.
 **Given** Runs in D1 (3.1–3.6)
 **When** I open the `ops.` run log
 **Then** I see recent Runs with id, status chip, timestamp, origin flag, mode, spend, step summary, approval outcome (FR27, UX-DR17)
-**And** statuses include published, awaiting-approval, empty, failed, budget-stopped, catch-up, manual (designed chips from UX-DR6)
+**And** statuses include published, awaiting, empty, failed, stopped, catch-up, manual (the chip for `stopped` reads budget-stopped; designed chips from UX-DR6)
 **And** schedule timezone + next-run time are visible
 **And** each row links to Evidence detail
 **And** no authentication is required
@@ -687,7 +687,7 @@ So that transparency does not confuse drafts with canonical F1 content.
 
 **Acceptance Criteria:**
 
-**Given** Drafts in `awaiting-approval` (or equivalent)
+**Given** Drafts in `awaiting` (or equivalent)
 **When** I view pending Drafts on `ops.`
 **Then** full draft body, proposed F1 diffs, flags, confidence/eval badge, and Evidence links are visible without login (FR15)
 **And** NotLiveDraftBanner / `.draft` treatment is mandatory and conspicuous (UX-DR5)
@@ -738,7 +738,7 @@ So that I can exercise the harness without waiting solely on the noon schedule.
 **Given** DailyRunWorkflow (3.3) and admin Access
 **When** I trigger a manual Run
 **Then** it appears publicly with origin `manual` (FR12)
-**And** I can view live/last Run status (queued / running / awaiting-approval / published / failed / budget-stopped) mirrored on the public log
+**And** I can view live/last Run status (queued / running / awaiting / published / failed / stopped) mirrored on the public log. The chip for `stopped` reads budget-stopped
 **And** destructive replay that would duplicate publishes is blocked or requires explicit “supersede prior publish” confirmation
 **And** supersede events are themselves public Evidence
 **And** routine loop operation does not require redeploy (NFR8)
@@ -759,6 +759,73 @@ So that agent auto-approve is possible without abandoning HITL defaults or publi
 **And** current mode, auto-approve threshold, and recent mode-change audit are public on `ops.` (FR30, UX-DR17)
 **And** agent-approved publishes include validation log on Evidence (FR28)
 **And** non-operator identities cannot change mode
+
+Stories 3.14–3.21 are specified in the 2026-08-09 and 2026-09-17 sprint change proposals. Inserting them into this file remains the open item `epic-3-cc-item-1`. They precede the stories below.
+
+### Story 3.22: Staging ops host (`ops-build`)
+
+As any visitor on staging,
+I want the ops shell on `ops-build.predictionmarketlitigation.com`,
+So that Runs, Evidence, and pending Drafts are readable on a one-level subdomain without taking down the production brochure.
+
+**Acceptance Criteria:**
+
+**Given** worker `pml-build` and D1 `pml-build`
+**When** `npm run deploy:build` runs
+**Then** `ops-build.predictionmarketlitigation.com` is a custom domain on `pml-build` only
+**And** `ops.predictionmarketlitigation.com` remains on worker `pml`
+**And** `https://ops-build.predictionmarketlitigation.com/runs/:id` renders the ops shell (run log and Evidence), not the apex tracker
+**And** on `build.predictionmarketlitigation.com` and `ops-build.predictionmarketlitigation.com`, ops links use `https://ops-build.predictionmarketlitigation.com`
+**And** on `predictionmarketlitigation.com`, ops links stay `https://ops.predictionmarketlitigation.com`
+**And** `npm run deploy` is not run
+
+### Story 3.23: Fail a total CourtListener outage
+
+As a reader on the ops shell,
+I want a day when every docket fetch fails to be a failed Run,
+So that “empty” means the connector looked and found nothing new.
+
+**Acceptance Criteria:**
+
+**Given** a CourtListener poll of one or more dockets
+**When** every docket returns an error
+**Then** the source is `failed: true` and a zero-draft Run finishes `failed`, not `empty`
+**And** Evidence records each docket’s status and a scrubbed response reason, and never the API token
+**And** `itemCount` is the number of new entries, not the number of summary objects
+**And** one docket error beside a docket that returned entries stays non-fatal for the source
+**And** 401, 403, 429, 5xx, network, and timeout still fail the source on the first such response
+
+### Story 3.24: Retire “pipeline is not live” copy
+
+As a reader on the apex tracker,
+I want the page to describe the pipeline that is actually running,
+So that a scheduled Run is not described as a future feature.
+
+**Acceptance Criteria:**
+
+**Given** the apex shell on `build.` or production
+**When** the pending-draft count is zero
+**Then** the masthead says there are no pending drafts and links to the ops shell, and it does not say the pipeline is not live
+**And** the trust paragraphs say published claims are the seeded record and that proposed changes are on the ops shell, labelled not live
+**And** the ops band says the run log is public now, and that drafts appear there labelled not live
+**And** no apex string contains “not live yet” or “once the pipeline ships”
+
+### Story 3.25: Stamp the budget ceiling onto each new Run
+
+As a reader of the run log,
+I want each Run to show the budget ceiling that was in force when it started,
+So that a null budget is not mistaken for “no ceiling.”
+
+**Acceptance Criteria:**
+
+**Given** a gateway config default of 500¢
+**When** a scheduled, catch-up, or manual Run is inserted
+**Then** `runs.budget_cents` is that default
+**And** the public Run list and Run detail show that number
+**And** a later change to the config default does not rewrite Runs that already started
+**And** the gateway still refuses a call when recorded spend reaches the Run’s own ceiling
+
+Existing rows on `pml-build` stay null.
 
 ## Epic 4: Governance Narrative & Invited Check
 

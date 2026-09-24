@@ -8,6 +8,7 @@ import {
   CONNECTOR_TIMEOUT_MS,
   SOURCE_FETCH_TIMEOUT_MS
 } from "../../shared/lib/timeouts";
+import { completeDailyStep } from "../workflow/dailyRunSteps";
 import { runConnector } from "./connector";
 import {
   COURTLISTENER_MAX_PAGES,
@@ -306,7 +307,8 @@ describe("CourtListener connector (story 3.21)", () => {
       docketId: ILLINOIS,
       caseId: ILLINOIS_CASE,
       error: "http_error",
-      status: 404
+      status: 404,
+      detail: '{"results":[]}'
     });
     expect(docketSummary(payload, "73242633")).toMatchObject({
       error: "malformed"
@@ -320,6 +322,43 @@ describe("CourtListener connector (story 3.21)", () => {
         (e) => e.event === "source.skipped"
       )
     ).toBe(false);
+  });
+
+  it("fails the Run when every docket errors, and stores a scrubbed reason", async () => {
+    stubFetch(() => ({
+      status: 400,
+      body: { detail: `query rejected ${TOKEN}` }
+    }));
+    const runId = await newRun();
+    const result = await runConnector(testEnv.DB, runId, SOURCE, check());
+    expect(result).toEqual({ draftCount: 0, failed: true });
+    await completeDailyStep(testEnv.DB, runId, {
+      draftCount: result.draftCount,
+      anyFailure: result.failed
+    });
+
+    const payload = await fetchedPayload(runId);
+    expect(payload).toMatchObject({
+      source: COURTLISTENER_SOURCE_NAME,
+      itemCount: 0
+    });
+    const dockets = payload?.dockets as Array<Record<string, unknown>>;
+    expect(dockets.length).toBeGreaterThan(0);
+    for (const docket of dockets) {
+      expect(docket).toMatchObject({
+        error: "http_error",
+        status: 400,
+        detail: '{"detail":"query rejected [redacted]"}'
+      });
+    }
+    expect(JSON.stringify(payload)).not.toContain(TOKEN);
+    const events = await evidenceRepo.listByRun(testEnv.DB, runId);
+    expect(events.some((e) => e.event === "source.fetched")).toBe(true);
+    expect(events.some((e) => e.event === "run.failed")).toBe(true);
+    expect(events.some((e) => e.event === "run.empty")).toBe(false);
+    expect((await runsRepo.getRunById(testEnv.DB, runId))?.status).toBe(
+      "failed"
+    );
   });
 
   it("drafts each new entry verbatim with a source_published_at baseline before any development exists", async () => {

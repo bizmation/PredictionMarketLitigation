@@ -186,3 +186,9 @@ Ledger entries above are not edited; this block records where each Epic 3 entry 
 - source_spec: `spec-3-20-openrouter-provider-via-ai-gateway.md`
   summary: OpenRouter gateway path `/openrouter/chat/completions` vs `/openrouter/v1/chat/completions` is unverified. Code and tests pin the spec's prose/SDK form; a live 404 on the other form would not be caught.
   evidence: Cloudflare OpenRouter docs (updated 2026-04-20) say replace `https://openrouter.ai/api/v1/chat/completions` with `https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/openrouter/chat/completions`, and the OpenAI SDK `baseURL` is `…/openrouter` (SDK appends `/chat/completions`). The same page's cURL posts to `…/openrouter/v1/chat/completions`. A live POST to both paths settles it. [src/pipeline/ai/gateway.ts:422]
+
+## Deferred from: code review of spec-3-23-fail-a-total-courtlistener-outage.md (2026-09-24)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-23-fail-a-total-courtlistener-outage.md`
+  summary: Error-body scrubbing redacts only the exact API token string.
+  evidence: Unverified whether a CourtListener error body can echo the token URL-encoded, prefixed, or in another case. A captured 400 body that contains the token in a non-exact form would prove a public Evidence leak. [src/pipeline/connectors/courtListener.ts]
