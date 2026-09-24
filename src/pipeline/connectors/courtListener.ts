@@ -279,14 +279,48 @@ class DocketError extends Error {
   }
 }
 
+/** Resolve links against the current page, then check before adding the token. */
+function validatedPageUrl(input: string, base: string): string {
+  let url: URL;
+  try {
+    // Do not accept URL parser repairs of control characters or backslashes.
+    if (
+      !input ||
+      input.includes("\\") ||
+      /%(?![0-9a-f]{2})/i.test(input) ||
+      Array.from(input).some((char) => {
+        const code = char.charCodeAt(0);
+        return code <= 0x20 || code === 0x7f;
+      })
+    ) {
+      throw new Error("invalid URL");
+    }
+    url = new URL(input, base);
+  } catch {
+    throw new DocketError("unsafe_url");
+  }
+  if (
+    url.protocol !== "https:" ||
+    url.origin !== new URL(COURTLISTENER_API_BASE).origin ||
+    url.username !== "" ||
+    url.password !== ""
+  ) {
+    // Never put the rejected URL or parser error into public Evidence.
+    throw new DocketError("unsafe_url");
+  }
+  return url.href;
+}
+
 async function fetchPage(
   fetchImpl: FetchImpl,
   token: string,
-  url: string
+  input: string
 ): Promise<{ entries: DocketEntry[]; next: string | null }> {
+  const url = validatedPageUrl(input, COURTLISTENER_API_BASE);
   let response: Awaited<ReturnType<FetchImpl>>;
   try {
     response = await fetchImpl(url, {
+      redirect: "manual",
       headers: {
         authorization: `Token ${token}`,
         accept: "application/json"
@@ -294,6 +328,11 @@ async function fetchPage(
     });
   } catch (err) {
     throw new DocketError(isTimeoutError(err) ? "timeout" : "network");
+  }
+  // Redirects are unsupported, including same-origin ones. Do not inspect
+  // their body or Location, which may contain credentials or unsafe URLs.
+  if (response.status >= 300 && response.status < 400) {
+    throw new DocketError("redirect", response.status);
   }
   if (!response.ok) {
     let detail: string | undefined;
@@ -318,12 +357,17 @@ async function fetchPage(
   const entries = parseEntries(body);
   if (entries == null) throw new DocketError("malformed");
   const next =
-    body != null &&
-    typeof body === "object" &&
-    typeof (body as { next?: unknown }).next === "string"
-      ? (body as { next: string }).next
+    body != null && typeof body === "object"
+      ? (body as { next?: unknown }).next
       : null;
-  return { entries, next };
+  if (next != null && typeof next !== "string") {
+    throw new DocketError("malformed");
+  }
+  // Validate even if the baseline/page cap later means this link is unused.
+  return {
+    entries,
+    next: next == null ? null : validatedPageUrl(next, url)
+  };
 }
 
 /**

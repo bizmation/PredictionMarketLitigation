@@ -1024,7 +1024,7 @@ So that a null budget is not mistaken for “no ceiling.”
 Existing rows on `pml-build` stay null.
 ### Corrective backlog — approved 2026-09-24
 
-Source: [approved change proposal](sprint-change-proposal-2026-09-24.md). Stories 3.1–3.25 remain complete. Stories 3.26–3.37 are backlog; the epic is in progress and operational acceptance remains rejected pending corrective evidence. Each implementation story requires targeted regression evidence, review, required CI, and a merged PR.
+Source: [approved change proposal](sprint-change-proposal-2026-09-24.md). Stories 3.1–3.25 remain complete. Stories 3.26–3.37 were added as backlog; current lifecycle states are tracked in `sprint-status.yaml`. The epic is in progress and operational acceptance remains rejected pending corrective evidence. Each implementation story requires targeted regression evidence, review, required CI, and a merged PR.
 
 ### Story 3.26: Reconcile canonical Epic 3 planning
 

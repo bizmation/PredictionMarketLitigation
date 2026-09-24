@@ -4,7 +4,7 @@
 
 ## Goal
 
-Close the daily source → Draft → Approval Gate → canonical tracker → public Evidence loop. Patrick operates it with HITL by default and bounded optional autonomy; anyone can inspect its work. Stories 3.1–3.25 are complete, but operational acceptance remains rejected. The corrective backlog reopens the epic until safety regressions and a real governed staging publication demonstrate acceptance.
+Close the daily source → Draft → Approval Gate → canonical tracker → public Evidence loop. Patrick operates it with HITL by default and bounded optional autonomy; anyone can inspect its work. Stories 3.1–3.27 are complete, including canonical planning reconciliation and connector credential boundaries, but operational acceptance remains rejected. The corrective backlog reopens the epic until safety regressions and a real governed staging publication demonstrate acceptance.
 
 ## Stories
 
@@ -79,5 +79,5 @@ Close the daily source → Draft → Approval Gate → canonical tracker → pub
 
 - Epic 2 supplies canonical F1 entities. Foundation, gateway, orchestration, evaluation, and gate underpin public/operator surfaces. Approved steering and hardening stories 3.14–3.21 now have canonical entries in epics.md; F9/FR46–50 and UX B8/C4 are reconciled by 3.26.
 - Historical staging sequence was 3.23–3.25 before the 3.22 deployment; all are complete. The September 24 corrective plan controls the next staging deployment. R13 delayed-arrival policy and R14 failed-revision recovery remain deferred.
-- Corrective order: 3.26 planning; 3.27 connector boundary; 3.28 readiness → 3.29 atomic publication; 3.30 bounded cost → 3.31 reservation/accounting; 3.28 + 3.31 → 3.32 replay/config; 3.33 admission. These feed 3.34 executing-Workflow coverage; 3.28 also enables 3.35 live pending count.
+- Corrective order: 3.26 planning is complete; 3.27 connector boundary is complete; next is 3.28 readiness → 3.29 atomic publication; 3.30 bounded cost → 3.31 reservation/accounting; 3.28 + 3.31 → 3.32 replay/config; 3.33 admission. These feed 3.34 executing-Workflow coverage; 3.28 also enables 3.35 live pending count.
 - All 3.26–3.35 must merge with required CI before 3.36 staging gateway verification. Then 3.37 proves material publication and reruns the retrospective. Reuse one qualifying Run rather than duplicate paid work. Epic 4 waits for 3.37 and accepted Epic 3 evidence; planning completion closes no runtime acceptance gap.
