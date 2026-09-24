@@ -280,7 +280,7 @@ describe("ApexShell trust furniture and ops handoff (story 2.10)", () => {
     expect(html).not.toContain("pending right now");
     expect(html).not.toContain("two pending");
     expect(html).not.toContain("Approval Gate cleared");
-    expect(opsSection).toContain("The run log is on");
+    expect(opsSection).toContain("The run log is public on");
     expect(opsSection).toContain("will live there too");
     expect(opsSection).not.toContain("will all live on");
   });

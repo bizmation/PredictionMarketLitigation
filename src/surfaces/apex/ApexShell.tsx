@@ -190,14 +190,12 @@ export function ApexShell({ dev = false }: ApexShellProps) {
                 </p>
                 <p>
                   <strong>Built by AI, approved by a human.</strong> Every claim
-                  on this page is a seeded, human-curated record. The autonomous
-                  pipeline and its Approval Gate ship in Epic 3 and are not live
-                  yet.
+                  on this page is a seeded, human-curated record. Proposed
+                  changes pass through the Approval Gate before publication.
                 </p>
                 <p>
-                  <strong>Drafts are not here.</strong> Proposed changes will
-                  live in full on <a href={opsHref}>ops.</a>, labelled not live,
-                  once the pipeline ships.
+                  <strong>Drafts are not here.</strong> Proposed changes appear
+                  in full on <a href={opsHref}>ops.</a>, labelled not live.
                 </p>
               </div>
               <div className="trust-ctas">
@@ -251,12 +249,10 @@ export function ApexShell({ dev = false }: ApexShellProps) {
         >
           <div className="opslink">
             <p>
-              The run log is on <a href={opsHref}>ops.</a> — no login. Full
-              evidence for every run, pending drafts in full text, the current
-              approval mode and its audit trail, and the nine-layer governance
-              explainer will live there too. The daily pipeline is not live yet;
-              when it is, every run and draft will be published there, labelled
-              not live.
+              The run log is public on <a href={opsHref}>ops.</a> — no login.
+              Evidence for every run, pending drafts in full text labelled not
+              live, and the current approval mode and its audit trail are there
+              now. The nine-layer governance explainer will live there too.
             </p>
             <a className="btn btn-primary" href={opsHref}>
               Open ops. ↗
