@@ -24,6 +24,9 @@ import {
  * Failure is typed: a missing token, a 401/403/429/5xx, a network error or
  * a per-request timeout throws `SourceUnavailableError`, which
  * `runConnector` records as `source.skipped { reason }` with `failed: true`.
+ * An isolated 4xx or malformed body stays on that docket. When every polled
+ * docket errors, the summary is still `source.fetched` and the connector
+ * returns `failed: true` (story 3.23).
  * No retries, no backoff, no connector state table — newness is decided
  * against `docket_events` and prior Drafts, and the Draft id embeds the
  * CourtListener entry id so a re-Run is idempotent.
@@ -73,6 +76,17 @@ export function reasonForStatus(status: number): string {
   if (status === 429) return "http_429";
   if (status >= 500) return "http_5xx";
   return "http_error";
+}
+
+const RESPONSE_DETAIL_MAX = 180;
+
+/** Collapse whitespace, drop the API token, and cap length for Evidence. */
+export function scrubResponseDetail(text: string, token: string): string {
+  const redacted = token ? text.split(token).join("[redacted]") : text;
+  const collapsed = redacted.replace(/\s+/g, " ").trim();
+  return collapsed.length > RESPONSE_DETAIL_MAX
+    ? collapsed.slice(0, RESPONSE_DETAIL_MAX)
+    : collapsed;
 }
 
 const EntrySchema = z.object({
@@ -151,7 +165,7 @@ export type DocketEventRecord = {
 export type FetchImpl = (
   input: string,
   init: RequestInit
-) => Promise<Pick<Response, "status" | "ok" | "json">>;
+) => Promise<Pick<Response, "status" | "ok" | "json" | "text">>;
 
 export interface CourtListenerCheckDeps {
   db: Db;
@@ -254,12 +268,14 @@ const SOURCE_LEVEL_REASONS = new Set([
 class DocketError extends Error {
   readonly reason: string;
   readonly status: number | undefined;
+  readonly detail: string | undefined;
 
-  constructor(reason: string, status?: number) {
+  constructor(reason: string, status?: number, detail?: string) {
     super(`docket ${reason}`);
     this.name = "DocketError";
     this.reason = reason;
     this.status = status;
+    this.detail = detail;
   }
 }
 
@@ -280,7 +296,18 @@ async function fetchPage(
     throw new DocketError(isTimeoutError(err) ? "timeout" : "network");
   }
   if (!response.ok) {
-    throw new DocketError(reasonForStatus(response.status), response.status);
+    let detail: string | undefined;
+    try {
+      const scrubbed = scrubResponseDetail(await response.text(), token);
+      if (scrubbed) detail = scrubbed;
+    } catch {
+      detail = undefined;
+    }
+    throw new DocketError(
+      reasonForStatus(response.status),
+      response.status,
+      detail
+    );
   }
   let body: unknown;
   try {
@@ -514,7 +541,8 @@ export function createCourtListenerCheck(
             if (SOURCE_LEVEL_REASONS.has(err.reason)) {
               throw new SourceUnavailableError(err.reason, {
                 docketId,
-                ...(err.status == null ? {} : { status: err.status })
+                ...(err.status == null ? {} : { status: err.status }),
+                ...(err.detail ? { detail: err.detail } : {})
               });
             }
             return {
@@ -524,7 +552,8 @@ export function createCourtListenerCheck(
                 docketId,
                 caseId: row.case_id,
                 error: err.reason,
-                ...(err.status == null ? {} : { status: err.status })
+                ...(err.status == null ? {} : { status: err.status }),
+                ...(err.detail ? { detail: err.detail } : {})
               }
             } satisfies DocketOutcome;
           }
@@ -533,9 +562,13 @@ export function createCourtListenerCheck(
       })
     );
 
+    const everyDocketErrored =
+      outcomes.length > 0 &&
+      outcomes.every((outcome) => typeof outcome.summary.error === "string");
     return [
       {
         entities: outcomes.flatMap((outcome) => outcome.entities),
+        ...(everyDocketErrored ? { failed: true } : {}),
         fetched: {
           docketIds: outcomes.map((outcome) => outcome.docketId),
           fetchedAt,

@@ -31,6 +31,12 @@ export interface SourceItem {
    * `source.fetched` — the source was polled and everything was seen.
    */
   fetched?: Record<string, unknown>;
+  /**
+   * The source was polled and the fetch still failed. `runConnector` writes
+   * `source.fetched` and returns `failed: true`, so a zero-draft Run finishes
+   * `failed` instead of `empty`.
+   */
+  failed?: boolean;
 }
 
 /**
@@ -165,10 +171,14 @@ export async function runConnector(
   }
 
   const fetched: Record<string, unknown> = {};
+  let entryCount = 0;
+  let sourceFailed = false;
   for (const item of sourceItems) {
     if (item?.fetched != null && typeof item.fetched === "object") {
       Object.assign(fetched, item.fetched);
     }
+    if (Array.isArray(item?.entities)) entryCount += item.entities.length;
+    if (item?.failed === true) sourceFailed = true;
   }
   await append(db, {
     id: evidenceId(runId, "source.fetched", source.name),
@@ -178,7 +188,7 @@ export async function runConnector(
       ...fetched,
       source: source.name,
       tier: source.tier,
-      itemCount: sourceItems.length
+      itemCount: entryCount
     },
     createdAt: now
   });
@@ -219,5 +229,5 @@ export async function runConnector(
       draftCount += 1;
     }
   }
-  return { draftCount, failed: false };
+  return { draftCount, failed: sourceFailed };
 }

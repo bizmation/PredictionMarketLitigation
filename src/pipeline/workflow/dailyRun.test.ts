@@ -492,7 +492,12 @@ describe("afterPackaging (story 3.5)", () => {
         costCents: 50
       }
     ]);
-    await afterPackaging(testEnv.DB, id, packaged, deps(provider));
+    await afterPackaging(testEnv.DB, id, packaged, {
+      ...deps(provider),
+      // Wall-clock `startedAt` must stay ≤ the stop timestamp. The shared
+      // `NOW` is 2026-09-22, which is already behind a Run inserted today.
+      now: () => new Date(Date.now() + 1000).toISOString()
+    });
     expect(provider.count()).toBe(1);
     expect((await runsRepo.getRunById(testEnv.DB, id))?.status).toBe("stopped");
     const evidence = await evidenceRepo.listByRun(testEnv.DB, id);

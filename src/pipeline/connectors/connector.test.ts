@@ -303,7 +303,7 @@ describe("typed source skips (story 3.21)", () => {
       {
         source: "CourtListener",
         tier: "tier1",
-        itemCount: 1,
+        itemCount: 0,
         docketIds: ["73375343"],
         fetchedAt: NOW,
         dockets: [{ docketId: "73375343", latestEntryDate: "2026-09-15" }]
