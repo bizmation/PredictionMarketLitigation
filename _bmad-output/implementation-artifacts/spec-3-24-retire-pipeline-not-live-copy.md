@@ -28,3 +28,5 @@ context: []
 
 - `medium` — **defer:** The masthead asserts zero pending drafts without reading a count. Confirmed in `MastheadProps`, its `ApexShell` caller, and `ApexKpisSchema`; the same unconditional assertion exists at the baseline revision. Ops reads `/api/drafts` independently. This is existing data-wiring debt outside the approved copy-only story; record a follow-up rather than replacing the required zero-state sentence with neutral text.
 - `false` — **reject:** The seed wording leaves the publication boundary implicit. The revised trust paragraphs explicitly say proposed changes pass through the Approval Gate before publication and appear on ops. labelled not live. “Seeded, human-curated record” also preserves Story 3.24's requested description; a broader terminology rewrite is not needed for this change.
+
+- PR CI follow-up: the full suite exposed one shell assertion pinned to “The run log is on”. Updated the existing assertion for the intentional “The run log is public on” wording; the failed CI run passed the other 1,006 tests (6 skipped).
