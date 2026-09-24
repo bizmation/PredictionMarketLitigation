@@ -92,10 +92,10 @@ development_status:
   3-20-openrouter-provider-via-ai-gateway: done
   3-21-first-live-connector: done
   # Added by sprint-change-proposal-2026-09-23 (staging ops host)
-  3-22-staging-ops-host: backlog
+  3-22-staging-ops-host: review
   3-23-fail-a-total-courtlistener-outage: review
-  3-24-retire-pipeline-not-live-copy: review
-  3-25-stamp-run-budget-ceiling: review
+  3-24-retire-pipeline-not-live-copy: done
+  3-25-stamp-run-budget-ceiling: done
   epic-3-retrospective: done
 
   # Epic 4: Governance Narrative & Invited Check

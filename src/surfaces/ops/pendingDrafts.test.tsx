@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { formatEtDateTime } from "../../shared/lib/dates";
 import type { DraftRecord } from "../../shared/schemas/run";
@@ -283,4 +283,27 @@ describe("PendingDrafts", () => {
     expect(html.split(NOT_LIVE_LABEL).length - 1).toBe(1);
     expect(html).toContain("<h3>states · st-ma</h3>");
   });
+});
+
+it.each([
+  "build.predictionmarketlitigation.com",
+  "ops-build.predictionmarketlitigation.com"
+])("keeps rendered Evidence links on staging from %s", (hostname) => {
+  vi.stubGlobal("window", { location: new URL(`https://${hostname}/`) });
+  try {
+    const html = renderToStaticMarkup(
+      <PendingDrafts drafts={[draft(), REJECTED]} />
+    );
+    expect(html).toContain(
+      'href="https://ops-build.predictionmarketlitigation.com/runs/run-20260908-aaa1"'
+    );
+    expect(html).toContain(
+      'href="https://ops-build.predictionmarketlitigation.com/runs/run-20260908-bbb2"'
+    );
+    expect(html).not.toContain(
+      'href="https://ops.predictionmarketlitigation.com'
+    );
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });

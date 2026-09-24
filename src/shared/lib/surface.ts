@@ -11,14 +11,17 @@
  * hand-rolled `/runs/:runId` Evidence page (Story 3.8), so nothing here
  * needs a router library.
  *
- * Pure by design: no React, no DOM, no imports. Unit-tested in the workers
- * project.
+ * No React or imports. Resolution is pure; links default to the browser
+ * hostname when available and production when rendered outside a browser.
  */
 
 export type Surface = "apex" | "ops" | "admin";
 
 const APEX_ORIGIN = "https://predictionmarketlitigation.com";
 const OPS_ORIGIN = "https://ops.predictionmarketlitigation.com";
+const BUILD_HOST = "build.predictionmarketlitigation.com";
+const OPS_BUILD_HOST = "ops-build.predictionmarketlitigation.com";
+const OPS_BUILD_ORIGIN = `https://${OPS_BUILD_HOST}`;
 const ADMIN_PATH = "/admin";
 
 /** `/admin` and `/admin/...`, but never `/administrivia`. */
@@ -27,7 +30,7 @@ function isAdminPath(pathname: string): boolean {
 }
 
 function isOpsHost(hostname: string): boolean {
-  return hostname.startsWith("ops.");
+  return hostname === OPS_BUILD_HOST || hostname.startsWith("ops.");
 }
 
 function asSurface(value: string | null): Surface | null {
@@ -76,6 +79,8 @@ type HrefOptions = {
   dev?: boolean;
   /** Path within the target surface, e.g. `/runs`. */
   path?: string;
+  /** Defaults to the current browser host; explicit input supports pure callers. */
+  hostname?: string;
 };
 
 /**
@@ -89,7 +94,11 @@ type HrefOptions = {
  */
 export function surfaceHref(
   target: Surface,
-  { dev = false, path = "" }: HrefOptions = {}
+  {
+    dev = false,
+    path = "",
+    hostname = typeof window === "undefined" ? "" : window.location.hostname
+  }: HrefOptions = {}
 ): string {
   const normalizedPath = path && !path.startsWith("/") ? `/${path}` : path;
 
@@ -100,5 +109,9 @@ export function surfaceHref(
     return `${base}${base.includes("?") ? "&" : "?"}surface=${target}`;
   }
 
-  return `${target === "ops" ? OPS_ORIGIN : APEX_ORIGIN}${normalizedPath}`;
+  const opsOrigin =
+    hostname === BUILD_HOST || hostname === OPS_BUILD_HOST
+      ? OPS_BUILD_ORIGIN
+      : OPS_ORIGIN;
+  return `${target === "ops" ? opsOrigin : APEX_ORIGIN}${normalizedPath}`;
 }

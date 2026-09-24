@@ -1,5 +1,54 @@
 # Deploy runbook
 
+## Current staging hosts (story 3.22 — 2026-09-24)
+
+The current staging configuration serves the tracker at
+`https://build.predictionmarketlitigation.com` and the public ops shell at
+`https://ops-build.predictionmarketlitigation.com`, both on the existing
+`pml-build` Worker and D1. Ops links from either staging hostname use
+`ops-build`, including Run rows, draft Evidence, navigation, and admin Evidence links.
+The production apex and `ops.predictionmarketlitigation.com` remain the
+brochure on `pml` until the separately authorized cutover.
+
+Deploy only with `npm run deploy:build` (build → test → staging migrations →
+staging deploy). Do not run `npm run deploy`, move production domains, create a
+Worker/database, change Access/secrets, start a paid Run, or approve/publish a
+Draft as part of this verification. `/admin` retains precedence on both staging
+hosts. The admin SPA shell is public; administrative data and actions under
+`/api/admin/*` are Worker-gated. Development query overrides remain dev-only.
+
+**Story 3.22 deployment log — verified 2026-09-24.** `npm run check`,
+`npm run build`, and all 1,050 tests (48 files) passed. `npm run deploy:build`
+repeated the build/test gate, reported no migrations to apply, and deployed
+`pml-build` version `98ed45b4-f131-4d40-b5b7-944138869779` with both staging
+custom domains. Cloudflare's domain API confirmed `build` and `ops-build` on
+`pml-build`, and production apex/`ops` still on `pml`.
+
+Rendered browser checks followed “Open ops.” from
+`https://build.predictionmarketlitigation.com` to
+`https://ops-build.predictionmarketlitigation.com/`. The ops page displayed the
+run log and “No drafts awaiting approval” band. Following `run-20260924-0000`
+opened `https://ops-build.predictionmarketlitigation.com/runs/run-20260924-0000`
+and loaded its six steps, provenance, and legacy “Not recorded” budget ceiling.
+Its Run log return link stayed on `ops-build`. No propagation delay blocked
+these checks. Nonempty draft links were verified with rendered test fixtures;
+there were no live pending Drafts to inspect.
+
+Anonymous staging checks returned `200` for `GET /admin` and
+`GET /admin/queue` (public SPA shell), and `403` for `GET /api/admin/queue`
+(Worker-gated administrative data). These checks do not establish an edge
+Access gate on the staging admin shell.
+
+Before/after SHA-256 hashes of both production brochure responses matched:
+`bffcd5c604008e866cc2d71a0b9aa74478ba024167898f45fc910f3f0d41b270`.
+Only the staging deploy command ran. No Run was triggered or Draft approved.
+These checks establish staging navigation and visibility, not a successful
+new paid pipeline Run or Epic 3 retrospective acceptance.
+
+The older dated sections below are retained as history. The `/preview` proposal
+and original single-environment setup do not supersede the current staging host
+matrix or authorize a production deployment.
+
 ## PROJECT RULE — everything in-progress ships under `/preview/*`
 
 **Adopted 2026-08-11 (Patrick). Applies until the stack is built; it is not a permanent architecture.**
@@ -223,7 +272,7 @@ These live in `.env` (gitignored via `.gitignore:248`; **this repo is public**).
 | Environment | Worker | D1 | Domains | Deploy |
 |---|---|---|---|---|
 | local | — (miniflare, `--local`) | `pml` | `localhost:5173` | `npm run dev` |
-| **build (staging)** | `pml-build` | `pml-build` | `build.predictionmarketlitigation.com` | `npm run deploy:build` |
+| **build (staging)** | `pml-build` | `pml-build` | `build.predictionmarketlitigation.com` (tracker), `ops-build.predictionmarketlitigation.com` (ops) | `npm run deploy:build` |
 | production | `pml` | `pml` | apex + `ops.` | `npm run deploy` |
 
 ---
