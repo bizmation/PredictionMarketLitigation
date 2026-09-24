@@ -59,7 +59,7 @@ export function Masthead({
               <dt>Pending drafts</dt>
               <dd>
                 <a href={opsHref} rel="noopener">
-                  No pending drafts yet — the daily pipeline is not live
+                  No pending drafts — see the run log on ops.
                 </a>
               </dd>
               <dt>Approval gate</dt>

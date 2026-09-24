@@ -192,3 +192,7 @@ Ledger entries above are not edited; this block records where each Epic 3 entry 
 - source_spec: `_bmad-output/implementation-artifacts/spec-3-23-fail-a-total-courtlistener-outage.md`
   summary: Error-body scrubbing redacts only the exact API token string.
   evidence: Unverified whether a CourtListener error body can echo the token URL-encoded, prefixed, or in another case. A captured 400 body that contains the token in a non-exact form would prove a public Evidence leak. [src/pipeline/connectors/courtListener.ts]
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-24-retire-pipeline-not-live-copy.md`
+  summary: Wire the apex pending-draft masthead to verified live data so it does not assert zero when drafts exist.
+  evidence: MastheadProps and ApexKpisSchema have no pending count; ApexShell passes only KPIs and developments. The unconditional zero assertion predates Story 3.24, while the ops PendingDrafts component independently reads /api/drafts. Follow-up should distinguish loading/error from a verified zero.
