@@ -1,5 +1,5 @@
 # generated: 2026-08-09
-# last_updated: 09-22-2026 10:45
+# last_updated: 09-23-2026 12:12
 # project: PML
 # project_key: NOKEY
 # tracking_system: file-system
@@ -36,7 +36,7 @@
 # - Source epics: _bmad-output/planning-artifacts/epics.md (35 stories, readiness punch list applied 2026-08-09)
 
 generated: 2026-08-09
-last_updated: 09-22-2026 07:14
+last_updated: 09-22-2026 17:29
 project: PML
 project_key: NOKEY
 tracking_system: file-system
@@ -90,8 +90,13 @@ development_status:
   # Added by sprint-change-proposal-2026-09-17 (Epic 3 hardening + deferred closure)
   3-19-epic-3-hardening-timeouts-gateway-seed: done
   3-20-openrouter-provider-via-ai-gateway: done
-  3-21-first-live-connector: review
-  epic-3-retrospective: optional
+  3-21-first-live-connector: done
+  # Added by sprint-change-proposal-2026-09-23 (staging ops host)
+  3-22-staging-ops-host: backlog
+  3-23-fail-a-total-courtlistener-outage: backlog
+  3-24-retire-pipeline-not-live-copy: backlog
+  3-25-stamp-run-budget-ceiling: backlog
+  epic-3-retrospective: done
 
   # Epic 4: Governance Narrative & Invited Check
   epic-4: backlog
@@ -145,8 +150,8 @@ action_items:
     epic: 2
     action: "Decide click-test harness (jsdom/testing-library vs Playwright e2e) then
       cover the 7 fetch hooks + URL selection hook — decided 2026-09-11 (story 3.8
-      follow-up review): jsdom + @testing-library/react; harness landed with the
-      EvidenceDetail mount test, remaining hooks to follow"
+      follow-up review): jsdom + @testing-library/react; harness landed with the EvidenceDetail
+      mount test, remaining hooks to follow"
     owner: "Patrick decides, agent implements"
     status: open
     ref: "_bmad-output/implementation-artifacts/epic-2-retro-2026-09-04.md"
@@ -183,8 +188,49 @@ action_items:
     note: "Norm followed for 3.14–3.18; closed as a working agreement (2026-09-17)"
   - id: "epic-3-cc-item-1-backfill-epics-md-stories-3-14-to-3-21"
     epic: 3
-    action: "Insert stories 3.14–3.21 into epics.md (currently only in the 2026-08-09 and
-      2026-09-17 sprint change proposals)"
+    action: "Insert stories 3.14–3.21 into epics.md (currently only in the 2026-08-09
+      and 2026-09-17 sprint change proposals)"
     owner: "agent"
     status: open
     ref: "_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-17.md"
+  - id: "epic-3-retro-item-12-fail-a-courtlistener-poll-when-every-doc"
+    epic: 3
+    action: "Fail a CourtListener poll when every docket errors, and store a scrubbed
+      response reason, so the Run is failed rather than empty"
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
+  - id: "epic-3-retro-item-13-retire-apex-copy-that-says-the-daily-pip"
+    epic: 3
+    action: "Retire apex copy that says the daily pipeline is not live, and drive
+      the pending-drafts line from the draft API"
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
+  - id: "epic-3-retro-item-14-make-the-ops-shell-reachable-on-staging"
+    epic: 3
+    action: "Make the ops shell reachable on staging, then open the run log, one evidence
+      page, and the pending-drafts band there"
+    owner: "agent + Patrick"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
+  - id: "epic-3-retro-item-15-stamp-the-configured-budget-ceiling-onto"
+    epic: 3
+    action: "Stamp the configured budget ceiling onto each new Run so public budgetCents
+      is not null"
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
+  - id: "epic-3-retro-item-16-reconcile-epics-md-status-words-to-await"
+    epic: 3
+    action: "Reconcile epics.md status words to awaiting / stopped / run.stopped"
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
+  - id: "epic-3-retro-item-17-deploy-current-main-to-pml-build-after-t"
+    epic: 3
+    action: "Deploy current main to pml-build after the connector fix, record the
+      next Run, and confirm which OpenRouter gateway path returns 200"
+    owner: "agent + Patrick"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
