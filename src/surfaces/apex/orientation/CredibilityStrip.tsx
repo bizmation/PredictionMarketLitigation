@@ -5,8 +5,7 @@ type CredibilityStripProps = {
 };
 
 /**
- * Numbered claims + founder card + repo. Present-tense pipeline claims are
- * rewritten to what is actually live (sourced seed; ops. shell exists; no loop).
+ * Numbered claims + founder card + repo, with links to the public governance record.
  */
 export function CredibilityStrip({ opsHref }: CredibilityStripProps) {
   return (
@@ -39,7 +38,8 @@ export function CredibilityStrip({ opsHref }: CredibilityStripProps) {
               <a href={opsHref} rel="noopener">
                 ops.
               </a>{" "}
-              The daily pipeline is not live yet; this page is the sourced seed.
+              This page is the sourced seed; proposed changes appear on ops.,
+              labelled not live.
             </span>
           </div>
         </div>
