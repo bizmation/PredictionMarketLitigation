@@ -3,6 +3,7 @@ import {
   type WorkflowEvent,
   type WorkflowStep
 } from "cloudflare:workers";
+import { defaultBudgetCents } from "../config/modelRoles";
 import type { Db } from "../../shared/db/client";
 import * as modeRepo from "../../shared/db/repos/modeRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
@@ -150,6 +151,7 @@ export async function startOperatorRun(
     existing.map((run) => run.id)
   );
   const live = await modeRepo.get(db);
+  const budgetCents = await defaultBudgetCents(db);
   let run: RunSummary;
   try {
     run = await runsRepo.insertRun(db, {
@@ -161,7 +163,7 @@ export async function startOperatorRun(
       completedAt: null,
       spendCents: 0,
       spendCurrency: "USD",
-      budgetCents: null,
+      budgetCents,
       scheduledFor
     });
   } catch {

@@ -1,5 +1,5 @@
 # generated: 2026-08-09
-# last_updated: 09-24-2026 12:23
+# last_updated: 09-24-2026 12:41
 # project: PML
 # project_key: NOKEY
 # tracking_system: file-system
@@ -36,7 +36,7 @@
 # - Source epics: _bmad-output/planning-artifacts/epics.md (35 stories, readiness punch list applied 2026-08-09)
 
 generated: 2026-08-09
-last_updated: 09-24-2026 12:23
+last_updated: 09-24-2026 12:41
 project: PML
 project_key: NOKEY
 tracking_system: file-system
@@ -95,7 +95,7 @@ development_status:
   3-22-staging-ops-host: backlog
   3-23-fail-a-total-courtlistener-outage: review
   3-24-retire-pipeline-not-live-copy: review
-  3-25-stamp-run-budget-ceiling: backlog
+  3-25-stamp-run-budget-ceiling: review
   epic-3-retrospective: done
 
   # Epic 4: Governance Narrative & Invited Check

@@ -696,6 +696,14 @@ function EvidenceBody({ detail }: { detail: RunDetail }) {
             <span>Spend</span>
           </div>
           <div>
+            <b>
+              {detail.budgetCents === null
+                ? "Not recorded"
+                : formatUsdCents(detail.budgetCents)}
+            </b>
+            <span>Budget ceiling</span>
+          </div>
+          <div>
             <b className="num">{tokenSum(detail)}</b>
             <span>Tokens</span>
           </div>

@@ -131,7 +131,7 @@ describe("migration 0017 gateway seed (story 3.19)", () => {
     expect(provider.models()).toEqual([WORKERS_AI_MODEL, WORKERS_AI_MODEL]);
     const run = await runsRepo.getRunById(testEnv.DB, id);
     expect(run?.status).toBe("awaiting");
-    expect(run?.budgetCents).toBeNull();
+    expect(run?.budgetCents).toBe(500);
 
     const drafts = await draftsRepo.listByRun(testEnv.DB, id);
     expect(drafts).toHaveLength(1);

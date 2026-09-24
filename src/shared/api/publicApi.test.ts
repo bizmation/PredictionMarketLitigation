@@ -1,6 +1,8 @@
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
+import { ensureRun } from "../../pipeline/workflow/dailyRunSteps";
+import { startOperatorRun } from "../../pipeline/workflow/dailyRun";
 import { append } from "../../pipeline/projector/evidence";
 import { submitTurn } from "../../pipeline/steering/submitTurn";
 import type { LlmProvider } from "../../pipeline/ai/gateway";
@@ -1896,4 +1898,65 @@ describe("public run detail steering redaction (story 3.14)", () => {
     expect(body.evidence.some((e) => e.event === "steering.turn")).toBe(false);
     expect("steeringTurns" in body).toBe(false);
   });
+});
+
+it("exposes production-created ceilings for every origin through public list and detail", async () => {
+  const saved = await testEnv.DB.prepare(
+    "SELECT default_budget_cents AS budget FROM gateway_config WHERE id = 'current'"
+  ).first<{ budget: number | null }>();
+  let day = 0;
+  try {
+    for (const budget of [500, 0, null]) {
+      await testEnv.DB.prepare(
+        "UPDATE gateway_config SET default_budget_cents = ? WHERE id = 'current'"
+      )
+        .bind(budget)
+        .run();
+      for (const origin of ["scheduled", "manual", "catch-up"] as const) {
+        const date = `2027-02-${String(++day).padStart(2, "0")}`;
+        let id: string;
+        if (origin === "scheduled")
+          id = await ensureRun(testEnv.DB, origin, date);
+        else {
+          const result = await startOperatorRun(
+            testEnv.DB,
+            { create: async () => ({}) },
+            { origin, scheduledFor: date, now: new Date() }
+          );
+          if (result.status !== "started") throw new Error(result.status);
+          id = result.run.id;
+        }
+        await testEnv.DB.prepare(
+          "UPDATE gateway_config SET default_budget_cents = 900 WHERE id = 'current'"
+        ).run();
+        const listResponse = await worker.fetch!(get("/api/runs"), testEnv);
+        expect(listResponse.status).toBe(200);
+        const list = (await listResponse.json()) as {
+          items: Array<{ id: string; budgetCents: number | null }>;
+        };
+        expect(list.items.find((item) => item.id === id)?.budgetCents).toBe(
+          budget
+        );
+        const detailResponse = await worker.fetch!(
+          get(`/api/runs/${id}`),
+          testEnv
+        );
+        expect(detailResponse.status).toBe(200);
+        expect(
+          RunDetailSchema.parse(await detailResponse.json()).budgetCents
+        ).toBe(budget);
+        await testEnv.DB.prepare(
+          "UPDATE gateway_config SET default_budget_cents = ? WHERE id = 'current'"
+        )
+          .bind(budget)
+          .run();
+      }
+    }
+  } finally {
+    await testEnv.DB.prepare(
+      "UPDATE gateway_config SET default_budget_cents = ? WHERE id = 'current'"
+    )
+      .bind(saved?.budget ?? null)
+      .run();
+  }
 });
