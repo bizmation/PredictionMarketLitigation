@@ -1,5 +1,5 @@
 # generated: 2026-08-09
-# last_updated: 09-24-2026 14:40
+# last_updated: 09-24-2026 14:42
 # project: PML
 # project_key: NOKEY
 # tracking_system: file-system
@@ -36,7 +36,7 @@
 # - Source epics: _bmad-output/planning-artifacts/epics.md; 3.14–3.21 backfill tracked in 3.26.
 
 generated: 2026-08-09
-last_updated: 09-24-2026 14:40
+last_updated: 09-24-2026 14:42
 project: PML
 project_key: NOKEY
 tracking_system: file-system
@@ -99,7 +99,7 @@ development_status:
   3-25-stamp-run-budget-ceiling: done
   # Added by approved sprint-change-proposal-2026-09-24
   3-26-reconcile-canonical-epic-3-planning: done
-  3-27-constrain-connector-pagination-credentials: review
+  3-27-constrain-connector-pagination-credentials: done
   3-28-enforce-evaluation-readiness-and-sealed-drafts: backlog
   3-29-make-publication-and-run-finalization-atomic: backlog
   3-30-define-and-enforce-bounded-provider-cost: backlog
@@ -301,8 +301,9 @@ action_items:
     action: "Restrict CourtListener pagination destinations to the intended HTTPS
       API origin before forwarding authorization (R12)."
     owner: "agent"
-    status: open
+    status: done
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
+    note: "Closed by story 3.27 / PR #43: exact HTTPS origin validation, safe relative pagination, fail-closed redirects and scrubbed Evidence; 57 focused connector tests and required full CI run 36042880802 passed. Deployment remains story 3.36."
   - id: "epic-3-retro-executing-workflow-regression"
     # Approved corrective stories: 3.34; close only on linked evidence.
     epic: 3

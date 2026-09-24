@@ -44,3 +44,5 @@ context: []
 - Initial full local suite: 48 files / 1,078 tests passed.
 - After review patches: connector suite 57 tests passed; npm run check passed; git diff --check passed.
 - Required PR CI runs the entire suite again on the final patch. Tests use deterministic upstream fixtures and Miniflare D1, not live CourtListener calls. Redirect tests verify the manual RequestInit through the real timeout wrapper; simulated transport models follow-mode forwarding, not a claim of live network observation.
+
+- Required CI run 36042880802 passed formatting, lint, typecheck and the full suite on reviewed implementation commit 379d508b27b2c2433a8650655ca600ecb2dde345. PR #43 carries completion metadata; the final commit also requires CI before merge. Seven Epic 3 corrective actions remain.
