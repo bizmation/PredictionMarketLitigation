@@ -120,6 +120,18 @@ FR44: Reader cert poll — thumbs up/down on cert plus OT term picker; results o
 
 FR45: Moderated feedback → GitHub issue — reader correction/feedback forms create a durable **pending submission** (not a public GitHub issue yet); operator reviews in admin and **approves or rejects** creating the GitHub issue; on approve, system opens the issue in the public repo and links the issue URL + number back to the submission/tracking ID; on reject, submission is closed without a GitHub issue (optional public/operator reason); spam/abuse can be rejected without filing. `[v1 — amends UX handoff direct-open behavior]`
 
+#### Operator steering functional requirements (added 2026-08-09 — sprint change proposal)
+
+FR46: Draft interrogation — conversational, grounded, read-only questioning of a pending Draft's basis; cites Run Evidence; "not recorded" over reconstruction. `[v1]`
+
+FR47: Conversational Draft revision — natural-language revision instructions regenerate the Draft under the same Run ID; original + all revisions preserved and publicly diffable; revised Drafts re-run guardrails and eval; writes Drafts only. `[v1]`
+
+FR48: Conversational pipeline steering — versioned, audited, revertible source/pipeline config changes by instruction; YOLO threshold, budget ceiling, mode, guardrails, and action-policy allowlist explicitly NOT chat-reachable. `[v1]`
+
+FR49: Standing corrections / durable guidance — promote corrections to versioned, revocable, publicly readable standing guidance; authorized context under FR23; advisory to drafting only; capped and reviewable. `[v1]`
+
+FR50: Steering transparency & containment — turns public by default, published at turn completion immediately (no as-you-type streaming, no publish step, no curation gap); redaction decided at submit; private-marking hides content but never causation; scoped steward identity with no publish tool; injection-resistant; operator-only; spend attributed to Run budget. `[v1]`
+
 ### NonFunctional Requirements
 
 NFR1: Reliability / cadence — scheduled Run every calendar day; empty Runs required; catch-up supplements; gaps visible.
@@ -261,6 +273,12 @@ FR43: Epic 2 — Apex orientation chrome
 FR44: Epic 2 — Reader cert poll  
 FR45: Epic 4 — Moderated feedback → GitHub issue  
 
+FR46: Epic 3 → Story 3.15 — Draft interrogation
+FR47: Epic 3 → Story 3.16 — Conversational revision
+FR48: Epic 3 → Story 3.17 — Pipeline steering
+FR49: Epic 3 → Story 3.18 — Standing guidance
+FR50: Epic 3 → Stories 3.14 and 3.8 — Steering transparency and containment
+
 ## Epic List
 
 ### Epic 1: Dual-Site Platform & Design System
@@ -275,7 +293,7 @@ Readers can answer “where does this stand?” and “is [platform] legal in [s
 
 ### Epic 3: Governed Daily Loop (Pipeline → Gate → Live)
 Patrick can run the daily harness; anyone can inspect Runs, Evidence, and pending Drafts on `ops.`; HITL (default) or bounded Autonomous mode approves/edits/rejects; approved Drafts update live F1 with frozen provenance and public diffs — closing draft → gate → publish → evidence.
-**FRs covered:** FR8–FR30  
+**FRs covered:** FR8–FR30, FR46–FR50
 **UX-DRs:** UX-DR5–7, UX-DR17, UX-DR20 (queue/mode)
 
 ### Epic 4: Governance Narrative & Invited Check
@@ -306,6 +324,8 @@ So that we have a TypeScript + React/Vite + Agents/DO foundation to build PML on
 **And** Vitest is configured (with Cloudflare Workers/Workflows test patterns per architecture) and at least one sample test passes via `npm test` (readiness M1)
 
 ### Story 1.2: Design Tokens & Core Trust Components
+
+**Approved steering amendment (August 9 §4.5):** Preserve the scaffold `ChatAgent` class and chat transport as the foundation for 3.14; remove starter branding, demo tools and template copy. Keep the chat surface unreachable by unauthenticated users pending 1.4 authentication.
 
 As a reader (and future implementers),
 I want Classical + PML design tokens and trust components available in the app,
@@ -544,6 +564,8 @@ Patrick can run the daily harness; anyone can inspect Runs, Evidence, and pendin
 
 ### Story 3.1: Run, Draft & Evidence Data Model
 
+**Approved steering amendment (August 9 §4.5):** Migrations also provide `steering_turns`, `standing_guidance`, and `pipeline_config_versions`; Draft records support parent/revision lineage per FR47 (delivered across steering stories 3.14–3.18).
+
 As the operator (and public auditors via later UI),
 I want durable Run, Draft, and Evidence records in D1 with Zod contracts,
 So that the daily loop has a single source of truth before agents or UIs are wired.
@@ -559,6 +581,8 @@ So that the daily loop has a single source of truth before agents or UIs are wir
 **And** secrets are never stored in public-projected fields
 
 ### Story 3.2: AI Gateway, Budget Envelope & Role→Model Config
+
+**Approved steering amendment (August 9 §4.5):** Role→model configuration includes `steward`; steering spend is attributed to its Run and counts against its ceiling (FR19/FR50).
 
 As the operator,
 I want all LLM calls to go through AI Gateway with per-role models and a budget ceiling,
@@ -628,6 +652,8 @@ So that quality and dissent are first-class Evidence before approval.
 
 ### Story 3.6: Guardrails, Action Policy & Scoped Context (Enforcement Layer)
 
+**Approved steering amendment (August 9 §4.5):** The steward identity has no live-F1 publish permission and cannot mutate governance controls; code-level action policy and adversarial tests enforce these boundaries (FR50).
+
 As the operator (and public auditors),
 I want I/O guardrails, tool action policy, and scoped agent identity enforced around the generation agents,
 So that untrusted source content or a misbehaving agent cannot expand permissions, corrupt the loop, or slip past the gate.
@@ -663,6 +689,8 @@ So that I can see every harness attempt—including boring and failed ones.
 
 ### Story 3.8: Evidence Detail Projection
 
+**Approved steering amendment (August 9 §4.5):** Evidence projects steering turns, revision instructions/chains, config changes and guidance in force. Private turn content is redacted while actor, timestamp and effect remain visible (FR50).
+
 As any visitor,
 I want full Evidence detail for a Run on `ops.`,
 So that I can audit the loop without a vendor console.
@@ -695,6 +723,8 @@ So that transparency does not confuse drafts with canonical F1 content.
 **And** rejected drafts can remain archived on `ops.` with outcome (FR18 consequence)
 
 ### Story 3.10: Admin HITL Approval Queue
+
+**Approved steering amendment (August 9 §4.5):** The selected Draft exposes inline steering with queue keyboard context preserved; conversational revision and manual edits coexist.
 
 As the operator (Patrick),
 I want an Access-protected queue to approve, edit-then-approve, or reject drafts,
@@ -760,7 +790,173 @@ So that agent auto-approve is possible without abandoning HITL defaults or publi
 **And** agent-approved publishes include validation log on Evidence (FR28)
 **And** non-operator identities cannot change mode
 
-Stories 3.14–3.21 are specified in the 2026-08-09 and 2026-09-17 sprint change proposals. Inserting them into this file remains the open item `epic-3-cc-item-1`. They precede the stories below.
+### Story 3.14: Steering Channel Foundation, Action Policy & Evidence
+
+**Source / reconciliation note:** Canonical source: [approved August 9 proposal §4.4](sprint-change-proposal-2026-08-09.md#44-epics--five-new-epic-3-stories). Original criteria retained. Completed specs 3.14–3.18 define explicit operator-selected intents; no permission is granted by prompt text. [3.15 frozen boundaries](../implementation-artifacts/spec-3-15-draft-interrogation-read-only.md) preserve J/K/A/E/R with the panel inline and explicitly add no steering hotkey; the older additional-binding wording is not evidence of an implemented binding.
+
+As the operator (and public auditors),
+I want an Access-gated conversational channel to the agent fleet that is bounded by action policy and projected as Evidence,
+So that steering exists without opening an ungoverned back door into the loop.
+
+**Depends on:** 3.2 (role→model), 3.6 (action policy, scoped identity), 3.10 (admin surface)
+
+**Acceptance Criteria:**
+
+**Given** Access-protected admin (1.4) and the enforcement layer (3.6)
+**When** the operator opens the steering channel on a Run or Draft
+**Then** a `steward` agent role exists in the versioned role→model config with its own model binding (FR-48, extends 3.2)
+**And** the steward agent holds **no live-F1 publish tool**, verified by an explicit test asserting the tool is absent from its resolved allowlist (FR-50 R1, FR-21)
+**And** governance controls — YOLO threshold, budget ceiling, Autonomous mode, guardrail rules, action-policy allowlist — are **not** mutable through the channel, enforced by a code-level allowlist rather than prompt instruction, verified by test (FR-50 R3, FR-48)
+**And** every steering turn writes a `steering_turns` row and emits Evidence events (`steering.turn`, `steering.applied`) bound to Run and Draft IDs (FR-50 R2)
+**And** turns publish to `ops.` at **turn completion, immediately on submit** — no operator publish step and no review queue; the public projection endpoint never exposes partial or in-composition turn content, asserted by test (FR-50 publication timing)
+**And** the private/redact decision is captured **at submit**, before publication; a turn cannot be retroactively privatized once published (the UI states this plainly rather than offering a control that cannot deliver)
+**And** an adversarial fixture test demonstrates that prompt-injected content inside a Draft or source under discussion cannot expand steward tool permissions (FR-50, parity with 3.6/G1)
+**And** unauthenticated identities cannot open or post to the channel; the public reads projections only
+**And** steering LLM spend is attributed to the Run and counts against the budget envelope (FR-19)
+**And** Vitest coverage exists for: publish-tool absence, governance-control immutability, injection containment, and Evidence emission
+
+### Story 3.15: Draft Interrogation (Read-Only)
+
+As the operator,
+I want to ask a pending Draft why it says what it says,
+So that I can evaluate it against its actual basis instead of my assumptions.
+
+**Depends on:** 3.14, 3.8 (Evidence detail), 3.9 (pending Drafts)
+
+**Acceptance Criteria:**
+
+**Given** a Draft awaiting approval and the steering channel (3.14)
+**When** the operator asks about the Draft's basis
+**Then** the steward answers grounded in that Run's Evidence: proposed diffs, sources consulted and skipped with reasons, tier labels, guardrail outcomes, confidence/eval derivation, drafter-vs-reviewer disagreement when present (FR-46)
+**And** where Evidence does not record an answer, the steward says so explicitly rather than reconstructing plausible reasoning post hoc
+**And** interrogation performs zero writes to Drafts, config, standing guidance, or live F1 — asserted by test
+**And** interrogation turns appear in the public projection attached to the Draft (FR-50)
+**And** the operator can interrogate from the approval queue without losing queue position or keyboard context (UX-DR20 parity)
+
+### Story 3.16: Conversational Draft Revision
+
+As the operator,
+I want to correct a Draft by telling the agent what is wrong,
+So that I stop retyping fixes the agent could make itself.
+
+**Depends on:** 3.15, 3.11 (diff + publish machinery), 3.5 (drafter/reviewer)
+
+**Acceptance Criteria:**
+
+**Given** a pending Draft under interrogation (3.15)
+**When** the operator issues a revision instruction
+**Then** the drafter regenerates the Draft under the **same Run ID**, producing a new Draft version without creating a conflicting duplicate Draft set (FR-47, FR-22)
+**And** the original agent Draft and every intermediate revision are preserved and rendered as a public revision chain on `ops.` (FR-47, extends FR-14 to N versions)
+**And** the revised Draft re-enters guardrails and reviewer evaluation before becoming approvable; a hard guardrail failure cannot be bypassed by revising (FR-20)
+**And** the confidence/eval badge is recomputed for the revised Draft, never inherited from the prior version
+**And** revision writes only to Drafts; live F1 remains unchanged until an Approval Gate publish (FR-21)
+**And** approval after revision records the full lineage: original → revisions → instruction that caused each → approved text (FR-25)
+**And** Vitest coverage exists for: same-Run-ID revision, revision-chain preservation, guardrail re-entry, and badge recomputation
+
+### Story 3.17: Conversational Pipeline Steering
+
+**Source / reconciliation note:** Implementation decision: [3.17 frozen boundaries and Design Notes](../implementation-artifacts/spec-3-17-conversational-pipeline-steering.md) define `poll_sources` as the sole chat-writable key. “Adjust an escalation category” means changing a source tier; FR17 reason codes remain code-controlled. Configuration consumption/version consistency is still a corrective obligation in 3.32 (retro R9).
+
+As the operator,
+I want to change what the pipeline watches and escalates by instruction,
+So that routine tuning does not require a redeploy (NFR8).
+
+**Depends on:** 3.14, 3.4 (source monitoring), 3.12 (loop controls)
+
+**Acceptance Criteria:**
+
+**Given** the steering channel (3.14) and source config (3.4)
+**When** the operator instructs a config change — add a docket to Tier-1, adjust an escalation category, change monitoring scope
+**Then** the change writes a new version row in `pipeline_config_versions` with actor, timestamp, prior value, new value (FR-48)
+**And** the operator can list versions and revert to any prior version
+**And** each change emits an audited ops event publicly visible on `ops.` (parity with FR-16 mode audit)
+**And** attempts to change YOLO threshold, budget ceiling, Autonomous mode, guardrail rules, or the action-policy allowlist through the channel are **refused and the refusal is logged on public Evidence** (FR-50 R3)
+**And** config changes take effect on the next Run and are attributable in that Run's lineage (FR-25)
+**And** routine steering requires no redeploy (NFR8)
+
+### Story 3.18: Standing Corrections & Durable Guidance
+
+**Source / reconciliation note:** Implementation decision: [3.18 frozen boundaries](../implementation-artifacts/spec-3-18-standing-corrections-durable-guidance.md) set the cap to 12 active items and 600 characters per item, with list/edit/revoke review affordances and drafter-only advisory context. Automatic expiry/review-cadence timers are excluded. Revisions append history; guidance cannot grant tools or approval privileges.
+
+As the operator,
+I want my corrections to persist so the agent stops repeating the same mistake,
+So that the loop improves rather than merely being supervised.
+
+**Depends on:** 3.16, 3.17, 3.6 (FR-23 authorized context)
+
+**Acceptance Criteria:**
+
+**Given** revision (3.16) and steering (3.17) in place
+**When** the operator promotes a correction to standing guidance
+**Then** the item is stored versioned and attributed in `standing_guidance`, and can be listed, edited, and revoked (FR-49)
+**And** standing guidance is treated as **authorized context under FR-23** and is publicly readable on `ops.`
+**And** each Run's Evidence states which guidance items were in force, and which influenced a given Draft (FR-25)
+**And** guidance is advisory to drafting only: it cannot grant tool permissions, alter action policy, or change approval bounds — asserted by test (FR-49, FR-50 R3)
+**And** total guidance is capped with a defined limit and a review affordance, so it cannot grow into an unbounded unauditable prompt
+**And** a regression fixture demonstrates the documented case: a correction recorded on Run N changes drafter behavior on Run N+1
+**And** revoking guidance removes its influence on the next Run and is itself an audited public event
+
+### Story 3.19: Epic 3 Hardening — Timeouts, Gateway Seed & Deferred Closure
+
+**Source / reconciliation note:** Canonical source: [approved September 17 proposal §4.3](sprint-change-proposal-2026-09-17.md#43-new-stories). Original criteria retained. [3.19 approved implementation boundaries](../implementation-artifacts/spec-3-19-epic-3-hardening-timeouts-gateway-seed.md) refine “one shared helper” into two shared helpers: client `fetchWithTimeout` and server `withDeadline`; call sites do not hand-roll deadlines. Patrick’s September 18 decision in [3.19 frozen boundaries](../implementation-artifacts/spec-3-19-epic-3-hardening-timeouts-gateway-seed.md) overrides the generic 30-second admin timeout for the steering composer only: `2 × PROVIDER_TIMEOUT_MS + 10_000` (130 seconds). The seed is Workers AI at 500 cents; OpenRouter remains required in 3.20. [Accepted September 17 dispositions](../implementation-artifacts/deferred-work.md#dispositions-sprint-change-proposal-2026-09-17-epic-3-clean-up-approved-2026-09-17) retain prompt-only gateway inputs, USD currency, config-version auditing instead of `gateway.config_changed` Evidence, and successful calls in `llm_calls`. They do not waive the later cost/accounting findings. The September 24 proposal supersedes the older early-epic-closure sequencing.
+
+As the operator,
+I want the governed loop to fail loudly on hung I/O and to have a working model config out of the box,
+So that the first real Run can happen on staging without a manual database edit or a silent hang.
+
+**Depends on:** 3.2, 3.4, 3.8, 3.9, 3.12, 3.16–3.18
+
+**Acceptance Criteria:**
+
+**Given** the decisions in sprint-change-proposal-2026-09-17 §4.1
+**When** any connector fetch, provider call, public GET, or admin POST exceeds its deadline
+**Then** it fails with the existing typed outcome (`source.skipped` reason, `provider_error`, or a designed client error state) and never leaves a Run `running` or a page chrome-only
+**And** one shared helper implements the client/server timeouts; no call site hand-rolls an AbortController deadline
+**And** migration 0017 seeds `gateway_config` version 1 with Workers AI ids for all five roles and `default_budget_cents = 500`, and adds an index on `runs(started_at)`
+**And** a manual Run on staging with a fake connector reaches `awaiting` with a drafted, reviewed Draft (proves the seed)
+**And** the two best-effort Evidence catches (3.17 config, 3.18 guidance) log a warning and each has a failing-batch test proving HTTP stays `ok` when the row landed
+**And** a second revise (r2) on the same Draft chain is covered end to end
+**And** `epic-3-context.md` uses the locked identifiers `awaiting` / `stopped` / `run.stopped`
+**And** the donations CTAs render a visible "Donations open soon" state instead of a dead anchor, with the real URL still a single constant
+**And** `deferred-work.md` records the disposition of every Epic 3 entry per §4.2
+
+### Story 3.20: OpenRouter Provider via AI Gateway
+
+**Source / reconciliation note:** Acceptance clarification: these original criteria are obligations, not proof of measured charging or a safe cap. The retrospective rejected the input-only heuristic and non-atomic accounting; stories 3.30–3.31 own the fixes. Authenticated post-deploy gateway success remains 3.36. See [retro R5–R7/R18](../implementation-artifacts/epic-3-retro-2026-09-22.md).
+
+As the operator,
+I want paid, per-role OpenRouter models routed through AI Gateway,
+So that the drafter/reviewer quality matches the architecture's locked routing decision.
+
+**Depends on:** 3.19
+
+**Acceptance Criteria:**
+
+**Given** the Workers AI seed from 3.19
+**When** I change role→model config to `provider: "openrouter"` ids
+**Then** the gateway resolves the configured provider (not the default binding) and refuses a mismatch as `gateway_not_configured`
+**And** the budget check refuses a call whose estimated cost would push the Run over the ceiling, not only one after it is already over
+**And** the AI Gateway / OpenRouter credentials are Worker secrets, never in D1 or prompts
+**And** `llm_calls` records real token counts and cents; `ops.` spend fields render non-zero
+
+### Story 3.21: First Live Connector
+
+**Source / reconciliation note:** Acceptance clarification: [story 3.23](#story-323-fail-a-total-courtlistener-outage) supersedes the general fetch-failure completion wording when every docket fails: the Run must finish failed, with scrubbed reasons. Partial failure stays explicit. Live material approval-to-F1 acceptance remains 3.37; completed implementation does not establish that operational demonstration. Pagination, replay and admission findings remain in 3.27/3.32/3.33.
+
+As the operator,
+I want one Tier-1 source polled for real,
+So that the daily Run produces material Drafts and the Approval Gate is exercised with actual content.
+
+**Depends on:** 3.19
+
+**Acceptance Criteria:**
+
+**Given** the steered `poll_sources` list (3.17)
+**When** the daily Run polls the chosen Tier-1 source (CourtListener docket feed recommended)
+**Then** new docket events become Drafts with entity diffs, sources, and Tier-1 citations (3.4 contract) under the 60 s deadline
+**And** a fetch failure is `source.skipped` with reason, and the Run still completes
+**And** a real material Run reaches the admin queue on `build.*` and can be approved to live F1 on staging with provenance
+**And** the remaining sources stay stubs with explicit `source.skipped` reasons
 
 ### Story 3.22: Staging ops host (`ops-build`)
 
@@ -826,8 +1022,152 @@ So that a null budget is not mistaken for “no ceiling.”
 **And** the gateway still refuses a call when recorded spend reaches the Run’s own ceiling
 
 Existing rows on `pml-build` stay null.
+### Corrective backlog — approved 2026-09-24
+
+Source: [approved change proposal](sprint-change-proposal-2026-09-24.md). Stories 3.1–3.25 remain complete. Stories 3.26–3.37 are backlog; the epic is in progress and operational acceptance remains rejected pending corrective evidence. Each implementation story requires targeted regression evidence, review, required CI, and a merged PR.
+
+### Story 3.26: Reconcile canonical Epic 3 planning
+
+As a maintainer, I can find all approved Epic 3 requirements in canonical planning documents.
+
+Effort: Low. Dependencies: none. Covers R17.
+
+- Replace the 3.14–3.21 placeholder in epics.md with eight full story entries, preserving the approved criteria from the August 9 and September 17 proposals and their implementation specs. Resolve differences through explicit accepted decisions, not inferred implementation behavior.
+- Reconcile the approved F9/FR46–50 steering amendment into the PRD and its traceability, and link its existing UX additions. Preserve approved scope.
+- Add the corrective stories and the architecture/UX amendments below; keep authoritative status tokens `awaiting`, `stopped`, and `run.stopped` consistent.
+- Verify every 3.1–3.37 ID appears once in canonical epic planning and sprint tracking after approved backlog application. Record source references and any unresolved document discrepancy.
+
+### Story 3.27: Constrain connector pagination credentials
+
+As an operator, connector pagination cannot forward credentials to an unintended destination.
+
+Effort: Low. Dependencies: 3.26 for planning. Covers R12.
+
+- Validate the initial and every next-page URL against the configured exact HTTPS API origin before attaching authorization. Resolve permitted relative links safely.
+- Prevent automatic redirects from forwarding authorization to foreign origins; validate redirect destinations if redirects are supported.
+- Reject foreign, downgraded, malformed, and deceptive URLs with scrubbed evidence. Never include tokens in errors or public receipts.
+- Tests cover valid same-origin pagination, relative next links, hostile next links, and cross-origin redirects, asserting the unauthorized destination receives no credential-bearing request.
+
+### Story 3.28: Enforce evaluation readiness and sealed Drafts
+
+As a reviewer, I can act only on a completed, eligible Draft and my decided artifact remains immutable.
+
+Effort: Medium. Dependencies: 3.26. Covers R1.
+
+- Persist/derive an unambiguous evaluation lifecycle. A null summary during processing cannot mean ready. Safely classify legacy rows without fabricating completed evaluations.
+- Gate routes enforce readiness server-side. Completed explicit `evals_not_run` with its reason remains human-reviewable under FR24; YOLO eligibility remains stricter.
+- Evaluator writes conditionally target eligible undecided Drafts. Evaluation and decision races cannot mutate a sealed artifact.
+- Pause evaluation in an integration test, attempt approval, then release evaluation. Assert no early F1 write and no post-decision mutation. Test explicit not-run and legacy states.
+- Queue/pending views display evaluation in progress and unavailable actions accessibly.
+
+### Story 3.29: Make publication and Run finalization atomic
+
+As a reviewer, concurrent decisions cannot publish stale or superseded content or strand a completed Run.
+
+Effort: High. Dependencies: 3.28. Covers R2–R4.
+
+- Validate current pending outcome, readiness, and latest eligible revision tip at the same atomic boundary as decision and publication. Revision insertion and approval share a consistent concurrency rule.
+- Compare expected prior values for every changed field, for both docket and generic updates. One mismatch aborts the entire publication, including decision, F1 writes, and publication receipts.
+- Derive final Run state from current committed sibling outcomes, including simultaneous final decisions. Repeating a decision cannot duplicate publication.
+- Deterministic tests overlap sibling decisions, parent approval/child insertion, and competing field updates; verify all-or-nothing state and receipts.
+- Conflicts return actionable refresh guidance; the UI preserves unsent reviewer edits. Validate the transactional mechanism using the actual database interface rather than relying only on a mocked batch.
+
+### Story 3.30: Define and enforce bounded provider cost
+
+As an operator, each admitted paid request has a conservative, explainable cost bound.
+
+Effort: Medium. Dependencies: 3.26. Covers R6; contract prerequisite for 3.31.
+
+- Replace the input-only heuristic as the admission authority. Document supported provider/model pricing inputs, units, version/effective provenance, input bound, output limit, and conservative integer-cent rounding.
+- Set a provider-enforced output limit. Include all supported billable dimensions in the bound; fail closed for unsupported pricing or a request whose maximum liability cannot be bounded.
+- Distinguish estimated/reserved amounts from measured provider cost in internal records and public projections. Do not label a heuristic as an actual charge.
+- Preserve the existing configured ceiling, including the 500-cent seed; do not increase budgets to make tests pass. Patrick reviews the concrete cost policy as part of this story's spec.
+- Deterministic tests cover maximum output, rounding, insufficient remaining budget, stale/unknown pricing, and provider usage discrepancies. Verify current provider capabilities from primary documentation during implementation.
+
+### Story 3.31: Reserve and settle paid calls atomically
+
+As an operator, concurrent calls and retries cannot spend the same available budget twice or understate Run spend.
+
+Effort: High. Dependencies: 3.30. Covers R5, R7.
+
+- Atomically reserve the bounded liability before dispatch against every configured Run/period ceiling. Available balance accounts for outstanding reservations.
+- Use stable logical-call identities and persist attempt/outcome evidence. Retries after checkpoint or response loss cannot blindly issue another paid call; use provider idempotency where supported or explicitly reconcile an uncertain outcome.
+- Settle ledger, reservation, and Run display totals atomically, or derive display totals from one authoritative accounting source. Repeated settlement is idempotent.
+- A failed/unknown provider outcome cannot blindly release reserved funds when a charge may have occurred. Define reconciliation and explicit over-bound anomaly behavior; stop further paid dispatch on an unresolved cap breach.
+- Test two calls competing for the last budget, overlapping Runs sharing a period limit, interruption at every accounting boundary, duplicate settlement, and uncertain provider completion. Assert public totals agree with the enforcement authority.
+
+### Story 3.32: Recover durable packages and pin consumed configuration
+
+As an operator, Workflow replay preserves material work and truthful source provenance.
+
+Effort: Medium. Dependencies: 3.28, 3.31. Covers R8–R9.
+
+- On replay, recover this Run's persisted Drafts and evidence before deciding material/empty status. Drafts from another Run cannot be mistaken for this Run's package.
+- Inject interruption after Draft insertion and before the Workflow checkpoint; replay must review the persisted Draft, retain its identity, and avoid duplicate paid work/publication.
+- Pin the source configuration consumed by packaging, including its recorded version. Changes after attach apply to a later Run; receipts must identify the actual consumed configuration.
+- Test configuration changes between attach and packaging and during replay. Preserve partial/all-source failure evidence; no failed package is silently relabeled empty.
+
+### Story 3.33: Make Run admission and dispatch failures explicit
+
+As an operator, competing triggers cannot start duplicate active work or silently lose a dispatch.
+
+Effort: Medium. Dependencies: 3.26. Covers R10–R11.
+
+- Establish atomic active-date admission shared by scheduled, manual, and catch-up paths. At most one admitted active Run per date proceeds; sequential Runs on the same date remain allowed by FR8.
+- Define claim lifecycle and recovery after failed dispatch or interruption. Do not leave an unexplained permanent lock or start a second active provider workload.
+- Recognize only confirmed duplicate-instance errors as duplicates. Other creation errors produce durable, scrubbed failure evidence and an actionable result/retry path.
+- Concurrent-origin and injected-create-failure tests prove one admitted active instance, visible failures, safe retries, and later same-date admission after terminal completion.
+
+### Story 3.34: Test the executing DailyRunWorkflow
+
+As a maintainer, regression tests fail when real orchestration stops forwarding sources or dispatching review.
+
+Effort: Medium. Dependencies: 3.27–3.33. Covers R15.
+
+- Invoke `DailyRunWorkflow.run` through a test-compatible Workflow binding/runtime with real internal helpers and database persistence, replacing only external provider/source effects with deterministic fixtures.
+- Cover material, empty, all-source failure, partial failure, budget stop, and replay paths. Assert persisted evaluated awaiting Drafts and public Evidence, not just helper return values.
+- Exercise the concurrency failure schedules from the safety stories without replacing the actual admission/accounting/gate implementation with stubs.
+- Demonstrate that removing registry forwarding or draft-review dispatch makes the relevant test fail; restore code after the check. Add this suite to required CI.
+
+### Story 3.35: Drive apex pending copy from public Draft data
+
+As a reader, the masthead reflects the pending Drafts I can inspect.
+
+Effort: Low. Dependencies: 3.28. Covers R16 / existing action 13 remainder.
+
+- Derive count and definition of pending from the same public data/eligibility contract as the pending band. Avoid independent inconsistent counts.
+- Render loading, zero, positive, error, and stale states honestly; a failed fetch cannot display an asserted zero.
+- After approval/rejection/revision, refresh or invalidate both surfaces consistently. Test transitions, singular/plural copy, and accessible status announcements.
+- Preserve the copy cleanup already delivered by 3.24; close action 13 only when the live count is verified.
+
+### Story 3.36: Verify the corrected staging Run and gateway
+
+As an operator, I have deployment-specific evidence that the corrected runtime and paid gateway work.
+
+Effort: Medium, operational. Dependencies: 3.26–3.35 merged and required CI green. Covers existing action 17 remainder / R18.
+
+- Deploy the merged corrective commit through the staging process; record commit, Worker version, migrations, target hosts, and time. Verify production behavior remains unchanged.
+- Record a new post-deployment Run, frozen budget/source config, public Evidence, and authenticated OpenRouter gateway success. Document the actual successful route and status without tokens or credential-bearing headers.
+- Before a paid call, establish the authorized staging budget and cost policy. Planning approval alone is not an instruction to incur unspecified charges.
+- A pre-deploy Run, empty static screen, or fabricated fixture is insufficient. If credentials, provider availability, or budget block execution, record the precise blocker and leave this story/action incomplete.
+
+### Story 3.37: Prove the live governed loop and reassess Epic 3
+
+As Patrick, I can trace a real docket change from source through named approval to published staging F1.
+
+Effort: Medium, operational. Dependencies: 3.36. Covers live acceptance action / R18.
+
+- Use a real material docket event through the corrected staging connector and gateway. Capture Run, source, Draft/revision, evaluation outcome, and public Evidence identifiers.
+- Present the actual candidate for the named reviewer's decision. Record authenticated approval of that candidate, exactly one F1 publication, final Run state, and matching public lineage. Approval of this plan is not approval of unknown legal content.
+- Assert canonical F1 is unchanged before approval and matches the approved artifact afterward. Verify relevant tracker/ops views and accounting consistency.
+- Reuse the same Run for 3.36 and 3.37 when it satisfies both sets of criteria; do not duplicate paid work for reporting. An empty Run cannot satisfy this material acceptance story.
+- Run a fresh/resumed Epic 3 retrospective against the final merged and deployed state. Close the nine actions only with linked evidence. Mark Epic 3 done and release Epic 4's entry gate only if acceptance succeeds; retain any new blockers visibly otherwise.
+
 
 ## Epic 4: Governance Narrative & Invited Check
+
+**Entry dependency (approved 2026-09-24):** Epic 4 implementation waits for story 3.37 and accepted Epic 3 retrospective evidence. All seven Epic 4 stories retain their scope.
+
 
 Readers explore the nine-layer explainer and build journal on `ops.`; anyone can submit corrections/feedback that queue for operator approval before a public GitHub issue is created; donations and repo affordances complete the trust loop.
 
