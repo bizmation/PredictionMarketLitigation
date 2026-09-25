@@ -62,7 +62,7 @@ async function insertDraft(
     runId,
     targetEntityType: "states",
     targetEntityId: "st-nv",
-    diff: { posture: { from: "untracked", to: "pending" } },
+    diff: { posture: { from: "banned", to: "pending" } },
     body: `Proposal body for ${id}.`,
     tier2Only: false,
     confidence: extras.evalSummary == null ? null : 80,
@@ -531,20 +531,9 @@ describe("decide docket_events insert target (story 3.21)", () => {
           now: NOW
         })
       ).status
-    ).toBe("invalid");
+    ).toBe("conflict");
     expect(await f1Snapshot()).toEqual(before);
     expect(await eventRow(targetEntityId)).toBeNull();
-    await expect(
-      applyF1Stmts(testEnv.DB, {
-        draftId: id,
-        targetEntityType: "docket_events",
-        targetEntityId,
-        diff: (await draftsRepo.getById(testEnv.DB, id))!.diff,
-        provenanceKind: "human",
-        now: NOW,
-        approver: ACTOR
-      })
-    ).rejects.toThrow("stale state patch: posture");
     // Stripping the stale field publishes the record without it.
     expect(
       (
@@ -597,7 +586,7 @@ describe("decide docket_events insert target (story 3.21)", () => {
         draftId: id,
         targetEntityType: "states",
         targetEntityId: "st-nv",
-        diff: { posture: { from: "untracked", to: "pending" } },
+        diff: { posture: { from: "banned", to: "pending" } },
         provenanceKind: "human",
         now: NOW,
         approver: ACTOR,
@@ -656,7 +645,7 @@ describe("decide docket_events insert target (story 3.21)", () => {
           now: NOW
         })
       ).status
-    ).toBe("invalid");
+    ).toBe("conflict");
     const malformed = await insertDocketDraft(runId, {
       ...record(entrySeq++),
       sourceUrl: "http://insecure.example/"
@@ -695,7 +684,7 @@ describe("decide docket_events insert target (story 3.21)", () => {
       now: NOW,
       approver: ACTOR
     });
-    expect(applied.statements).toHaveLength(3);
+    expect(applied.statements.length).toBe(5);
     // First decision lands; the second call is already_decided before any
     // statement runs. Replaying the prepared batch itself must also no-op.
     expect(
@@ -712,7 +701,7 @@ describe("decide docket_events insert target (story 3.21)", () => {
     ).toBe("decided");
     const before = await caseRow();
     const results = await testEnv.DB.batch(applied.statements);
-    expect(results.map((r) => r.meta.changes)).toEqual([0, 0, 0]);
+    expect(results.map((r) => r.meta.changes)).toEqual([0, 0, 0, 0, 0]);
     expect(await eventRow(targetEntityId)).toBeNull();
     expect(await sourceRow(`src-${targetEntityId}`)).toBeNull();
     expect(await caseRow()).toEqual(before);

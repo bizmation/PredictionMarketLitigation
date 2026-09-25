@@ -1134,3 +1134,48 @@ describe("SteeringPanel POST timeout (story 3.19, jsdom mount)", () => {
     expect(steeringPosts(fetchMock)).toHaveLength(2);
   });
 });
+
+it.each(["draft_not_ready", "draft_conflict"])(
+  "refreshes %s while retaining the current Draft's steering text",
+  async (code) => {
+    const onConflict = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        scripted(
+          { code, message: "Draft changed. Refresh and review." },
+          false,
+          409
+        )
+      )
+    );
+    const { rerender } = render(
+      <SteeringPanel
+        revisionReady
+        runId="run-20260914-aaa1"
+        draftId="d-1"
+        onConflict={onConflict}
+      />
+    );
+    fireEvent.change(screen.getByLabelText("Steering turn"), {
+      target: { value: "Keep this revision instruction" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Revise draft" }));
+    await act(async () => {});
+    expect(onConflict).toHaveBeenCalledOnce();
+    expect(
+      (screen.getByLabelText("Steering turn") as HTMLTextAreaElement).value
+    ).toBe("Keep this revision instruction");
+    rerender(
+      <SteeringPanel
+        revisionReady
+        runId="run-20260914-aaa1"
+        draftId="d-2"
+        onConflict={onConflict}
+      />
+    );
+    expect(
+      (screen.getByLabelText("Steering turn") as HTMLTextAreaElement).value
+    ).toBe("");
+  }
+);

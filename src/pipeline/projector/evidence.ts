@@ -146,3 +146,12 @@ export async function append(
 ): Promise<EvidenceEvent> {
   return evidenceRepo.appendEvent(db, scrubbedInput(input));
 }
+
+/** Gate-only completion: the repository derives the fixed public status payload in SQL. */
+export function completionReceiptStmt(
+  db: Db,
+  runId: string,
+  now: string
+): D1PreparedStatement {
+  return evidenceRepo.completionReceiptStmt(db, runId, now);
+}

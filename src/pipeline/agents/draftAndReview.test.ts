@@ -1597,7 +1597,18 @@ describe("paused evaluation races (3.28)", () => {
         runId,
         deps(
           fakeProvider([
-            { text: drafterJson({ body: "Winning body" }) },
+            {
+              text: drafterJson({
+                body: "Winning body",
+                diff: {
+                  operationalStatus: {
+                    from: (liveBefore as { operational_status: string })
+                      .operational_status,
+                    to: "restricted"
+                  }
+                }
+              })
+            },
             { text: reviewJson({ notes: "Winning evaluation" }) }
           ])
         )

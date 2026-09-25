@@ -127,3 +127,16 @@ export async function appendEvent(
     .first<{ seq: number }>();
   return { ...row, seq: written?.seq ?? row.seq };
 }
+
+/** Must immediately follow the Run UPDATE in the same D1 batch. */
+export function completionReceiptStmt(
+  db: Db,
+  runId: string,
+  now: string
+): D1PreparedStatement {
+  return db
+    .prepare(`INSERT INTO evidence_events (id, run_id, seq, event, payload_json, created_at)
+    SELECT ?, id, (SELECT COALESCE(MAX(seq), -1) + 1 FROM evidence_events WHERE run_id = runs.id),
+      'run.completed', json_object('status', status), ? FROM runs WHERE id = ? AND changes() = 1`)
+    .bind(`run-completed-${runId}`, now, runId);
+}

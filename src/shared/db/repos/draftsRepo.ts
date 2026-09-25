@@ -1,3 +1,4 @@
+import { assertStmt } from "./gateAssertions";
 import { z } from "zod";
 import { deriveDraftReadiness, isDraftReady } from "../../lib/draftReadiness";
 export { isDraftReady } from "../../lib/draftReadiness";
@@ -58,8 +59,13 @@ const DRAFT_COLUMNS = `id, run_id, target_entity_type, target_entity_id, diff_js
               EXISTS (SELECT 1 FROM evidence_events e WHERE e.run_id = drafts.run_id
                 AND e.event = 'draft.revised' AND json_extract(e.payload_json, '$.draftId') = drafts.id) AS revised`;
 
+const storedSnapshots = new WeakMap<
+  DraftRecord,
+  { diff: string; evaluation: string | null }
+>();
+
 function mapDraft(row: DraftRow): DraftRecord {
-  return DraftRecordSchema.parse({
+  const record = DraftRecordSchema.parse({
     id: row.id,
     runId: row.run_id,
     targetEntityType: row.target_entity_type,
@@ -91,6 +97,11 @@ function mapDraft(row: DraftRow): DraftRecord {
     createdAt: row.created_at,
     updatedAt: row.updated_at
   });
+  storedSnapshots.set(record, {
+    diff: row.diff_json,
+    evaluation: row.eval_summary_json
+  });
+  return record;
 }
 
 export function revisionDraftId(
@@ -495,4 +506,89 @@ export async function applyDecisionStmt(
       record.updatedAt,
       record.id
     );
+}
+
+/** Mirrors pendingTips: highest revision, breaking ties by listByRun order. */
+export function currentHeadSql(alias: string): string {
+  return `NOT EXISTS (
+    WITH RECURSIVE chain(id, root, revision_index, created_at) AS (
+      SELECT id, id, revision_index, created_at FROM drafts WHERE run_id = ${alias}.run_id AND parent_draft_id IS NULL
+      UNION ALL
+      SELECT d.id, c.root, d.revision_index, d.created_at FROM drafts d JOIN chain c ON d.parent_draft_id = c.id
+      WHERE d.run_id = ${alias}.run_id
+    )
+    SELECT 1 FROM chain current JOIN chain newer ON newer.root = current.root
+    WHERE current.id = ${alias}.id AND
+      (newer.revision_index, newer.created_at, newer.id) > (current.revision_index, current.created_at, current.id)
+  )`;
+}
+
+/** Shared commit-time boundary for decisions and revision admission. */
+export const READY_HEAD_SQL = `drafts.outcome IS NULL
+  AND ${currentHeadSql("drafts")}
+  AND EXISTS (SELECT 1 FROM runs WHERE id = drafts.run_id AND status != 'running')
+  AND drafts.eval_summary_json IS NOT NULL
+  AND (json_extract(drafts.eval_summary_json, '$.status') != 'evals_not_run'
+    OR length(trim(json_extract(drafts.eval_summary_json, '$.basis'), char(9,10,11,12,13,32,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288,65279))) > 0)
+  AND EXISTS (SELECT 1 FROM evidence_events e WHERE e.run_id = drafts.run_id
+    AND e.event = 'draft.evaluated' AND json_extract(e.payload_json, '$.draftId') = drafts.id)
+  AND EXISTS (SELECT 1 FROM evidence_events e WHERE e.run_id = drafts.run_id
+    AND e.event IN ('guardrails.passed','guardrails.failed') AND json_extract(e.payload_json, '$.draftId') = drafts.id)
+  AND (drafts.revision_index = 0 OR EXISTS (SELECT 1 FROM evidence_events e WHERE e.run_id = drafts.run_id
+    AND e.event = 'draft.revised' AND json_extract(e.payload_json, '$.draftId') = drafts.id))`;
+
+export function readySnapshotStmt(
+  db: Db,
+  draft: DraftRecord
+): D1PreparedStatement {
+  const snapshot = storedSnapshots.get(draft);
+  if (!snapshot) throw new Error("A persisted Draft snapshot is required");
+  return assertStmt(
+    db,
+    "draft_snapshot",
+    `EXISTS (SELECT 1 FROM drafts WHERE id = ? AND ${READY_HEAD_SQL}
+    AND run_id IS ? AND target_entity_type IS ? AND target_entity_id IS ?
+    AND diff_json IS ? AND body IS ? AND tier2_only IS ? AND confidence IS ?
+    AND eval_summary_json IS ? AND edited_body IS ?
+    AND parent_draft_id IS ? AND revision_index IS ? AND updated_at IS ?)`,
+    [
+      draft.id,
+      draft.runId,
+      draft.targetEntityType,
+      draft.targetEntityId,
+      snapshot.diff,
+      draft.body,
+      draft.tier2Only ? 1 : 0,
+      draft.confidence,
+      snapshot.evaluation,
+      draft.editedBody,
+      draft.parentDraftId,
+      draft.revisionIndex,
+      draft.updatedAt
+    ]
+  );
+}
+
+/** Only the caller whose conditional INSERT changes a row owns evaluation. */
+export async function insertRevision(
+  db: Db,
+  parent: DraftRecord,
+  createdAt: string
+): Promise<boolean> {
+  const result = await db
+    .prepare(`INSERT OR IGNORE INTO drafts
+    (id, run_id, target_entity_type, target_entity_id, diff_json, body, tier2_only,
+      confidence, eval_summary_json, parent_draft_id, revision_index, created_at, updated_at)
+    SELECT ?, run_id, target_entity_type, target_entity_id, diff_json, body, tier2_only,
+      NULL, NULL, id, revision_index + 1, ?, ? FROM drafts
+    WHERE id = ? AND ${READY_HEAD_SQL}
+      AND EXISTS (SELECT 1 FROM runs WHERE id = drafts.run_id AND status = 'awaiting')`)
+    .bind(
+      revisionDraftId(parent.id, parent.revisionIndex + 1),
+      createdAt,
+      createdAt,
+      parent.id
+    )
+    .run();
+  return result.meta.changes === 1;
 }

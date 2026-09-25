@@ -611,7 +611,9 @@ export function ApprovalQueue({
         setNotice(
           error?.code === "draft_not_ready"
             ? "Evaluation is not ready for decisions. Your edits are retained; the queue has refreshed."
-            : "That draft was already decided — the queue has refreshed."
+            : error?.code === "draft_conflict"
+              ? "Draft or canonical values changed. Your edits are retained; the queue has refreshed. Review before deciding."
+              : "That draft was already decided — the queue has refreshed."
         );
       } else {
         setNotice(
@@ -932,6 +934,7 @@ export function ApprovalQueue({
               draftId={current.id}
               revisionReady={isDraftReady(current)}
               onSubmittingChange={setSteeringBusy}
+              onConflict={() => setReload((value) => value + 1)}
               onRevised={(revisedDraftId) => {
                 setPendingSelectId(revisedDraftId);
                 setReload((value) => value + 1);

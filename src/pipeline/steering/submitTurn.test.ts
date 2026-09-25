@@ -11,7 +11,11 @@ import type { EvalSummary } from "../../shared/schemas/run";
 import { RunDetailSchema } from "../../shared/schemas/run";
 import { PublicPipelineConfigSchema } from "../../shared/schemas/pipelineConfig";
 import { PROVIDER_TIMEOUT_MS } from "../../shared/lib/timeouts";
-import { failBatchAfter } from "../../test/failingDb";
+import {
+  failBatchAfter,
+  pauseStatement,
+  pauseBatch
+} from "../../test/failingDb";
 import {
   PublicStandingGuidanceSchema,
   STANDING_GUIDANCE_CAP,
@@ -134,7 +138,7 @@ function scriptedProvider(
 const REVISED_BODY = "Revised Nevada holding from the drafter.";
 const DRAFTER_JSON = JSON.stringify({
   body: REVISED_BODY,
-  diff: { posture: { from: "untracked", to: "banned" } }
+  diff: { posture: { from: "banned", to: "banned" } }
 });
 const REVIEWER_JSON = JSON.stringify({
   confidence: 55,
@@ -2527,7 +2531,7 @@ describe("submitTurn hardening (story 3.19)", () => {
     const R2_BODY = "Second revision of the Nevada holding.";
     const r2Drafter = JSON.stringify({
       body: R2_BODY,
-      diff: { posture: { from: "untracked", to: "banned" } }
+      diff: { posture: { from: "banned", to: "banned" } }
     });
     const r2Reviewer = JSON.stringify({
       confidence: 61,
@@ -2838,3 +2842,148 @@ describe("submitTurn hardening (story 3.19)", () => {
     expect(row?.two).toBe(2);
   });
 });
+
+describe("atomic revision admission", () => {
+  it("approval before conditional insertion prevents provider work and revision success", async () => {
+    const runId = await insertRun("awaiting");
+    const id = await insertDraft(runId, `d:${runId}:nv`, EVAL_OK);
+    await seedDrafterReviewer();
+    const provider = scriptedProvider([DRAFTER_JSON, REVIEWER_JSON]);
+    const barrier = pauseStatement(
+      testEnv.DB,
+      (sql) =>
+        sql.includes("INSERT OR IGNORE INTO drafts") && sql.includes("SELECT ?")
+    );
+    const pending = submitTurn(barrier.db, deps(provider), {
+      runId,
+      draftId: id,
+      content: "Revise",
+      private: false,
+      intent: "revise",
+      actorDisplayName: ACTOR
+    });
+    await barrier.arrived;
+    expect(
+      (
+        await decide(testEnv.DB, {
+          draftId: id,
+          action: "reject",
+          rejectReason: "Declined",
+          rejectReasonPrivate: null,
+          operator: { displayName: ACTOR },
+          now: NOW
+        })
+      ).status
+    ).toBe("decided");
+    barrier.release();
+    expect((await pending).status).toBe("conflict");
+    expect(provider.count()).toBe(0);
+    expect(await draftsRepo.getById(testEnv.DB, `${id}:r1`)).toBeNull();
+    const events = await evidenceRepo.listByRun(testEnv.DB, runId);
+    expect(events.some((e) => e.event === "steering.turn")).toBe(true);
+    expect(events.some((e) => e.event === "draft.revised")).toBe(false);
+  });
+
+  it("only the child insertion owner evaluates; child-first blocks prepared decisions", async () => {
+    const runId = await insertRun("awaiting");
+    const id = await insertDraft(runId, `d:${runId}:nv`, EVAL_OK);
+    await seedDrafterReviewer();
+    const provider = scriptedProvider([DRAFTER_JSON, REVIEWER_JSON]);
+    const losingProvider = scriptedProvider([DRAFTER_JSON, REVIEWER_JSON]);
+    const decisionBarrier = pauseBatch(testEnv.DB);
+    const decision = decide(decisionBarrier.db, {
+      draftId: id,
+      action: "reject",
+      rejectReason: "Declined",
+      rejectReasonPrivate: null,
+      operator: { displayName: ACTOR },
+      now: NOW
+    });
+    await decisionBarrier.arrived;
+    const a = pauseStatement(
+      testEnv.DB,
+      (sql) =>
+        sql.includes("INSERT OR IGNORE INTO drafts") && sql.includes("SELECT ?")
+    );
+    const b = pauseStatement(
+      testEnv.DB,
+      (sql) =>
+        sql.includes("INSERT OR IGNORE INTO drafts") && sql.includes("SELECT ?")
+    );
+    const input = {
+      runId,
+      draftId: id,
+      content: "Revise",
+      private: false,
+      intent: "revise" as const,
+      actorDisplayName: ACTOR
+    };
+    const first = submitTurn(a.db, deps(provider), input);
+    const second = submitTurn(b.db, deps(losingProvider), input);
+    await Promise.all([a.arrived, b.arrived]);
+    a.release();
+    expect((await first).status).toBe("ok");
+    b.release();
+    expect((await second).status).toBe("conflict");
+    decisionBarrier.release();
+    expect((await decision).status).toBe("conflict");
+    expect(provider.count()).toBe(2);
+    expect(losingProvider.count()).toBe(0);
+    expect(
+      (await evidenceRepo.listByRun(testEnv.DB, runId)).filter(
+        (e) => e.event === "draft.revised"
+      )
+    ).toHaveLength(1);
+  });
+});
+
+it.each([false, true])(
+  "revision only processes its owned child (sibling evaluated=%s)",
+  async (evaluated) => {
+    const runId = await insertRun("awaiting");
+    const id = await insertDraft(runId, `d:${runId}:owner`, EVAL_OK);
+    const sibling = await insertDraft(runId, `d:${runId}:other`, EVAL_OK);
+    const other = (await draftsRepo.getById(testEnv.DB, sibling))!;
+    expect(await draftsRepo.insertRevision(testEnv.DB, other, NOW)).toBe(true);
+    if (evaluated) {
+      await testEnv.DB.prepare(
+        "UPDATE drafts SET eval_summary_json = ? WHERE id = ?"
+      )
+        .bind(JSON.stringify(EVAL_OK), `${sibling}:r1`)
+        .run();
+      await append(testEnv.DB, {
+        id: `evaluated-${sibling}`,
+        runId,
+        event: "draft.evaluated",
+        payload: { draftId: `${sibling}:r1` },
+        createdAt: NOW
+      });
+    }
+    const siblingBefore = await draftsRepo.getById(testEnv.DB, `${sibling}:r1`);
+    const siblingEvidenceBefore = (
+      await evidenceRepo.listByRun(testEnv.DB, runId)
+    ).filter(
+      (e) => (e.payload as { draftId?: string })?.draftId === `${sibling}:r1`
+    );
+    await seedDrafterReviewer();
+    const provider = scriptedProvider([DRAFTER_JSON, REVIEWER_JSON]);
+    const result = await submitTurn(testEnv.DB, deps(provider), {
+      runId,
+      draftId: id,
+      content: "Only my child",
+      private: false,
+      intent: "revise",
+      actorDisplayName: ACTOR
+    });
+    expect(result.status).toBe("ok");
+    expect(provider.count()).toBe(2);
+    expect(await draftsRepo.getById(testEnv.DB, `${sibling}:r1`)).toEqual(
+      siblingBefore
+    );
+    expect(
+      (await evidenceRepo.listByRun(testEnv.DB, runId)).filter(
+        (e) => (e.payload as { draftId?: string })?.draftId === `${sibling}:r1`
+      )
+    ).toEqual(siblingEvidenceBefore);
+  }
+);

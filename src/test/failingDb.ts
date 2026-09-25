@@ -36,3 +36,66 @@ export function failBatchAfter(
   });
   return proxy as Db & { batchCalls: () => number };
 }
+
+/** Pause immediately before a real D1 batch, retaining real transactional behavior. */
+export function pauseBatch(db: Db) {
+  let arrive!: () => void;
+  let release!: () => void;
+  const arrived = new Promise<void>((resolve) => {
+    arrive = resolve;
+  });
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const proxy = new Proxy(db, {
+    get(target, prop) {
+      if (prop === "batch")
+        return async (statements: D1PreparedStatement[]) => {
+          arrive();
+          await released;
+          return target.batch(statements);
+        };
+      const value = Reflect.get(target, prop);
+      return typeof value === "function" ? value.bind(target) : value;
+    }
+  });
+  return { db: proxy, arrived, release };
+}
+
+/** Pause a conditional write immediately before executing its real statement. */
+export function pauseStatement(db: Db, matches: (sql: string) => boolean) {
+  let arrive!: () => void;
+  let release!: () => void;
+  const arrived = new Promise<void>((resolve) => {
+    arrive = resolve;
+  });
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  function wrap(statement: D1PreparedStatement): D1PreparedStatement {
+    return new Proxy(statement, {
+      get(target, prop) {
+        if (prop === "bind")
+          return (...values: unknown[]) => wrap(target.bind(...values));
+        if (prop === "run")
+          return async () => {
+            arrive();
+            await released;
+            return target.run();
+          };
+        const value = Reflect.get(target, prop);
+        return typeof value === "function" ? value.bind(target) : value;
+      }
+    });
+  }
+  const proxy = new Proxy(db, {
+    get(target, prop) {
+      if (prop === "prepare")
+        return (sql: string) =>
+          matches(sql) ? wrap(target.prepare(sql)) : target.prepare(sql);
+      const value = Reflect.get(target, prop);
+      return typeof value === "function" ? value.bind(target) : value;
+    }
+  });
+  return { db: proxy, arrived, release };
+}

@@ -74,6 +74,7 @@ export type SubmitTurnResult =
   | { status: "not_found" }
   | { status: "invalid"; message: string }
   | { status: "not_ready"; message: string }
+  | { status: "conflict"; message: string }
   | { status: "budget_stopped"; turn: PublicSteeringTurn };
 
 function publicTurnPayload(turn: SteeringTurnRecord): Record<string, unknown> {
@@ -225,41 +226,32 @@ async function reviseDraft(
   }
 ): Promise<
   | { status: "ok"; revisedDraftId: string }
+  | { status: "conflict" }
   | { status: "budget_stopped" }
   | { status: "invalid" }
 > {
   const latest = await draftsRepo.getById(db, input.parent.id);
   if (latest == null || latest.outcome != null) {
-    return { status: "invalid" };
+    return { status: "conflict" };
   }
   const siblings = await draftsRepo.listByRun(db, latest.runId);
   if (
     draftsRepo.hasInFlightSuccessor(latest, siblings) ||
     !draftsRepo.isPendingReadyTip(latest, siblings)
   ) {
-    return { status: "invalid" };
+    return { status: "conflict" };
   }
 
   const n = latest.revisionIndex + 1;
   const childId = draftsRepo.revisionDraftId(latest.id, n);
-  await draftsRepo.insertDraft(db, {
-    id: childId,
-    runId: latest.runId,
-    targetEntityType: latest.targetEntityType,
-    targetEntityId: latest.targetEntityId,
-    diff: latest.diff,
-    body: latest.body,
-    tier2Only: latest.tier2Only,
-    confidence: null,
-    evalSummary: null,
-    parentDraftId: latest.id,
-    revisionIndex: n,
-    createdAt: input.now()
-  });
+  if (!(await draftsRepo.insertRevision(db, latest, input.now()))) {
+    return { status: "conflict" };
+  }
 
   let budgetStopped = false;
   try {
     const result = await draftAndReview(db, input.parent.runId, gatewayDeps, {
+      draftId: childId,
       revisionInstruction: input.content
     });
     budgetStopped = result.budgetStopped;
@@ -274,7 +266,7 @@ async function reviseDraft(
   }
 
   try {
-    await enforceDraftGuardrails(db, input.parent.runId, gatewayDeps);
+    await enforceDraftGuardrails(db, input.parent.runId, gatewayDeps, childId);
     await db.batch([
       appendStmt(db, {
         id: evidenceId(input.parent.runId, "draft.revised", childId),
@@ -808,6 +800,13 @@ export async function submitTurn(
     );
     if (revised.status === "budget_stopped") {
       return { status: "budget_stopped", turn: publicTurn };
+    }
+    if (revised.status === "conflict") {
+      return {
+        status: "conflict",
+        message:
+          "Draft changed during revision admission. Refresh and review the current Draft."
+      };
     }
     if (revised.status === "invalid") {
       return {
