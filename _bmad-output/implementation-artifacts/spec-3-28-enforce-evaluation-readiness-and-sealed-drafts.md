@@ -95,6 +95,6 @@ All three layers completed. The platform refused another context-free reviewer a
 
 ## Verification
 
-2026-09-25: `npm test` passed 1107 tests/49 files; `npm run check` and `git diff --check` passed. Review patches also passed 132 targeted tests before full verification. CI pending PR creation.
+2026-09-25: `npm test` passed 1107 tests/49 files; `npm run check` and `git diff --check` passed. Review patches also passed 132 targeted tests before full verification. PR #44: https://github.com/bizmation/PredictionMarketLitigation/pull/44. Implementation commit `127a3f3`; required CI run `36143098420` passed (1101 tests passed, 6 environment-dependent tests skipped, 49 files). Story 3.28 is complete; the shared gate-safety action remains open for 3.29.
 
 Run targeted tests, `npm run check`, `npm test`, and `git diff --check`; require passing CI. Medium cross-layer footprint, no intent gaps or irreversibles. Gate-safety action stays open until 3.29.
