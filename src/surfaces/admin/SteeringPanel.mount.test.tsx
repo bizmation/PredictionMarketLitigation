@@ -52,7 +52,9 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
       })
     );
     vi.stubGlobal("fetch", fetchMock);
-    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    render(
+      <SteeringPanel revisionReady runId="run-20260914-aaa1" draftId="d-1" />
+    );
     fireEvent.change(screen.getByLabelText("Steering turn"), {
       target: { value: "hello" }
     });
@@ -100,6 +102,7 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(
       <SteeringPanel
+        revisionReady
         runId="run-20260914-aaa1"
         draftId="d-1"
         onRevised={onRevised}
@@ -136,7 +139,9 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
         })
     );
     vi.stubGlobal("fetch", fetchMock);
-    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    render(
+      <SteeringPanel revisionReady runId="run-20260914-aaa1" draftId="d-1" />
+    );
     fireEvent.change(screen.getByLabelText("Steering turn"), {
       target: { value: "hello" }
     });
@@ -164,7 +169,9 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
       "fetch",
       vi.fn(async () => scripted({ code: "budget_stopped" }, false, 409))
     );
-    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    render(
+      <SteeringPanel revisionReady runId="run-20260914-aaa1" draftId="d-1" />
+    );
     fireEvent.change(screen.getByLabelText("Steering turn"), {
       target: { value: "tighten the holding" }
     });
@@ -187,7 +194,9 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
         )
       )
     );
-    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    render(
+      <SteeringPanel revisionReady runId="run-20260914-aaa1" draftId="d-1" />
+    );
     fireEvent.change(screen.getByLabelText("Steering turn"), {
       target: { value: "tighten the holding" }
     });
@@ -202,7 +211,9 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
       "fetch",
       vi.fn(async () => scripted({ code: "error" }, false, 500))
     );
-    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    render(
+      <SteeringPanel revisionReady runId="run-20260914-aaa1" draftId="d-1" />
+    );
     fireEvent.change(screen.getByLabelText("Steering turn"), {
       target: { value: "hello" }
     });
@@ -219,7 +230,9 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
         throw new Error("network");
       })
     );
-    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    render(
+      <SteeringPanel revisionReady runId="run-20260914-aaa1" draftId="d-1" />
+    );
     fireEvent.change(screen.getByLabelText("Steering turn"), {
       target: { value: "hello" }
     });
@@ -239,7 +252,9 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
         )
       )
     );
-    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    render(
+      <SteeringPanel revisionReady runId="run-20260914-aaa1" draftId="d-1" />
+    );
     fireEvent.change(screen.getByLabelText("Steering turn"), {
       target: { value: "hello" }
     });
@@ -268,7 +283,9 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
         })
       )
     );
-    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    render(
+      <SteeringPanel revisionReady runId="run-20260914-aaa1" draftId="d-1" />
+    );
     fireEvent.change(screen.getByLabelText("Steering turn"), {
       target: { value: "why skipped" }
     });
@@ -281,13 +298,15 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
 
   it("clears composer content and private when the selected Draft changes", () => {
     const { rerender } = render(
-      <SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />
+      <SteeringPanel revisionReady runId="run-20260914-aaa1" draftId="d-1" />
     );
     fireEvent.change(screen.getByLabelText("Steering turn"), {
       target: { value: "typed for draft A" }
     });
     fireEvent.click(screen.getByLabelText("Mark private at submit"));
-    rerender(<SteeringPanel runId="run-20260914-aaa1" draftId="d-2" />);
+    rerender(
+      <SteeringPanel revisionReady runId="run-20260914-aaa1" draftId="d-2" />
+    );
     expect(
       (screen.getByLabelText("Steering turn") as HTMLTextAreaElement).value
     ).toBe("");
@@ -309,13 +328,15 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
       )
     );
     const { rerender } = render(
-      <SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />
+      <SteeringPanel revisionReady runId="run-20260914-aaa1" draftId="d-1" />
     );
     fireEvent.change(screen.getByLabelText("Steering turn"), {
       target: { value: "why skipped" }
     });
     fireEvent.click(screen.getByRole("button", { name: "Submit turn" }));
-    rerender(<SteeringPanel runId="run-20260914-aaa1" draftId="d-2" />);
+    rerender(
+      <SteeringPanel revisionReady runId="run-20260914-aaa1" draftId="d-2" />
+    );
     await act(async () => {
       resolveFetch?.(
         scripted({
@@ -378,7 +399,9 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
       });
     });
     vi.stubGlobal("fetch", fetchMock);
-    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    render(
+      <SteeringPanel revisionReady runId="run-20260914-aaa1" draftId="d-1" />
+    );
     await act(async () => {});
     fireEvent.change(screen.getByLabelText("Steering turn"), {
       target: { value: "Add the ND Cal docket to Tier-1." }
@@ -447,7 +470,9 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
       });
     });
     vi.stubGlobal("fetch", fetchMock);
-    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    render(
+      <SteeringPanel revisionReady runId="run-20260914-aaa1" draftId="d-1" />
+    );
     await act(async () => {});
     fireEvent.click(
       screen.getByRole("button", { name: "Revert to version 1" })
@@ -500,7 +525,9 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
         return scripted({ code: "budget_stopped" }, false, 409);
       })
     );
-    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    render(
+      <SteeringPanel revisionReady runId="run-20260914-aaa1" draftId="d-1" />
+    );
     fireEvent.change(screen.getByLabelText("Steering turn"), {
       target: { value: "Add a docket." }
     });
@@ -539,7 +566,9 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
         });
       })
     );
-    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    render(
+      <SteeringPanel revisionReady runId="run-20260914-aaa1" draftId="d-1" />
+    );
     fireEvent.change(screen.getByLabelText("Steering turn"), {
       target: { value: "Switch the gate to YOLO." }
     });
@@ -625,7 +654,9 @@ describe("SteeringPanel standing guidance (story 3.18)", () => {
       });
     });
     vi.stubGlobal("fetch", fetchMock);
-    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    render(
+      <SteeringPanel revisionReady runId="run-20260914-aaa1" draftId="d-1" />
+    );
     await act(async () => {});
     expect(document.body.textContent).toContain(
       "Standing guidance in force: 0 of 12"
@@ -684,7 +715,9 @@ describe("SteeringPanel standing guidance (story 3.18)", () => {
       });
     });
     vi.stubGlobal("fetch", fetchMock);
-    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    render(
+      <SteeringPanel revisionReady runId="run-20260914-aaa1" draftId="d-1" />
+    );
     await act(async () => {});
     fireEvent.click(
       screen.getByRole("button", { name: "Edit guidance sg:one" })
@@ -746,7 +779,9 @@ describe("SteeringPanel standing guidance (story 3.18)", () => {
       });
     });
     vi.stubGlobal("fetch", fetchMock);
-    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    render(
+      <SteeringPanel revisionReady runId="run-20260914-aaa1" draftId="d-1" />
+    );
     await act(async () => {});
     fireEvent.click(
       screen.getByRole("button", { name: "Edit guidance sg:one" })
@@ -787,7 +822,9 @@ describe("SteeringPanel standing guidance (story 3.18)", () => {
       );
     });
     vi.stubGlobal("fetch", fetchMock);
-    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    render(
+      <SteeringPanel revisionReady runId="run-20260914-aaa1" draftId="d-1" />
+    );
     await act(async () => {});
     fireEvent.click(
       screen.getByRole("button", { name: "Edit guidance sg:one" })
@@ -819,7 +856,7 @@ describe("SteeringPanel standing guidance (story 3.18)", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const { rerender } = render(
-      <SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />
+      <SteeringPanel revisionReady runId="run-20260914-aaa1" draftId="d-1" />
     );
     await act(async () => {});
     fireEvent.click(
@@ -828,7 +865,9 @@ describe("SteeringPanel standing guidance (story 3.18)", () => {
     expect(
       screen.getByRole("button", { name: "Save guidance edit" })
     ).toBeTruthy();
-    rerender(<SteeringPanel runId="run-20260914-aaa1" draftId="d-2" />);
+    rerender(
+      <SteeringPanel revisionReady runId="run-20260914-aaa1" draftId="d-2" />
+    );
     await act(async () => {});
     expect(
       screen.getByRole("button", { name: "Record guidance" })
@@ -852,7 +891,9 @@ describe("SteeringPanel standing guidance (story 3.18)", () => {
       );
     });
     vi.stubGlobal("fetch", fetchMock);
-    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    render(
+      <SteeringPanel revisionReady runId="run-20260914-aaa1" draftId="d-1" />
+    );
     await act(async () => {});
     fireEvent.click(
       screen.getByRole("button", { name: "Edit guidance sg:one" })
@@ -889,7 +930,9 @@ describe("SteeringPanel standing guidance (story 3.18)", () => {
       });
     });
     vi.stubGlobal("fetch", fetchMock);
-    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    render(
+      <SteeringPanel revisionReady runId="run-20260914-aaa1" draftId="d-1" />
+    );
     await act(async () => {});
     fireEvent.click(
       screen.getByRole("button", { name: "Revoke guidance sg:one" })
@@ -954,7 +997,9 @@ describe("SteeringPanel standing guidance (story 3.18)", () => {
       );
     });
     vi.stubGlobal("fetch", fetchMock);
-    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    render(
+      <SteeringPanel revisionReady runId="run-20260914-aaa1" draftId="d-1" />
+    );
     await act(async () => {});
     expect(document.body.textContent).toContain(
       "Standing guidance in force: 12 of 12"
@@ -985,7 +1030,9 @@ describe("SteeringPanel standing guidance (story 3.18)", () => {
         return scripted({ code: "budget_stopped" }, false, 409);
       })
     );
-    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    render(
+      <SteeringPanel revisionReady runId="run-20260914-aaa1" draftId="d-1" />
+    );
     await act(async () => {});
     fireEvent.change(screen.getByLabelText("Steering turn"), {
       target: { value: "Cite the docket." }
@@ -1011,7 +1058,9 @@ describe("SteeringPanel standing guidance (story 3.18)", () => {
       });
     });
     vi.stubGlobal("fetch", fetchMock);
-    render(<SteeringPanel runId="run-20260914-aaa1" draftId="d-1" />);
+    render(
+      <SteeringPanel revisionReady runId="run-20260914-aaa1" draftId="d-1" />
+    );
     await act(async () => {});
     expect(document.body.textContent).not.toContain(
       "Standing guidance in force"
@@ -1043,6 +1092,7 @@ describe("SteeringPanel POST timeout (story 3.19, jsdom mount)", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(
       <SteeringPanel
+        revisionReady
         runId="run-20260914-aaa1"
         draftId="d-1"
         onSubmittingChange={onSubmittingChange}

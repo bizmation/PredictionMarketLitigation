@@ -26,6 +26,7 @@ import { EmptyState } from "../../shared/ui";
 type SteeringPanelProps = {
   runId: string;
   draftId: string;
+  revisionReady?: boolean;
   onRevised?: (revisedDraftId: string) => void;
   onSubmittingChange?: (submitting: boolean) => void;
 };
@@ -126,6 +127,7 @@ function parsePipelineConfig(body: unknown): PipelineConfigView | null {
 export function SteeringPanel({
   runId,
   draftId,
+  revisionReady = false,
   onRevised,
   onSubmittingChange
 }: SteeringPanelProps) {
@@ -263,7 +265,12 @@ export function SteeringPanel({
     intent: "ask" | "revise" | "config" | "guidance",
     guidanceOptions?: { guidanceItemId?: string; revoke?: boolean }
   ) {
-    if (submitting.current || content.trim().length === 0) return;
+    if (
+      submitting.current ||
+      content.trim().length === 0 ||
+      (intent === "revise" && !revisionReady)
+    )
+      return;
     submitting.current = true;
     setBusy(true);
     onSubmittingChange?.(true);
@@ -479,7 +486,12 @@ export function SteeringPanel({
         <button
           type="button"
           className="btn"
-          disabled={busy}
+          disabled={busy || !revisionReady}
+          title={
+            !revisionReady
+              ? "Evaluation completion is required to revise this Draft."
+              : undefined
+          }
           onClick={() => void submit("revise")}
         >
           Revise draft

@@ -3,7 +3,7 @@ import * as draftsRepo from "../../shared/db/repos/draftsRepo";
 import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
 import type { GatewayRole } from "../../shared/schemas/vocabulary";
 import { evidenceId } from "../connectors/connector";
-import { append } from "../projector/evidence";
+import { appendStmt } from "../projector/evidence";
 import type { GatewayDeps } from "./gateway";
 
 /**
@@ -157,19 +157,24 @@ export async function enforceDraftGuardrails(
   );
   const createdAt = gatewayDeps.now?.() ?? new Date().toISOString();
   for (const draft of drafts) {
+    if (draft.outcome != null || draft.evalSummary == null) continue;
     const verdict = evaluateDraftGuardrails({
       draftId: draft.id,
       alreadyRecorded: recorded.has(draft.id),
       requestedTool: null
     });
     if (verdict.decision !== "pass") continue;
-    await append(db, {
-      id: evidenceId(runId, "guardrails.passed", draft.id),
-      runId,
-      event: "guardrails.passed",
-      payload: verdict.payload,
-      createdAt
-    });
+    await appendStmt(
+      db,
+      {
+        id: evidenceId(runId, "guardrails.passed", draft.id),
+        runId,
+        event: "guardrails.passed",
+        payload: verdict.payload,
+        createdAt
+      },
+      { draftId: draft.id, state: "evaluated" }
+    ).run();
     recorded.add(draft.id);
   }
 }

@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { deriveDraftReadiness, isDraftReady } from "../../lib/draftReadiness";
+export { isDraftReady } from "../../lib/draftReadiness";
 
 import { IsoUtcSchema } from "../../schemas/common";
 import {
@@ -20,6 +22,10 @@ import { asBool, type Db } from "../client";
 
 type DraftRow = {
   id: string;
+  run_status: string | null;
+  evaluated: number;
+  guardrails: number;
+  revised: number;
   run_id: string;
   target_entity_type: string | null;
   target_entity_id: string | null;
@@ -43,7 +49,14 @@ type DraftRow = {
 const DRAFT_COLUMNS = `id, run_id, target_entity_type, target_entity_id, diff_json,
               body, tier2_only, confidence, eval_summary_json, outcome,
               decided_at, decided_by, edited_body, reject_reason,
-              parent_draft_id, revision_index, created_at, updated_at`;
+              parent_draft_id, revision_index, created_at, updated_at,
+              (SELECT status FROM runs WHERE runs.id = drafts.run_id) AS run_status,
+              EXISTS (SELECT 1 FROM evidence_events e WHERE e.run_id = drafts.run_id
+                AND e.event = 'draft.evaluated' AND json_extract(e.payload_json, '$.draftId') = drafts.id) AS evaluated,
+              EXISTS (SELECT 1 FROM evidence_events e WHERE e.run_id = drafts.run_id
+                AND e.event IN ('guardrails.passed', 'guardrails.failed') AND json_extract(e.payload_json, '$.draftId') = drafts.id) AS guardrails,
+              EXISTS (SELECT 1 FROM evidence_events e WHERE e.run_id = drafts.run_id
+                AND e.event = 'draft.revised' AND json_extract(e.payload_json, '$.draftId') = drafts.id) AS revised`;
 
 function mapDraft(row: DraftRow): DraftRecord {
   return DraftRecordSchema.parse({
@@ -57,6 +70,17 @@ function mapDraft(row: DraftRow): DraftRecord {
     confidence: row.confidence,
     evalSummary:
       row.eval_summary_json == null ? null : JSON.parse(row.eval_summary_json),
+    readiness: deriveDraftReadiness({
+      summary:
+        row.eval_summary_json == null
+          ? null
+          : JSON.parse(row.eval_summary_json),
+      revisionIndex: row.revision_index,
+      runStatus: row.run_status,
+      evaluated: row.evaluated === 1,
+      guardrails: row.guardrails === 1,
+      revised: row.revised === 1
+    }),
     outcome: row.outcome,
     decidedAt: row.decided_at,
     decidedBy: row.decided_by,
@@ -67,11 +91,6 @@ function mapDraft(row: DraftRow): DraftRecord {
     createdAt: row.created_at,
     updatedAt: row.updated_at
   });
-}
-
-/** Ready = not (revisionIndex > 0 && evalSummary == null). */
-export function isDraftReady(draft: DraftRecord): boolean {
-  return !(draft.revisionIndex > 0 && draft.evalSummary == null);
 }
 
 export function revisionDraftId(
@@ -106,8 +125,8 @@ function membersOfChain(draft: DraftRecord, all: DraftRecord[]): DraftRecord[] {
 /**
  * Pending-tip rule (story 3.16): a chain is closed when its head (max
  * revisionIndex) has an outcome; ancestors with NULL outcome are
- * historical. If the head is ready and pending, it is the only tip. If
- * the head is in-flight, the previous ready pending row stays visible.
+ * historical. The latest undecided head is always visible, including unavailable
+ * evaluation. Eligibility is checked separately; ancestors are never offered.
  */
 export function pendingTips(drafts: DraftRecord[]): DraftRecord[] {
   const byId = new Map(drafts.map((row) => [row.id, row]));
@@ -123,17 +142,7 @@ export function pendingTips(drafts: DraftRecord[]): DraftRecord[] {
     members.sort((a, b) => a.revisionIndex - b.revisionIndex);
     const head = members[members.length - 1];
     if (head == null || head.outcome != null) continue;
-    if (isDraftReady(head)) {
-      tips.push(head);
-      continue;
-    }
-    for (let i = members.length - 2; i >= 0; i--) {
-      const previous = members[i]!;
-      if (isDraftReady(previous) && previous.outcome == null) {
-        tips.push(previous);
-        break;
-      }
-    }
+    tips.push(head);
   }
   return tips;
 }
@@ -142,7 +151,10 @@ export function isPendingReadyTip(
   draft: DraftRecord,
   siblings: DraftRecord[]
 ): boolean {
-  return pendingTips(siblings).some((tip) => tip.id === draft.id);
+  return (
+    isDraftReady(draft) &&
+    pendingTips(siblings).some((tip) => tip.id === draft.id)
+  );
 }
 
 export function hasInFlightSuccessor(
@@ -186,9 +198,9 @@ export async function listByRun(db: Db, runId: string): Promise<DraftRecord[]> {
 }
 
 /**
- * Story 3.10 / 3.16 — the operator queue feed: ready chain tips only
- * (pending), oldest waiting first. Historical ancestors and in-flight
- * children never appear here. Decided Drafts never appear here again.
+ * Story 3.10 / 3.16 — the operator queue feed: undecided chain heads,
+ * oldest waiting first. Unavailable heads remain visible; historical
+ * ancestors never appear here. Decided Drafts never appear here again.
  */
 export async function listPending(db: Db): Promise<DraftRecord[]> {
   const { results } = await db
@@ -203,7 +215,7 @@ export async function listPending(db: Db): Promise<DraftRecord[]> {
 }
 
 /**
- * Story 3.9 / 3.16 — the public pending-drafts feed: ready chain tips
+ * Story 3.9 / 3.16 — the public pending-drafts feed: undecided chain heads
  * plus the rejected archive, newest first. Historical NULL-outcome
  * ancestors are not pending. Approved/edited Drafts belong to publish
  * records (3.11) and are deliberately excluded.
@@ -340,7 +352,7 @@ export async function applyDraftReviewStmt(
       `UPDATE drafts
           SET body = ?, diff_json = ?, confidence = ?, eval_summary_json = ?,
               updated_at = ?
-        WHERE id = ?`
+        WHERE id = ? AND outcome IS NULL AND eval_summary_json IS NULL`
     )
     .bind(
       record.body,
@@ -370,7 +382,11 @@ export async function applyGuardrailIneligibleStmt(
   input: { id: string; updatedAt: string }
 ): Promise<D1PreparedStatement> {
   const patch = GuardrailIneligiblePatchSchema.parse(input);
-  const existing = await getById(db, patch.id);
+  const stored = await db
+    .prepare(`SELECT ${DRAFT_COLUMNS} FROM drafts WHERE id = ?`)
+    .bind(patch.id)
+    .first<DraftRow>();
+  const existing = stored ? mapDraft(stored) : null;
   if (!existing) {
     throw new Error(`Draft ${patch.id} not found.`);
   }
@@ -392,9 +408,14 @@ export async function applyGuardrailIneligibleStmt(
     .prepare(
       `UPDATE drafts
           SET eval_summary_json = ?, updated_at = ?
-        WHERE id = ?`
+        WHERE id = ? AND outcome IS NULL AND eval_summary_json = ?`
     )
-    .bind(JSON.stringify(record.evalSummary), record.updatedAt, record.id);
+    .bind(
+      JSON.stringify(record.evalSummary),
+      record.updatedAt,
+      record.id,
+      stored!.eval_summary_json
+    );
 }
 
 /**

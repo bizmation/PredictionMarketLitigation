@@ -1,3 +1,4 @@
+import { insertReviewedDraft } from "../../test/reviewedDraft";
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -1152,7 +1153,7 @@ describe("mode stamp + YOLO hook (story 3.13)", () => {
       now: NOW
     });
     expect((await runsRepo.getRunById(testEnv.DB, yoloId))?.mode).toBe("yolo");
-    await draftsRepo.insertDraft(testEnv.DB, {
+    await insertReviewedDraft(testEnv.DB, {
       id: `d:${yoloId}:states:st-nv`,
       runId: yoloId,
       targetEntityType: "states",
@@ -1196,7 +1197,7 @@ describe("mode stamp + YOLO hook (story 3.13)", () => {
     });
     await ensureRun(testEnv.DB, "scheduled", yoloDate);
     const yoloId = runIdFor(yoloDate, "scheduled");
-    await draftsRepo.insertDraft(testEnv.DB, {
+    await insertReviewedDraft(testEnv.DB, {
       id: `d:${yoloId}:states:st-nv`,
       runId: yoloId,
       targetEntityType: "states",
@@ -1235,7 +1236,7 @@ describe("mode stamp + YOLO hook (story 3.13)", () => {
     await ensureRun(testEnv.DB, "scheduled", hitlDate);
     const hitlId = runIdFor(hitlDate, "scheduled");
     expect((await runsRepo.getRunById(testEnv.DB, hitlId))?.mode).toBe("hitl");
-    await draftsRepo.insertDraft(testEnv.DB, {
+    await insertReviewedDraft(testEnv.DB, {
       id: `d:${hitlId}:states:st-nv`,
       runId: hitlId,
       targetEntityType: "states",

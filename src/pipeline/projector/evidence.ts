@@ -134,9 +134,10 @@ function scrubbedInput(input: EvidenceAppendInput): EvidenceAppendInput {
 /** Statement form so callers can `db.batch` this insert with another write. */
 export function appendStmt(
   db: Db,
-  input: EvidenceAppendInput
+  input: EvidenceAppendInput,
+  guard?: { draftId: string; state: "unevaluated" | "evaluated" | "undecided" }
 ): D1PreparedStatement {
-  return evidenceRepo.appendEventStmt(db, scrubbedInput(input));
+  return evidenceRepo.appendEventStmt(db, scrubbedInput(input), guard);
 }
 
 export async function append(

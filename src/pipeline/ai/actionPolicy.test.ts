@@ -425,17 +425,12 @@ describe("enforceDraftGuardrails I/O matrix (story 3.6)", () => {
     const joined = provider.prompts().join("\n");
     expect(joined).not.toContain("operator@secret.example");
     expect(joined).not.toContain("career notes must not leak");
-    expect(joined).toContain("Nevada restricted.");
+    expect(joined).toBe("");
     const passed = guardrailOf(
       await evidenceRepo.listByRun(testEnv.DB, id),
       "guardrails.passed"
     );
-    expect(passed[0]?.payload).toMatchObject({
-      context: [...AUTHORIZED_CONTEXT_KEYS]
-    });
-    expect(JSON.stringify(passed[0]?.payload)).not.toMatch(
-      /operator|secret|career/i
-    );
+    expect(passed).toEqual([]);
   });
 
   it("step retry skips a Draft that already has guardrails.passed", async () => {

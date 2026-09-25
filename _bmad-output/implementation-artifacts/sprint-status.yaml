@@ -1,5 +1,5 @@
 # generated: 2026-08-09
-# last_updated: 09-24-2026 14:42
+# last_updated: 2026-09-25
 # project: PML
 # project_key: NOKEY
 # tracking_system: file-system
@@ -36,7 +36,7 @@
 # - Source epics: _bmad-output/planning-artifacts/epics.md; 3.14–3.21 backfill tracked in 3.26.
 
 generated: 2026-08-09
-last_updated: 09-24-2026 14:42
+last_updated: 2026-09-25
 project: PML
 project_key: NOKEY
 tracking_system: file-system
@@ -100,7 +100,7 @@ development_status:
   # Added by approved sprint-change-proposal-2026-09-24
   3-26-reconcile-canonical-epic-3-planning: done
   3-27-constrain-connector-pagination-credentials: done
-  3-28-enforce-evaluation-readiness-and-sealed-drafts: backlog
+  3-28-enforce-evaluation-readiness-and-sealed-drafts: review
   3-29-make-publication-and-run-finalization-atomic: backlog
   3-30-define-and-enforce-bounded-provider-cost: backlog
   3-31-reserve-and-settle-paid-calls-atomically: backlog

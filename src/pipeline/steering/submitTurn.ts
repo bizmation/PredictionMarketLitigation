@@ -73,6 +73,7 @@ export type SubmitTurnResult =
   | { status: "ok"; turn: PublicSteeringTurn }
   | { status: "not_found" }
   | { status: "invalid"; message: string }
+  | { status: "not_ready"; message: string }
   | { status: "budget_stopped"; turn: PublicSteeringTurn };
 
 function publicTurnPayload(turn: SteeringTurnRecord): Record<string, unknown> {
@@ -745,7 +746,7 @@ export async function submitTurn(
   if (intent === "revise") {
     if (run.status !== "awaiting") {
       return {
-        status: "invalid",
+        status: "not_ready",
         message: "Run is not awaiting; revise is closed."
       };
     }
@@ -761,8 +762,9 @@ export async function submitTurn(
       !draftsRepo.isPendingReadyTip(loadedDraft, siblings)
     ) {
       return {
-        status: "invalid",
-        message: "Draft is not the current ready chain tip."
+        status: "not_ready",
+        message:
+          "Draft evaluation is not ready or this Draft is no longer the chain head."
       };
     }
   }

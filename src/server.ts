@@ -268,6 +268,17 @@ export default {
               return jsonError(notFound(`Draft '${draftId}' not found.`), {
                 headers: ADMIN_CACHE_HEADERS
               });
+            case "not_ready":
+              return jsonError(
+                new ApiError(
+                  409,
+                  "draft_not_ready",
+                  "Draft evaluation is not ready for decisions."
+                ),
+                {
+                  headers: ADMIN_CACHE_HEADERS
+                }
+              );
             case "already_decided":
               return jsonError(conflict("Draft already decided."), {
                 headers: ADMIN_CACHE_HEADERS
@@ -488,6 +499,13 @@ export default {
               return jsonError(notFound(`Run '${runId}' not found.`), {
                 headers: ADMIN_CACHE_HEADERS
               });
+            case "not_ready":
+              return jsonError(
+                new ApiError(409, "draft_not_ready", result.message),
+                {
+                  headers: ADMIN_CACHE_HEADERS
+                }
+              );
             case "invalid":
               return jsonError(badRequest(result.message), {
                 headers: ADMIN_CACHE_HEADERS

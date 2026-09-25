@@ -1,5 +1,9 @@
 import { useEffect, useState, type ReactNode } from "react";
 
+import {
+  draftReadinessLabel,
+  isDraftReady
+} from "../../shared/lib/draftReadiness";
 import { formatEtDateTime } from "../../shared/lib/dates";
 import { surfaceHref } from "../../shared/lib/surface";
 import {
@@ -68,6 +72,10 @@ export function isDraftRecord(value: unknown): value is DraftRecord {
     typeof row.tier2Only === "boolean" &&
     (row.confidence === null || isConfidence(row.confidence)) &&
     (row.evalSummary === null || isEvalSummary(row.evalSummary)) &&
+    (row.readiness === undefined ||
+      row.readiness === "ready" ||
+      row.readiness === "pending" ||
+      row.readiness === "unavailable") &&
     (row.outcome === null ||
       (typeof row.outcome === "string" && OUTCOMES.has(row.outcome))) &&
     (row.decidedAt === null || typeof row.decidedAt === "string") &&
@@ -219,7 +227,7 @@ function DraftDiff({ diff }: { diff: DraftRecord["diff"] }) {
 
 function FlagRow({ draft }: { draft: DraftRecord }) {
   const evalStatus = draft.evalSummary?.status;
-  const evalsNotRun = evalStatus == null || evalStatus === "evals_not_run";
+  const evalsNotRun = evalStatus === "evals_not_run";
   const flagged = draft.evalSummary?.disagreement.flagged === true;
 
   return (
@@ -233,7 +241,9 @@ function FlagRow({ draft }: { draft: DraftRecord }) {
       ) : (
         <span className="origin">Confidence {draft.confidence}/100</span>
       )}
-      {evalsNotRun ? (
+      {!isDraftReady(draft) ? (
+        <span className="muted">{draftReadinessLabel(draft)}</span>
+      ) : evalsNotRun ? (
         <span className="muted">Evals not run</span>
       ) : (
         <span className="origin">Evals · {evalStatus}</span>

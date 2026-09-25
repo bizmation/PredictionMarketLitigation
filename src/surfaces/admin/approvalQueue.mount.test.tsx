@@ -31,6 +31,7 @@ function draftRecord(id: string): DraftRecord {
     body: "Nevada posture proposal body.",
     tier2Only: false,
     confidence: 61,
+    readiness: "ready",
     evalSummary: {
       status: "ok",
       basis: "all claims cited",
@@ -968,5 +969,189 @@ describe("ApprovalQueue docket-event card (story 3.21)", () => {
     fireEvent.keyDown(document, { key: "j" });
     expect(screen.queryByTestId("accept-strip")).toBeNull();
     expect(document.body.textContent).toContain("No inference on this record");
+  });
+});
+
+describe("evaluation readiness controls (3.28)", () => {
+  it.each(["pending", "unavailable"] as const)(
+    "blocks mouse and keyboard decisions and revision for %s evaluation",
+    async (readiness) => {
+      const draft = {
+        ...draftRecord("unavailable-head"),
+        evalSummary: null,
+        readiness
+      };
+      const mock = stubQueueFetch([draft], {});
+      render(<ApprovalQueue />);
+      await act(async () => {});
+      for (const name of ["Approve", "Edit", "Reject", "Revise draft"]) {
+        const button = screen.getByRole("button", {
+          name
+        }) as HTMLButtonElement;
+        expect(button.disabled).toBe(true);
+        fireEvent.click(button);
+      }
+      for (const key of ["a", "e", "r"])
+        fireEvent.keyDown(document.body, { key });
+      await act(async () => {});
+      expect(mock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(
+        false
+      );
+      expect(
+        screen.queryByRole("textbox", { name: "Edited draft body" })
+      ).toBeNull();
+      expect(
+        (
+          screen.getByRole("button", {
+            name: "Submit turn"
+          }) as HTMLButtonElement
+        ).disabled
+      ).toBe(false);
+      expect(screen.queryByText("Evals not run")).toBeNull();
+    }
+  );
+
+  it("enables review only after completion and keeps explicit not-run human controls enabled", async () => {
+    const complete = draftRecord("completion-head");
+    const mock = stubQueueFetch([], { body: decided(complete) });
+    const { rerender } = render(
+      <ApprovalQueue
+        items={[{ ...complete, readiness: "pending", evalSummary: null }]}
+      />
+    );
+    expect(
+      (screen.getByRole("button", { name: "Approve" }) as HTMLButtonElement)
+        .disabled
+    ).toBe(true);
+    const notRun = {
+      ...complete,
+      evalSummary: {
+        ...complete.evalSummary!,
+        status: "evals_not_run" as const,
+        basis: "Provider was unavailable",
+        ineligible: ["evals_not_run" as const]
+      }
+    };
+    rerender(<ApprovalQueue items={[notRun]} />);
+    expect(screen.getByText("Evals not run")).toBeTruthy();
+    for (const name of ["Approve", "Edit", "Reject", "Revise draft"])
+      expect(
+        (screen.getByRole("button", { name }) as HTMLButtonElement).disabled
+      ).toBe(false);
+    fireEvent.keyDown(document.body, { key: "a" });
+    await act(async () => {});
+    expect(
+      mock.mock.calls.some(([url]) => String(url).includes("/decision"))
+    ).toBe(true);
+  });
+
+  it("retains an unsent edit when the server reports a readiness conflict", async () => {
+    const mock = stubQueueFetch([draftRecord("conflict-head")], {
+      ok: false,
+      status: 409,
+      body: { code: "draft_not_ready" }
+    });
+    render(<ApprovalQueue />);
+    await act(async () => {});
+    fireEvent.keyDown(document.body, { key: "e" });
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Edited draft body" }),
+      { target: { value: "Keep my unsent change" } }
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Approve with edits" }));
+    await act(async () => {});
+    expect(
+      (
+        screen.getByRole("textbox", {
+          name: "Edited draft body"
+        }) as HTMLTextAreaElement
+      ).value
+    ).toBe("Keep my unsent change");
+    expect(screen.getByText(/Your edits are retained/)).toBeTruthy();
+    expect(
+      mock.mock.calls.filter(([url]) => String(url).includes("/decision"))
+    ).toHaveLength(1);
+  });
+});
+
+describe("queue refresh and edit identity", () => {
+  it("fetches completed readiness through the explicit refresh control", async () => {
+    const ready = draftRecord("refresh-head");
+    let completed = false;
+    const fetchMock = vi.fn(async () =>
+      scripted({
+        items: [
+          completed
+            ? ready
+            : { ...ready, readiness: "pending", evalSummary: null }
+        ]
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ApprovalQueue />);
+    await act(async () => {});
+    expect(
+      (screen.getByRole("button", { name: "Approve" }) as HTMLButtonElement)
+        .disabled
+    ).toBe(true);
+    completed = true;
+    fireEvent.click(screen.getByRole("button", { name: "Refresh queue" }));
+    await act(async () => {});
+    expect(
+      (screen.getByRole("button", { name: "Approve" }) as HTMLButtonElement)
+        .disabled
+    ).toBe(false);
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it("never submits retained ancestor text for a replacement head after a conflict refresh", async () => {
+    const parent = draftRecord("ancestor");
+    const child = {
+      ...draftRecord("replacement"),
+      body: "Replacement proposal"
+    };
+    let replaced = false;
+    const fetchMock = vi.fn(
+      async (input: string | URL | Request, _init?: RequestInit) => {
+        if (String(input).includes("/decision")) {
+          if (!replaced) {
+            replaced = true;
+            return scripted({ code: "draft_not_ready" }, false, 409);
+          }
+          return scripted(decided(child));
+        }
+        return scripted({ items: [replaced ? child : parent] });
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ApprovalQueue />);
+    await act(async () => {});
+    fireEvent.keyDown(document.body, { key: "e" });
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Edited draft body" }),
+      { target: { value: "Ancestor-only unsent text" } }
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Approve with edits" }));
+    await act(async () => {});
+    expect(
+      screen.queryByRole("textbox", { name: "Edited draft body" })
+    ).toBeNull();
+    fireEvent.keyDown(document.body, { key: "e" });
+    expect(
+      (
+        screen.getByRole("textbox", {
+          name: "Edited draft body"
+        }) as HTMLTextAreaElement
+      ).value
+    ).toBe(child.body);
+    fireEvent.click(screen.getByRole("button", { name: "Approve with edits" }));
+    await act(async () => {});
+    const replacementPost = fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("replacement/decision")
+    );
+    expect(JSON.parse(String(replacementPost?.[1]?.body))).toMatchObject({
+      action: "edit",
+      editedBody: child.body
+    });
   });
 });

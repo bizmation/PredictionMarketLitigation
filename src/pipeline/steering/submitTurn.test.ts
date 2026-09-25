@@ -1,3 +1,4 @@
+import { insertReviewedDraft } from "../../test/reviewedDraft";
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -175,7 +176,7 @@ async function insertDraft(
   id = `d:${runId}:nv`,
   evalSummary: EvalSummary | null = null
 ): Promise<string> {
-  await draftsRepo.insertDraft(testEnv.DB, {
+  await insertReviewedDraft(testEnv.DB, {
     id,
     runId,
     targetEntityType: "states",
@@ -983,7 +984,7 @@ describe("submitTurn revision I/O matrix (story 3.16)", () => {
     expect(await f1Snapshot()).toEqual(beforeF1);
   });
 
-  it("keeps the parent as the pending tip when drafter complete hits the budget", async () => {
+  it("keeps the incomplete child visible and blocks the parent when revision hits the budget", async () => {
     const runId = await insertRun("awaiting", 0);
     const parentId = await insertDraft(runId, `d:${runId}:nv`, EVAL_OK);
     await seedDrafterReviewer();
@@ -1004,15 +1005,15 @@ describe("submitTurn revision I/O matrix (story 3.16)", () => {
     const child = await draftsRepo.getById(testEnv.DB, childId);
     expect(child?.evalSummary).toBeNull();
     const pending = await draftsRepo.listPending(testEnv.DB);
-    expect(pending.some((row) => row.id === parentId)).toBe(true);
-    expect(pending.some((row) => row.id === childId)).toBe(false);
+    expect(pending.some((row) => row.id === parentId)).toBe(false);
+    expect(pending.some((row) => row.id === childId)).toBe(true);
     const decided = await decide(testEnv.DB, {
       draftId: parentId,
       action: "approve",
       operator: { displayName: ACTOR },
       now: NOW
     });
-    expect(decided.status).toBe("invalid");
+    expect(decided.status).toBe("not_ready");
     const stored = await steeringTurnsRepo.listByRun(testEnv.DB, runId);
     expect(stored).toHaveLength(1);
 
@@ -1028,7 +1029,7 @@ describe("submitTurn revision I/O matrix (story 3.16)", () => {
         actorDisplayName: ACTOR
       }
     );
-    expect(again.status).toBe("invalid");
+    expect(again.status).toBe("not_ready");
     const drafts = await draftsRepo.listByRun(testEnv.DB, runId);
     expect(drafts.map((row) => row.id).sort()).toEqual(
       [parentId, childId].sort()
@@ -1165,7 +1166,7 @@ describe("submitTurn revision I/O matrix (story 3.16)", () => {
       intent: "revise",
       actorDisplayName: ACTOR
     });
-    expect(result.status).toBe("invalid");
+    expect(result.status).toBe("not_ready");
     expect(await draftsRepo.listByRun(testEnv.DB, runId)).toHaveLength(1);
     expect(await steeringTurnsRepo.listByRun(testEnv.DB, runId)).toHaveLength(
       0

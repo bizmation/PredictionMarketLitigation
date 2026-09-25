@@ -97,6 +97,7 @@ export type DecideInput = {
 export type DecideResult =
   | { status: "not_found" }
   | { status: "already_decided" }
+  | { status: "not_ready" }
   | { status: "invalid" }
   | { status: "decided"; record: DraftRecord };
 
@@ -148,11 +149,8 @@ export async function decide(
   if (!run) return { status: "invalid" };
 
   const siblings = await draftsRepo.listByRun(db, existing.runId);
-  if (draftsRepo.hasInFlightSuccessor(existing, siblings)) {
-    return { status: "invalid" };
-  }
   if (!draftsRepo.isPendingReadyTip(existing, siblings)) {
-    return { status: "invalid" };
+    return { status: "not_ready" };
   }
 
   const outcome =
