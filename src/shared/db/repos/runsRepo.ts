@@ -1,3 +1,4 @@
+import { currentHeadSql } from "./draftsRepo";
 import {
   RunLogItemSchema,
   RunSummarySchema,
@@ -289,4 +290,20 @@ export function terminalAwaitingRunStmt(
         WHERE id = ? AND status = 'awaiting'`
     )
     .bind(status, completedAt, runId);
+}
+
+/** Evaluate current chain heads after the decision, inside its transaction. */
+export function finalizeDecidedRunStmt(
+  db: Db,
+  runId: string,
+  now: string
+): D1PreparedStatement {
+  return db
+    .prepare(`UPDATE runs SET status = CASE WHEN EXISTS (
+      SELECT 1 FROM drafts WHERE run_id = runs.id AND outcome IN ('approved','edited'))
+      THEN 'published' ELSE 'rejected' END, completed_at = ?
+    WHERE id = ? AND status = 'awaiting' AND NOT EXISTS (
+      SELECT 1 FROM drafts d WHERE d.run_id = runs.id AND d.outcome IS NULL
+      AND ${currentHeadSql("d")})`)
+    .bind(now, runId);
 }

@@ -28,6 +28,7 @@ type SteeringPanelProps = {
   draftId: string;
   revisionReady?: boolean;
   onRevised?: (revisedDraftId: string) => void;
+  onConflict?: () => void;
   onSubmittingChange?: (submitting: boolean) => void;
 };
 
@@ -129,7 +130,8 @@ export function SteeringPanel({
   draftId,
   revisionReady = false,
   onRevised,
-  onSubmittingChange
+  onSubmittingChange,
+  onConflict
 }: SteeringPanelProps) {
   const [view, setView] = useState<View>({ status: "ready" });
   const [content, setContent] = useState("");
@@ -253,6 +255,11 @@ export function SteeringPanel({
       );
       return true;
     }
+    if (
+      status === 409 &&
+      (errBody.code === "draft_conflict" || errBody.code === "draft_not_ready")
+    )
+      onConflict?.();
     if (typeof errBody.message === "string" && errBody.message.length > 0) {
       setError(errBody.message);
       return true;

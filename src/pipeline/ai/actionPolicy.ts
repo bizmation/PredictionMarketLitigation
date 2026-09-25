@@ -136,9 +136,12 @@ export function evaluateDraftGuardrails(input: {
 export async function enforceDraftGuardrails(
   db: Db,
   runId: string,
-  gatewayDeps: GatewayDeps
+  gatewayDeps: GatewayDeps,
+  draftId?: string
 ): Promise<void> {
-  const drafts = await draftsRepo.listByRun(db, runId);
+  const drafts = (await draftsRepo.listByRun(db, runId)).filter(
+    (draft) => draftId == null || draft.id === draftId
+  );
   if (drafts.length === 0) return;
   const evidence = await evidenceRepo.listByRun(db, runId);
   const recorded = new Set(

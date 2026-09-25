@@ -638,7 +638,7 @@ export async function draftAndReview(
   db: Db,
   runId: string,
   gatewayDeps: GatewayDeps,
-  options?: { revisionInstruction?: string }
+  options?: { revisionInstruction?: string; draftId?: string }
 ): Promise<DraftAndReviewResult> {
   const threshold = (await modeRepo.get(db)).threshold;
   const inForce = await standingGuidanceRepo.listInForce(db);
@@ -656,6 +656,7 @@ export async function draftAndReview(
   }
   const drafts = (await draftsRepo.listByRun(db, runId)).filter(
     (draft) =>
+      (options?.draftId == null || draft.id === options.draftId) &&
       draft.outcome == null &&
       draft.evalSummary == null &&
       !failedIds.has(draft.id)

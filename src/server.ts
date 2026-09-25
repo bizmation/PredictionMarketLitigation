@@ -279,6 +279,15 @@ export default {
                   headers: ADMIN_CACHE_HEADERS
                 }
               );
+            case "conflict":
+              return jsonError(
+                new ApiError(
+                  409,
+                  "draft_conflict",
+                  "Draft or canonical values changed. Refresh and review before deciding."
+                ),
+                { headers: ADMIN_CACHE_HEADERS }
+              );
             case "already_decided":
               return jsonError(conflict("Draft already decided."), {
                 headers: ADMIN_CACHE_HEADERS
@@ -505,6 +514,11 @@ export default {
                 {
                   headers: ADMIN_CACHE_HEADERS
                 }
+              );
+            case "conflict":
+              return jsonError(
+                new ApiError(409, "draft_conflict", result.message),
+                { headers: ADMIN_CACHE_HEADERS }
               );
             case "invalid":
               return jsonError(badRequest(result.message), {

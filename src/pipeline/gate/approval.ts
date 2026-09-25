@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { assertStmt } from "../../shared/db/repos/gateAssertions";
 import type { Db } from "../../shared/db/client";
 import * as draftsRepo from "../../shared/db/repos/draftsRepo";
 import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
@@ -7,8 +8,12 @@ import * as runsRepo from "../../shared/db/repos/runsRepo";
 import { IsoUtcSchema } from "../../shared/schemas/common";
 import { type DraftRecord, type EvidenceEvent } from "../../shared/schemas/run";
 import { ProvenanceKindSchema } from "../../shared/schemas/vocabulary";
-import { appendStmt } from "../projector/evidence";
-import { applyF1Stmts, DOCKET_EVENTS_TARGET } from "./f1Apply";
+import { appendStmt, completionReceiptStmt } from "../projector/evidence";
+import {
+  applyF1Stmts,
+  DOCKET_EVENTS_TARGET,
+  StalePublicationError
+} from "./f1Apply";
 
 /**
  * Story 3.10/3.11 — the Approval Gate's decision module. The ONLY writer of
@@ -98,6 +103,7 @@ export type DecideResult =
   | { status: "not_found" }
   | { status: "already_decided" }
   | { status: "not_ready" }
+  | { status: "conflict" }
   | { status: "invalid" }
   | { status: "decided"; record: DraftRecord };
 
@@ -168,7 +174,9 @@ export async function decide(
   const provenanceKind =
     action === "approve" ? (parsed.data.provenanceKind ?? "human") : "human";
 
-  const statements: D1PreparedStatement[] = [];
+  const statements: D1PreparedStatement[] = [
+    draftsRepo.readySnapshotStmt(db, existing)
+  ];
   let acceptedFields: string[] = [];
   let strippedFields: string[] = [];
 
@@ -187,14 +195,12 @@ export async function decide(
       statements.push(...applied.statements);
       acceptedFields = applied.acceptedFields;
       strippedFields = applied.strippedFields;
-    } catch {
-      return { status: "invalid" };
+    } catch (error) {
+      return {
+        status: error instanceof StalePublicationError ? "conflict" : "invalid"
+      };
     }
   }
-  // The Draft UPDATE follows every F1 statement; its `meta.changes` is the
-  // retry guard (`already_decided` when a replay finds the row decided).
-  const draftStmtIndex = statements.length;
-
   let update: D1PreparedStatement;
   try {
     update = await draftsRepo.applyDecisionStmt(db, {
@@ -208,7 +214,7 @@ export async function decide(
       updatedAt: now
     });
   } catch {
-    return { status: "invalid" };
+    return { status: "conflict" };
   }
 
   const events = await evidenceRepo.listByRun(db, existing.runId);
@@ -220,7 +226,7 @@ export async function decide(
   const approvedText =
     action === "edit" ? (editedBody ?? existing.body) : existing.body;
 
-  statements.push(update);
+  statements.push(update, assertStmt(db, "decision_owner", "changes() = 1"));
   statements.push(
     appendStmt(db, {
       id: `gate-decided-${draftId}`,
@@ -243,36 +249,15 @@ export async function decide(
     })
   );
 
-  const otherPending = draftsRepo
-    .pendingTips(siblings)
-    .some((draft) => draft.id !== draftId);
-  if (!otherPending && run.status === "awaiting") {
-    const published =
-      action !== "reject" ||
-      siblings.some(
-        (draft) => draft.outcome === "approved" || draft.outcome === "edited"
-      );
-    const terminal = published ? "published" : "rejected";
-    statements.push(
-      runsRepo.terminalAwaitingRunStmt(db, existing.runId, terminal, now)
-    );
-    statements.push(
-      appendStmt(db, {
-        id: `run-completed-${existing.runId}`,
-        runId: existing.runId,
-        event: "run.completed",
-        payload: { status: terminal },
-        createdAt: now
-      })
-    );
-  }
+  statements.push(assertStmt(db, "decision_receipt", "changes() = 1"));
+  statements.push(runsRepo.finalizeDecidedRunStmt(db, existing.runId, now));
+  statements.push(completionReceiptStmt(db, existing.runId, now));
 
   try {
-    const results = await db.batch(statements);
-    if (results[draftStmtIndex]?.meta.changes === 0) {
-      return { status: "already_decided" };
-    }
-  } catch {
+    await db.batch(statements);
+  } catch (error) {
+    if (String(error).includes("gate_assertion_failed"))
+      return { status: "conflict" };
     return { status: "invalid" };
   }
 

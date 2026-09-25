@@ -1,3 +1,4 @@
+import { pauseBatch, pauseStatement } from "../../test/failingDb";
 import { recordReviewCompletion } from "../../test/reviewedDraft";
 import { env } from "cloudflare:workers";
 import { SignJWT, exportJWK, generateKeyPair } from "jose";
@@ -142,7 +143,15 @@ async function seedPendingDraft(
       runId,
       patch?.targetEntityType === undefined ? "states" : patch.targetEntityType,
       patch?.targetEntityId === undefined ? "st-nv" : patch.targetEntityId,
-      patch?.diffJson ?? '{"posture":{"from":"untracked","to":"pending"}}',
+      patch?.diffJson ??
+        JSON.stringify({
+          posture: {
+            from: (await testEnv.DB.prepare(
+              "SELECT posture FROM states WHERE id = 'st-nv'"
+            ).first<{ posture: string }>())!.posture,
+            to: "pending"
+          }
+        }),
       `Pending proposal body for ${id}.`,
       0,
       80,
@@ -830,6 +839,9 @@ describe("admin approval queue (story 3.10)", () => {
 
   it("publishes a cert draft whose factors value is a factor array", async () => {
     await seedRun("run-20260912-fa37");
+    const priorFactors = (await testEnv.DB.prepare(
+      "SELECT factors_json FROM cert_signals WHERE id = 'current'"
+    ).first<{ factors_json: string }>())!.factors_json;
     await seedPendingDraft(
       "d-cert-factors",
       "run-20260912-fa37",
@@ -837,8 +849,18 @@ describe("admin approval queue (story 3.10)", () => {
       {
         targetEntityType: "cert_signals",
         targetEntityId: "current",
-        diffJson:
-          '{"factors":{"from":[],"to":[{"lead":"Docket momentum","explanation":"Re-listed at the cert stage after the July docket."}]}}'
+        diffJson: JSON.stringify({
+          factors: {
+            from: JSON.parse(priorFactors),
+            to: [
+              {
+                lead: "Docket momentum",
+                explanation:
+                  "Re-listed at the cert stage after the July docket."
+              }
+            ]
+          }
+        })
       }
     );
 
@@ -911,35 +933,32 @@ describe("admin approval queue (story 3.10)", () => {
         diffJson: '{"factors":{"from":[],"to":"not json"}}'
       }
     ]
-  ])(
-    "answers 400 for unpublishable %s without writing",
-    async (name, patch) => {
-      const id = `d-unpub-${name.replace(/\s+/g, "-")}`;
-      await seedRun("run-20260912-bad1");
-      await seedPendingDraft(
-        id,
-        "run-20260912-bad1",
-        "2026-09-12T16:07:00.000Z",
-        patch
-      );
-      const before = await f1Snapshot();
+  ])("refuses unpublishable %s without writing", async (name, patch) => {
+    const id = `d-unpub-${name.replace(/\s+/g, "-")}`;
+    await seedRun("run-20260912-bad1");
+    await seedPendingDraft(
+      id,
+      "run-20260912-bad1",
+      "2026-09-12T16:07:00.000Z",
+      patch
+    );
+    const before = await f1Snapshot();
 
-      const res = await worker.fetch(
-        jsonPost(await sign(EMAIL), `/api/admin/drafts/${id}/decision`, {
-          action: "approve"
-        }),
-        realEnv()
-      );
-      expect(res.status).toBe(400);
-      expect(await res.json()).toEqual({
-        code: "bad_request",
-        message: expect.any(String)
-      });
-      expect((await draftRow(id)).outcome).toBeNull();
-      expect(await f1Snapshot()).toEqual(before);
-      expect(await runStatus("run-20260912-bad1")).toBe("awaiting");
-    }
-  );
+    const res = await worker.fetch(
+      jsonPost(await sign(EMAIL), `/api/admin/drafts/${id}/decision`, {
+        action: "approve"
+      }),
+      realEnv()
+    );
+    expect(res.status).toBe(name === "missing F1 row" ? 409 : 400);
+    expect(await res.json()).toEqual({
+      code: name === "missing F1 row" ? "draft_conflict" : "bad_request",
+      message: expect.any(String)
+    });
+    expect((await draftRow(id)).outcome).toBeNull();
+    expect(await f1Snapshot()).toEqual(before);
+    expect(await runStatus("run-20260912-bad1")).toBe("awaiting");
+  });
 
   it("answers 404 for an unknown draft", async () => {
     const res = await worker.fetch(
@@ -2612,4 +2631,133 @@ describe("evaluation readiness HTTP contract (3.28)", () => {
       ])
     });
   });
+});
+
+it("concurrent authenticated sibling decisions expose one correct public completion", async () => {
+  const runId = "run-20260925-fa31";
+  await seedRun(runId);
+  await seedPendingDraft("atomic-http-a", runId);
+  await seedPendingDraft("atomic-http-b", runId);
+  const token = await sign(EMAIL);
+  const a = pauseBatch(testEnv.DB),
+    b = pauseBatch(testEnv.DB);
+  const first = worker.fetch(
+    jsonPost(token, "/api/admin/drafts/atomic-http-a/decision", {
+      action: "approve"
+    }),
+    { ...realEnv(), DB: a.db }
+  );
+  const second = worker.fetch(
+    jsonPost(token, "/api/admin/drafts/atomic-http-b/decision", {
+      action: "reject",
+      rejectReason: "Declined"
+    }),
+    { ...realEnv(), DB: b.db }
+  );
+  await Promise.all([a.arrived, b.arrived]);
+  a.release();
+  expect((await first).status).toBe(200);
+  b.release();
+  expect((await second).status).toBe(200);
+  const response = await worker.fetch(get(`/api/runs/${runId}`), testEnv);
+  const detail = (await response.json()) as {
+    evidence: Array<{ event: string; payload: unknown }>;
+  };
+  expect(
+    detail.evidence.filter((e) => e.event === "gate.decided")
+  ).toHaveLength(2);
+  expect(
+    detail.evidence
+      .filter((e) => e.event === "run.completed")
+      .map((e) => e.payload)
+  ).toEqual([{ status: "published" }]);
+  expect(await runStatus(runId)).toBe("published");
+});
+
+it("authenticated stale canonical decisions return refresh conflicts with no public success evidence", async () => {
+  const runId = "run-20260925-fa32";
+  await seedRun(runId);
+  await seedPendingDraft("atomic-http-stale", runId);
+  const barrier = pauseBatch(testEnv.DB);
+  const request = worker.fetch(
+    jsonPost(
+      await sign(EMAIL),
+      "/api/admin/drafts/atomic-http-stale/decision",
+      { action: "approve" }
+    ),
+    { ...realEnv(), DB: barrier.db }
+  );
+  await barrier.arrived;
+  await testEnv.DB.prepare(
+    "UPDATE states SET posture = 'platform' WHERE id = 'st-nv'"
+  ).run();
+  barrier.release();
+  const response = await request;
+  expect(response.status).toBe(409);
+  expect(await response.json()).toEqual({
+    code: "draft_conflict",
+    message: expect.stringContaining("Refresh")
+  });
+  expect((await draftRow("atomic-http-stale")).outcome).toBeNull();
+  expect(await evidenceCount("gate-decided-atomic-http-stale")).toBe(0);
+});
+
+it("authenticated revision admission loses to approval with 409 and no provider work", async () => {
+  const runId = "run-20260925-fa33",
+    id = "http-revision-race";
+  await seedRun(runId);
+  await seedPendingDraft(id, runId);
+  await testEnv.DB.prepare(`INSERT INTO gateway_config (id, version, roles_json, default_budget_cents, updated_at)
+    VALUES ('current', 1, ?, 500, ?) ON CONFLICT(id) DO UPDATE SET roles_json = excluded.roles_json`)
+    .bind(
+      JSON.stringify({
+        drafter: { provider: "workersai", model: "drafter-v1" },
+        reviewer: { provider: "workersai", model: "reviewer-v1" }
+      }),
+      TS
+    )
+    .run();
+  const provider = vi.fn(async () => ({ response: "unused" }));
+  const barrier = pauseStatement(
+    testEnv.DB,
+    (sql) =>
+      sql.includes("INSERT OR IGNORE INTO drafts") && sql.includes("SELECT ?")
+  );
+  const token = await sign(EMAIL);
+  const pending = worker.fetch(
+    jsonPost(token, `/api/admin/runs/${runId}/steering`, {
+      draftId: id,
+      intent: "revise",
+      content: "Revise this holding",
+      private: false
+    }),
+    { ...realEnv(), DB: barrier.db, AI: { run: provider } } as unknown as Env
+  );
+  await barrier.arrived;
+  const winner = await worker.fetch(
+    jsonPost(token, `/api/admin/drafts/${id}/decision`, { action: "approve" }),
+    realEnv()
+  );
+  expect(winner.status).toBe(200);
+  barrier.release();
+  const response = await pending;
+  expect(response.status).toBe(409);
+  expect(await response.json()).toMatchObject({ code: "draft_conflict" });
+  expect(provider).not.toHaveBeenCalled();
+  expect(
+    await testEnv.DB.prepare("SELECT id FROM drafts WHERE parent_draft_id = ?")
+      .bind(id)
+      .first()
+  ).toBeNull();
+  const detail = (await (
+    await worker.fetch(get(`/api/runs/${runId}`), testEnv)
+  ).json()) as {
+    evidence: Array<{ event: string; payload: { effect?: string } }>;
+  };
+  expect(detail.evidence.some((e) => e.event === "steering.turn")).toBe(true);
+  expect(
+    detail.evidence.some(
+      (e) => e.event === "draft.revised" || e.payload?.effect === "revised"
+    )
+  ).toBe(false);
 });

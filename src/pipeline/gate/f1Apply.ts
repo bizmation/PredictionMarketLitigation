@@ -1,3 +1,4 @@
+import { assertStmt } from "../../shared/db/repos/gateAssertions";
 import { z } from "zod";
 
 import type { Db } from "../../shared/db/client";
@@ -25,6 +26,8 @@ import {
  * carries the `outcome IS NULL` retry guard so a replayed batch writes
  * nothing twice.
  */
+
+export class StalePublicationError extends Error {}
 
 export class UnpublishableError extends Error {
   constructor(reason = "unpublishable") {
@@ -108,6 +111,18 @@ const TARGETS: Record<string, TargetSpec> = {
 
 function unpublishable(reason?: string): never {
   throw new UnpublishableError(reason);
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    const object = value as Record<string, unknown>;
+    return `{${Object.keys(object)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(object[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function bindValue(column: string, value: unknown): unknown {
@@ -213,7 +228,7 @@ async function applyDocketEventStmts(
       posture: string;
       decided_at: string | null;
     }>();
-  if (!existing) unpublishable();
+  if (!existing) throw new StalePublicationError("Missing publication target");
 
   const acceptable = acceptableFields(record);
   const requested =
@@ -228,24 +243,6 @@ async function applyDocketEventStmts(
   if (!isCoherentAcceptance(acceptable, accepted)) {
     unpublishable("incoherent acceptance");
   }
-  // The derived patch was computed against the row as it stood at review;
-  // a sibling Draft published since makes it stale. Fail closed — the
-  // operator sees `invalid` and the card re-derives on reload.
-  if (record.statePatch != null) {
-    const live: Record<string, unknown> = {
-      lifecycle: existing.lifecycle,
-      posture: existing.posture,
-      decidedAt: existing.decided_at
-    };
-    for (const field of STATE_PATCH_FIELDS) {
-      const change = record.statePatch[field];
-      if (change == null || !accepted.includes(field)) continue;
-      if (change.from !== live[field]) {
-        unpublishable(`stale state patch: ${field}`);
-      }
-    }
-  }
-
   const sourceId = `src-${targetEntityId}`;
   const title =
     record.entryNumber == null
@@ -260,7 +257,26 @@ async function applyDocketEventStmts(
       ? record.inference.favors
       : null;
 
+  const priorFields = STATE_PATCH_FIELDS.filter(
+    (field) => record.statePatch?.[field] != null && accepted.includes(field)
+  );
   const statements: D1PreparedStatement[] = [
+    assertStmt(
+      db,
+      "publication_identity",
+      `NOT EXISTS (SELECT 1 FROM sources WHERE id = ?)
+      AND NOT EXISTS (SELECT 1 FROM docket_events WHERE id = ?)`,
+      [sourceId, targetEntityId]
+    ),
+    assertStmt(
+      db,
+      "canonical_prior",
+      `EXISTS (SELECT 1 FROM cases WHERE id = ? ${priorFields.map((field) => `AND ${CASE_STATE_COLUMNS[field]} IS ?`).join(" ")})`,
+      [
+        record.caseId,
+        ...priorFields.map((field) => record.statePatch![field]!.from)
+      ]
+    ),
     db
       .prepare(
         `INSERT INTO sources (id, owning_table, owning_id, url, title, tier, published_at)
@@ -346,7 +362,10 @@ export async function applyF1Stmts(
   // caller bug, not a no-op.
   if (input.acceptedFields != null) unpublishable("acceptedFields");
   return {
-    statements: [await applyF1Stmt(db, input)],
+    statements: [
+      await applyF1Stmt(db, input),
+      assertStmt(db, "canonical_prior", "changes() = 1")
+    ],
     acceptedFields: [],
     strippedFields: []
   };
@@ -365,6 +384,14 @@ export async function applyF1Stmt(
   const parsed = DiffSchema.safeParse(input.diff);
   if (!parsed.success) unpublishable();
 
+  const existing = await db
+    .prepare(
+      `SELECT id${spec.table === "cert_signals" ? ", factors_json" : ""} FROM ${spec.table} WHERE id = ?`
+    )
+    .bind(targetEntityId)
+    .first<{ id: string; factors_json?: string }>();
+  if (!existing) throw new StalePublicationError("Missing publication target");
+
   const setClauses = [
     "provenance_kind = ?",
     "published_at = ?",
@@ -372,11 +399,29 @@ export async function applyF1Stmt(
   ];
   const binds: unknown[] = [input.provenanceKind, input.now, input.now];
 
+  const priorPredicates: string[] = [];
+  const priorBinds: unknown[] = [];
   for (const [field, change] of Object.entries(parsed.data)) {
     const column = spec.fields[field];
     if (!column) unpublishable();
     setClauses.push(`${column} = ?`);
     binds.push(bindValue(column, change.to));
+    priorPredicates.push(`${column} IS ?`);
+    const expected = bindValue(column, change.from);
+    if (column === "factors_json") {
+      const stored = existing.factors_json!;
+      if (
+        stableJson(JSON.parse(stored)) !==
+        stableJson(JSON.parse(expected as string))
+      ) {
+        throw new StalePublicationError("Stale factors");
+      }
+      // Semantic comparison above accepts harmless representation differences;
+      // the exact stored bytes are the transaction-time compare-and-swap token.
+      priorBinds.push(stored);
+    } else {
+      priorBinds.push(expected);
+    }
   }
 
   if (spec.stampApprover) {
@@ -384,20 +429,15 @@ export async function applyF1Stmt(
     binds.push(input.approver);
   }
 
-  const existing = await db
-    .prepare(`SELECT id FROM ${spec.table} WHERE id = ?`)
-    .bind(targetEntityId)
-    .first<{ id: string }>();
-  if (!existing) unpublishable();
-
-  binds.push(targetEntityId, input.draftId);
+  binds.push(targetEntityId, input.draftId, ...priorBinds);
 
   return db
     .prepare(
       `UPDATE ${spec.table}
           SET ${setClauses.join(", ")}
         WHERE id = ?
-          AND EXISTS (SELECT 1 FROM drafts WHERE id = ? AND outcome IS NULL)`
+          AND EXISTS (SELECT 1 FROM drafts WHERE id = ? AND outcome IS NULL)
+          ${priorPredicates.map((predicate) => `AND ${predicate}`).join(" ")}`
     )
     .bind(...binds);
 }

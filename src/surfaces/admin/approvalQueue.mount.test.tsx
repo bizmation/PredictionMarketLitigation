@@ -1045,33 +1045,38 @@ describe("evaluation readiness controls (3.28)", () => {
     ).toBe(true);
   });
 
-  it("retains an unsent edit when the server reports a readiness conflict", async () => {
-    const mock = stubQueueFetch([draftRecord("conflict-head")], {
-      ok: false,
-      status: 409,
-      body: { code: "draft_not_ready" }
-    });
-    render(<ApprovalQueue />);
-    await act(async () => {});
-    fireEvent.keyDown(document.body, { key: "e" });
-    fireEvent.change(
-      screen.getByRole("textbox", { name: "Edited draft body" }),
-      { target: { value: "Keep my unsent change" } }
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Approve with edits" }));
-    await act(async () => {});
-    expect(
-      (
-        screen.getByRole("textbox", {
-          name: "Edited draft body"
-        }) as HTMLTextAreaElement
-      ).value
-    ).toBe("Keep my unsent change");
-    expect(screen.getByText(/Your edits are retained/)).toBeTruthy();
-    expect(
-      mock.mock.calls.filter(([url]) => String(url).includes("/decision"))
-    ).toHaveLength(1);
-  });
+  it.each(["draft_not_ready", "draft_conflict"])(
+    "retains an unsent edit for %s",
+    async (code) => {
+      const mock = stubQueueFetch([draftRecord("conflict-head")], {
+        ok: false,
+        status: 409,
+        body: { code }
+      });
+      render(<ApprovalQueue />);
+      await act(async () => {});
+      fireEvent.keyDown(document.body, { key: "e" });
+      fireEvent.change(
+        screen.getByRole("textbox", { name: "Edited draft body" }),
+        { target: { value: "Keep my unsent change" } }
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: "Approve with edits" })
+      );
+      await act(async () => {});
+      expect(
+        (
+          screen.getByRole("textbox", {
+            name: "Edited draft body"
+          }) as HTMLTextAreaElement
+        ).value
+      ).toBe("Keep my unsent change");
+      expect(screen.getByText(/Your edits are retained/)).toBeTruthy();
+      expect(
+        mock.mock.calls.filter(([url]) => String(url).includes("/decision"))
+      ).toHaveLength(1);
+    }
+  );
 });
 
 describe("queue refresh and edit identity", () => {
@@ -1153,5 +1158,63 @@ describe("queue refresh and edit identity", () => {
       action: "edit",
       editedBody: child.body
     });
+  });
+});
+
+it("a steering conflict refreshes the mounted queue and does not transfer ancestor text to the changed head", async () => {
+  const parent = draftRecord("steering-parent");
+  const child = {
+    ...draftRecord("steering-child"),
+    parentDraftId: parent.id,
+    revisionIndex: 1
+  };
+  let replaced = false;
+  const fetchMock = vi.fn(
+    async (input: string | URL | Request, _init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/steering")) {
+        replaced = true;
+        return scripted(
+          { code: "draft_conflict", message: "Draft changed. Refresh." },
+          false,
+          409
+        );
+      }
+      if (url.includes("/api/admin/queue"))
+        return scripted({ items: [replaced ? child : parent] });
+      return scripted({});
+    }
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  render(<ApprovalQueue />);
+  await act(async () => {});
+  fireEvent.change(screen.getByLabelText("Steering turn"), {
+    target: { value: "Ancestor-only instruction" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Revise draft" }));
+  await act(async () => {});
+  expect(
+    fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("/api/admin/queue")
+    )
+  ).toHaveLength(2);
+  expect(
+    (screen.getByLabelText("Steering turn") as HTMLTextAreaElement).value
+  ).toBe("");
+  fireEvent.change(screen.getByLabelText("Steering turn"), {
+    target: { value: "Child instruction" }
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Revise draft" }));
+  await act(async () => {});
+  const posts = fetchMock.mock.calls.filter(([url]) =>
+    String(url).includes("/steering")
+  );
+  expect(JSON.parse(String(posts[0]?.[1]?.body))).toMatchObject({
+    draftId: parent.id,
+    content: "Ancestor-only instruction"
+  });
+  expect(JSON.parse(String(posts[1]?.[1]?.body))).toMatchObject({
+    draftId: child.id,
+    content: "Child instruction"
   });
 });

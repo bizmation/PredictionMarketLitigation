@@ -44,7 +44,14 @@ async function fixture(
     runId,
     targetEntityType: "states",
     targetEntityId: "st-nv",
-    diff: { posture: { from: "untracked", to: "pending" } },
+    diff: {
+      posture: {
+        from: (await db
+          .prepare("SELECT posture FROM states WHERE id = 'st-nv'")
+          .first<{ posture: string }>())!.posture,
+        to: "pending"
+      }
+    },
     body: "Original",
     tier2Only: false,
     confidence: 90,

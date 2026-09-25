@@ -101,7 +101,7 @@ development_status:
   3-26-reconcile-canonical-epic-3-planning: done
   3-27-constrain-connector-pagination-credentials: done
   3-28-enforce-evaluation-readiness-and-sealed-drafts: done
-  3-29-make-publication-and-run-finalization-atomic: backlog
+  3-29-make-publication-and-run-finalization-atomic: done
   3-30-define-and-enforce-bounded-provider-cost: backlog
   3-31-reserve-and-settle-paid-calls-atomically: backlog
   3-32-recover-durable-packages-and-pin-consumed-configuration: backlog
@@ -276,8 +276,9 @@ action_items:
       sealed Draft protection and Run finalization transactional; cover overlapping
       decisions and revisions (R1-R4)."
     owner: "agent"
-    status: open
+    status: done
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
+    note: "Closed by stories 3.28 / PR #44 and 3.29 / PR #45: readiness/sealing, atomic snapshot/head/CAS guards, revision ownership and persisted-state Run completion. Real-D1 races, authenticated API and UI coverage pass; CI run 36147854656 passed 1148 tests with 6 environment-dependent skips. Deployment and operational acceptance remain separate."
   - id: "epic-3-retro-paid-budget-accounting-safety"
     # Approved corrective stories: 3.30, 3.31; close only on linked evidence.
     epic: 3

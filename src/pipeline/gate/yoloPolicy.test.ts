@@ -32,7 +32,7 @@ function draft(overrides: Partial<DraftRecord> = {}): DraftRecord {
     runId: "run-20260901-0000",
     targetEntityType: "states",
     targetEntityId: "st-nv",
-    diff: { operationalStatus: { from: "go", to: "restricted" } },
+    diff: { operationalStatus: { from: "banned", to: "restricted" } },
     body: "Eligible operationalStatus update.",
     tier2Only: false,
     confidence: 80,
