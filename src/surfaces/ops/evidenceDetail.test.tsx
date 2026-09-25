@@ -718,7 +718,7 @@ describe("EvidenceDetail (story 3.8)", () => {
     expect((html.match(new RegExp(NOT_LIVE_LABEL, "g")) ?? []).length).toBe(1);
   });
 
-  it("marks only the parent not-live when the revision child is in-flight", () => {
+  it("marks only the unavailable child not-live and keeps the ancestor as readable history", () => {
     const html = renderToStaticMarkup(
       <EvidenceDetail
         runId="run-20260908-aaa1"
@@ -727,6 +727,7 @@ describe("EvidenceDetail (story 3.8)", () => {
             draft({
               id: "d-root",
               body: "Original agent body.",
+              readiness: "ready",
               outcome: null
             }),
             draft({
@@ -734,6 +735,7 @@ describe("EvidenceDetail (story 3.8)", () => {
               body: "Revised agent body.",
               parentDraftId: "d-root",
               revisionIndex: 1,
+              readiness: "unavailable",
               evalSummary: null,
               confidence: null,
               outcome: null
@@ -743,6 +745,13 @@ describe("EvidenceDetail (story 3.8)", () => {
       />
     );
     expect((html.match(new RegExp(NOT_LIVE_LABEL, "g")) ?? []).length).toBe(1);
+    expect(html).toContain("Evaluation unavailable");
+    expect(html).toContain("Historical draft");
+    expect(html).not.toContain("Awaiting review");
+    expect(html).not.toContain("Evaluation in progress");
+    expect(html.indexOf(NOT_LIVE_LABEL)).toBeGreaterThan(
+      html.indexOf("Original agent body.")
+    );
     expect(html.indexOf(NOT_LIVE_LABEL)).toBeLessThan(
       html.indexOf("Revised agent body.")
     );
@@ -840,7 +849,7 @@ describe("EvidenceDetail (story 3.8)", () => {
     );
 
     expect(html).toContain("$0.00");
-    expect(html).toContain("Evals not run");
+    expect(html).toContain("Evaluation unavailable");
     expect(html).toContain("An empty eval is not a passing eval.");
     expect(html).toContain("No draft produced");
     expect(html).toContain("not recorded");
@@ -1134,3 +1143,31 @@ it.each([
     expect(html).toContain("<b>$0.47</b><span>Spend</span>");
   }
 );
+
+describe("evaluation history labels", () => {
+  it("renders the explicit not-run reason for a completed review", () => {
+    const html = renderToStaticMarkup(
+      <EvidenceDetail
+        runId="run-20260908-aaa1"
+        detail={detail({
+          drafts: [
+            draft({
+              id: "not-run",
+              readiness: "ready",
+              evalSummary: {
+                status: "evals_not_run",
+                basis: "Provider unavailable during review",
+                citationCompleteness: null,
+                disagreement: { flagged: false, description: null },
+                ineligible: ["evals_not_run"]
+              }
+            })
+          ]
+        })}
+      />
+    );
+    expect(html).toContain("evals_not_run");
+    expect(html).toContain("Provider unavailable during review");
+    expect(html).toContain("Awaiting review");
+  });
+});

@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 
+import {
+  draftReadinessLabel,
+  isDraftReady
+} from "../../shared/lib/draftReadiness";
 import { formatEtDateTime } from "../../shared/lib/dates";
 import { surfaceHref } from "../../shared/lib/surface";
 import {
@@ -108,6 +112,10 @@ export function isQueueItem(value: unknown): value is DraftRecord {
     typeof row.tier2Only === "boolean" &&
     (row.confidence === null || isConfidence(row.confidence)) &&
     (row.evalSummary === null || isEvalSummary(row.evalSummary)) &&
+    (row.readiness === undefined ||
+      row.readiness === "ready" ||
+      row.readiness === "pending" ||
+      row.readiness === "unavailable") &&
     (row.outcome === null ||
       (typeof row.outcome === "string" && OUTCOMES.has(row.outcome))) &&
     (row.decidedAt === null || typeof row.decidedAt === "string") &&
@@ -427,7 +435,7 @@ function DocketEventCard({
 
 function FlagRow({ draft }: { draft: DraftRecord }) {
   const evalStatus = draft.evalSummary?.status;
-  const evalsNotRun = evalStatus == null || evalStatus === "evals_not_run";
+  const evalsNotRun = evalStatus === "evals_not_run";
   const flagged = draft.evalSummary?.disagreement.flagged === true;
 
   return (
@@ -441,7 +449,9 @@ function FlagRow({ draft }: { draft: DraftRecord }) {
       ) : (
         <span className="origin">Confidence {draft.confidence}/100</span>
       )}
-      {evalsNotRun ? (
+      {!isDraftReady(draft) ? (
+        <span className="muted">{draftReadinessLabel(draft)}</span>
+      ) : evalsNotRun ? (
         <span className="muted">Evals not run</span>
       ) : (
         <span className="origin">Evals · {evalStatus}</span>
@@ -466,9 +476,9 @@ export function ApprovalQueue({
   const [view, setView] = useState<QueueView>({ status: "loading" });
   const [reload, setReload] = useState(0);
   const [selected, setSelected] = useState(0);
-  const [editing, setEditing] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [rejecting, setRejecting] = useState(false);
-  const [editText, setEditText] = useState("");
+  const [editTexts, setEditTexts] = useState<Record<string, string>>({});
   const [rejectText, setRejectText] = useState("");
   const [rejectPrivate, setRejectPrivate] = useState(false);
   const [resolved, setResolved] = useState<Record<string, ResolvedDecision>>(
@@ -532,19 +542,36 @@ export function ApprovalQueue({
   }, [injectedItems, reload]);
 
   const items = injectedItems ?? (view.status === "ready" ? view.items : null);
+  const selectedId = items?.[Math.min(selected, items.length - 1)]?.id ?? null;
+  const editing = selectedId != null && editingId === selectedId;
+  const editText = selectedId == null ? "" : (editTexts[selectedId] ?? "");
+  function setEditing(value: boolean) {
+    setEditingId(value ? selectedId : null);
+  }
+  function setEditText(text: string) {
+    if (selectedId != null)
+      setEditTexts((previous) => ({ ...previous, [selectedId]: text }));
+  }
 
   useEffect(() => {
     if (pendingSelectId == null || items == null) return;
     const index = items.findIndex((draft) => draft.id === pendingSelectId);
     if (index < 0) return;
     setSelected(index);
-    setEditing(false);
+    setEditingId(null);
     setRejecting(false);
     setAccepted(null);
     setPendingSelectId(null);
   }, [items, pendingSelectId]);
 
   async function postDecision(id: string, body: unknown) {
+    if (
+      !items?.some(
+        (draft) =>
+          draft.id === id && isDraftReady(draft) && draft.outcome == null
+      )
+    )
+      return;
     setBusy(true);
     setNotice(null);
     try {
@@ -578,7 +605,14 @@ export function ApprovalQueue({
       } else if (res.status === 403) {
         setView({ status: "signedOut" });
       } else if (res.status === 409) {
-        setNotice("That draft was already decided — the queue has refreshed.");
+        const error = (await res.json().catch(() => null)) as {
+          code?: string;
+        } | null;
+        setNotice(
+          error?.code === "draft_not_ready"
+            ? "Evaluation is not ready for decisions. Your edits are retained; the queue has refreshed."
+            : "That draft was already decided — the queue has refreshed."
+        );
       } else {
         setNotice(
           "The decision was not recorded. The queue has refreshed; try again."
@@ -597,7 +631,8 @@ export function ApprovalQueue({
   }
 
   function approveAction() {
-    if (current == null || busy || steeringBusy) return;
+    if (current == null || !isDraftReady(current) || busy || steeringBusy)
+      return;
     if (resolved[current.id]) return;
     // 3.21 — a docket-event Draft carries the operator's per-field override.
     const fields =
@@ -621,16 +656,29 @@ export function ApprovalQueue({
   }
 
   function toggleEdit() {
-    if (current == null || busy || steeringBusy || resolved[current.id]) return;
-    setEditing((value) => {
-      if (!value) setEditText(current.body);
-      return !value;
-    });
+    if (
+      current == null ||
+      !isDraftReady(current) ||
+      busy ||
+      steeringBusy ||
+      resolved[current.id]
+    )
+      return;
+    if (editing || editTexts[current.id] === undefined)
+      setEditText(current.body);
+    setEditing(!editing);
     setRejecting(false);
   }
 
   function confirmReject() {
-    if (current == null || busy || steeringBusy || resolved[current.id]) return;
+    if (
+      current == null ||
+      !isDraftReady(current) ||
+      busy ||
+      steeringBusy ||
+      resolved[current.id]
+    )
+      return;
     if (rejectText.trim().length === 0) return;
     void postDecision(current.id, {
       action: "reject",
@@ -665,7 +713,7 @@ export function ApprovalQueue({
       return;
     }
     const draft = items[Math.min(selected, items.length - 1)]!;
-    if (resolved[draft.id]) return;
+    if (resolved[draft.id] || !isDraftReady(draft)) return;
     if (key === "a") approveAction();
     if (key === "e") toggleEdit();
     if (key === "r") {
@@ -750,6 +798,14 @@ export function ApprovalQueue({
   return (
     <div className="queue">
       <div className="panel">
+        <button
+          type="button"
+          className="btn btn-secondary"
+          disabled={busy || steeringBusy}
+          onClick={() => setReload((value) => value + 1)}
+        >
+          Refresh queue
+        </button>
         {items.map((draft, index) => {
           const decision = resolved[draft.id];
           return (
@@ -782,7 +838,9 @@ export function ApprovalQueue({
                     {decision.outcome === "rejected" ? "rejected" : "published"}
                   </span>
                 ) : (
-                  <span className="run awaiting">Awaiting</span>
+                  <span className="run awaiting">
+                    {draftReadinessLabel(draft)}
+                  </span>
                 )}
                 {draft.tier2Only ? (
                   <span className="origin">Tier-2 source only</span>
@@ -872,6 +930,7 @@ export function ApprovalQueue({
             <SteeringPanel
               runId={current.runId}
               draftId={current.id}
+              revisionReady={isDraftReady(current)}
               onSubmittingChange={setSteeringBusy}
               onRevised={(revisedDraftId) => {
                 setPendingSelectId(revisedDraftId);
@@ -933,7 +992,18 @@ export function ApprovalQueue({
               </div>
             ) : null}
           </div>
-          <div className="actions">
+          {!isDraftReady(current) ? (
+            <output id="draft-readiness">
+              {draftReadinessLabel(current)}. Decisions and revisions are
+              unavailable until completion evidence is recorded.
+            </output>
+          ) : null}
+          <div
+            className="actions"
+            aria-describedby={
+              !isDraftReady(current) ? "draft-readiness" : undefined
+            }
+          >
             {resolved[current.id] ? (
               <span className="lastupd">
                 Resolved. Nothing further to do on this item.
@@ -945,7 +1015,10 @@ export function ApprovalQueue({
                   className="btn btn-primary"
                   onClick={confirmReject}
                   disabled={
-                    busy || steeringBusy || rejectText.trim().length === 0
+                    !isDraftReady(current) ||
+                    busy ||
+                    steeringBusy ||
+                    rejectText.trim().length === 0
                   }
                 >
                   Confirm rejection
@@ -954,7 +1027,7 @@ export function ApprovalQueue({
                   type="button"
                   className="btn btn-ghost"
                   onClick={() => setRejecting(false)}
-                  disabled={busy || steeringBusy}
+                  disabled={!isDraftReady(current) || busy || steeringBusy}
                 >
                   Cancel
                 </button>
@@ -966,6 +1039,7 @@ export function ApprovalQueue({
                   className="btn btn-primary"
                   onClick={approveAction}
                   disabled={
+                    !isDraftReady(current) ||
                     busy ||
                     steeringBusy ||
                     (editing && editText.trim().length === 0)
@@ -977,7 +1051,7 @@ export function ApprovalQueue({
                   type="button"
                   className="btn btn-secondary"
                   onClick={toggleEdit}
-                  disabled={busy || steeringBusy}
+                  disabled={!isDraftReady(current) || busy || steeringBusy}
                 >
                   {editing ? "Discard edits" : "Edit"}
                 </button>
@@ -985,10 +1059,11 @@ export function ApprovalQueue({
                   type="button"
                   className="btn btn-ghost"
                   onClick={() => {
+                    if (!isDraftReady(current)) return;
                     setRejecting(true);
                     setEditing(false);
                   }}
-                  disabled={busy || steeringBusy}
+                  disabled={!isDraftReady(current) || busy || steeringBusy}
                 >
                   Reject
                 </button>

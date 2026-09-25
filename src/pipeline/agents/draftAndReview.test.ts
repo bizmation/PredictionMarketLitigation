@@ -829,7 +829,7 @@ describe("draftAndReview (story 3.5)", () => {
     expect(evalOf(draft).ineligible).toContain("guardrail_fail");
   });
 
-  it("does not put decidedBy or editedBody into the gateway prompt", async () => {
+  it("skips decided Drafts without invoking the provider", async () => {
     const runId = await insertRun();
     const draftId = await insertShellDraft(runId);
     await testEnv.DB.prepare(
@@ -852,7 +852,7 @@ describe("draftAndReview (story 3.5)", () => {
 
     await draftAndReview(testEnv.DB, runId, deps(provider));
     const joined = provider.prompts().join("\n");
-    expect(joined).toContain(SHELL_BODY);
+    expect(joined).toBe("");
     expect(joined).not.toContain("operator@secret.example");
     expect(joined).not.toContain("career notes must not leak");
   });
@@ -1525,5 +1525,148 @@ describe("draftAndReview docket_events branch (story 3.21)", () => {
       statePatch: {}
     });
     expect(evalOf(child).ineligible).toEqual([]);
+  });
+});
+
+describe("paused evaluation races (3.28)", () => {
+  it("blocks decisions while a reviewer is paused and preserves a winning edited artifact when the late result resumes", async () => {
+    const { decide } = await import("../gate/approval");
+    const { enforceDraftGuardrails } = await import("../ai/actionPolicy");
+    const runId = await insertRun();
+    const id = await insertShellDraft(runId);
+    await seedConfig(DRAFTER_REVIEWER_ROLES);
+    let release!: () => void;
+    let reached!: () => void;
+    const paused = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const resume = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const lateProvider: LlmProvider = {
+      name: "fake",
+      async complete({ model }) {
+        if (model === "reviewer-v1") {
+          reached();
+          await resume;
+        }
+        return {
+          text:
+            model === "reviewer-v1"
+              ? reviewJson({ notes: "Late evaluation" })
+              : drafterJson({ body: "Late body" }),
+          inputTokens: 1,
+          outputTokens: 1,
+          costCents: 0
+        };
+      }
+    };
+    const late = draftAndReview(testEnv.DB, runId, deps(lateProvider));
+    await paused;
+    try {
+      expect((await draftsRepo.getById(testEnv.DB, id))?.readiness).toBe(
+        "pending"
+      );
+      const liveBefore = await testEnv.DB.prepare(
+        "SELECT * FROM states WHERE id = 'st-nv'"
+      ).first();
+      for (const action of ["approve", "edit", "reject"] as const) {
+        expect(
+          (
+            await decide(testEnv.DB, {
+              draftId: id,
+              action,
+              ...(action === "edit"
+                ? { editedBody: "Human edit" }
+                : action === "reject"
+                  ? { rejectReason: "No", rejectReasonPrivate: null }
+                  : {}),
+              operator: { displayName: "Operator" },
+              now: NOW
+            })
+          ).status
+        ).toBe("not_ready");
+      }
+      expect(
+        await testEnv.DB.prepare(
+          "SELECT * FROM states WHERE id = 'st-nv'"
+        ).first()
+      ).toEqual(liveBefore);
+      await draftAndReview(
+        testEnv.DB,
+        runId,
+        deps(
+          fakeProvider([
+            { text: drafterJson({ body: "Winning body" }) },
+            { text: reviewJson({ notes: "Winning evaluation" }) }
+          ])
+        )
+      );
+      await enforceDraftGuardrails(testEnv.DB, runId, deps(fakeProvider()));
+      await finalizeIfRunning(runId, { draftCount: 1, anyFailure: false });
+      expect((await draftsRepo.getById(testEnv.DB, id))?.readiness).toBe(
+        "ready"
+      );
+      expect(
+        (
+          await decide(testEnv.DB, {
+            draftId: id,
+            action: "edit",
+            editedBody: "Human approved version",
+            operator: { displayName: "Operator" },
+            now: NOW
+          })
+        ).status
+      ).toBe("decided");
+      const sealed = await draftsRepo.getById(testEnv.DB, id);
+      const receipts = await evidenceRepo.listByRun(testEnv.DB, runId);
+      release();
+      await late;
+      expect(await draftsRepo.getById(testEnv.DB, id)).toEqual(sealed);
+      expect(await evidenceRepo.listByRun(testEnv.DB, runId)).toEqual(receipts);
+      expect(sealed?.body).toBe("Winning body");
+      expect(sealed?.editedBody).toBe("Human approved version");
+    } finally {
+      release();
+      await late;
+    }
+  });
+});
+
+describe("eligible Draft prompt privacy", () => {
+  it("passes scoped draft content to both providers without private or decision fields", async () => {
+    const runId = await insertRun();
+    const id = await insertShellDraft(runId);
+    await testEnv.DB.prepare(
+      "UPDATE drafts SET edited_body = ?, reject_reason_private = ?, reject_reason = ? WHERE id = ?"
+    )
+      .bind(
+        "private edit marker",
+        "private rejection marker",
+        "excluded decision reason",
+        id
+      )
+      .run();
+    await seedConfig(DRAFTER_REVIEWER_ROLES);
+    const provider = fakeProvider([
+      { text: drafterJson() },
+      { text: reviewJson() }
+    ]);
+    await draftAndReview(testEnv.DB, runId, deps(provider));
+    expect(provider.count()).toBe(2);
+    expect(provider.prompts()[0]).toContain(SHELL_BODY);
+    expect(provider.prompts()[0]).toContain(JSON.stringify(SHELL_DIFF));
+    expect(provider.prompts()[1]).toContain(DRAFTER_BODY);
+    expect(provider.prompts()[1]).toContain(JSON.stringify(DRAFTER_DIFF));
+    const prompts = provider.prompts().join("\n");
+    for (const text of [
+      "private edit marker",
+      "private rejection marker",
+      "excluded decision reason",
+      "editedBody",
+      "decidedBy",
+      "rejectReason"
+    ])
+      expect(prompts).not.toContain(text);
   });
 });

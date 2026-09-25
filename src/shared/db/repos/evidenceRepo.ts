@@ -72,15 +72,30 @@ function parsedAppendEvent(input: AppendEventInput): EvidenceEvent {
  */
 export function appendEventStmt(
   db: Db,
-  input: AppendEventInput
+  input: AppendEventInput,
+  guard?: { draftId: string; state: "unevaluated" | "evaluated" | "undecided" }
 ): D1PreparedStatement {
   const row = parsedAppendEvent(input);
+  // Evaluator receipts precede their conditional UPDATE in the same batch.
+  // Final guardrails require a real evaluation receipt, never a legacy guess.
+  const statePredicate =
+    guard?.state === "unevaluated"
+      ? "AND eval_summary_json IS NULL"
+      : guard?.state === "evaluated"
+        ? `AND eval_summary_json IS NOT NULL AND EXISTS (
+          SELECT 1 FROM evidence_events e WHERE e.run_id = drafts.run_id
+            AND e.event = 'draft.evaluated'
+            AND json_extract(e.payload_json, '$.draftId') = drafts.id)`
+        : "";
+  const condition = guard
+    ? `WHERE EXISTS (SELECT 1 FROM drafts WHERE id = ? AND outcome IS NULL ${statePredicate})`
+    : "";
   return db
     .prepare(
       `INSERT OR IGNORE INTO evidence_events (id, run_id, seq, event, payload_json, created_at)
-       VALUES (?, ?, (
+       SELECT ?, ?, (
          SELECT COALESCE(MAX(seq), -1) + 1 FROM evidence_events WHERE run_id = ?
-       ), ?, ?, ?)`
+       ), ?, ?, ? ${condition}`
     )
     .bind(
       row.id,
@@ -88,7 +103,8 @@ export function appendEventStmt(
       row.runId,
       row.event,
       row.payload == null ? null : JSON.stringify(row.payload),
-      row.createdAt
+      row.createdAt,
+      ...(guard ? [guard.draftId] : [])
     );
 }
 

@@ -1,3 +1,4 @@
+import { insertReviewedDraft } from "../../test/reviewedDraft";
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -56,7 +57,7 @@ async function insertDraft(
     evalSummary?: EvalSummary | null;
   } = {}
 ) {
-  await draftsRepo.insertDraft(testEnv.DB, {
+  await insertReviewedDraft(testEnv.DB, {
     id,
     runId,
     targetEntityType: "states",
@@ -89,7 +90,7 @@ describe("decide revision tips (story 3.16)", () => {
       operator: { displayName: ACTOR },
       now: NOW
     });
-    expect(result.status).toBe("invalid");
+    expect(result.status).toBe("not_ready");
     expect(
       (await draftsRepo.getById(testEnv.DB, parentId))?.outcome
     ).toBeNull();
@@ -146,7 +147,7 @@ describe("decide revision tips (story 3.16)", () => {
       operator: { displayName: ACTOR },
       now: NOW
     });
-    expect(result.status).toBe("invalid");
+    expect(result.status).toBe("not_ready");
     expect(
       (await draftsRepo.getById(testEnv.DB, parentId))?.outcome
     ).toBeNull();
@@ -205,7 +206,7 @@ describe("decide docket_events insert target (story 3.21)", () => {
   ) {
     const targetEntityId = `de-${CASE_ID}-${diff.entryId as number}`;
     const id = `d:${runId}:CourtListener:docket_events:${targetEntityId}`;
-    await draftsRepo.insertDraft(testEnv.DB, {
+    await insertReviewedDraft(testEnv.DB, {
       id,
       runId,
       targetEntityType: "docket_events",

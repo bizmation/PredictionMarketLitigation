@@ -172,6 +172,7 @@ export const DraftRecordSchema = z
     tier2Only: z.boolean(),
     confidence: z.number().int().min(0).max(100).nullable(),
     evalSummary: EvalSummarySchema.nullable(),
+    readiness: z.enum(["pending", "unavailable", "ready"]).optional(),
     outcome: DraftOutcomeSchema.nullable(),
     decidedAt: IsoUtcSchema.nullable(),
     decidedBy: z.string().min(1).nullable(),

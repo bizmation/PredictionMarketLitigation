@@ -1,3 +1,4 @@
+import { recordReviewCompletion } from "../../test/reviewedDraft";
 import { env } from "cloudflare:workers";
 import { SignJWT, exportJWK, generateKeyPair } from "jose";
 import {
@@ -125,7 +126,7 @@ const DRAFT_INSERT = `INSERT OR IGNORE INTO drafts (id, run_id, target_entity_ty
     reject_reason, reject_reason_private, created_at, updated_at)
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
-function seedPendingDraft(
+async function seedPendingDraft(
   id: string,
   runId: string,
   createdAt = "2026-09-12T16:05:00.000Z",
@@ -135,7 +136,7 @@ function seedPendingDraft(
     diffJson?: string;
   }
 ) {
-  return testEnv.DB.prepare(DRAFT_INSERT)
+  await testEnv.DB.prepare(DRAFT_INSERT)
     .bind(
       id,
       runId,
@@ -145,7 +146,13 @@ function seedPendingDraft(
       `Pending proposal body for ${id}.`,
       0,
       80,
-      null,
+      JSON.stringify({
+        status: "ok",
+        basis: "Fixture review complete",
+        citationCompleteness: 100,
+        disagreement: { flagged: false, description: null },
+        ineligible: []
+      }),
       null,
       null,
       null,
@@ -156,6 +163,7 @@ function seedPendingDraft(
       createdAt
     )
     .run();
+  await recordReviewCompletion(testEnv.DB, id);
 }
 
 async function evidencePayload(eventId: string): Promise<unknown> {
@@ -2553,5 +2561,55 @@ describe("admin decision acceptedFields on docket_events (story 3.21)", () => {
     );
     expect(res.status).toBe(400);
     expect((await draftRow("d-docket-bad")).outcome).toBeNull();
+  });
+});
+
+describe("evaluation readiness HTTP contract (3.28)", () => {
+  it("exposes an unavailable root but rejects every decision and revision with a distinct conflict and no F1 writes", async () => {
+    const runId = "run-20260912-328a";
+    const id = "draft-readiness-328";
+    await seedRun(runId);
+    await seedPendingDraft(id, runId);
+    await testEnv.DB.prepare(
+      "UPDATE drafts SET eval_summary_json = NULL WHERE id = ?"
+    )
+      .bind(id)
+      .run();
+    await testEnv.DB.prepare("DELETE FROM evidence_events WHERE run_id = ?")
+      .bind(runId)
+      .run();
+    const before = await f1Snapshot();
+    const token = await sign(EMAIL);
+    for (const action of ["approve", "edit", "reject"]) {
+      const response = await worker.fetch(
+        jsonPost(token, `/api/admin/drafts/${id}/decision`, {
+          action,
+          ...(action === "edit" ? { editedBody: "Unsent edit" } : {}),
+          ...(action === "reject" ? { rejectReason: "No" } : {})
+        }),
+        realEnv()
+      );
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({ code: "draft_not_ready" });
+    }
+    const revision = await worker.fetch(
+      jsonPost(token, `/api/admin/runs/${runId}/steering`, {
+        draftId: id,
+        intent: "revise",
+        content: "Revise",
+        private: false
+      }),
+      realEnv()
+    );
+    expect(revision.status).toBe(409);
+    expect(await revision.json()).toMatchObject({ code: "draft_not_ready" });
+    expect(await f1Snapshot()).toEqual(before);
+    expect((await draftRow(id)).outcome).toBeNull();
+    const queue = await auth("/api/admin/queue");
+    expect(await queue.json()).toMatchObject({
+      items: expect.arrayContaining([
+        expect.objectContaining({ id, readiness: "unavailable" })
+      ])
+    });
   });
 });

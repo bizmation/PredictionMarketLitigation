@@ -331,16 +331,20 @@ export async function invokeTool(
       ruleId: GUARDRAIL_RULE_ID,
       tool
     };
-    const statements: D1PreparedStatement[] = [
-      appendStmt(db, {
-        id: evidenceId(runId, "guardrails.failed", draftId),
-        runId,
-        event: "guardrails.failed",
-        payload,
-        createdAt
-      })
-    ];
     const draft = await draftsRepo.getById(db, draftId);
+    const statements: D1PreparedStatement[] = [
+      appendStmt(
+        db,
+        {
+          id: evidenceId(runId, "guardrails.failed", draftId),
+          runId,
+          event: "guardrails.failed",
+          payload,
+          createdAt
+        },
+        draft ? { draftId, state: "undecided" } : undefined
+      )
+    ];
     if (draft?.evalSummary != null) {
       statements.push(
         await draftsRepo.applyGuardrailIneligibleStmt(db, {

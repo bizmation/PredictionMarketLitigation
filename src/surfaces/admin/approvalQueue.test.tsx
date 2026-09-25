@@ -21,6 +21,7 @@ function draft(overrides: Partial<DraftRecord> = {}): DraftRecord {
     body: "Nevada posture proposal body.",
     tier2Only: false,
     confidence: 61,
+    readiness: "ready",
     evalSummary: {
       status: "ok",
       basis: "all claims cited",
@@ -117,7 +118,7 @@ describe("ApprovalQueue markup", () => {
     );
     expect(tier2).toContain("Tier-2 source only");
     expect(tier2).toContain("Confidence not recorded");
-    expect(tier2).toContain("Evals not run");
+    expect(tier2).toContain("Evaluation unavailable");
 
     const flagged = renderToStaticMarkup(
       <ApprovalQueue

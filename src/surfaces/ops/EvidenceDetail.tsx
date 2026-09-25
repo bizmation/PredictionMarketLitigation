@@ -1,3 +1,4 @@
+import { draftReadinessLabel } from "../../shared/lib/draftReadiness";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { formatEtDateTime } from "../../shared/lib/dates";
@@ -423,10 +424,6 @@ function revisionInstruction(
   };
 }
 
-function isDraftReady(draft: DraftRecord): boolean {
-  return !(draft.revisionIndex > 0 && draft.evalSummary == null);
-}
-
 function isReadyPendingTip(draft: DraftRecord, drafts: DraftRecord[]): boolean {
   if (draft.outcome != null) return false;
   const byId = new Map(drafts.map((row) => [row.id, row]));
@@ -436,14 +433,7 @@ function isReadyPendingTip(draft: DraftRecord, drafts: DraftRecord[]): boolean {
     .sort((a, b) => a.revisionIndex - b.revisionIndex);
   const head = members[members.length - 1];
   if (head == null || head.outcome != null) return false;
-  if (isDraftReady(head)) return draft.id === head.id;
-  for (let i = members.length - 2; i >= 0; i--) {
-    const previous = members[i]!;
-    if (isDraftReady(previous) && previous.outcome == null) {
-      return draft.id === previous.id;
-    }
-  }
-  return false;
+  return draft.id === head.id;
 }
 
 function decidedApprovedText(evidence: EvidenceEvent[]): string | null {
@@ -602,7 +592,7 @@ function ranEvals(
   drafts: DraftRecord[]
 ): Array<{ draftId: string; summary: EvalSummary }> {
   return drafts.flatMap((draft) =>
-    draft.evalSummary != null && draft.evalSummary.status !== "evals_not_run"
+    draft.evalSummary != null
       ? [{ draftId: draft.id, summary: draft.evalSummary }]
       : []
   );
@@ -773,10 +763,15 @@ function EvidenceBody({ detail }: { detail: RunDetail }) {
         <div className="kicker">Evals</div>
         {evals.length === 0 ? (
           <EmptyState
-            title="Evals not run"
+            title={
+              detail.status === "running"
+                ? "Evaluation in progress"
+                : "Evaluation unavailable"
+            }
             hint="An empty eval is not a passing eval."
           >
-            This run predates the eval suite, or the evaluator did not run.
+            No completed evaluation is recorded. Missing evidence does not mean
+            evaluation passed or was explicitly skipped.
           </EmptyState>
         ) : (
           evals.map(({ draftId, summary }) => (
@@ -871,6 +866,13 @@ function EvidenceBody({ detail }: { detail: RunDetail }) {
                   Draft
                   {draft.revisionIndex > 0 ? ` · r${draft.revisionIndex}` : ""}
                 </div>
+                {draft.outcome == null ? (
+                  <p>
+                    {isReadyPendingTip(draft, detail.drafts)
+                      ? draftReadinessLabel(draft)
+                      : "Historical draft"}
+                  </p>
+                ) : null}
                 {isReadyPendingTip(draft, detail.drafts) ? (
                   <NotLiveDraftBanner>{body}</NotLiveDraftBanner>
                 ) : (

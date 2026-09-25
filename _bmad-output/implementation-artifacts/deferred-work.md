@@ -196,3 +196,15 @@ Ledger entries above are not edited; this block records where each Epic 3 entry 
 - source_spec: `_bmad-output/implementation-artifacts/spec-3-24-retire-pipeline-not-live-copy.md`
   summary: Wire the apex pending-draft masthead to verified live data so it does not assert zero when drafts exist.
   evidence: MastheadProps and ApexKpisSchema have no pending count; ApexShell passes only KPIs and developments. The unconditional zero assertion predates Story 3.24, while the ops PendingDrafts component independently reads /api/drafts. Follow-up should distinguish loading/error from a verified zero.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-28-enforce-evaluation-readiness-and-sealed-drafts.md`
+  summary: Prevent concurrent guardrail pass and failure receipts from contradicting each other.
+  evidence: Pre-existing actionPolicy recorded-ID snapshot and gateway denial can interleave before pass insertion.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-28-enforce-evaluation-readiness-and-sealed-drafts.md`
+  summary: Distinguish revision eligibility from decision readiness for stopped Runs in the queue.
+  evidence: Pre-existing UI offers revision for stopped Run drafts while submitTurn requires awaiting; human decision remains intentionally allowed.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-28-enforce-evaluation-readiness-and-sealed-drafts.md`
+  summary: Benchmark readiness projection queries at representative historical volume.
+  evidence: Unverified medium performance concern: new correlated receipt lookups use run_id index but no volume timing establishes an actual slowdown.

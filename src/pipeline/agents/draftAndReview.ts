@@ -38,12 +38,7 @@ import {
   pickAuthorizedContext,
   type AuthorizedDraftContext
 } from "../ai/actionPolicy";
-import {
-  complete,
-  GatewayError,
-  invokeTool,
-  type GatewayDeps
-} from "../ai/gateway";
+import { complete, GatewayError, type GatewayDeps } from "../ai/gateway";
 import { evidenceId } from "../connectors/connector";
 import { appendStmt } from "../projector/evidence";
 
@@ -222,7 +217,8 @@ function evalsNotRunSummary(
   draft: DraftRecord,
   threshold: number,
   diff: unknown,
-  extra: IneligibleReason[] = []
+  extra: IneligibleReason[] = [],
+  basis = "Evaluation could not run because its provider was unavailable."
 ): EvalSummary {
   const ineligible = ineligibleFor(
     draft,
@@ -236,7 +232,7 @@ function evalsNotRunSummary(
   }
   return {
     status: "evals_not_run",
-    basis: "evals not run",
+    basis,
     citationCompleteness: null,
     disagreement: { flagged: false, description: null },
     ineligible
@@ -481,20 +477,24 @@ async function persist(
     updatedAt: args.createdAt
   });
   await db.batch([
-    appendStmt(db, {
-      id: evidenceId(draft.runId, "draft.evaluated", draft.id),
-      runId: draft.runId,
-      event: "draft.evaluated",
-      payload: {
-        draftId: draft.id,
-        disagreement: args.evalSummary.disagreement,
-        guidance: [...args.guidance],
-        ...(args.extraPayload ?? {})
+    appendStmt(
+      db,
+      {
+        id: evidenceId(draft.runId, "draft.evaluated", draft.id),
+        runId: draft.runId,
+        event: "draft.evaluated",
+        payload: {
+          draftId: draft.id,
+          disagreement: args.evalSummary.disagreement,
+          guidance: [...args.guidance],
+          ...(args.extraPayload ?? {})
+        },
+        createdAt: args.createdAt
       },
-      createdAt: args.createdAt
-    }),
-    reviewStmt,
-    ...(args.extraStatements ?? [])
+      { draftId: draft.id, state: "unevaluated" }
+    ),
+    ...(args.extraStatements ?? []),
+    reviewStmt
   ]);
 }
 
@@ -505,13 +505,14 @@ async function persistEvalsNotRun(
   diff: unknown,
   createdAt: string,
   threshold: number,
-  guidance: readonly GuidanceRef[]
+  guidance: readonly GuidanceRef[],
+  reason: string
 ): Promise<void> {
   await persist(db, draft, {
     body,
     diff,
     confidence: null,
-    evalSummary: evalsNotRunSummary(draft, threshold, diff),
+    evalSummary: evalsNotRunSummary(draft, threshold, diff, [], reason),
     createdAt,
     guidance
   });
@@ -531,55 +532,38 @@ async function persistToolDeny(
   }
 ): Promise<void> {
   const createdAt = nowIso(gatewayDeps);
-  const evalSummary = evalsNotRunSummary(draft, args.threshold, args.diff, [
-    "guardrail_fail"
-  ]);
-  const reviewStmt = await draftsRepo.applyDraftReviewStmt(db, {
-    id: draft.id,
+  const evalSummary = evalsNotRunSummary(
+    draft,
+    args.threshold,
+    args.diff,
+    ["guardrail_fail"],
+    "Evaluation stopped because the model requested a disallowed tool."
+  );
+  await persist(db, draft, {
     body: args.body,
     diff: args.diff,
     confidence: null,
     evalSummary,
-    updatedAt: createdAt
-  });
-  const extra = [
-    appendStmt(db, {
-      id: evidenceId(draft.runId, "draft.evaluated", draft.id),
-      runId: draft.runId,
-      event: "draft.evaluated",
-      payload: {
-        draftId: draft.id,
-        disagreement: evalSummary.disagreement,
-        guidance: [...args.guidance]
-      },
-      createdAt
-    }),
-    reviewStmt
-  ];
-  try {
-    await invokeTool(gatewayDeps, {
-      role: args.role,
-      runId: draft.runId,
-      draftId: draft.id,
-      tool: args.tool,
-      extraStatements: extra
-    });
-  } catch {
-    await db.batch([
-      appendStmt(db, {
-        id: evidenceId(draft.runId, "guardrails.failed", draft.id),
-        runId: draft.runId,
-        event: "guardrails.failed",
-        payload: {
-          draftId: draft.id,
-          ruleId: GUARDRAIL_RULE_ID,
-          tool: args.tool
+    createdAt,
+    guidance: args.guidance,
+    extraStatements: [
+      appendStmt(
+        db,
+        {
+          id: evidenceId(draft.runId, "guardrails.failed", draft.id),
+          runId: draft.runId,
+          event: "guardrails.failed",
+          payload: {
+            draftId: draft.id,
+            ruleId: GUARDRAIL_RULE_ID,
+            tool: args.tool
+          },
+          createdAt
         },
-        createdAt
-      }),
-      ...extra
-    ]);
-  }
+        { draftId: draft.id, state: "unevaluated" }
+      )
+    ]
+  });
 }
 
 function scoreReviewer(
@@ -643,8 +627,8 @@ function scoreReviewer(
 /**
  * Per Draft: skip if `evalSummary` is already set or `guardrails.failed`
  * already exists; drafter then reviewer; apply review; write
- * `draft.evaluated`. Tool-shaped model text goes through `invokeTool` in
- * one batch with `evals_not_run` + `guardrail_fail`, skipping remaining
+ * `draft.evaluated`. Tool-shaped model text records the allowlist denial in
+ * one conditional batch with `evals_not_run` + `guardrail_fail`, skipping remaining
  * LLM for that Draft. Per-Draft gateway errors mark that Draft
  * `evals_not_run` and continue. `budget_stopped` stops further calls
  * and marks remaining Drafts `evals_not_run` — those never had a drafter
@@ -671,7 +655,10 @@ export async function draftAndReview(
     if (typeof id === "string") failedIds.add(id);
   }
   const drafts = (await draftsRepo.listByRun(db, runId)).filter(
-    (draft) => draft.evalSummary == null && !failedIds.has(draft.id)
+    (draft) =>
+      draft.outcome == null &&
+      draft.evalSummary == null &&
+      !failedIds.has(draft.id)
   );
   for (let i = 0; i < drafts.length; i++) {
     const draft = drafts[i]!;
@@ -792,16 +779,20 @@ export async function draftAndReview(
         },
         extraStatements: vocabularyFailed
           ? [
-              appendStmt(db, {
-                id: evidenceId(draft.runId, "guardrails.failed", draft.id),
-                runId: draft.runId,
-                event: "guardrails.failed",
-                payload: {
-                  draftId: draft.id,
-                  ruleId: INFERENCE_VOCABULARY_RULE_ID
+              appendStmt(
+                db,
+                {
+                  id: evidenceId(draft.runId, "guardrails.failed", draft.id),
+                  runId: draft.runId,
+                  event: "guardrails.failed",
+                  payload: {
+                    draftId: draft.id,
+                    ruleId: INFERENCE_VOCABULARY_RULE_ID
+                  },
+                  createdAt
                 },
-                createdAt
-              })
+                { draftId: draft.id, state: "unevaluated" }
+              )
             ]
           : []
       });
@@ -830,7 +821,10 @@ export async function draftAndReview(
           diff,
           timestamp,
           threshold,
-          guidanceRefs
+          guidanceRefs,
+          err instanceof GatewayError
+            ? `Evaluation did not complete: ${err.code}.`
+            : "Evaluation stopped after an unexpected error."
         );
       } catch {
         persistFailed = true;
@@ -848,7 +842,8 @@ export async function draftAndReview(
               remaining.diff,
               timestamp,
               threshold,
-              NO_GUIDANCE
+              NO_GUIDANCE,
+              "Evaluation was skipped after a preceding evaluation stopped the run."
             );
           } catch {
             // Stamp as many remaining Drafts as the DB will take.

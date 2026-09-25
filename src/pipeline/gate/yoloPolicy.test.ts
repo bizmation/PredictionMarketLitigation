@@ -1,3 +1,4 @@
+import { insertReviewedDraft } from "../../test/reviewedDraft";
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -234,7 +235,7 @@ describe("autoApproveRun (story 3.13)", () => {
     overrides: Partial<DraftRecord> = {}
   ) {
     const row = draft({ id, runId, ...overrides });
-    await draftsRepo.insertDraft(testEnv.DB, {
+    await insertReviewedDraft(testEnv.DB, {
       id: row.id,
       runId,
       targetEntityType: row.targetEntityType,
@@ -456,7 +457,7 @@ describe("autoApproveRun docket_events (story 3.21)", () => {
     const entryId = entrySeq++;
     const targetEntityId = `de-${CASE_ID}-${entryId}`;
     const id = `d:${runId}:CourtListener:docket_events:${targetEntityId}`;
-    await draftsRepo.insertDraft(testEnv.DB, {
+    await insertReviewedDraft(testEnv.DB, {
       id,
       runId,
       targetEntityType: "docket_events",
