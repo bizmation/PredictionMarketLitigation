@@ -129,7 +129,7 @@ Review: 18 reports; eight unique patch groups applied (one high, seven medium), 
 
 Follow-up review recommended: false. The high snapshot-representation defect and medium patches were re-read independently and verified with unchanged-representation and real-mutation tests, real-D1 races, HTTP and mounted integration tests. No specific patch-related risk remains unverified; the deferred large-Run performance concern is outside this recommendation calculation.
 
-Verification: `npm run check` passed; `npm test` passed 1154 tests across 50 files; `git diff --check` passed. Review patches first passed 238 affected-suite tests and 36 focused snapshot tests. Every matrix row has executed passing coverage in atomicGate, draftReadiness, steering, API or mounted UI suites. PR CI remains the next authorized completion check.
+Verification: `npm run check` passed; `npm test` passed 1154 tests across 50 files; `git diff --check` passed. Review patches first passed 238 affected-suite tests and 36 focused snapshot tests. Every matrix row has executed passing coverage in atomicGate, draftReadiness, steering, API or mounted UI suites. Required PR CI run `36147854656` passed 1148 tests with 6 environment-dependent skips across 50 files for implementation commit `0d6c39b8c785405d8575255cd208f55a8fba0bd3`. PR: https://github.com/bizmation/PredictionMarketLitigation/pull/45. Sprint story and shared gate-safety action are reconciled; overall Epic 3 acceptance remains rejected.
 
 Residual risks: migration 0019 must accompany the eventual staging deployment; no remote migration or deployment was performed. Historical large-Run query cost needs measurement. Budget/replay/admission and live acceptance remain later corrective stories.
 
