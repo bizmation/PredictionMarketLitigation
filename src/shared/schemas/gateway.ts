@@ -77,8 +77,8 @@ export type GatewayConfig = z.infer<typeof GatewayConfigSchema>;
 /**
  * One recorded LLM call — the per-call Evidence row behind spend accounting.
  * `tokens` is the provider usage breakdown when available, else null (Workers
- * AI does not universally expose usage); `costCents` is zero-dollar for the
- * Workers AI binding until a paid provider lands, but is recorded regardless.
+ * AI does not universally expose usage). `costCents` is budget accounting;
+ * costBasis distinguishes estimates, provider reports and retained liability.
  */
 export const LlmCallRecordSchema = z
   .object({
@@ -93,7 +93,23 @@ export const LlmCallRecordSchema = z
         output: z.number().int().nonnegative()
       })
       .nullable(),
+    // Budget accounting amount; not necessarily a measured charge.
     costCents: cents,
+    costBasis: z
+      .enum([
+        "legacy_estimate",
+        "token_estimate",
+        "provider_reported",
+        "conservative_bound"
+      ])
+      .default("legacy_estimate"),
+    admissionBoundCents: cents.nullable().default(null),
+    estimatedCostCents: cents.nullable().default(null),
+    reportedCostCents: cents.nullable().default(null),
+    reportedCostUsd: z.string().nullable().optional(),
+    reportedCostSource: z.string().nullable().default(null),
+    policy: z.record(z.string(), z.unknown()).nullable().default(null),
+    accountingIssue: z.string().nullable().default(null),
     currency: z.string().regex(CURRENCY_CODE),
     createdAt: IsoUtcSchema
   })
@@ -112,6 +128,8 @@ export const GATEWAY_ERROR_CODES = [
   "run_not_found",
   "budget_stopped",
   "provider_error",
+  "cost_policy_invalid",
+  "accounting_uncertain",
   "gateway_not_configured"
 ] as const;
 

@@ -71,6 +71,30 @@ export type EvidenceFetchMap = {
   shouldPoll: boolean;
 };
 
+const COST_BASIS_LABELS: Record<string, string> = {
+  legacy_estimate: "historical estimate",
+  token_estimate: "estimate from token usage",
+  provider_reported: "provider-reported charge, rounded up",
+  conservative_bound: "conservative retained liability"
+};
+const ACCOUNTING_ISSUE_LABELS: Record<string, string> = {
+  missing_or_invalid_token_usage: "Token usage is missing or invalid",
+  token_limit_exceeded: "Reported token usage exceeds the policy limit",
+  missing_or_invalid_reported_cost: "Reported charge is missing or invalid",
+  reported_cost_exceeds_bound: "Reported charge exceeds the admission bound",
+  non_text_output: "The provider returned non-text output"
+};
+function accountingIssueLabel(issue: string): string {
+  return issue
+    .split("; ")
+    .map(
+      (part) =>
+        ACCOUNTING_ISSUE_LABELS[part] ??
+        "Unrecognized accounting issue; reconciliation required"
+    )
+    .join("; ");
+}
+
 function isChipStatus(status: RunStatus): status is ChipStatus {
   return status !== "running";
 }
@@ -93,6 +117,11 @@ function isRunDetail(value: unknown): value is RunDetail {
     STATUSES.has(row.status) &&
     typeof row.startedAt === "string" &&
     isNonNegativeInt(row.spendCents) &&
+    (row.reportedCostCents === undefined ||
+      row.reportedCostCents === null ||
+      isNonNegativeInt(row.reportedCostCents)) &&
+    (row.unmeasuredCallCount === undefined ||
+      isNonNegativeInt(row.unmeasuredCallCount)) &&
     Array.isArray(row.drafts) &&
     Array.isArray(row.evidence) &&
     Array.isArray(row.llmCalls)
@@ -683,7 +712,7 @@ function EvidenceBody({ detail }: { detail: RunDetail }) {
         <div className="spend">
           <div>
             <b>{formatUsdCents(detail.spendCents)}</b>
-            <span>Spend</span>
+            <span>Budget accounting · includes estimates</span>
           </div>
           <div>
             <b>
@@ -692,6 +721,20 @@ function EvidenceBody({ detail }: { detail: RunDetail }) {
                 : formatUsdCents(detail.budgetCents)}
             </b>
             <span>Budget ceiling</span>
+          </div>
+          <div>
+            <b>
+              {detail.reportedCostCents == null
+                ? "unknown"
+                : formatUsdCents(detail.reportedCostCents)}
+            </b>
+            <span>Sum of rounded-up reported charges</span>
+            {detail.reportedCostCents == null &&
+              detail.unmeasuredCallCount != null && (
+                <span>
+                  {detail.unmeasuredCallCount} calls without reported charges
+                </span>
+              )}
           </div>
           <div>
             <b className="num">{tokenSum(detail)}</b>
@@ -750,6 +793,69 @@ function EvidenceBody({ detail }: { detail: RunDetail }) {
               detail.llmCalls.map((call) => (
                 <div key={call.id}>
                   {call.role} · {call.provider} · {call.model}
+                  <div>
+                    Accounting: {formatUsdCents(call.costCents)} ·{" "}
+                    {COST_BASIS_LABELS[call.costBasis ?? "legacy_estimate"] ??
+                      "unknown accounting basis"}
+                  </div>
+                  <div>
+                    Admission bound:{" "}
+                    {call.admissionBoundCents == null
+                      ? "unknown"
+                      : formatUsdCents(call.admissionBoundCents)}
+                  </div>
+                  <div>
+                    Estimate:{" "}
+                    {call.estimatedCostCents == null
+                      ? call.costBasis === "legacy_estimate"
+                        ? formatUsdCents(call.costCents)
+                        : "unknown"
+                      : formatUsdCents(call.estimatedCostCents)}
+                  </div>
+                  <div>
+                    Provider-reported charge:{" "}
+                    {call.reportedCostUsd != null
+                      ? `$${call.reportedCostUsd} USD`
+                      : call.reportedCostCents == null
+                        ? "unknown"
+                        : `${formatUsdCents(call.reportedCostCents)} (rounded up)`}
+                  </div>
+                  {call.policy && (
+                    <div>
+                      <div>
+                        Cost policy: {String(call.policy.version ?? "unknown")}
+                      </div>
+                      <div>
+                        Prices verified:{" "}
+                        {String(call.policy.verifiedAt ?? "unknown")}
+                      </div>
+                      <div>
+                        Policy expires:{" "}
+                        {String(call.policy.validUntil ?? "unknown")}
+                      </div>
+                      {Array.isArray(call.policy.sources) && (
+                        <ul aria-label="Cost policy sources">
+                          {call.policy.sources
+                            .filter(
+                              (source): source is string =>
+                                typeof source === "string" &&
+                                source.startsWith("https://")
+                            )
+                            .map((source) => (
+                              <li key={source}>
+                                <a href={source}>{source}</a>
+                              </li>
+                            ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                  {call.accountingIssue && (
+                    <output>
+                      Accounting uncertainty:{" "}
+                      {accountingIssueLabel(call.accountingIssue)}
+                    </output>
+                  )}
                 </div>
               ))
             )}

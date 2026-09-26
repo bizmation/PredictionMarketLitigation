@@ -10,24 +10,16 @@ import { LlmCallRecordSchema, type LlmCallRecord } from "../../schemas/gateway";
 
 export async function recordCall(
   db: Db,
-  input: {
-    id: string;
-    runId: string;
+  input: Omit<import("zod").input<typeof LlmCallRecordSchema>, "role"> & {
     role: string;
-    provider: string;
-    model: string;
-    tokens: { input: number; output: number } | null;
-    costCents: number;
-    currency: string;
-    createdAt: string;
   }
 ): Promise<LlmCallRecord> {
   const record = LlmCallRecordSchema.parse(input);
   await db
     .prepare(
       `INSERT INTO llm_calls
-         (id, run_id, role, provider, model, tokens_json, cost_cents, currency, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (id, run_id, role, provider, model, tokens_json, cost_cents, currency, created_at, cost_basis, admission_bound_cents, estimated_cost_cents, reported_cost_cents, reported_cost_source, policy_json, accounting_issue, reported_cost_usd)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .bind(
       record.id,
@@ -38,7 +30,15 @@ export async function recordCall(
       record.tokens == null ? null : JSON.stringify(record.tokens),
       record.costCents,
       record.currency,
-      record.createdAt
+      record.createdAt,
+      record.costBasis,
+      record.admissionBoundCents,
+      record.estimatedCostCents,
+      record.reportedCostCents,
+      record.reportedCostSource,
+      record.policy == null ? null : JSON.stringify(record.policy),
+      record.accountingIssue,
+      record.reportedCostUsd ?? null
     )
     .run();
   return record;
@@ -52,6 +52,14 @@ type LlmCallRow = {
   model: string;
   tokens_json: string | null;
   cost_cents: number;
+  cost_basis: string;
+  admission_bound_cents: number | null;
+  estimated_cost_cents: number | null;
+  reported_cost_cents: number | null;
+  reported_cost_source: string | null;
+  reported_cost_usd: string | null;
+  policy_json: string | null;
+  accounting_issue: string | null;
   currency: string;
   created_at: string;
 };
@@ -65,6 +73,16 @@ function mapLlmCall(row: LlmCallRow): LlmCallRecord {
     model: row.model,
     tokens: row.tokens_json == null ? null : JSON.parse(row.tokens_json),
     costCents: row.cost_cents,
+    costBasis: row.cost_basis,
+    admissionBoundCents: row.admission_bound_cents,
+    estimatedCostCents:
+      row.estimated_cost_cents ??
+      (row.cost_basis === "legacy_estimate" ? row.cost_cents : null),
+    reportedCostUsd: row.reported_cost_usd,
+    reportedCostCents: row.reported_cost_cents,
+    reportedCostSource: row.reported_cost_source,
+    policy: row.policy_json == null ? null : JSON.parse(row.policy_json),
+    accountingIssue: row.accounting_issue,
     currency: row.currency,
     createdAt: row.created_at
   });
@@ -79,7 +97,7 @@ export async function listByRun(
 ): Promise<LlmCallRecord[]> {
   const { results } = await db
     .prepare(
-      `SELECT id, run_id, role, provider, model, tokens_json, cost_cents, currency, created_at
+      `SELECT *
          FROM llm_calls WHERE run_id = ?
         ORDER BY created_at ASC, id ASC`
     )
@@ -100,4 +118,18 @@ export async function totalSpendForRun(db: Db, runId: string): Promise<number> {
     .bind(runId)
     .first<{ total: number }>();
   return row?.total ?? 0;
+}
+
+export async function hasAccountingIssue(
+  db: Db,
+  runId: string
+): Promise<boolean> {
+  return (
+    (await db
+      .prepare(
+        "SELECT 1 AS found FROM llm_calls WHERE run_id = ? AND accounting_issue IS NOT NULL LIMIT 1"
+      )
+      .bind(runId)
+      .first()) != null
+  );
 }

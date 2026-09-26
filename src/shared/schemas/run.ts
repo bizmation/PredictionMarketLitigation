@@ -65,6 +65,11 @@ export const RunSummarySchema = z
     startedAt: IsoUtcSchema,
     completedAt: IsoUtcSchema.nullable(),
     spendCents: cents,
+    spendBasis: z.literal("budget_accounting").optional(),
+    // Sum of individually rounded-UP provider-reported charges in cents, not
+    // an exact USD total. Null when any call lacks a representable report.
+    reportedCostCents: cents.nullable().optional(),
+    unmeasuredCallCount: cents.optional(),
     spendCurrency: z.string().regex(CURRENCY_CODE),
     budgetCents: cents.nullable(),
     scheduledFor: IsoDateSchema.nullable()

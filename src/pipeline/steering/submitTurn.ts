@@ -210,7 +210,13 @@ async function askSteward(
       })
     ]);
     return result.text;
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof GatewayError &&
+      (error.code === "cost_policy_invalid" ||
+        error.code === "accounting_uncertain")
+    )
+      throw error;
     return null;
   }
 }
@@ -511,6 +517,12 @@ async function steerPipelineConfig(
     }
     return { status: "ok", version: row.version, reply };
   } catch (err) {
+    if (
+      err instanceof GatewayError &&
+      (err.code === "cost_policy_invalid" ||
+        err.code === "accounting_uncertain")
+    )
+      throw err;
     if (isBudgetStopped(err)) return { status: "budget_stopped" };
     return { status: "invalid" };
   }

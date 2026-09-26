@@ -1,3 +1,4 @@
+import { GatewayError } from "./pipeline/ai/gateway";
 import { routeAgentRequest } from "agents";
 import { AIChatAgent } from "@cloudflare/ai-chat";
 import { z } from "zod";
@@ -538,6 +539,15 @@ export default {
               });
           }
         } catch (error) {
+          if (
+            error instanceof GatewayError &&
+            (error.code === "cost_policy_invalid" ||
+              error.code === "accounting_uncertain")
+          ) {
+            return jsonError(new ApiError(503, error.code, error.message), {
+              headers: ADMIN_CACHE_HEADERS
+            });
+          }
           console.error(
             JSON.stringify({
               event: "admin_api.error",

@@ -230,3 +230,24 @@ it.each([
     vi.unstubAllGlobals();
   }
 });
+
+it("labels budget accounting and never invents a measured total", () => {
+  const html = renderToStaticMarkup(
+    <RunLog
+      items={[
+        item({
+          id: "run-20260926-abcd",
+          status: "awaiting",
+          origin: "manual",
+          reportedCostCents: null,
+          unmeasuredCallCount: 1
+        })
+      ]}
+    />
+  );
+  expect(html).toContain("Budget accounting");
+  expect(html).toContain(
+    "includes estimates; sum of rounded-up reported charges:"
+  );
+  expect(html).toContain("unknown");
+});

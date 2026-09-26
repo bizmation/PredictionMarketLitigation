@@ -41,6 +41,13 @@ function call(
     model: "llama-3-8b",
     tokens: { input: 11, output: 7 },
     costCents: 0,
+    costBasis: "legacy_estimate",
+    admissionBoundCents: null,
+    estimatedCostCents: null,
+    reportedCostCents: null,
+    reportedCostSource: null,
+    policy: null,
+    accountingIssue: null,
     currency: "USD",
     createdAt: TS_STEP,
     ...overrides
@@ -239,6 +246,13 @@ describe("EvidenceDetail (story 3.8)", () => {
             call({
               id: "call-1",
               costCents: 0,
+              costBasis: "legacy_estimate",
+              admissionBoundCents: null,
+              estimatedCostCents: null,
+              reportedCostCents: null,
+              reportedCostSource: null,
+              policy: null,
+              accountingIssue: null,
               tokens: { input: 11, output: 7 }
             })
           ]
@@ -248,7 +262,7 @@ describe("EvidenceDetail (story 3.8)", () => {
     );
     expect(html).toContain("$0.12");
     expect(html).toContain(">18<");
-    expect(html).not.toContain("$0.00");
+    expect(html).toContain("Provider-reported charge: unknown");
   });
 
   it("prints run.superseded · priorRunId on the Evidence timeline", () => {
@@ -1140,7 +1154,9 @@ it.each([
       />
     );
     expect(html).toContain(`<b>${label}</b><span>Budget ceiling</span>`);
-    expect(html).toContain("<b>$0.47</b><span>Spend</span>");
+    expect(html).toContain(
+      "<b>$0.47</b><span>Budget accounting · includes estimates</span>"
+    );
   }
 );
 

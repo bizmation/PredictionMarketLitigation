@@ -1,3 +1,4 @@
+import { fixtureCostPolicy } from "../../test/costPolicyFixture";
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
@@ -1032,7 +1033,9 @@ describe("run records (story 3.1)", () => {
       provider: "workersai",
       model: "llama-3-8b",
       tokens: { input: 11, output: 7 },
-      costCents: 0
+      costCents: 0,
+      costBasis: "legacy_estimate",
+      reportedCostCents: null
     });
     const serialized = JSON.stringify(body);
     expect(serialized).not.toMatch(
@@ -1796,7 +1799,7 @@ describe("public run detail steering redaction (story 3.14)", () => {
       text: secretAnswer,
       inputTokens: 1,
       outputTokens: 1,
-      costCents: 0
+      reportedCostUsd: 0
     })
   };
 
@@ -1840,7 +1843,12 @@ describe("public run detail steering redaction (story 3.14)", () => {
     const secret = "private steering content must not leak";
     await submitTurn(
       testEnv.DB,
-      { db: testEnv.DB, provider, now: () => TS },
+      {
+        db: testEnv.DB,
+        costPolicy: fixtureCostPolicy,
+        provider,
+        now: () => TS
+      },
       {
         runId: "run-20260914-aa10",
         draftId: "d-steer-redact",
@@ -1959,4 +1967,138 @@ it("exposes production-created ceilings for every origin through public list and
       .bind(saved?.budget ?? null)
       .run();
   }
+});
+
+describe("public accounting provenance", () => {
+  it("distinguishes reported, estimated and legacy calls and keeps mixed totals unknown", async () => {
+    const id = "run-20260926-c030";
+    await testEnv.DB.prepare(
+      `INSERT INTO runs (id,origin,mode,status,started_at,spend_cents,spend_currency,budget_cents) VALUES (?,'manual','hitl','running','2026-09-26T12:00:00.000Z',4,'USD',500)`
+    )
+      .bind(id)
+      .run();
+    const repo = await import("../db/repos/llmCallsRepo");
+    const base = {
+      runId: id,
+      role: "drafter",
+      provider: "workersai",
+      model: "test",
+      tokens: null,
+      costCents: 2,
+      currency: "USD",
+      createdAt: "2026-09-26T12:00:00.000Z"
+    };
+    await repo.recordCall(testEnv.DB, {
+      ...base,
+      id: "cost-estimate",
+      costBasis: "token_estimate",
+      estimatedCostCents: 2,
+      admissionBoundCents: 2
+    });
+    await repo.recordCall(testEnv.DB, {
+      ...base,
+      id: "cost-measured",
+      costBasis: "provider_reported",
+      reportedCostCents: 2,
+      reportedCostSource: "openrouter.usage.cost"
+    });
+    await repo.recordCall(testEnv.DB, {
+      ...base,
+      id: "cost-legacy",
+      costCents: 0
+    });
+    const response = await worker.fetch!(
+      new Request(`https://pml.example.com/api/runs/${id}`),
+      testEnv
+    );
+    expect(response.status).toBe(200);
+    const detail = (await response.json()) as {
+      spendBasis: string;
+      reportedCostCents: number | null;
+      unmeasuredCallCount: number;
+      llmCalls: Array<{ costBasis: string; reportedCostCents: number | null }>;
+    };
+    expect(detail).toMatchObject({
+      spendBasis: "budget_accounting",
+      reportedCostCents: null,
+      unmeasuredCallCount: 2
+    });
+    expect(detail.llmCalls.map((c) => c.costBasis).sort()).toEqual([
+      "legacy_estimate",
+      "provider_reported",
+      "token_estimate"
+    ]);
+    const list = await worker.fetch!(
+      new Request("https://pml.example.com/api/runs"),
+      testEnv
+    );
+    const body = (await list.json()) as {
+      items: Array<{
+        id: string;
+        reportedCostCents: number | null;
+        unmeasuredCallCount: number;
+      }>;
+    };
+    expect(body.items.find((r) => r.id === id)).toMatchObject({
+      reportedCostCents: null,
+      unmeasuredCallCount: 2
+    });
+  });
+});
+
+it("exports the sum of individually rounded fractional reported charges on list and detail", async () => {
+  const id = "run-20260926-c033";
+  await testEnv.DB.prepare(
+    `INSERT INTO runs (id,origin,mode,status,started_at,spend_cents,spend_currency,budget_cents) VALUES (?,'manual','hitl','running','2026-09-26T15:00:00.000Z',3,'USD',500)`
+  )
+    .bind(id)
+    .run();
+  const repo = await import("../db/repos/llmCallsRepo");
+  for (const [index, usd, cents] of [
+    [0, "0.001", 1],
+    [1, "0.012", 2]
+  ] as const)
+    await repo.recordCall(testEnv.DB, {
+      id: `fractional-${index}`,
+      runId: id,
+      role: "drafter",
+      provider: "openrouter",
+      model: "test",
+      tokens: null,
+      costCents: cents,
+      costBasis: "provider_reported",
+      reportedCostCents: cents,
+      reportedCostUsd: usd,
+      reportedCostSource: "openrouter.usage.cost",
+      currency: "USD",
+      createdAt: "2026-09-26T15:00:00.000Z"
+    });
+  const detail = (await (
+    await worker.fetch!(
+      new Request(`https://pml.example.com/api/runs/${id}`),
+      testEnv
+    )
+  ).json()) as {
+    llmCalls: Array<{ reportedCostUsd: string; reportedCostCents: number }>;
+  };
+  expect(detail).toMatchObject({
+    reportedCostCents: 3,
+    unmeasuredCallCount: 0
+  });
+  expect(
+    detail.llmCalls.map((c) => [c.reportedCostUsd, c.reportedCostCents])
+  ).toEqual([
+    ["0.001", 1],
+    ["0.012", 2]
+  ]);
+  const list = (await (
+    await worker.fetch!(
+      new Request("https://pml.example.com/api/runs"),
+      testEnv
+    )
+  ).json()) as { items: Array<{ id: string }> };
+  expect(list.items.find((r) => r.id === id)).toMatchObject({
+    reportedCostCents: 3,
+    unmeasuredCallCount: 0
+  });
 });
