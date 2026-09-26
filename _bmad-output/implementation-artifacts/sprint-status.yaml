@@ -286,6 +286,7 @@ action_items:
       and atomically update the LLM ledger and Run spend (R5-R7)."
     owner: "agent + Patrick (cost policy)"
     status: open
+    note: "3.30 / PR #46 implements the approved per-request policy and explicit accounting provenance; CI 36248114402 passed. Remains open for 3.31 concurrent reservations, uncertain calls, and atomic settlement."
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
   - id: "epic-3-retro-workflow-replay-admission-safety"
     # Approved corrective stories: 3.32, 3.33; close only on linked evidence.

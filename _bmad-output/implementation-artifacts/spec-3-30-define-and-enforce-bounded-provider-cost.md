@@ -223,3 +223,10 @@ Files changed:
 - `src/surfaces/ops/evidenceDetail.test.tsx` — Deterministic regressions and compatible provider/accounting fixtures.
 - `src/surfaces/ops/runLog.test.tsx` — Deterministic regressions and compatible provider/accounting fixtures.
 - `src/test/costPolicyFixture.ts` — Explicit synthetic policy for integration-test providers.
+
+
+### Remote verification
+
+Implementation commit: `b2e45cd2c4f0cf0acdc032b54ad283727627c3f1`.
+PR: https://github.com/bizmation/PredictionMarketLitigation/pull/46.
+Required CI passed: https://github.com/bizmation/PredictionMarketLitigation/actions/runs/36248114402 (formatting, lint, TypeScript and real Worker/D1 tests). Final documentation records this evidence and updates cached epic context; the PR must also pass its resulting head check before merge.

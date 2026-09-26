@@ -4,7 +4,7 @@
 
 ## Goal
 
-Close the daily source → Draft → Approval Gate → canonical tracker → public Evidence loop. Patrick operates it with HITL by default and bounded optional autonomy; anyone can inspect its work. Stories 3.1–3.29 are complete, including canonical planning reconciliation, connector credential boundaries, evaluation readiness/sealing and atomic publication, but operational acceptance remains rejected. The corrective backlog reopens the epic until safety regressions and a real governed staging publication demonstrate acceptance.
+Close the daily source → Draft → Approval Gate → canonical tracker → public Evidence loop. Patrick operates it with HITL by default and bounded optional autonomy; anyone can inspect its work. Stories 3.1–3.30 are complete, including canonical planning reconciliation, connector credential boundaries, evaluation readiness/sealing, atomic publication and bounded provider cost, but operational acceptance remains rejected. The corrective backlog reopens the epic until safety regressions and a real governed staging publication demonstrate acceptance.
 
 ## Stories
 
@@ -79,5 +79,10 @@ Close the daily source → Draft → Approval Gate → canonical tracker → pub
 
 - Epic 2 supplies canonical F1 entities. Foundation, gateway, orchestration, evaluation, and gate underpin public/operator surfaces. Approved steering and hardening stories 3.14–3.21 now have canonical entries in epics.md; F9/FR46–50 and UX B8/C4 are reconciled by 3.26.
 - Historical staging sequence was 3.23–3.25 before the 3.22 deployment; all are complete. The September 24 corrective plan controls the next staging deployment. R13 delayed-arrival policy and R14 failed-revision recovery remain deferred.
-- Corrective order: 3.26 planning is complete; 3.27 connector boundary is complete; 3.28 readiness and 3.29 atomic publication are complete; next is 3.30 bounded cost → 3.31 reservation/accounting; 3.28 + 3.31 → 3.32 replay/config; 3.33 admission. These feed 3.34 executing-Workflow coverage; 3.28 also enables 3.35 live pending count.
+- Corrective order: 3.26 planning is complete; 3.27 connector boundary is complete; 3.28 readiness and 3.29 atomic publication are complete; 3.30 bounded cost is complete (PR #46); next is 3.31 reservation/accounting; 3.28 + 3.31 → 3.32 replay/config; 3.33 admission. These feed 3.34 executing-Workflow coverage; 3.28 also enables 3.35 live pending count.
 - All 3.26–3.35 must merge with required CI before 3.36 staging gateway verification. Then 3.37 proves material publication and reruns the retrospective. Reuse one qualifying Run rather than duplicate paid work. Epic 4 waits for 3.37 and accepted Epic 3 evidence; planning completion closes no runtime acceptance gap.
+
+
+## Story 3.30 handoff — 2026-09-26
+
+Patrick approved bounded-text-v1: 2,048 output tokens, seven-day pricing validity, exact-model support, conservative 2-cent Workers AI / 124-cent Sonnet admission bounds, and unchanged 500-cent seed. PR #46 implements per-request bounds and explicit estimated/reported/unknown accounting. The current Sonnet endpoint tier metadata is refused rather than exceeding the approved policy; policy expires 2026-10-03T14:01:49.000Z and requires reviewed refresh. Required implementation CI 36248114402 passed. No deployment or paid inference occurred. The shared paid-budget corrective action remains open for 3.31's concurrent reservations, uncertain attempts, retry identity and atomic settlement.
