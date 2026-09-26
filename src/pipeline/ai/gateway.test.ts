@@ -1,3 +1,5 @@
+import { COST_POLICIES } from "./costPolicy";
+import { fixtureCostPolicy } from "../../test/costPolicyFixture";
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -73,7 +75,7 @@ function fakeProvider(
           overrides.inputTokens === undefined ? 11 : overrides.inputTokens,
         outputTokens:
           overrides.outputTokens === undefined ? 7 : overrides.outputTokens,
-        costCents: overrides.costCents ?? 0
+        reportedCostUsd: (overrides.costCents ?? 0) / 100
       };
     }
   };
@@ -85,6 +87,7 @@ const deterministicNewId = () => `id-${++idSeq}`;
 function deps(provider: LlmProvider) {
   return {
     db: testEnv.DB,
+    costPolicy: fixtureCostPolicy,
     provider,
     now: () => NOW,
     newId: deterministicNewId
@@ -127,6 +130,7 @@ async function recordPriorSpend(costCents: number) {
 
 describe("gateway.complete (story 3.2)", () => {
   it("rejects an unknown role without touching the provider or storage", async () => {
+    RUN_ID = newRunId();
     const provider = fakeProvider();
     await expect(
       complete(deps(provider), {
@@ -258,10 +262,13 @@ describe("gateway.complete (story 3.2)", () => {
       { drafter: { provider: "fake", model: "fake-model-v1" } },
       null
     );
-    await complete(
-      deps(fakeProvider({ inputTokens: null, outputTokens: null })),
-      { role: "drafter", runId: RUN_ID, prompt: "draft this" }
-    );
+    await expect(
+      complete(deps(fakeProvider({ inputTokens: null, outputTokens: null })), {
+        role: "drafter",
+        runId: RUN_ID,
+        prompt: "draft this"
+      })
+    ).rejects.toMatchObject({ code: "accounting_uncertain" });
     const row = await testEnv.DB.prepare(
       `SELECT tokens_json FROM llm_calls WHERE run_id = ?`
     )
@@ -527,544 +534,6 @@ describe("gateway.complete (story 3.2)", () => {
   });
 });
 
-describe("gateway.complete provider select + estimate (story 3.20)", () => {
-  const SECRET = "sk-or-test-secret-do-not-leak";
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it("Workers AI uses env.AI.run, records costCents 0, and does not fetch", async () => {
-    await insertRun({ budgetCents: 500 });
-    await seedConfig(
-      {
-        drafter: {
-          provider: "workersai",
-          model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
-        }
-      },
-      500
-    );
-    const run = vi.fn(async () => ({
-      response: "workers reply",
-      usage: { prompt_tokens: 3, completion_tokens: 4 }
-    }));
-    const provider = createWorkersAiProvider({
-      AI: { run }
-    } as unknown as Env);
-    expect(provider).not.toBeNull();
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-
-    const result = await complete(
-      {
-        db: testEnv.DB,
-        providers: [provider!],
-        now: () => NOW,
-        newId: deterministicNewId
-      },
-      { role: "drafter", runId: RUN_ID, prompt: "seeded drafter" }
-    );
-
-    expect(run).toHaveBeenCalledTimes(1);
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(result.costCents).toBe(0);
-    expect(result.provider).toBe("workersai");
-    const row = await testEnv.DB.prepare(
-      `SELECT cost_cents FROM llm_calls WHERE run_id = ?`
-    )
-      .bind(RUN_ID)
-      .first<{ cost_cents: number }>();
-    expect(row?.cost_cents).toBe(0);
-  });
-
-  it("throws gateway_not_configured on provider name mismatch and makes no fetch", async () => {
-    await insertRun({ budgetCents: 500 });
-    await seedConfig(
-      { drafter: { provider: "openrouter", model: "openrouter/auto" } },
-      500
-    );
-    const workersOnly: LlmProvider = {
-      name: "workersai",
-      complete: async () => ({
-        text: "nope",
-        inputTokens: 1,
-        outputTokens: 1,
-        costCents: 0
-      })
-    };
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(
-      complete(
-        {
-          db: testEnv.DB,
-          providers: [workersOnly],
-          now: () => NOW,
-          newId: deterministicNewId
-        },
-        { role: "drafter", runId: RUN_ID, prompt: "hi" }
-      )
-    ).rejects.toMatchObject({ code: "gateway_not_configured" });
-    expect(fetchMock).not.toHaveBeenCalled();
-    const calls = await testEnv.DB.prepare(
-      "SELECT COUNT(*) AS count FROM llm_calls WHERE run_id = ?"
-    )
-      .bind(RUN_ID)
-      .first<{ count: number }>();
-    expect(calls?.count).toBe(0);
-  });
-
-  it("refuses when spend + estimate would push over the ceiling", async () => {
-    await insertRun({ budgetCents: 500 });
-    await recordPriorSpend(490);
-    await seedConfig(
-      { drafter: { provider: "fake", model: "fake-model-v1" } },
-      null
-    );
-    let providerCalls = 0;
-    const provider: LlmProvider = {
-      name: "fake",
-      estimateCents: () => 20,
-      complete: async () => {
-        providerCalls += 1;
-        return { text: "x", inputTokens: 1, outputTokens: 1, costCents: 1 };
-      }
-    };
-    await expect(
-      complete(deps(provider), {
-        role: "drafter",
-        runId: RUN_ID,
-        prompt: "hi"
-      })
-    ).rejects.toMatchObject({
-      code: "budget_stopped",
-      message: expect.stringContaining(
-        "plus estimate 20 would pass the ceiling"
-      )
-    });
-    expect(providerCalls).toBe(0);
-    const run = await runsRepo.getRunById(testEnv.DB, RUN_ID);
-    expect(run?.status).toBe("stopped");
-  });
-
-  it("proceeds when spend + estimate fits under the ceiling", async () => {
-    await insertRun({ budgetCents: 500 });
-    await recordPriorSpend(490);
-    await seedConfig(
-      { drafter: { provider: "fake", model: "fake-model-v1" } },
-      null
-    );
-    const provider: LlmProvider = {
-      name: "fake",
-      estimateCents: () => 10,
-      complete: async () => ({
-        text: "ok",
-        inputTokens: 1,
-        outputTokens: 1,
-        costCents: 0
-      })
-    };
-    const result = await complete(deps(provider), {
-      role: "drafter",
-      runId: RUN_ID,
-      prompt: "hi"
-    });
-    expect(result.text).toBe("ok");
-  });
-
-  it("createOpenRouterProvider returns null when any secret is missing", () => {
-    expect(createOpenRouterProvider({} as Env)).toBeNull();
-    expect(
-      createOpenRouterProvider({
-        OPENROUTER_API_KEY: SECRET,
-        AI_GATEWAY_ID: "gw",
-        CLOUDFLARE_ACCOUNT_ID: ""
-      } as Env)
-    ).toBeNull();
-    expect(
-      createOpenRouterProvider({
-        OPENROUTER_API_KEY: SECRET,
-        AI_GATEWAY_ID: "",
-        CLOUDFLARE_ACCOUNT_ID: "acct"
-      } as Env)
-    ).toBeNull();
-    expect(
-      createOpenRouterProvider({
-        OPENROUTER_API_KEY: "",
-        AI_GATEWAY_ID: "gw",
-        CLOUDFLARE_ACCOUNT_ID: "acct"
-      } as Env)
-    ).toBeNull();
-  });
-
-  it("OpenRouter estimateCents is 1 for a short prompt and 2 for 8000 characters", () => {
-    const provider = createOpenRouterProvider({
-      OPENROUTER_API_KEY: SECRET,
-      AI_GATEWAY_ID: "gw",
-      CLOUDFLARE_ACCOUNT_ID: "acct"
-    } as Env);
-    expect(provider!.estimateCents!({ model: "m", prompt: "hi" })).toBe(1);
-    expect(
-      provider!.estimateCents!({ model: "m", prompt: "x".repeat(8000) })
-    ).toBe(2);
-  });
-
-  it("llmProvidersFromEnv includes openrouter only when all three secrets are set", () => {
-    const withSecrets = llmProvidersFromEnv({
-      AI: { run: async () => ({ response: "x" }) },
-      OPENROUTER_API_KEY: SECRET,
-      AI_GATEWAY_ID: "gw",
-      CLOUDFLARE_ACCOUNT_ID: "acct"
-    } as unknown as Env);
-    expect(withSecrets.map((p) => p.name)).toEqual(["workersai", "openrouter"]);
-
-    const missingOne = llmProvidersFromEnv({
-      AI: { run: async () => ({ response: "x" }) },
-      OPENROUTER_API_KEY: SECRET,
-      AI_GATEWAY_ID: "gw"
-    } as unknown as Env);
-    expect(missingOne.map((p) => p.name)).toEqual(["workersai"]);
-    expect(missingOne.map((p) => p.name)).not.toContain("openrouter");
-  });
-
-  it("OpenRouter under budget: hits gateway URL, records tokens and costCents >= 1, key absent from prompt", async () => {
-    await insertRun({ budgetCents: 500 });
-    await seedConfig(
-      {
-        drafter: { provider: "openrouter", model: "anthropic/claude-sonnet-4" }
-      },
-      500
-    );
-    const provider = createOpenRouterProvider({
-      OPENROUTER_API_KEY: SECRET,
-      AI_GATEWAY_ID: "pml-gateway",
-      CLOUDFLARE_ACCOUNT_ID: "acct-123"
-    } as Env);
-    expect(provider).not.toBeNull();
-
-    const fetchMock = vi.fn(
-      async (_input: RequestInfo | URL, init?: RequestInit) => {
-        const body = JSON.parse(String(init?.body)) as {
-          model: string;
-          messages: Array<{ role: string; content: string }>;
-        };
-        expect(body.messages[0]?.content).not.toContain(SECRET);
-        return new Response(
-          JSON.stringify({
-            choices: [{ message: { content: "openrouter reply" } }],
-            usage: { prompt_tokens: 600, completion_tokens: 401 }
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        );
-      }
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    const prompt = "draft this claim without embedding secrets";
-    const result = await complete(
-      {
-        db: testEnv.DB,
-        providers: [provider!],
-        now: () => NOW,
-        newId: deterministicNewId
-      },
-      { role: "drafter", runId: RUN_ID, prompt }
-    );
-
-    expect(result.text).toBe("openrouter reply");
-    expect(result.provider).toBe("openrouter");
-    expect(result.costCents).toBe(2);
-    expect(result.inputTokens).toBe(600);
-    expect(result.outputTokens).toBe(401);
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0]!;
-    expect(String(url)).toBe(
-      "https://gateway.ai.cloudflare.com/v1/acct-123/pml-gateway/openrouter/chat/completions"
-    );
-    expect(init?.method).toBe("POST");
-    expect(init?.headers).toMatchObject({
-      Authorization: `Bearer ${SECRET}`,
-      "Content-Type": "application/json"
-    });
-    expect(init?.signal).toBeInstanceOf(AbortSignal);
-    expect(JSON.parse(String(init?.body))).toEqual({
-      model: "anthropic/claude-sonnet-4",
-      messages: [{ role: "user", content: prompt }]
-    });
-
-    const row = await testEnv.DB.prepare(
-      `SELECT provider, model, tokens_json, cost_cents FROM llm_calls WHERE run_id = ?`
-    )
-      .bind(RUN_ID)
-      .first<{
-        provider: string;
-        model: string;
-        tokens_json: string;
-        cost_cents: number;
-      }>();
-    expect(row).toMatchObject({
-      provider: "openrouter",
-      model: "anthropic/claude-sonnet-4",
-      cost_cents: 2
-    });
-    expect(JSON.parse(row!.tokens_json)).toEqual({ input: 600, output: 401 });
-    expect(JSON.stringify(row)).not.toContain(SECRET);
-    expect(prompt).not.toContain(SECRET);
-    const evidence = await testEnv.DB.prepare(
-      `SELECT payload_json FROM evidence_events WHERE run_id = ?`
-    )
-      .bind(RUN_ID)
-      .all<{ payload_json: string }>();
-    expect(JSON.stringify(evidence.results)).not.toContain(SECRET);
-
-    const run = await runsRepo.getRunById(testEnv.DB, RUN_ID);
-    expect(run?.spendCents).toBe(2);
-  });
-
-  it("OpenRouter missing usage still records costCents 1 and null tokens", async () => {
-    await insertRun({ budgetCents: 500 });
-    await seedConfig(
-      { drafter: { provider: "openrouter", model: "openrouter/auto" } },
-      500
-    );
-    const provider = createOpenRouterProvider({
-      OPENROUTER_API_KEY: SECRET,
-      AI_GATEWAY_ID: "gw",
-      CLOUDFLARE_ACCOUNT_ID: "acct"
-    } as Env);
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        async () =>
-          new Response(
-            JSON.stringify({
-              choices: [{ message: { content: "no usage" } }]
-            }),
-            { status: 200 }
-          )
-      )
-    );
-    const result = await complete(
-      {
-        db: testEnv.DB,
-        providers: [provider!],
-        now: () => NOW,
-        newId: deterministicNewId
-      },
-      { role: "drafter", runId: RUN_ID, prompt: "hi" }
-    );
-    expect(result.costCents).toBe(1);
-    expect(result.inputTokens).toBeNull();
-    expect(result.outputTokens).toBeNull();
-    const row = await testEnv.DB.prepare(
-      `SELECT tokens_json, cost_cents FROM llm_calls WHERE run_id = ?`
-    )
-      .bind(RUN_ID)
-      .first<{ tokens_json: string | null; cost_cents: number }>();
-    expect(row?.tokens_json).toBeNull();
-    expect(row?.cost_cents).toBe(1);
-  });
-
-  it("complete selects openrouter vs workersai from llmProvidersFromEnv by name", async () => {
-    const workersRun = vi.fn(async () => ({
-      response: "workers reply",
-      usage: { prompt_tokens: 3, completion_tokens: 4 }
-    }));
-    const providers = llmProvidersFromEnv({
-      AI: { run: workersRun },
-      OPENROUTER_API_KEY: SECRET,
-      AI_GATEWAY_ID: "pml-gateway",
-      CLOUDFLARE_ACCOUNT_ID: "acct-123"
-    } as unknown as Env);
-    expect(providers.map((p) => p.name)).toEqual(["workersai", "openrouter"]);
-
-    const fetchMock = vi.fn(
-      async (_input: RequestInfo | URL) =>
-        new Response(
-          JSON.stringify({
-            choices: [{ message: { content: "openrouter reply" } }],
-            usage: { prompt_tokens: 11, completion_tokens: 7 }
-          }),
-          { status: 200 }
-        )
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    await insertRun({ budgetCents: 500 });
-    await seedConfig(
-      {
-        drafter: { provider: "openrouter", model: "anthropic/claude-sonnet-4" }
-      },
-      500
-    );
-    const openrouterResult = await complete(
-      {
-        db: testEnv.DB,
-        providers,
-        now: () => NOW,
-        newId: deterministicNewId
-      },
-      { role: "drafter", runId: RUN_ID, prompt: "via registry" }
-    );
-    expect(openrouterResult.provider).toBe("openrouter");
-    expect(openrouterResult.text).toBe("openrouter reply");
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(String(fetchMock.mock.calls[0]![0])).toBe(
-      "https://gateway.ai.cloudflare.com/v1/acct-123/pml-gateway/openrouter/chat/completions"
-    );
-    expect(workersRun).not.toHaveBeenCalled();
-
-    fetchMock.mockClear();
-    await insertRun({ budgetCents: 500 });
-    await seedConfig(
-      {
-        drafter: {
-          provider: "workersai",
-          model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
-        }
-      },
-      500
-    );
-    const workersResult = await complete(
-      {
-        db: testEnv.DB,
-        providers,
-        now: () => NOW,
-        newId: deterministicNewId
-      },
-      { role: "drafter", runId: RUN_ID, prompt: "via registry" }
-    );
-    expect(workersResult.provider).toBe("workersai");
-    expect(workersResult.text).toBe("workers reply");
-    expect(workersRun).toHaveBeenCalledTimes(1);
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-});
-
-describe("gateway.complete provider deadline (story 3.19)", () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  function hungProvider(): LlmProvider & { called: Promise<void> } {
-    let fire: () => void = () => {};
-    const called = new Promise<void>((resolve) => {
-      fire = resolve;
-    });
-    return {
-      name: "fake",
-      called,
-      complete: () => {
-        fire();
-        return new Promise(() => {});
-      }
-    };
-  }
-
-  it("maps a hung provider to provider_error after PROVIDER_TIMEOUT_MS with no spend row and no Run change", async () => {
-    await insertRun();
-    await seedConfig({ drafter: { provider: "fake", model: "slow-v1" } }, 500);
-    const provider = hungProvider();
-    vi.useFakeTimers();
-    const pending = complete(deps(provider), {
-      role: "drafter",
-      runId: RUN_ID,
-      prompt: "draft"
-    });
-    const settled = pending.then(
-      () => "resolved",
-      (err: unknown) => err
-    );
-    await provider.called;
-    await vi.advanceTimersByTimeAsync(PROVIDER_TIMEOUT_MS - 1);
-    // Still pending one tick before the deadline.
-    let done = false;
-    void settled.then(() => {
-      done = true;
-    });
-    await Promise.resolve();
-    expect(done).toBe(false);
-    await vi.advanceTimersByTimeAsync(1);
-    const err = await settled;
-    vi.useRealTimers();
-
-    expect(err).toMatchObject({ name: "GatewayError", code: "provider_error" });
-    expect(String((err as Error).message)).toContain("fake");
-    expect(String((err as Error).message)).toContain("60000 ms");
-
-    const calls = await testEnv.DB.prepare(
-      "SELECT COUNT(*) AS count FROM llm_calls WHERE run_id = ?"
-    )
-      .bind(RUN_ID)
-      .first<{ count: number }>();
-    expect(calls?.count).toBe(0);
-    const run = await runsRepo.getRunById(testEnv.DB, RUN_ID);
-    expect(run?.status).toBe("running");
-    expect(run?.spendCents).toBe(0);
-    const stopped = await testEnv.DB.prepare(
-      "SELECT COUNT(*) AS count FROM evidence_events WHERE run_id = ? AND event = 'run.stopped'"
-    )
-      .bind(RUN_ID)
-      .first<{ count: number }>();
-    expect(stopped?.count).toBe(0);
-  });
-
-  it("does not fire the deadline on a provider that answers in time", async () => {
-    await insertRun();
-    await seedConfig({ drafter: { provider: "fake", model: "fast-v1" } }, 500);
-    vi.useFakeTimers();
-    const result = await complete(deps(fakeProvider()), {
-      role: "drafter",
-      runId: RUN_ID,
-      prompt: "draft"
-    });
-    expect(result.text).toBe("fake reply from fast-v1");
-    expect(vi.getTimerCount()).toBe(0);
-  });
-});
-
-describe("createWorkersAiProvider adapter (story 3.2)", () => {
-  it("returns text and tokens from a string AI.run response", async () => {
-    const provider = createWorkersAiProvider({
-      AI: {
-        run: async () => ({
-          response: "hello from workers",
-          usage: { prompt_tokens: 4, completion_tokens: 6 }
-        })
-      }
-    } as unknown as Env);
-    expect(provider).not.toBeNull();
-    await expect(
-      provider!.complete({ model: "@cf/test", prompt: "hi" })
-    ).resolves.toEqual({
-      text: "hello from workers",
-      inputTokens: 4,
-      outputTokens: 6,
-      costCents: 0
-    });
-  });
-
-  it.each([undefined, null, 12, { nested: true }])(
-    "rejects non-string AI.run response %s",
-    async (response) => {
-      const provider = createWorkersAiProvider({
-        AI: {
-          run: async () => ({
-            response,
-            usage: { prompt_tokens: 1, completion_tokens: 1 }
-          })
-        }
-      } as unknown as Env);
-      await expect(
-        provider!.complete({ model: "@cf/test", prompt: "hi" })
-      ).rejects.toThrow("non-text model output");
-    }
-  );
-});
-
 describe("gateway.invokeTool (story 3.6)", () => {
   async function f1Snapshot() {
     async function rows(table: string) {
@@ -1235,6 +704,416 @@ describe("role→model config repo (story 3.2 config)", () => {
   });
 });
 
+describe("bounded provider cost", () => {
+  const now = "2026-09-26T15:00:00.000Z";
+  const model = COST_POLICIES[0]!.model;
+  async function setup(
+    budget = 500,
+    provider = "workersai",
+    selectedModel = model
+  ) {
+    await insertRun({ budgetCents: budget });
+    await seedConfig({ drafter: { provider, model: selectedModel } }, 500);
+  }
+  const input = () => ({
+    role: "drafter" as const,
+    runId: RUN_ID,
+    prompt: "hello"
+  });
+  function workers(
+    usage: unknown = { prompt_tokens: 24000, completion_tokens: 2048 }
+  ) {
+    const run = vi.fn(async () => ({ response: "reply", usage }));
+    const provider = createWorkersAiProvider({
+      AI: { run }
+    } as unknown as Env)!;
+    return {
+      run,
+      provider,
+      deps: { db: testEnv.DB, provider, now: () => now }
+    };
+  }
+  afterEach(() => vi.unstubAllGlobals());
+  it("uses the full context and output cap; equality is admitted; no free allowance", async () => {
+    await setup(2);
+    const w = workers();
+    const result = await complete(w.deps, input());
+    expect(w.run).toHaveBeenCalledWith(model, {
+      prompt: "hello",
+      max_tokens: 2048
+    });
+    expect(result.costCents).toBe(2);
+    const calls = await (
+      await import("../../shared/db/repos/llmCallsRepo")
+    ).listByRun(testEnv.DB, RUN_ID);
+    expect(calls[0]).toMatchObject({
+      admissionBoundCents: 2,
+      costBasis: "token_estimate",
+      estimatedCostCents: 2,
+      reportedCostCents: null,
+      policy: { version: "bounded-text-v1" }
+    });
+  });
+  it("refuses insufficient budget before invoking the provider", async () => {
+    await setup(1);
+    const w = workers();
+    await expect(complete(w.deps, input())).rejects.toMatchObject({
+      code: "budget_stopped"
+    });
+    expect(w.run).not.toHaveBeenCalled();
+    expect((await runsRepo.getRunById(testEnv.DB, RUN_ID))?.status).toBe(
+      "stopped"
+    );
+  });
+  it.each(["openrouter/auto", "other-model"])(
+    "refuses unsupported model %s",
+    async (unknown) => {
+      await setup(500, "workersai", unknown);
+      const w = workers();
+      await expect(complete(w.deps, input())).rejects.toMatchObject({
+        code: "cost_policy_invalid"
+      });
+      expect(w.run).not.toHaveBeenCalled();
+    }
+  );
+  it("refuses expired policy at the exact boundary", async () => {
+    await setup();
+    const w = workers();
+    await expect(
+      complete({ ...w.deps, now: () => COST_POLICIES[0]!.validUntil }, input())
+    ).rejects.toMatchObject({ code: "cost_policy_invalid" });
+    expect(w.run).not.toHaveBeenCalled();
+  });
+  it.each([
+    undefined,
+    { prompt_tokens: NaN, completion_tokens: 1 },
+    { prompt_tokens: 1, completion_tokens: 2049 },
+    { prompt_tokens: 24001, completion_tokens: 1 }
+  ])(
+    "retains uncertain/discrepant usage and blocks subsequent inference",
+    async (usage) => {
+      await setup();
+      const w = workers(usage === undefined ? null : usage);
+      await expect(complete(w.deps, input())).rejects.toMatchObject({
+        code: "accounting_uncertain"
+      });
+      await expect(complete(w.deps, input())).rejects.toMatchObject({
+        code: "accounting_uncertain"
+      });
+      expect(w.run).toHaveBeenCalledTimes(1);
+      const [call] = await (
+        await import("../../shared/db/repos/llmCallsRepo")
+      ).listByRun(testEnv.DB, RUN_ID);
+      expect(call?.costCents).toBeGreaterThanOrEqual(2);
+      expect(call?.accountingIssue).not.toBeNull();
+      expect(call?.reportedCostCents).toBeNull();
+    }
+  );
+  function router() {
+    return createOpenRouterProvider({
+      OPENROUTER_API_KEY: "test-key",
+      AI_GATEWAY_ID: "test",
+      CLOUDFLARE_ACCOUNT_ID: "test"
+    } as Env)!;
+  }
+  const endpoint = {
+    tag: "amazon-bedrock",
+    context_length: 200000,
+    supported_parameters: ["max_tokens"],
+    pricing: {
+      prompt: "0.000003",
+      completion: "0.000015",
+      input_cache_write: "0.000006",
+      web_search: "0.01"
+    }
+  };
+  function routerFetch(cost: unknown = 0.012, metadata: unknown = endpoint) {
+    return vi.fn(
+      async (url: RequestInfo | URL) =>
+        new Response(
+          JSON.stringify(
+            String(url).endsWith("/endpoints")
+              ? { data: { endpoints: [metadata] } }
+              : {
+                  choices: [{ message: { content: "reply" } }],
+                  usage: { prompt_tokens: 100, completion_tokens: 20, cost }
+                }
+          ),
+          { status: 200 }
+        )
+    );
+  }
+  it.each(["workersai", "openrouter"])(
+    "records billable non-text %s output and blocks the Run",
+    async (providerName) => {
+      await setup(
+        500,
+        providerName,
+        COST_POLICIES[providerName === "workersai" ? 0 : 1]!.model
+      );
+      const run = vi.fn(async () => ({
+        response: { unexpected: true },
+        usage: { prompt_tokens: 100, completion_tokens: 20 }
+      }));
+      const fetch = vi.fn(async (url: RequestInfo | URL) =>
+        Response.json(
+          String(url).endsWith("/endpoints")
+            ? { data: { endpoints: [endpoint] } }
+            : {
+                choices: [{ message: { content: null } }],
+                usage: {
+                  prompt_tokens: 100,
+                  completion_tokens: 20,
+                  cost: 0.012
+                }
+              }
+        )
+      );
+      vi.stubGlobal("fetch", fetch);
+      const provider =
+        providerName === "workersai"
+          ? createWorkersAiProvider({ AI: { run } } as unknown as Env)!
+          : router();
+      const args = { db: testEnv.DB, provider, now: () => now };
+      await expect(complete(args, input())).rejects.toMatchObject({
+        code: "accounting_uncertain"
+      });
+      await expect(complete(args, input())).rejects.toMatchObject({
+        code: "accounting_uncertain"
+      });
+      const [call] = await (
+        await import("../../shared/db/repos/llmCallsRepo")
+      ).listByRun(testEnv.DB, RUN_ID);
+      expect(call).toMatchObject({
+        tokens: { input: 100, output: 20 },
+        accountingIssue: "non_text_output",
+        costCents: providerName === "workersai" ? 2 : 124
+      });
+      if (providerName === "openrouter") {
+        expect(call).toMatchObject({
+          reportedCostUsd: "0.012",
+          reportedCostCents: 2
+        });
+        expect(fetch).toHaveBeenCalledTimes(2);
+      } else expect(run).toHaveBeenCalledTimes(1);
+    }
+  );
+  it("rechecks expiry after metadata retrieval before inference", async () => {
+    await setup(500, "openrouter", COST_POLICIES[1]!.model);
+    let time = now;
+    const fetch = vi.fn(async (_url: RequestInfo | URL) => {
+      time = COST_POLICIES[1]!.validUntil;
+      return Response.json({ data: { endpoints: [endpoint] } });
+    });
+    vi.stubGlobal("fetch", fetch);
+    await expect(
+      complete({ db: testEnv.DB, provider: router(), now: () => time }, input())
+    ).rejects.toMatchObject({ code: "cost_policy_invalid" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(String(fetch.mock.calls[0]?.[0] ?? "")).not.toContain(
+      "chat/completions"
+    );
+  });
+  it("refuses a valid base route when a regional variant is unsafe", async () => {
+    await setup(500, "openrouter", COST_POLICIES[1]!.model);
+    const fetch = vi.fn(async () =>
+      Response.json({
+        data: {
+          endpoints: [
+            endpoint,
+            {
+              ...endpoint,
+              tag: "amazon-bedrock/eu-west-1",
+              pricing: { ...endpoint.pricing, completion: "0.00003" }
+            }
+          ]
+        }
+      })
+    );
+    vi.stubGlobal("fetch", fetch);
+    await expect(
+      complete({ db: testEnv.DB, provider: router(), now: () => now }, input())
+    ).rejects.toMatchObject({ code: "cost_policy_invalid" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it("Sonnet refuses 123 cents before even endpoint lookup", async () => {
+    await setup(123, "openrouter", COST_POLICIES[1]!.model);
+    const fetch = routerFetch();
+    vi.stubGlobal("fetch", fetch);
+    await expect(
+      complete({ db: testEnv.DB, provider: router(), now: () => now }, input())
+    ).rejects.toMatchObject({ code: "budget_stopped" });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("enforces Sonnet routing, price ceilings, max tokens and one gateway attempt", async () => {
+    await setup(124, "openrouter", COST_POLICIES[1]!.model);
+    const fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (!String(url).endsWith("/endpoints")) {
+        expect(JSON.parse(String(init?.body))).toEqual({
+          model: COST_POLICIES[1]!.model,
+          messages: [{ role: "user", content: "hello" }],
+          max_tokens: 2048,
+          stream: false,
+          transforms: [],
+          provider: {
+            only: ["amazon-bedrock"],
+            allow_fallbacks: false,
+            require_parameters: true,
+            max_price: { prompt: 3, completion: 15, request: 0, image: 0 }
+          }
+        });
+        expect(init?.headers).toMatchObject({ "cf-aig-max-attempts": "1" });
+      }
+      return routerFetch()(url);
+    });
+    vi.stubGlobal("fetch", fetch);
+    await complete(
+      { db: testEnv.DB, provider: router(), now: () => now },
+      input()
+    );
+    const [call] = await (
+      await import("../../shared/db/repos/llmCallsRepo")
+    ).listByRun(testEnv.DB, RUN_ID);
+    expect(call).toMatchObject({
+      admissionBoundCents: 124,
+      reportedCostCents: 2,
+      estimatedCostCents: 1,
+      costBasis: "provider_reported",
+      reportedCostSource: "openrouter.usage.cost"
+    });
+  });
+  it.each([undefined, -1, 2])(
+    "preserves missing/invalid/excessive reported charge %s",
+    async (cost) => {
+      await setup(500, "openrouter", COST_POLICIES[1]!.model);
+      vi.stubGlobal("fetch", routerFetch(cost === undefined ? null : cost));
+      await expect(
+        complete(
+          { db: testEnv.DB, provider: router(), now: () => now },
+          input()
+        )
+      ).rejects.toMatchObject({ code: "accounting_uncertain" });
+      const [call] = await (
+        await import("../../shared/db/repos/llmCallsRepo")
+      ).listByRun(testEnv.DB, RUN_ID);
+      expect(call?.costCents).toBe(cost === 2 ? 200 : 124);
+      expect(call?.reportedCostCents).toBe(cost === 2 ? 200 : null);
+    }
+  );
+  it.each([
+    { request: "0.01" },
+    { unknown_fee: "0.01" },
+    { overrides: [{ min_prompt_tokens: 200000, completion: "0.0000225" }] }
+  ])("refuses unreviewed endpoint charges before inference", async (extra) => {
+    await setup(500, "openrouter", COST_POLICIES[1]!.model);
+    const fetch = routerFetch(0, {
+      ...endpoint,
+      pricing: { ...endpoint.pricing, ...extra }
+    });
+    vi.stubGlobal("fetch", fetch);
+    await expect(
+      complete({ db: testEnv.DB, provider: router(), now: () => now }, input())
+    ).rejects.toMatchObject({ code: "cost_policy_invalid" });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it("classifies legacy zero amounts as estimates with unknown measured cost", async () => {
+    await setup();
+    await recordPriorSpend(0);
+    const [call] = await (
+      await import("../../shared/db/repos/llmCallsRepo")
+    ).listByRun(testEnv.DB, RUN_ID);
+    expect(call).toMatchObject({
+      costCents: 0,
+      costBasis: "legacy_estimate",
+      estimatedCostCents: 0,
+      reportedCostCents: null,
+      policy: null
+    });
+  });
+});
+
+describe("gateway.complete provider deadline (story 3.19)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function hungProvider(): LlmProvider & { called: Promise<void> } {
+    let fire: () => void = () => {};
+    const called = new Promise<void>((resolve) => {
+      fire = resolve;
+    });
+    return {
+      name: "fake",
+      called,
+      complete: () => {
+        fire();
+        return new Promise(() => {});
+      }
+    };
+  }
+
+  it("maps a hung provider to provider_error after PROVIDER_TIMEOUT_MS with no spend row and no Run change", async () => {
+    await insertRun();
+    await seedConfig({ drafter: { provider: "fake", model: "slow-v1" } }, 500);
+    const provider = hungProvider();
+    vi.useFakeTimers();
+    const pending = complete(deps(provider), {
+      role: "drafter",
+      runId: RUN_ID,
+      prompt: "draft"
+    });
+    const settled = pending.then(
+      () => "resolved",
+      (err: unknown) => err
+    );
+    await provider.called;
+    await vi.advanceTimersByTimeAsync(PROVIDER_TIMEOUT_MS - 1);
+    // Still pending one tick before the deadline.
+    let done = false;
+    void settled.then(() => {
+      done = true;
+    });
+    await Promise.resolve();
+    expect(done).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    const err = await settled;
+    vi.useRealTimers();
+
+    expect(err).toMatchObject({ name: "GatewayError", code: "provider_error" });
+    expect(String((err as Error).message)).toContain("fake");
+    expect(String((err as Error).message)).toContain("60000 ms");
+
+    const calls = await testEnv.DB.prepare(
+      "SELECT COUNT(*) AS count FROM llm_calls WHERE run_id = ?"
+    )
+      .bind(RUN_ID)
+      .first<{ count: number }>();
+    expect(calls?.count).toBe(0);
+    const run = await runsRepo.getRunById(testEnv.DB, RUN_ID);
+    expect(run?.status).toBe("running");
+    expect(run?.spendCents).toBe(0);
+    const stopped = await testEnv.DB.prepare(
+      "SELECT COUNT(*) AS count FROM evidence_events WHERE run_id = ? AND event = 'run.stopped'"
+    )
+      .bind(RUN_ID)
+      .first<{ count: number }>();
+    expect(stopped?.count).toBe(0);
+  });
+
+  it("does not fire the deadline on a provider that answers in time", async () => {
+    await insertRun();
+    await seedConfig({ drafter: { provider: "fake", model: "fast-v1" } }, 500);
+    vi.useFakeTimers();
+    const result = await complete(deps(fakeProvider()), {
+      role: "drafter",
+      runId: RUN_ID,
+      prompt: "draft"
+    });
+    expect(result.text).toBe("fake reply from fast-v1");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
 describe("snapshotted Run budget enforcement (story 3.25)", () => {
   it.each([0, 500])(
     "stops a production-created Run at its own %s-cent ceiling after config increases",
@@ -1295,4 +1174,38 @@ describe("snapshotted Run budget enforcement (story 3.25)", () => {
     ).rejects.toMatchObject({ code: "gateway_not_configured" });
     expect(provider.count()).toBe(0);
   });
+});
+
+describe("provider factories", () => {
+  it("requires bindings/secrets and registers providers without changing model choices", () => {
+    expect(createWorkersAiProvider({} as Env)).toBeNull();
+    expect(createOpenRouterProvider({} as Env)).toBeNull();
+    expect(
+      llmProvidersFromEnv({
+        AI: { run: vi.fn() },
+        OPENROUTER_API_KEY: "test",
+        AI_GATEWAY_ID: "test",
+        CLOUDFLARE_ACCOUNT_ID: "test"
+      } as unknown as Env).map((p) => p.name)
+    ).toEqual(["workersai", "openrouter"]);
+  });
+  it.each([undefined, null, 12, { nested: true }])(
+    "preserves non-text output %s for accounting",
+    async (response) => {
+      const p = createWorkersAiProvider({
+        AI: { run: async () => ({ response }) }
+      } as unknown as Env)!;
+      await expect(
+        p.complete({
+          model: COST_POLICIES[0]!.model,
+          prompt: "hello",
+          policy: COST_POLICIES[0]!,
+          now: () => "2026-09-26T15:00:00.000Z"
+        })
+      ).resolves.toMatchObject({
+        text: "",
+        accountingIssue: "non_text_output"
+      });
+    }
+  );
 });

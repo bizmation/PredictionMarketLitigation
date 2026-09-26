@@ -35,6 +35,8 @@ type RunRow = {
 type RunLogRow = RunRow & {
   event_count: number;
   approval_outcome: string | null;
+  reported_cost_cents: number | null;
+  unmeasured_call_count: number;
 };
 
 function runFields(row: RunRow) {
@@ -46,6 +48,7 @@ function runFields(row: RunRow) {
     startedAt: row.started_at,
     completedAt: row.completed_at,
     spendCents: row.spend_cents,
+    spendBasis: "budget_accounting",
     spendCurrency: row.spend_currency,
     budgetCents: row.budget_cents,
     scheduledFor: row.scheduled_for
@@ -59,6 +62,8 @@ function mapRun(row: RunRow): RunSummary {
 function mapRunLog(row: RunLogRow): RunLogItem {
   return RunLogItemSchema.parse({
     ...runFields(row),
+    reportedCostCents: row.reported_cost_cents ?? null,
+    unmeasuredCallCount: Number(row.unmeasured_call_count),
     eventCount: Number(row.event_count),
     approvalOutcome: row.approval_outcome ?? null
   });
@@ -120,6 +125,8 @@ export async function listRuns(db: Db): Promise<RunLogItem[]> {
   const { results } = await db
     .prepare(
       `SELECT ${RUN_COLUMNS},
+              (SELECT CASE WHEN COUNT(*) > 0 AND COUNT(reported_cost_cents) = COUNT(*) THEN SUM(reported_cost_cents) ELSE NULL END FROM llm_calls c WHERE c.run_id = runs.id) AS reported_cost_cents,
+              (SELECT COUNT(*) FROM llm_calls c WHERE c.run_id = runs.id AND c.reported_cost_cents IS NULL) AS unmeasured_call_count,
               (SELECT COUNT(*) FROM evidence_events e
                 WHERE e.run_id = runs.id) AS event_count,
               (SELECT d.outcome FROM drafts d

@@ -64,6 +64,11 @@ export function isRunLogItem(value: unknown): value is RunLogItem {
     typeof row.startedAt === "string" &&
     (row.completedAt === null || typeof row.completedAt === "string") &&
     isNonNegativeInt(row.spendCents) &&
+    (row.reportedCostCents === undefined ||
+      row.reportedCostCents === null ||
+      isNonNegativeInt(row.reportedCostCents)) &&
+    (row.unmeasuredCallCount === undefined ||
+      isNonNegativeInt(row.unmeasuredCallCount)) &&
     typeof row.spendCurrency === "string" &&
     CURRENCY.test(row.spendCurrency) &&
     (row.budgetCents === null || isNonNegativeInt(row.budgetCents)) &&
@@ -153,7 +158,7 @@ export function RunLog({ items: injectedItems, dev = false }: RunLogProps) {
           <th scope="col">Origin</th>
           <th scope="col">Mode</th>
           <th scope="col">Steps</th>
-          <th scope="col">Spend</th>
+          <th scope="col">Budget accounting</th>
           <th scope="col">Budget ceiling</th>
           <th scope="col">Approval</th>
         </tr>
@@ -187,7 +192,15 @@ export function RunLog({ items: injectedItems, dev = false }: RunLogProps) {
               </td>
               <td>{item.mode}</td>
               <td className="num">{item.eventCount}</td>
-              <td className="num">{formatUsdCents(item.spendCents)}</td>
+              <td className="num">
+                {formatUsdCents(item.spendCents)}{" "}
+                <span className="muted">
+                  includes estimates; sum of rounded-up reported charges:{" "}
+                  {item.reportedCostCents == null
+                    ? `unknown${item.unmeasuredCallCount == null ? "" : ` (${item.unmeasuredCallCount} calls without reported charges)`}`
+                    : formatUsdCents(item.reportedCostCents)}
+                </span>
+              </td>
               <td className="num">
                 {item.budgetCents === null
                   ? "Not recorded"

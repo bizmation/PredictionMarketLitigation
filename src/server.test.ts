@@ -511,3 +511,40 @@ describe("/agents/* perimeter (story 1.5)", () => {
     );
   });
 });
+
+describe("steering cost policy refusal", () => {
+  it("returns a safe typed configuration failure before inference", async () => {
+    const db = (env as Env).DB;
+    await db
+      .prepare(
+        `INSERT INTO runs (id,origin,mode,status,started_at,spend_cents,spend_currency,budget_cents) VALUES ('run-20260926-c031','manual','hitl','running','2026-09-26T12:00:00.000Z',0,'USD',500)`
+      )
+      .run();
+    await db
+      .prepare(`UPDATE gateway_config SET roles_json = ? WHERE id='current'`)
+      .bind(
+        JSON.stringify({
+          steward: { provider: "workersai", model: "unsupported" }
+        })
+      )
+      .run();
+    const run = vi.fn(async () => ({ response: "must not run" }));
+    const response = await worker.fetch(
+      new Request(
+        "http://localhost:5173/api/admin/runs/run-20260926-c031/steering",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: "Explain this Run", private: false })
+        }
+      ),
+      { ...env, ACCESS_DEV_BYPASS: "true", AI: { run } } as unknown as Env
+    );
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      code: "cost_policy_invalid",
+      message: expect.stringContaining("cost policy")
+    });
+    expect(run).not.toHaveBeenCalled();
+  });
+});

@@ -1,3 +1,4 @@
+import { fixtureCostPolicy } from "../../test/costPolicyFixture";
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
@@ -182,6 +183,7 @@ describe("evidence projector (story 3.8)", () => {
       complete(
         {
           db: testEnv.DB,
+          costPolicy: fixtureCostPolicy,
           provider,
           now: () => NOW,
           newId: () => "id-stop"

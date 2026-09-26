@@ -77,6 +77,11 @@ function isRunLogItem(value: unknown): value is RunLogItem {
     typeof row.startedAt === "string" &&
     (row.completedAt === null || typeof row.completedAt === "string") &&
     isNonNegativeInt(row.spendCents) &&
+    (row.reportedCostCents === undefined ||
+      row.reportedCostCents === null ||
+      isNonNegativeInt(row.reportedCostCents)) &&
+    (row.unmeasuredCallCount === undefined ||
+      isNonNegativeInt(row.unmeasuredCallCount)) &&
     typeof row.spendCurrency === "string" &&
     CURRENCY.test(row.spendCurrency) &&
     (row.budgetCents === null || isNonNegativeInt(row.budgetCents)) &&
@@ -309,6 +314,13 @@ export function LoopControls({ latest: injectedLatest }: LoopControlsProps) {
           <OriginFlag origin={latest.origin} />
           <br />
           <span className="lastupd">{formatEtDateTime(latest.startedAt)}</span>
+          <br />
+          Budget accounting: {latest.spendCents} cents (includes estimates). Sum
+          of rounded-up reported charges:{" "}
+          {latest.reportedCostCents == null
+            ? `unknown${latest.unmeasuredCallCount == null ? "" : ` (${latest.unmeasuredCallCount} calls without reported charges)`}`
+            : `${latest.reportedCostCents} cents`}
+          .
         </p>
       ) : (
         <p className="muted">No runs yet.</p>

@@ -1,3 +1,4 @@
+import { fixtureCostPolicy } from "../../test/costPolicyFixture";
 import { insertReviewedDraft } from "../../test/reviewedDraft";
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -69,14 +70,19 @@ function fakeProvider(
         text: overrides.text ?? "steward note",
         inputTokens: 2,
         outputTokens: 3,
-        costCents: overrides.costCents ?? 0
+        reportedCostUsd: (overrides.costCents ?? 0) / 100
       };
     }
   };
 }
 
 function deps(provider: LlmProvider): GatewayDeps {
-  return { db: testEnv.DB, provider, now: () => NOW };
+  return {
+    db: testEnv.DB,
+    costPolicy: fixtureCostPolicy,
+    provider,
+    now: () => NOW
+  };
 }
 
 async function seedSteward(model = "steward-v1") {
@@ -129,7 +135,7 @@ function scriptedProvider(
         text,
         inputTokens: 2,
         outputTokens: 3,
-        costCents
+        reportedCostUsd: costCents / 100
       };
     }
   };

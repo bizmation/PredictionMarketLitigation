@@ -326,7 +326,23 @@ export async function handlePublicApi(
         ]);
         // jsonNoStore so a running Run's timeline can refresh.
         return jsonNoStore(
-          RunDetailSchema.parse({ ...run, drafts, evidence, llmCalls })
+          RunDetailSchema.parse({
+            ...run,
+            drafts,
+            evidence,
+            llmCalls,
+            reportedCostCents:
+              llmCalls.length > 0 &&
+              llmCalls.every((c) => c.reportedCostCents != null)
+                ? llmCalls.reduce(
+                    (sum, c) => sum + (c.reportedCostCents ?? 0),
+                    0
+                  )
+                : null,
+            unmeasuredCallCount: llmCalls.filter(
+              (c) => c.reportedCostCents == null
+            ).length
+          })
         );
       }
     }

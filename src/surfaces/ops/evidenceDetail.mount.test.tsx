@@ -379,3 +379,67 @@ describe("EvidenceDetail GET timeout (story 3.19, jsdom mount)", () => {
     expect(runCalls(fetchMock)).toHaveLength(1);
   });
 });
+
+describe("mounted provider accounting labels", () => {
+  afterEach(cleanup);
+  it("keeps measured, estimated, legacy and uncertain amounts distinct", () => {
+    const base = {
+      runId: "run-20260908-aaa1",
+      role: "drafter" as const,
+      provider: "workersai",
+      model: "test",
+      tokens: null,
+      costCents: 2,
+      currency: "USD",
+      createdAt: TS,
+      admissionBoundCents: 2,
+      estimatedCostCents: 1,
+      reportedCostCents: null,
+      reportedCostSource: null,
+      policy: null,
+      accountingIssue: null
+    };
+    render(
+      <EvidenceDetail
+        runId={base.runId}
+        detail={detail({
+          status: "awaiting",
+          llmCalls: [
+            { ...base, id: "estimated", costBasis: "token_estimate" },
+            {
+              ...base,
+              id: "measured",
+              provider: "openrouter",
+              costBasis: "provider_reported",
+              reportedCostCents: 2,
+              reportedCostSource: "openrouter.usage.cost"
+            },
+            {
+              ...base,
+              id: "legacy",
+              costBasis: "legacy_estimate",
+              admissionBoundCents: null
+            },
+            {
+              ...base,
+              id: "uncertain",
+              costBasis: "conservative_bound",
+              estimatedCostCents: null,
+              accountingIssue: "missing_or_invalid_token_usage"
+            }
+          ]
+        })}
+      />
+    );
+    const text = document.body.textContent;
+    expect(text).toContain("Budget accounting · includes estimates");
+    expect(text).toContain("Provider-reported charge: unknown");
+    expect(text).toContain("Provider-reported charge: $0.02");
+    expect(text).toContain("Estimate: $0.01");
+    expect(text).toContain("historical estimate");
+    expect(text).toContain("Admission bound: $0.02");
+    expect(text).toContain(
+      "Accounting uncertainty: Token usage is missing or invalid"
+    );
+  });
+});

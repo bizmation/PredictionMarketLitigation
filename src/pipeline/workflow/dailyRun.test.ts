@@ -1,3 +1,4 @@
+import { fixtureCostPolicy } from "../../test/costPolicyFixture";
 import { insertReviewedDraft } from "../../test/reviewedDraft";
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -404,14 +405,19 @@ describe("afterPackaging (story 3.5)", () => {
             }),
           inputTokens: 1,
           outputTokens: 1,
-          costCents: step?.costCents ?? 0
+          reportedCostUsd: (step?.costCents ?? 0) / 100
         };
       }
     };
   }
 
   function deps(provider: LlmProvider): GatewayDeps {
-    return { db: testEnv.DB, provider, now: () => NOW };
+    return {
+      db: testEnv.DB,
+      costPolicy: fixtureCostPolicy,
+      provider,
+      now: () => NOW
+    };
   }
 
   it("skips LLM and completes empty when draftCount is 0", async () => {
@@ -587,7 +593,7 @@ describe("sourceChecksFromEnv (story 3.21)", () => {
         text: "{}",
         inputTokens: 1,
         outputTokens: 1,
-        costCents: 0
+        reportedCostUsd: 0
       })
     };
   }
@@ -619,7 +625,12 @@ describe("sourceChecksFromEnv (story 3.21)", () => {
     const packaged = await packageDailyRun(
       testEnv.DB,
       id,
-      { db: testEnv.DB, provider: provider(), now: () => NOW },
+      {
+        db: testEnv.DB,
+        costPolicy: fixtureCostPolicy,
+        provider: provider(),
+        now: () => NOW
+      },
       sourceChecksFromEnv({ COURTLISTENER_API_TOKEN: undefined }, testEnv.DB)
     );
     expect(packaged).toEqual({
@@ -683,7 +694,12 @@ describe("sourceChecksFromEnv (story 3.21)", () => {
     const packaged = await packageDailyRun(
       testEnv.DB,
       id,
-      { db: testEnv.DB, provider: provider(), now: () => NOW },
+      {
+        db: testEnv.DB,
+        costPolicy: fixtureCostPolicy,
+        provider: provider(),
+        now: () => NOW
+      },
       sourceChecksFromEnv({ COURTLISTENER_API_TOKEN: "tok" }, testEnv.DB)
     );
     expect(packaged).toMatchObject({
@@ -761,14 +777,19 @@ describe("packageDailyRun / reviewDailyRun (story 3.5)", () => {
             }),
           inputTokens: 1,
           outputTokens: 1,
-          costCents: 0
+          reportedCostUsd: 0
         };
       }
     };
   }
 
   function deps(provider: LlmProvider): GatewayDeps {
-    return { db: testEnv.DB, provider, now: () => NOW };
+    return {
+      db: testEnv.DB,
+      costPolicy: fixtureCostPolicy,
+      provider,
+      now: () => NOW
+    };
   }
 
   it("completes an empty poll inside packageDailyRun and never starts reviewDailyRun", async () => {
@@ -956,6 +977,7 @@ describe("nextFreeRunId / startOperatorRun (story 3.12)", () => {
     expect(pinned).toBe("run-20261103-0003");
     const packaged = await packageDailyRun(testEnv.DB, pinned, {
       db: testEnv.DB,
+      costPolicy: fixtureCostPolicy,
       provider: {
         name: "fake",
         complete: async () => {
@@ -1106,7 +1128,7 @@ describe("mode stamp + YOLO hook (story 3.13)", () => {
         text: "{}",
         inputTokens: 1,
         outputTokens: 1,
-        costCents: 0
+        reportedCostUsd: 0
       })
     };
   }
@@ -1175,7 +1197,12 @@ describe("mode stamp + YOLO hook (story 3.13)", () => {
       testEnv.DB,
       yoloId,
       { draftCount: 1, anyFailure: false },
-      { db: testEnv.DB, provider: fakeProvider(), now: () => NOW }
+      {
+        db: testEnv.DB,
+        costPolicy: fixtureCostPolicy,
+        provider: fakeProvider(),
+        now: () => NOW
+      }
     );
     expect(
       (await draftsRepo.getById(testEnv.DB, `d:${yoloId}:states:st-nv`))
@@ -1219,7 +1246,12 @@ describe("mode stamp + YOLO hook (story 3.13)", () => {
       testEnv.DB,
       yoloId,
       { draftCount: 1, anyFailure: false },
-      { db: testEnv.DB, provider: fakeProvider(), now: () => NOW }
+      {
+        db: testEnv.DB,
+        costPolicy: fixtureCostPolicy,
+        provider: fakeProvider(),
+        now: () => NOW
+      }
     );
     const approved = await draftsRepo.getById(
       testEnv.DB,
@@ -1258,7 +1290,12 @@ describe("mode stamp + YOLO hook (story 3.13)", () => {
       testEnv.DB,
       hitlId,
       { draftCount: 1, anyFailure: false },
-      { db: testEnv.DB, provider: fakeProvider(), now: () => NOW }
+      {
+        db: testEnv.DB,
+        costPolicy: fixtureCostPolicy,
+        provider: fakeProvider(),
+        now: () => NOW
+      }
     );
     expect(
       (await draftsRepo.getById(testEnv.DB, `d:${hitlId}:states:st-nv`))

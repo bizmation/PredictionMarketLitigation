@@ -1,3 +1,4 @@
+import { fixtureCostPolicy } from "../../test/costPolicyFixture";
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -96,7 +97,7 @@ function fakeProvider(
         text: step?.text ?? `unscripted reply from ${model}`,
         inputTokens: 3,
         outputTokens: 5,
-        costCents: step?.costCents ?? 0
+        reportedCostUsd: (step?.costCents ?? 0) / 100
       };
     }
   };
@@ -105,6 +106,7 @@ function fakeProvider(
 function deps(provider: LlmProvider): GatewayDeps {
   return {
     db: testEnv.DB,
+    costPolicy: fixtureCostPolicy,
     provider,
     now: () => NOW,
     newId: deterministicNewId
@@ -437,6 +439,7 @@ describe("draftAndReview (story 3.5)", () => {
     await seedConfig(DRAFTER_REVIEWER_ROLES);
     await draftAndReview(testEnv.DB, runId, {
       db: testEnv.DB,
+      costPolicy: fixtureCostPolicy,
       provider: null as unknown as LlmProvider,
       now: () => NOW,
       newId: deterministicNewId
@@ -1190,7 +1193,7 @@ describe("draftAndReview provider deadline (story 3.19)", () => {
           text: step?.text ?? `unscripted reply from ${model}`,
           inputTokens: 3,
           outputTokens: 5,
-          costCents: 0
+          reportedCostUsd: 0
         };
       }
     };
@@ -1557,7 +1560,7 @@ describe("paused evaluation races (3.28)", () => {
               : drafterJson({ body: "Late body" }),
           inputTokens: 1,
           outputTokens: 1,
-          costCents: 0
+          reportedCostUsd: 0
         };
       }
     };

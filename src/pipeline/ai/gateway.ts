@@ -1,3 +1,11 @@
+import {
+  decimalAtMost,
+  resolveCostPolicy,
+  tokenCostCents,
+  reportedUsdCents,
+  validatePolicy,
+  type CostPolicy
+} from "./costPolicy";
 import type { Db } from "../../shared/db/client";
 import * as draftsRepo from "../../shared/db/repos/draftsRepo";
 import * as llmCallsRepo from "../../shared/db/repos/llmCallsRepo";
@@ -34,7 +42,7 @@ import { GUARDRAIL_RULE_ID, isToolAllowed } from "./actionPolicy";
  *      (`gateway_not_configured` on mismatch / missing)
  *   5. resolve + enforce the budget ceiling BEFORE the provider call
  *      (`budget_stopped` — marks the Run stopped + `run.stopped` evidence);
- *      also refuse when `spend + estimateCents > budget`
+ *      also refuse when `spend + admissionBoundCents > budget`
  *   6. delegate to the provider under `PROVIDER_TIMEOUT_MS` (story 3.19)
  *      with an abortable deadline signal (story 3.20); on error or deadline,
  *      surface a typed `provider_error` with no spend row written — a hung
@@ -56,21 +64,24 @@ export class GatewayError extends Error {
 /**
  * The provider contract the gateway delegates to. Production registers
  * Workers AI and (when secrets are set) OpenRouter; tests inject a fake
- * whose `name` matches the seeded config. `costCents` is real integer cents.
+ * whose `name` matches the seeded config. Provider costs are optional reported USD;
+ * budget accounting is derived centrally from validated policy and usage.
  */
 export interface LlmProvider {
   readonly name: string;
-  /** Optional pre-call estimate in integer cents; missing means 0. */
-  estimateCents?(args: { model: string; prompt: string }): number;
+
   complete(args: {
     model: string;
     prompt: string;
     signal?: AbortSignal;
+    policy: CostPolicy;
+    now?: () => string;
   }): Promise<{
     text: string;
     inputTokens: number | null;
     outputTokens: number | null;
-    costCents: number;
+    reportedCostUsd?: unknown;
+    accountingIssue?: string;
   }>;
 }
 
@@ -87,6 +98,8 @@ export interface GatewayDeps {
   now?: () => string;
   /** Random id supplier; injectable for deterministic call/evidence ids. */
   newId?: () => string;
+  /** Explicit policy seam for deterministic tests; production uses reviewed allowlist. */
+  costPolicy?: typeof resolveCostPolicy;
 }
 
 export interface GatewayInput {
@@ -232,14 +245,44 @@ export async function complete(
       `Spend ${spend} reached the ceiling ${budget}; call refused.`
     );
   }
-  const estimateCents =
-    provider.estimateCents?.({ model: mapping.model, prompt }) ?? 0;
-  if (spend + estimateCents > budget) {
+  if (await llmCallsRepo.hasAccountingIssue(db, runId)) {
+    throw new GatewayError(
+      "accounting_uncertain",
+      "Run accounting requires reconciliation before further inference."
+    );
+  }
+  let policy: CostPolicy;
+  try {
+    policy = validatePolicy(
+      (deps.costPolicy ?? resolveCostPolicy)(
+        mapping.provider,
+        mapping.model,
+        now()
+      ),
+      now()
+    );
+  } catch {
+    throw new GatewayError(
+      "cost_policy_invalid",
+      "Missing, expired, unsupported, or invalid provider cost policy."
+    );
+  }
+  if (policy.provider !== mapping.provider || policy.model !== mapping.model)
+    throw new GatewayError(
+      "cost_policy_invalid",
+      "Cost policy does not match the configured model."
+    );
+  const admissionBoundCents = tokenCostCents(
+    policy,
+    policy.inputTokens,
+    policy.outputTokens
+  );
+  if (spend + admissionBoundCents > budget) {
     await refuseBudget(
       deps,
       run,
       runId,
-      `Spend ${spend} plus estimate ${estimateCents} would pass the ceiling ${budget}; call refused.`
+      `Accounting ${spend} plus bound ${admissionBoundCents} exceeds ceiling ${budget}; call refused.`
     );
   }
   const awaitingRoles =
@@ -258,11 +301,19 @@ export async function complete(
   let completion: Awaited<ReturnType<LlmProvider["complete"]>>;
   try {
     completion = await withAbortableDeadline(
-      (signal) => provider.complete({ model: mapping.model, prompt, signal }),
+      (signal) =>
+        provider.complete({
+          model: mapping.model,
+          prompt,
+          signal,
+          policy,
+          now
+        }),
       PROVIDER_TIMEOUT_MS,
       mapping.provider
     );
   } catch (cause) {
+    if (cause instanceof GatewayError) throw cause;
     throw new GatewayError(
       "provider_error",
       `Provider '${mapping.provider}' failed: ${String(cause)}`
@@ -271,13 +322,55 @@ export async function complete(
 
   // 7. Record the call (Evidence) + bump Run spend.
   const timestamp = now();
+  const validToken = (n: unknown): n is number =>
+    typeof n === "number" && Number.isSafeInteger(n) && n >= 0;
   const tokens =
-    completion.inputTokens == null && completion.outputTokens == null
-      ? null
-      : {
-          input: completion.inputTokens ?? 0,
-          output: completion.outputTokens ?? 0
-        };
+    validToken(completion.inputTokens) && validToken(completion.outputTokens)
+      ? { input: completion.inputTokens, output: completion.outputTokens }
+      : null;
+  const estimatedCostCents = tokens
+    ? tokenCostCents(policy, tokens.input, tokens.output)
+    : null;
+  let reportedCostCents: number | null = null;
+  try {
+    reportedCostCents = reportedUsdCents(completion.reportedCostUsd);
+  } catch {
+    /* Preserve an unrepresentable amount below and block this Run. */
+  }
+  const reportedCostUsd =
+    typeof completion.reportedCostUsd === "number" &&
+    Number.isFinite(completion.reportedCostUsd) &&
+    completion.reportedCostUsd >= 0
+      ? String(completion.reportedCostUsd)
+      : null;
+  const issues: string[] = [];
+  if (!tokens) issues.push("missing_or_invalid_token_usage");
+  if (
+    tokens &&
+    (tokens.input > policy.inputTokens || tokens.output > policy.outputTokens)
+  )
+    issues.push("token_limit_exceeded");
+  if (
+    (mapping.provider === "openrouter" || reportedCostUsd != null) &&
+    reportedCostCents == null
+  )
+    issues.push("missing_or_invalid_reported_cost");
+  if (reportedCostCents != null && reportedCostCents > admissionBoundCents)
+    issues.push("reported_cost_exceeds_bound");
+  if (completion.accountingIssue) issues.push(completion.accountingIssue);
+  const accountingIssue = issues.length ? issues.join("; ") : null;
+  const costCents = accountingIssue
+    ? Math.max(
+        admissionBoundCents,
+        estimatedCostCents ?? 0,
+        reportedCostCents ?? 0
+      )
+    : (reportedCostCents ?? estimatedCostCents ?? admissionBoundCents);
+  const costBasis = accountingIssue
+    ? "conservative_bound"
+    : reportedCostCents != null
+      ? "provider_reported"
+      : "token_estimate";
   await llmCallsRepo.recordCall(db, {
     id: newId(),
     runId,
@@ -285,13 +378,25 @@ export async function complete(
     provider: mapping.provider,
     model: mapping.model,
     tokens,
-    costCents: completion.costCents,
+    costCents,
     currency: CURRENCY,
-    createdAt: timestamp
+    createdAt: timestamp,
+    costBasis,
+    admissionBoundCents,
+    estimatedCostCents,
+    reportedCostCents,
+    reportedCostUsd,
+    reportedCostSource:
+      reportedCostUsd == null ? null : `${mapping.provider}.usage.cost`,
+    policy,
+    accountingIssue
   });
-  if (completion.costCents > 0) {
-    await runsRepo.bumpSpend(db, runId, completion.costCents);
-  }
+  if (costCents > 0) await runsRepo.bumpSpend(db, runId, costCents);
+  if (accountingIssue)
+    throw new GatewayError(
+      "accounting_uncertain",
+      "Provider usage is incomplete or exceeds the reviewed bound; further inference is blocked."
+    );
 
   return {
     text: completion.text,
@@ -300,7 +405,7 @@ export async function complete(
     model: mapping.model,
     inputTokens: completion.inputTokens,
     outputTokens: completion.outputTokens,
-    costCents: completion.costCents,
+    costCents,
     currency: CURRENCY
   };
 }
@@ -369,28 +474,46 @@ export function createWorkersAiProvider(env: Env): LlmProvider | null {
   if (!env.AI) return null;
   return {
     name: "workersai",
-    async complete({ model, prompt, signal: _signal }) {
-      // Workers AI zero-dollar path: cost is 0; the gateway still records the
-      // call so budget accounting is real. The binding's third argument is
-      // gateway options only — the deadline signal cannot cancel `env.AI.run`
-      // (Cloudflare docs, worker-binding-methods, 2026-09-17).
+    async complete({
+      model,
+      prompt,
+      policy,
+      now = () => new Date().toISOString(),
+      signal: _signal
+    }) {
+      revalidateBeforeInference(policy, now());
       const result = (await env.AI.run(model, {
-        prompt
+        prompt,
+        max_tokens: policy.outputTokens
       })) as {
         response?: unknown;
-        usage?: { prompt_tokens?: number; completion_tokens?: number };
+        usage?: {
+          prompt_tokens?: number;
+          completion_tokens?: number;
+          cost?: unknown;
+        };
       };
-      if (typeof result.response !== "string") {
-        throw new Error("non-text model output");
-      }
       return {
-        text: result.response,
+        text: typeof result.response === "string" ? result.response : "",
+        accountingIssue:
+          typeof result.response === "string" ? undefined : "non_text_output",
         inputTokens: result.usage?.prompt_tokens ?? null,
         outputTokens: result.usage?.completion_tokens ?? null,
-        costCents: 0
+        reportedCostUsd: null
       };
     }
   };
+}
+
+function revalidateBeforeInference(policy: CostPolicy, now: string): void {
+  try {
+    validatePolicy(policy, now);
+  } catch {
+    throw new GatewayError(
+      "cost_policy_invalid",
+      "Cost policy expired or became invalid before inference."
+    );
+  }
 }
 
 function nonEmptySecret(value: string | undefined): value is string {
@@ -426,20 +549,104 @@ export function createOpenRouterProvider(env: Env): LlmProvider | null {
   const url = `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayId}/openrouter/chat/completions`;
   return {
     name: "openrouter",
-    estimateCents({ prompt }) {
-      // Input-side only: promptChars/4 tokens, 1 cent per 1,000, minimum 1.
-      return Math.max(1, Math.ceil(prompt.length / 4 / 1000));
-    },
-    async complete({ model, prompt, signal }) {
+    async complete({
+      model,
+      prompt,
+      signal,
+      policy,
+      now = () => new Date().toISOString()
+    }) {
+      // Verify the exact bounded route before paid inference. No model/provider fallback.
+      try {
+        const metadata = await fetch(
+          `https://openrouter.ai/api/v1/models/${model}/endpoints`,
+          { signal }
+        );
+        if (!metadata.ok)
+          throw new GatewayError(
+            "cost_policy_invalid",
+            "Endpoint pricing unavailable."
+          );
+        const endpoints = (await metadata.json()) as {
+          data?: {
+            endpoints?: Array<{
+              tag?: string;
+              context_length?: number;
+              supported_parameters?: string[];
+              pricing?: Record<string, unknown>;
+            }>;
+          };
+        };
+        // A base slug includes regional variants: validate every eligible endpoint.
+        const eligible =
+          endpoints.data?.endpoints?.filter(
+            (e) =>
+              e.tag === "amazon-bedrock" || e.tag?.startsWith("amazon-bedrock/")
+          ) ?? [];
+        const limits: Record<string, string> = {
+          prompt: "0.000003",
+          completion: "0.000015",
+          input_cache_read: "0.000006",
+          input_cache_write: "0.000006",
+          input_cache_write_1h: "0.000006",
+          request: "0",
+          image: "0",
+          discount: "0"
+        };
+        const supported =
+          eligible.length > 0 &&
+          eligible.every((endpoint) => {
+            const pricing = endpoint.pricing;
+            // Search is not requested; cache replacement rates are covered by the input ceiling.
+            const validPrices =
+              pricing &&
+              Object.entries(pricing).every(([key, value]) => {
+                if (key === "web_search") return true;
+                if (key === "overrides")
+                  return Array.isArray(value) && value.length === 0;
+                return key in limits && decimalAtMost(value, limits[key]!);
+              });
+            return (
+              endpoint.context_length === policy.inputTokens &&
+              endpoint.supported_parameters?.includes("max_tokens") &&
+              validPrices &&
+              pricing?.prompt != null &&
+              pricing.completion != null
+            );
+          });
+        if (!supported)
+          throw new GatewayError(
+            "cost_policy_invalid",
+            "Endpoint pricing, context, or billing tiers cannot enforce the reviewed bound."
+          );
+      } catch (error) {
+        if (error instanceof GatewayError) throw error;
+        throw new GatewayError(
+          "cost_policy_invalid",
+          "Endpoint pricing could not be validated."
+        );
+      }
+      revalidateBeforeInference(policy, now());
       const response = await fetch(url, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          "cf-aig-max-attempts": "1",
+          "cf-aig-skip-cache": "true"
         },
         body: JSON.stringify({
           model,
-          messages: [{ role: "user", content: prompt }]
+          messages: [{ role: "user", content: prompt }],
+          max_tokens: policy.outputTokens,
+          stream: false,
+          transforms: [],
+          provider: {
+            only: ["amazon-bedrock"],
+            allow_fallbacks: false,
+            require_parameters: true,
+            max_price: { prompt: 3, completion: 15, request: 0, image: 0 }
+          }
         }),
         signal
       });
@@ -448,29 +655,20 @@ export function createOpenRouterProvider(env: Env): LlmProvider | null {
       }
       const body = (await response.json()) as {
         choices?: Array<{ message?: { content?: unknown } }>;
-        usage?: { prompt_tokens?: number; completion_tokens?: number };
+        usage?: {
+          prompt_tokens?: number;
+          completion_tokens?: number;
+          cost?: unknown;
+        };
       };
       const text = body.choices?.[0]?.message?.content;
-      if (typeof text !== "string") {
-        throw new Error("non-text model output");
-      }
-      const usage = body.usage;
-      if (usage == null) {
-        return {
-          text,
-          inputTokens: null,
-          outputTokens: null,
-          costCents: 1
-        };
-      }
-      const inputTokens = usage.prompt_tokens ?? null;
-      const outputTokens = usage.completion_tokens ?? null;
-      const totalTokens = (inputTokens ?? 0) + (outputTokens ?? 0);
       return {
-        text,
-        inputTokens,
-        outputTokens,
-        costCents: Math.max(1, Math.ceil(totalTokens / 1000))
+        text: typeof text === "string" ? text : "",
+        accountingIssue:
+          typeof text === "string" ? undefined : "non_text_output",
+        inputTokens: body.usage?.prompt_tokens ?? null,
+        outputTokens: body.usage?.completion_tokens ?? null,
+        reportedCostUsd: body.usage?.cost
       };
     }
   };

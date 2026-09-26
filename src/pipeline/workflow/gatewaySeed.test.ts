@@ -1,3 +1,4 @@
+import { fixtureCostPolicy } from "../../test/costPolicyFixture";
 import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 
@@ -45,13 +46,18 @@ function fakeProvider(
       const text = script[calls] ?? "";
       calls += 1;
       models.push(model);
-      return { text, inputTokens: 1, outputTokens: 1, costCents: 0 };
+      return {
+        text,
+        inputTokens: 1,
+        outputTokens: 1,
+        reportedCostUsd: 0
+      };
     }
   };
 }
 
 function deps(provider: LlmProvider): GatewayDeps {
-  return { db: testEnv.DB, provider };
+  return { db: testEnv.DB, costPolicy: fixtureCostPolicy, provider };
 }
 
 const oneDraft: Record<string, SourceCheck> = {

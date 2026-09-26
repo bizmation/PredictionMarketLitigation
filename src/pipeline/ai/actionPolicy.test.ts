@@ -1,3 +1,4 @@
+import { fixtureCostPolicy } from "../../test/costPolicyFixture";
 import { env } from "cloudflare:workers";
 import { describe, expect, it, vi } from "vitest";
 
@@ -85,14 +86,19 @@ function fakeProvider(
         text: step?.text ?? DRAFTER_OK,
         inputTokens: 1,
         outputTokens: 1,
-        costCents: 0
+        reportedCostUsd: 0
       };
     }
   };
 }
 
 function deps(provider: LlmProvider): GatewayDeps {
-  return { db: testEnv.DB, provider, now: () => NOW };
+  return {
+    db: testEnv.DB,
+    costPolicy: fixtureCostPolicy,
+    provider,
+    now: () => NOW
+  };
 }
 
 const oneDraft: Record<string, SourceCheck> = {

@@ -1861,6 +1861,11 @@ describe("admin steering (story 3.14)", () => {
 });
 
 describe("admin pipeline config steering (story 3.17)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-26T15:00:00.000Z"));
+  });
+  afterEach(() => vi.useRealTimers());
   const EXTRA = {
     name: "ND Cal docket",
     url: "https://www.courtlistener.com/docket/ndcal-example/",
@@ -1882,7 +1887,10 @@ describe("admin pipeline config steering (story 3.17)", () => {
     )
       .bind(
         JSON.stringify({
-          steward: { provider: "workersai", model: "steward-v1" }
+          steward: {
+            provider: "workersai",
+            model: "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+          }
         }),
         TS
       )
@@ -1892,7 +1900,12 @@ describe("admin pipeline config steering (story 3.17)", () => {
   function envWithSteerAi(response: string): Env {
     return {
       ...realEnv(),
-      AI: { run: async () => ({ response }) }
+      AI: {
+        run: async () => ({
+          response,
+          usage: { prompt_tokens: 5, completion_tokens: 10 }
+        })
+      }
     } as unknown as Env;
   }
 
@@ -1983,9 +1996,23 @@ describe("admin pipeline config steering (story 3.17)", () => {
           ? input.toString()
           : input.url;
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (requestUrl(input).endsWith("/endpoints"))
+        return Response.json({
+          data: {
+            endpoints: [
+              {
+                tag: "amazon-bedrock",
+                context_length: 200000,
+                supported_parameters: ["max_tokens"],
+                pricing: { prompt: "0.000003", completion: "0.000015" }
+              }
+            ]
+          }
+        });
       if (requestUrl(input).includes("/openrouter/chat/completions")) {
         return new Response(
           JSON.stringify({
+            usage: { prompt_tokens: 5, completion_tokens: 10, cost: 0.001 },
             choices: [
               {
                 message: {
