@@ -672,6 +672,7 @@ export async function draftAndReview(
       null;
     try {
       const drafter = await complete(gatewayDeps, {
+        operationKey: `draft:${draft.id}:drafter`,
         role: "drafter",
         runId,
         prompt: buildScopedPrompt(
@@ -714,6 +715,7 @@ export async function draftAndReview(
         }
       }
       const reviewer = await complete(gatewayDeps, {
+        operationKey: `draft:${draft.id}:reviewer`,
         role: "reviewer",
         runId,
         prompt: buildScopedPrompt("reviewer", {
@@ -798,6 +800,19 @@ export async function draftAndReview(
           : []
       });
     } catch (err) {
+      // Durable paid results remain replayable when a checkpoint/database write
+      // fails. A competing evaluation must not seal this owner's pending Draft.
+      if (
+        (!pendingTool && !(err instanceof GatewayError)) ||
+        (err instanceof GatewayError &&
+          [
+            "operation_pending",
+            "operation_conflict",
+            "accounting_uncertain",
+            "result_unavailable"
+          ].includes(err.code))
+      )
+        throw err;
       if (draft.revisionIndex > 0) {
         return { budgetStopped: isBudgetStopped(err) };
       }

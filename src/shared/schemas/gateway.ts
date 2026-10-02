@@ -130,8 +130,37 @@ export const GATEWAY_ERROR_CODES = [
   "provider_error",
   "cost_policy_invalid",
   "accounting_uncertain",
+  "operation_conflict",
+  "operation_pending",
+  "result_unavailable",
   "gateway_not_configured"
 ] as const;
 
 export const GatewayErrorCodeSchema = z.enum(GATEWAY_ERROR_CODES);
 export type GatewayErrorCode = z.infer<typeof GatewayErrorCodeSchema>;
+
+export const ReconciliationInputSchema = z
+  .object({
+    requestId: z.string().min(1).max(200),
+    expectedVersion: z.number().int().positive(),
+    decision: z.enum(["confirmed_charge", "confirmed_no_charge"]),
+    originalUsd: z
+      .string()
+      .max(100)
+      .regex(/^\d+(?:\.\d+)?$/)
+      .optional(),
+    evidenceReference: z.string().trim().min(1).max(1000),
+    note: z.string().trim().min(1).max(2000)
+  })
+  .strict()
+  .refine(
+    (v) =>
+      v.decision === "confirmed_charge"
+        ? v.originalUsd !== undefined
+        : v.originalUsd === undefined,
+    {
+      message:
+        "Charged decisions require originalUsd; no-charge decisions omit it."
+    }
+  );
+export type ReconciliationInput = z.infer<typeof ReconciliationInputSchema>;

@@ -1,3 +1,4 @@
+import { mapLlmCall, type LlmCallRow } from "./llmCallsRepo";
 import { currentHeadSql } from "./draftsRepo";
 import {
   RunLogItemSchema,
@@ -15,7 +16,7 @@ import type { Db } from "../client";
  * camelCase Zod-mapped domain objects out. `insertRun` exists for test
  * fixtures and the pipeline write path (3.3); the public API is read-only.
  * Story 3.2 added the two budget-stop mutations: `markStopped` (Run → stopped,
- * no-op unless the row is still `running`) and `bumpSpend` (spend accrual).
+ * no-op unless the row is still `running`). Accounting is owned by llmAccountingRepo.
  * The gateway batches `markStoppedStmt` with the `run.stopped` evidence insert.
  */
 
@@ -27,6 +28,10 @@ type RunRow = {
   started_at: string;
   completed_at: string | null;
   spend_cents: number;
+  reserved_cents?: number;
+  uncertain_cents?: number;
+  legacy_adjustment_cents?: number;
+  issue_count?: number;
   spend_currency: string;
   budget_cents: number | null;
   scheduled_for: string | null;
@@ -48,6 +53,10 @@ function runFields(row: RunRow) {
     startedAt: row.started_at,
     completedAt: row.completed_at,
     spendCents: row.spend_cents,
+    reservedCents: row.reserved_cents ?? 0,
+    uncertainCents: row.uncertain_cents ?? 0,
+    legacyAdjustmentCents: row.legacy_adjustment_cents ?? 0,
+    accountingIssueCount: row.issue_count ?? 0,
     spendBasis: "budget_accounting",
     spendCurrency: row.spend_currency,
     budgetCents: row.budget_cents,
@@ -69,8 +78,14 @@ function mapRunLog(row: RunLogRow): RunLogItem {
   });
 }
 
+const RUN_INSERT_COLUMNS = `id, origin, mode, status, started_at, completed_at, spend_cents, spend_currency, budget_cents, scheduled_for`;
 const RUN_COLUMNS = `id, origin, mode, status, started_at, completed_at,
-                      spend_cents, spend_currency, budget_cents, scheduled_for`;
+ (SELECT total_cents FROM llm_run_accounting WHERE run_id=runs.id) AS spend_cents,
+ (SELECT reserved_cents FROM llm_run_accounting WHERE run_id=runs.id) AS reserved_cents,
+ (SELECT uncertain_cents FROM llm_run_accounting WHERE run_id=runs.id) AS uncertain_cents,
+ (SELECT legacy_adjustment_cents FROM llm_run_accounting WHERE run_id=runs.id) AS legacy_adjustment_cents,
+ (SELECT issue_count FROM llm_run_accounting WHERE run_id=runs.id) AS issue_count,
+ spend_currency,budget_cents,scheduled_for`;
 
 export async function insertRun(
   db: Db,
@@ -94,7 +109,7 @@ export async function insertRun(
   const run = RunSummarySchema.parse(input);
   await db
     .prepare(
-      `INSERT INTO runs (${RUN_COLUMNS})
+      `INSERT INTO runs (${RUN_INSERT_COLUMNS})
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .bind(
@@ -125,8 +140,8 @@ export async function listRuns(db: Db): Promise<RunLogItem[]> {
   const { results } = await db
     .prepare(
       `SELECT ${RUN_COLUMNS},
-              (SELECT CASE WHEN COUNT(*) > 0 AND COUNT(reported_cost_cents) = COUNT(*) THEN SUM(reported_cost_cents) ELSE NULL END FROM llm_calls c WHERE c.run_id = runs.id) AS reported_cost_cents,
-              (SELECT COUNT(*) FROM llm_calls c WHERE c.run_id = runs.id AND c.reported_cost_cents IS NULL) AS unmeasured_call_count,
+              (SELECT CASE WHEN COUNT(*) > 0 AND COUNT(reported_cost_cents) = COUNT(*) AND (SELECT reserved_cents+uncertain_cents+legacy_adjustment_cents FROM llm_run_accounting WHERE run_id=runs.id)=0 THEN SUM(reported_cost_cents) ELSE NULL END FROM llm_calls c WHERE c.run_id = runs.id) AS reported_cost_cents,
+              ((SELECT COUNT(*) FROM llm_calls c WHERE c.run_id = runs.id AND c.reported_cost_cents IS NULL) + (SELECT COUNT(*) FROM llm_operations o WHERE o.run_id=runs.id AND o.state IN ('reserved','dispatched','uncertain'))) AS unmeasured_call_count,
               (SELECT COUNT(*) FROM evidence_events e
                 WHERE e.run_id = runs.id) AS event_count,
               (SELECT d.outcome FROM drafts d
@@ -176,21 +191,6 @@ export async function markStopped(
   completedAt: string
 ): Promise<void> {
   await markStoppedStmt(db, runId, completedAt).run();
-}
-
-/**
- * Story 3.2 — spend accrual. Adds recorded cents to the Run's `spend_cents`
- * (money is integer cents; the D1 CHECK guards non-negative integers).
- */
-export async function bumpSpend(
-  db: Db,
-  runId: string,
-  cents: number
-): Promise<void> {
-  await db
-    .prepare(`UPDATE runs SET spend_cents = spend_cents + ? WHERE id = ?`)
-    .bind(cents, runId)
-    .run();
 }
 
 /**
@@ -313,4 +313,32 @@ export function finalizeDecidedRunStmt(
       SELECT 1 FROM drafts d WHERE d.run_id = runs.id AND d.outcome IS NULL
       AND ${currentHeadSql("d")})`)
     .bind(now, runId);
+}
+
+export async function accountingSnapshot(db: Db, id: string) {
+  const [run, calls, operations, receipts] = await db.batch([
+    db.prepare(`SELECT ${RUN_COLUMNS} FROM runs WHERE id=?`).bind(id),
+    db
+      .prepare("SELECT * FROM llm_calls WHERE run_id=? ORDER BY created_at,id")
+      .bind(id),
+    db
+      .prepare(
+        "SELECT id,logical_key AS logicalKey,state,version,bound_cents AS boundCents,liability_cents AS liabilityCents,created_at AS createdAt,provider_request_id AS providerRequestId,issue FROM llm_operations WHERE run_id=? ORDER BY created_at,id"
+      )
+      .bind(id),
+    db
+      .prepare(
+        "SELECT r.request_id AS requestId,r.operation_id AS operationId,r.actor,r.evidence_reference AS evidenceReference,r.note,r.before_json AS beforeJson,r.after_json AS afterJson,r.created_at AS createdAt FROM llm_reconciliations r JOIN llm_operations o ON o.id=r.operation_id WHERE o.run_id=? ORDER BY r.created_at,r.request_id"
+      )
+      .bind(id)
+  ]);
+  const row = run!.results[0] as RunRow | undefined;
+  return row
+    ? {
+        ...mapRun(row),
+        llmCalls: (calls!.results as LlmCallRow[]).map(mapLlmCall),
+        accountingOperations: operations!.results,
+        reconciliationReceipts: receipts!.results
+      }
+    : null;
 }

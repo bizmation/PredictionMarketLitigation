@@ -1,3 +1,8 @@
+import { ReconciliationInputSchema } from "./shared/schemas/gateway";
+import {
+  reconcile,
+  AccountingConflict
+} from "./shared/db/repos/llmAccountingRepo";
 import { GatewayError } from "./pipeline/ai/gateway";
 import { routeAgentRequest } from "agents";
 import { AIChatAgent } from "@cloudflare/ai-chat";
@@ -451,6 +456,57 @@ export default {
         }
       }
 
+      const reconciliationMatch =
+        /^\/api\/admin\/llm-calls\/([^/]+)\/reconcile$/.exec(adminPath);
+      if (reconciliationMatch) {
+        if (request.method !== "POST")
+          return new Response("Method not allowed", {
+            status: 405,
+            headers: { ...ADMIN_CACHE_HEADERS, allow: "POST" }
+          });
+        let body: unknown;
+        let id: string;
+        try {
+          body = await request.json();
+          id = decodeURIComponent(reconciliationMatch[1]!);
+        } catch {
+          return jsonError(badRequest("Malformed reconciliation request."), {
+            headers: ADMIN_CACHE_HEADERS
+          });
+        }
+        const parsed = ReconciliationInputSchema.safeParse(body);
+        if (!parsed.success)
+          return jsonError(badRequest("Invalid reconciliation body."), {
+            headers: ADMIN_CACHE_HEADERS
+          });
+        try {
+          return Response.json(
+            await reconcile(
+              getDb(env),
+              id,
+              parsed.data,
+              gate.operator.displayName,
+              new Date().toISOString()
+            ),
+            { headers: ADMIN_CACHE_HEADERS }
+          );
+        } catch (error) {
+          if (
+            error instanceof AccountingConflict ||
+            String(error).includes("CHECK constraint")
+          )
+            return jsonError(
+              new ApiError(
+                409,
+                "accounting_conflict",
+                "Stale or conflicting reconciliation."
+              ),
+              { headers: ADMIN_CACHE_HEADERS }
+            );
+          return jsonError(internalError(), { headers: ADMIN_CACHE_HEADERS });
+        }
+      }
+
       const steeringMatch = /^\/api\/admin\/runs\/([^/]+)\/steering$/.exec(
         adminPath
       );
@@ -480,9 +536,14 @@ export default {
           }
           const parsed = SteeringPostBodySchema.safeParse(body);
           if (!parsed.success) {
-            return jsonError(badRequest("Invalid steering body."), {
-              headers: ADMIN_CACHE_HEADERS
-            });
+            return jsonError(
+              badRequest(
+                "Invalid steering body. A stable requestId is required; reuse it when retrying the same submission."
+              ),
+              {
+                headers: ADMIN_CACHE_HEADERS
+              }
+            );
           }
           const db = getDb(env);
           const result = await submitTurn(
@@ -493,6 +554,7 @@ export default {
             },
             {
               runId,
+              requestId: parsed.data.requestId,
               content: parsed.data.content,
               private: parsed.data.private,
               draftId: parsed.data.draftId,

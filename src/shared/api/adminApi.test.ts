@@ -1099,6 +1099,7 @@ describe("admin loop controls (story 3.12)", () => {
     await testEnv.DB.prepare("DELETE FROM llm_calls").run();
     await testEnv.DB.prepare("DELETE FROM evidence_events").run();
     await testEnv.DB.prepare("DELETE FROM drafts").run();
+    await testEnv.DB.prepare("DELETE FROM llm_legacy_adjustments").run();
     await testEnv.DB.prepare("DELETE FROM runs").run();
     const res = await auth("/api/admin/loop");
     expect(res.status).toBe(200);
@@ -1557,6 +1558,7 @@ describe("admin steering (story 3.14)", () => {
     await seedRun("run-20260914-aaaa");
     await seedPendingDraft("d-steer-1", "run-20260914-aaaa");
     const body = {
+      requestId: crypto.randomUUID(),
       content: "Please explain this Draft.",
       private: false,
       draftId: "d-steer-1"
@@ -1590,10 +1592,7 @@ describe("admin steering (story 3.14)", () => {
       jsonPost(
         await sign(EMAIL),
         "/api/admin/runs/run-20260914-0ead/steering",
-        {
-          content: "hello",
-          private: false
-        }
+        { requestId: crypto.randomUUID(), content: "hello", private: false }
       ),
       realEnv()
     );
@@ -1634,10 +1633,7 @@ describe("admin steering (story 3.14)", () => {
       jsonPost(
         await sign(EMAIL),
         "/api/admin/runs/run-20260914-cccc/steering",
-        {
-          content: "   ",
-          private: false
-        }
+        { requestId: crypto.randomUUID(), content: "   ", private: false }
       ),
       realEnv()
     );
@@ -1647,6 +1643,7 @@ describe("admin steering (story 3.14)", () => {
         await sign(EMAIL),
         "/api/admin/runs/run-20260914-cccc/steering",
         {
+          requestId: crypto.randomUUID(),
           content: "cross",
           private: false,
           draftId: "d-other-run"
@@ -1668,6 +1665,7 @@ describe("admin steering (story 3.14)", () => {
         await sign(EMAIL),
         "/api/admin/runs/run-20260914-eeee/steering",
         {
+          requestId: crypto.randomUUID(),
           content: "Please explain the Nevada posture change.",
           private: false,
           draftId: "d-steer-pub"
@@ -1706,6 +1704,7 @@ describe("admin steering (story 3.14)", () => {
         await sign(EMAIL),
         "/api/admin/runs/run-20260914-aa20/steering",
         {
+          requestId: crypto.randomUUID(),
           content: secret,
           private: true,
           draftId: "d-steer-priv"
@@ -1754,10 +1753,7 @@ describe("admin steering (story 3.14)", () => {
       jsonPost(
         await sign(EMAIL),
         "/api/admin/runs/run-20260914-ffff/steering",
-        {
-          content: "too late",
-          private: false
-        }
+        { requestId: crypto.randomUUID(), content: "too late", private: false }
       ),
       realEnv()
     );
@@ -1771,6 +1767,7 @@ describe("admin steering (story 3.14)", () => {
         await sign(EMAIL),
         "/api/admin/runs/run-20260917-aa16/steering",
         {
+          requestId: crypto.randomUUID(),
           content: "tighten the holding",
           private: false,
           intent: "revise"
@@ -1837,6 +1834,7 @@ describe("admin steering (story 3.14)", () => {
         await sign(EMAIL),
         "/api/admin/runs/run-20260917-b409/steering",
         {
+          requestId: crypto.randomUUID(),
           content: "tighten the holding",
           private: false,
           draftId: "d-b409-nv",
@@ -1931,6 +1929,7 @@ describe("admin pipeline config steering (story 3.17)", () => {
         await sign(EMAIL),
         "/api/admin/runs/run-20260917-c017/steering",
         {
+          requestId: crypto.randomUUID(),
           content: "Add the ND Cal docket to Tier-1.",
           private: false,
           draftId: "d-c017-nv",
@@ -2035,6 +2034,7 @@ describe("admin pipeline config steering (story 3.17)", () => {
         await sign(EMAIL),
         "/api/admin/runs/run-20260922-c020/steering",
         {
+          requestId: crypto.randomUUID(),
           content: "Add the ND Cal docket to Tier-1.",
           private: false,
           draftId: "d-c020-nv",
@@ -2075,6 +2075,7 @@ describe("admin pipeline config steering (story 3.17)", () => {
         await sign(EMAIL),
         "/api/admin/runs/run-20260917-c018/steering",
         {
+          requestId: crypto.randomUUID(),
           content: "Add the ND Cal docket to Tier-1.",
           private: false,
           intent: "config"
@@ -2088,6 +2089,7 @@ describe("admin pipeline config steering (story 3.17)", () => {
         await sign(EMAIL),
         "/api/admin/runs/run-20260917-c018/steering",
         {
+          requestId: crypto.randomUUID(),
           content: "Revert poll_sources to version 0",
           private: false,
           intent: "config",
@@ -2123,6 +2125,7 @@ describe("admin pipeline config steering (story 3.17)", () => {
         await sign(EMAIL),
         "/api/admin/runs/run-20260917-c019/steering",
         {
+          requestId: crypto.randomUUID(),
           content: "Add a docket.",
           private: false,
           intent: "config"
@@ -2161,6 +2164,7 @@ describe("admin pipeline config steering (story 3.17)", () => {
         await sign(EMAIL),
         "/api/admin/runs/run-20260917-c409/steering",
         {
+          requestId: crypto.randomUUID(),
           content: "Add a docket.",
           private: false,
           intent: "config"
@@ -2217,6 +2221,7 @@ describe("admin standing guidance steering (story 3.18)", () => {
         await sign(EMAIL),
         "/api/admin/runs/run-20260918-d018/steering",
         {
+          requestId: crypto.randomUUID(),
           content: GUIDANCE,
           private: false,
           draftId: "d-d018-nv",
@@ -2251,6 +2256,7 @@ describe("admin standing guidance steering (story 3.18)", () => {
         await sign(EMAIL),
         "/api/admin/runs/run-20260918-d018/steering",
         {
+          requestId: crypto.randomUUID(),
           content: "Cite the docket number and the court.",
           private: false,
           intent: "guidance",
@@ -2273,6 +2279,7 @@ describe("admin standing guidance steering (story 3.18)", () => {
         await sign(EMAIL),
         "/api/admin/runs/run-20260918-d018/steering",
         {
+          requestId: crypto.randomUUID(),
           content: "Superseded.",
           private: false,
           intent: "guidance",
@@ -2324,6 +2331,7 @@ describe("admin standing guidance steering (story 3.18)", () => {
         await sign(EMAIL),
         "/api/admin/runs/run-20260918-d019/steering",
         {
+          requestId: crypto.randomUUID(),
           content: "keep this off the record",
           private: true,
           intent: "guidance"
@@ -2345,9 +2353,26 @@ describe("admin standing guidance steering (story 3.18)", () => {
     await resetGuidance();
     await seedRun("run-20260918-d020");
     for (const body of [
-      { content: "x", private: false, intent: "standing" },
-      { content: "x", private: false, intent: "guidance", revoke: "yes" },
-      { content: "x", private: false, intent: "guidance", guidanceItemId: "" }
+      {
+        requestId: crypto.randomUUID(),
+        content: "x",
+        private: false,
+        intent: "standing"
+      },
+      {
+        requestId: crypto.randomUUID(),
+        content: "x",
+        private: false,
+        intent: "guidance",
+        revoke: "yes"
+      },
+      {
+        requestId: crypto.randomUUID(),
+        content: "x",
+        private: false,
+        intent: "guidance",
+        guidanceItemId: ""
+      }
     ]) {
       const res = await worker.fetch(
         jsonPost(
@@ -2373,6 +2398,7 @@ describe("admin standing guidance steering (story 3.18)", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
+          requestId: crypto.randomUUID(),
           content: GUIDANCE,
           private: false,
           intent: "guidance"
@@ -2640,6 +2666,7 @@ describe("evaluation readiness HTTP contract (3.28)", () => {
     }
     const revision = await worker.fetch(
       jsonPost(token, `/api/admin/runs/${runId}/steering`, {
+        requestId: crypto.randomUUID(),
         draftId: id,
         intent: "revise",
         content: "Revise",
@@ -2753,6 +2780,7 @@ it("authenticated revision admission loses to approval with 409 and no provider 
   const token = await sign(EMAIL);
   const pending = worker.fetch(
     jsonPost(token, `/api/admin/runs/${runId}/steering`, {
+      requestId: crypto.randomUUID(),
       draftId: id,
       intent: "revise",
       content: "Revise this holding",
@@ -2787,4 +2815,119 @@ it("authenticated revision admission loses to approval with 409 and no provider 
       (e) => e.event === "draft.revised" || e.payload?.effect === "revised"
     )
   ).toBe(false);
+});
+
+describe("Access-protected accounting reconciliation (3.31)", () => {
+  it("rejects anonymous and malformed requests; atomically reconciles and replays a named operator receipt", async () => {
+    const accounting = await import("../db/repos/llmAccountingRepo");
+    const { fixtureCostPolicy } = await import("../../test/costPolicyFixture");
+    const runId = "run-20261002-c031";
+    await seedRun(runId);
+    const operation = await accounting.reserve(testEnv.DB, {
+      id: "api-operation-331",
+      runId,
+      role: "reviewer",
+      key: "draft:331:reviewer",
+      fingerprint: "fp",
+      owner: "owner",
+      bound: 50,
+      budget: 500,
+      policy: fixtureCostPolicy("fake", "m", TS),
+      now: TS,
+      awaiting: true
+    });
+    await accounting.claimDispatch(testEnv.DB, operation, operation.owner, TS);
+    await accounting.markUncertain(
+      testEnv.DB,
+      operation.id,
+      operation.owner,
+      "timeout"
+    );
+    const path = `/api/admin/llm-calls/${operation.id}/reconcile`;
+    const body = {
+      requestId: "api-reconcile-331",
+      expectedVersion: 3,
+      decision: "confirmed_charge",
+      originalUsd: "0.03",
+      evidenceReference: "invoice:reviewed-331",
+      note: "Checked provider invoice"
+    };
+    expect(
+      (
+        await worker.fetch(
+          get(path, { method: "POST", body: JSON.stringify(body) }),
+          anon
+        )
+      ).status
+    ).toBe(403);
+    expect(
+      (
+        await worker.fetch(
+          jsonPost(await sign(EMAIL), path, { ...body, actor: "forged" }),
+          realEnv()
+        )
+      ).status
+    ).toBe(400);
+    expect(await accounting.accountingForRun(testEnv.DB, runId)).toMatchObject({
+      uncertainCents: 50
+    });
+    const first = await worker.fetch(
+      jsonPost(await sign(EMAIL), path, body),
+      realEnv()
+    );
+    expect(first.status).toBe(200);
+    const result = await first.json();
+    const second = await worker.fetch(
+      jsonPost(await sign(EMAIL), path, body),
+      realEnv()
+    );
+    expect(second.status).toBe(200);
+    expect(await second.json()).toEqual(result);
+    expect(
+      (
+        await worker.fetch(
+          jsonPost(await sign(EMAIL), path, { ...body, note: "changed" }),
+          realEnv()
+        )
+      ).status
+    ).toBe(409);
+    expect(
+      (
+        await worker.fetch(
+          jsonPost(await sign(EMAIL), path, { ...body, requestId: "stale" }),
+          realEnv()
+        )
+      ).status
+    ).toBe(409);
+    expect(
+      await testEnv.DB.prepare(
+        "SELECT actor FROM llm_reconciliations WHERE operation_id=?"
+      )
+        .bind(operation.id)
+        .first()
+    ).toEqual({ actor: DISPLAY_NAME });
+    expect(await accounting.accountingForRun(testEnv.DB, runId)).toMatchObject({
+      totalCents: 3,
+      uncertainCents: 0
+    });
+    const detail = await (
+      await worker.fetch(get(`/api/runs/${runId}`), testEnv)
+    ).json();
+    expect(JSON.stringify(detail)).toContain("invoice:reviewed-331");
+    expect(JSON.stringify(detail)).not.toContain(EMAIL);
+  });
+  it("rejects legacy steering bodies before paid inference with a useful validation error", async () => {
+    const runId = "run-20261002-c032";
+    await seedRun(runId);
+    const run = vi.fn();
+    const res = await worker.fetch(
+      jsonPost(await sign(EMAIL), `/api/admin/runs/${runId}/steering`, {
+        content: "hello",
+        private: false
+      }),
+      { ...realEnv(), AI: { run } } as unknown as Env
+    );
+    expect(res.status).toBe(400);
+    expect(run).not.toHaveBeenCalled();
+  });
 });

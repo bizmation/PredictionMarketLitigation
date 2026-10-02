@@ -116,6 +116,24 @@ describe.each(["log", "controls", "evidence"])(
         ).not.toBeNull();
       }
     });
+    it("shows held and uncertain liability separately from the enforcement total", async () => {
+      stub({
+        ...row,
+        spendCents: 153,
+        reservedCents: 50,
+        uncertainCents: 100,
+        accountingIssueCount: 1,
+        reportedCostCents: null
+      });
+      mount(surface);
+      await act(async () => {});
+      const text = document.body.textContent!.toLowerCase();
+      expect(text).toContain("held");
+      expect(text).toContain("uncertain");
+      expect(text).toContain(surface === "controls" ? "50 cents" : "$0.50");
+      expect(text).toContain(surface === "controls" ? "100 cents" : "$1.00");
+      expect(text).toContain(surface === "controls" ? "153 cents" : "$1.53");
+    });
     it("shows unknown totals with the number of calls without charges", async () => {
       stub({ ...row, reportedCostCents: null, unmeasuredCallCount: 1 }, [
         calls[0]!,
@@ -141,6 +159,10 @@ describe.each(["log", "controls"])(
   "malformed fetched accounting: %s",
   (surface) => {
     it.each([
+      { reservedCents: -1 },
+      { uncertainCents: "50" },
+      { legacyAdjustmentCents: 0.5 },
+      { accountingIssueCount: null },
       { reportedCostCents: -1 },
       { reportedCostCents: 0.5 },
       { reportedCostCents: "3" },
@@ -159,3 +181,62 @@ describe.each(["log", "controls"])(
     });
   }
 );
+
+describe("validated operation evidence details", () => {
+  const operation = {
+    id: "op-331",
+    logicalKey: "draft:1:drafter",
+    state: "uncertain",
+    version: 3,
+    boundCents: 50,
+    liabilityCents: 75,
+    createdAt: row.startedAt,
+    providerRequestId: "gen-331",
+    issue: "over_bound"
+  };
+  const receipt = {
+    requestId: "r-331",
+    operationId: "op-331",
+    actor: "Operator",
+    evidenceReference: "invoice:331",
+    note: "Checked",
+    beforeJson: "{}",
+    afterJson: "{}",
+    createdAt: row.startedAt
+  };
+  it("shows all values needed for an operator reconciliation", async () => {
+    stub({
+      ...row,
+      accountingOperations: [operation],
+      reconciliationReceipts: [receipt]
+    });
+    mount("evidence");
+    await act(async () => {});
+    expect(document.body.textContent).toContain("Version 3");
+    expect(document.body.textContent).toContain("Bound $0.50");
+    expect(document.body.textContent).toContain("Retained liability $0.75");
+    expect(document.body.textContent).toContain("Provider request gen-331");
+  });
+  it.each([
+    { accountingOperations: {} },
+    { reconciliationReceipts: {} },
+    { accountingOperations: [{ ...operation, version: "3" }] },
+    {
+      accountingOperations: [
+        { ...operation, providerRequestId: { secret: "x" } }
+      ]
+    },
+    { accountingOperations: [{ ...operation, liabilityCents: -1 }] },
+    { reconciliationReceipts: [{ ...receipt, actor: { name: "Operator" } }] },
+    { reconciliationReceipts: [{ ...receipt, evidenceReference: 3 }] }
+  ])(
+    "rejects malformed fetched operation/receipt fields %j",
+    async (invalid) => {
+      stub({ ...row, ...invalid });
+      mount("evidence");
+      await act(async () => {});
+      expect(document.body.textContent).not.toContain("op-331");
+      expect(document.body.textContent).not.toContain("Budget accounting");
+    }
+  );
+});

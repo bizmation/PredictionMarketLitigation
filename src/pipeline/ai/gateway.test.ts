@@ -134,6 +134,7 @@ describe("gateway.complete (story 3.2)", () => {
     const provider = fakeProvider();
     await expect(
       complete(deps(provider), {
+        operationKey: crypto.randomUUID(),
         role: "nope" as never,
         runId: RUN_ID,
         prompt: "hi"
@@ -162,7 +163,12 @@ describe("gateway.complete (story 3.2)", () => {
           now: () => NOW,
           newId: deterministicNewId
         },
-        { role: "drafter", runId: RUN_ID, prompt: "hi" }
+        {
+          operationKey: crypto.randomUUID(),
+          role: "drafter",
+          runId: RUN_ID,
+          prompt: "hi"
+        }
       )
     ).rejects.toMatchObject({ code: "gateway_not_configured" });
   });
@@ -176,6 +182,7 @@ describe("gateway.complete (story 3.2)", () => {
     const provider = fakeProvider();
     await expect(
       complete(deps(provider), {
+        operationKey: crypto.randomUUID(),
         role: "drafter",
         runId: missingId,
         prompt: "hi"
@@ -195,6 +202,7 @@ describe("gateway.complete (story 3.2)", () => {
     await seedConfig({}, null);
     await expect(
       complete(deps(fakeProvider()), {
+        operationKey: crypto.randomUUID(),
         role: "drafter",
         runId: RUN_ID,
         prompt: "hi"
@@ -222,6 +230,7 @@ describe("gateway.complete (story 3.2)", () => {
     });
 
     const result = await complete(deps(provider), {
+      operationKey: crypto.randomUUID(),
       role: "drafter",
       runId: RUN_ID,
       prompt: "draft this"
@@ -264,6 +273,7 @@ describe("gateway.complete (story 3.2)", () => {
     );
     await expect(
       complete(deps(fakeProvider({ inputTokens: null, outputTokens: null })), {
+        operationKey: crypto.randomUUID(),
         role: "drafter",
         runId: RUN_ID,
         prompt: "draft this"
@@ -284,6 +294,7 @@ describe("gateway.complete (story 3.2)", () => {
       null
     );
     await complete(deps(fakeProvider({ costCents: 12 })), {
+      operationKey: crypto.randomUUID(),
       role: "reviewer",
       runId: RUN_ID,
       prompt: "review"
@@ -319,6 +330,7 @@ describe("gateway.complete (story 3.2)", () => {
 
     await expect(
       complete(deps(provider), {
+        operationKey: crypto.randomUUID(),
         role: "orchestrator",
         runId: RUN_ID,
         prompt: "go"
@@ -352,6 +364,7 @@ describe("gateway.complete (story 3.2)", () => {
 
     await expect(
       complete(deps(provider), {
+        operationKey: crypto.randomUUID(),
         role: "orchestrator",
         runId: RUN_ID,
         prompt: "go again"
@@ -379,6 +392,7 @@ describe("gateway.complete (story 3.2)", () => {
     const provider = fakeProvider();
     await expect(
       complete(deps(provider), {
+        operationKey: crypto.randomUUID(),
         role: "drafter",
         runId: RUN_ID,
         prompt: "hi"
@@ -398,6 +412,7 @@ describe("gateway.complete (story 3.2)", () => {
     );
     const provider = fakeProvider({ costCents: 4 });
     const result = await complete(deps(provider), {
+      operationKey: crypto.randomUUID(),
       role: "steward",
       runId: RUN_ID,
       prompt: "steer"
@@ -426,12 +441,14 @@ describe("gateway.complete (story 3.2)", () => {
     );
     const provider = fakeProvider({ costCents: 4 });
     const drafter = await complete(deps(provider), {
+      operationKey: crypto.randomUUID(),
       role: "drafter",
       runId: RUN_ID,
       prompt: "draft"
     });
     expect(drafter.role).toBe("drafter");
     const reviewer = await complete(deps(provider), {
+      operationKey: crypto.randomUUID(),
       role: "reviewer",
       runId: RUN_ID,
       prompt: "review"
@@ -451,6 +468,7 @@ describe("gateway.complete (story 3.2)", () => {
     const provider = fakeProvider();
     await expect(
       complete(deps(provider), {
+        operationKey: crypto.randomUUID(),
         role: "yolo",
         runId: RUN_ID,
         prompt: "hi"
@@ -468,6 +486,7 @@ describe("gateway.complete (story 3.2)", () => {
     const provider = fakeProvider();
     await expect(
       complete(deps(provider), {
+        operationKey: crypto.randomUUID(),
         role: "steward",
         runId: RUN_ID,
         prompt: "hi"
@@ -485,6 +504,7 @@ describe("gateway.complete (story 3.2)", () => {
     await recordPriorSpend(50);
     await expect(
       complete(deps(fakeProvider()), {
+        operationKey: crypto.randomUUID(),
         role: "orchestrator",
         runId: RUN_ID,
         prompt: "go"
@@ -503,6 +523,7 @@ describe("gateway.complete (story 3.2)", () => {
     const provider = fakeProvider();
     await expect(
       complete(deps(provider), {
+        operationKey: crypto.randomUUID(),
         role: "orchestrator",
         runId: RUN_ID,
         prompt: "go"
@@ -519,6 +540,7 @@ describe("gateway.complete (story 3.2)", () => {
     );
     await expect(
       complete(deps(fakeProvider({ fail: true })), {
+        operationKey: crypto.randomUUID(),
         role: "drafter",
         runId: RUN_ID,
         prompt: "draft"
@@ -716,6 +738,7 @@ describe("bounded provider cost", () => {
     await seedConfig({ drafter: { provider, model: selectedModel } }, 500);
   }
   const input = () => ({
+    operationKey: crypto.randomUUID(),
     role: "drafter" as const,
     runId: RUN_ID,
     prompt: "hello"
@@ -1052,12 +1075,13 @@ describe("gateway.complete provider deadline (story 3.19)", () => {
     };
   }
 
-  it("maps a hung provider to provider_error after PROVIDER_TIMEOUT_MS with no spend row and no Run change", async () => {
+  it("retains bound liability after a provider timeout without fabricating a ledger charge", async () => {
     await insertRun();
     await seedConfig({ drafter: { provider: "fake", model: "slow-v1" } }, 500);
     const provider = hungProvider();
     vi.useFakeTimers();
     const pending = complete(deps(provider), {
+      operationKey: crypto.randomUUID(),
       role: "drafter",
       runId: RUN_ID,
       prompt: "draft"
@@ -1091,7 +1115,8 @@ describe("gateway.complete provider deadline (story 3.19)", () => {
     expect(calls?.count).toBe(0);
     const run = await runsRepo.getRunById(testEnv.DB, RUN_ID);
     expect(run?.status).toBe("running");
-    expect(run?.spendCents).toBe(0);
+    expect(run?.spendCents).toBe(50);
+    expect(run?.uncertainCents).toBe(50);
     const stopped = await testEnv.DB.prepare(
       "SELECT COUNT(*) AS count FROM evidence_events WHERE run_id = ? AND event = 'run.stopped'"
     )
@@ -1105,6 +1130,7 @@ describe("gateway.complete provider deadline (story 3.19)", () => {
     await seedConfig({ drafter: { provider: "fake", model: "fast-v1" } }, 500);
     vi.useFakeTimers();
     const result = await complete(deps(fakeProvider()), {
+      operationKey: crypto.randomUUID(),
       role: "drafter",
       runId: RUN_ID,
       prompt: "draft"
@@ -1137,6 +1163,7 @@ describe("snapshotted Run budget enforcement (story 3.25)", () => {
         complete(
           { ...deps(provider), now: () => new Date().toISOString() },
           {
+            operationKey: crypto.randomUUID(),
             role: "drafter",
             runId: RUN_ID,
             prompt: "hi"
@@ -1169,7 +1196,12 @@ describe("snapshotted Run budget enforcement (story 3.25)", () => {
     await expect(
       complete(
         { ...deps(provider), now: () => new Date().toISOString() },
-        { role: "drafter", runId, prompt: "hi" }
+        {
+          operationKey: crypto.randomUUID(),
+          role: "drafter",
+          runId,
+          prompt: "hi"
+        }
       )
     ).rejects.toMatchObject({ code: "gateway_not_configured" });
     expect(provider.count()).toBe(0);
@@ -1209,3 +1241,638 @@ describe("provider factories", () => {
     }
   );
 });
+
+describe("atomic gateway dispatch and replay (3.31)", () => {
+  it("dispatches at most one competing bounded call and exposes the reservation immediately", async () => {
+    await insertRun({ budgetCents: 50 });
+    await seedConfig({ drafter: { provider: "fake", model: "m" } }, 50);
+    let release!: () => void;
+    let entered!: () => void;
+    const held = new Promise<void>((r) => (release = r)),
+      reached = new Promise<void>((r) => (entered = r));
+    const invoke = vi.fn(async () => {
+      entered();
+      await held;
+      return {
+        text: "PRIVATE completion",
+        inputTokens: 1,
+        outputTokens: 1,
+        reportedCostUsd: 0.01
+      };
+    });
+    const d = deps({ name: "fake", complete: invoke });
+    const input = {
+      operationKey: "draft:race:drafter",
+      role: "drafter" as const,
+      runId: RUN_ID,
+      prompt: "PRIVATE prompt"
+    };
+    const first = complete(d, input);
+    await reached;
+    const worker = (await import("../../server")).default;
+    const detail = (await (
+      await worker.fetch(
+        new Request(`https://pml.example.com/api/runs/${RUN_ID}`),
+        testEnv
+      )
+    ).json()) as { spendCents: number; reservedCents: number };
+    expect(detail).toMatchObject({ spendCents: 50, reservedCents: 50 });
+    expect(JSON.stringify(detail)).not.toContain("PRIVATE");
+    await expect(complete(d, input)).rejects.toMatchObject({
+      code: "operation_pending"
+    });
+    await expect(
+      complete(d, { ...input, operationKey: "draft:other:drafter" })
+    ).rejects.toMatchObject({ code: "budget_stopped" });
+    release();
+    const completed = await first;
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(
+      await complete({ ...d, now: () => "2030-01-01T00:00:00.000Z" }, input)
+    ).toEqual(completed);
+    await expect(
+      complete(d, { ...input, prompt: "changed" })
+    ).rejects.toMatchObject({ code: "operation_conflict" });
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+  it("enforces all shared periods across concurrent Runs and original settlement attribution", async () => {
+    const now = "2026-12-01T00:00:00.000Z";
+    await insertRun({ budgetCents: 100 });
+    const firstRun = RUN_ID;
+    await insertRun({ budgetCents: 100 });
+    const secondRun = RUN_ID;
+    await seedConfig({ drafter: { provider: "fake", model: "m" } }, 100);
+    for (const [id, cap] of [
+      ["broad", 100],
+      ["tight", 50]
+    ] as const)
+      await testEnv.DB.prepare("INSERT INTO llm_periods VALUES (?,?,?,?,?)")
+        .bind(id, now, "2026-12-02T00:00:00.000Z", cap, "test reviewed period")
+        .run();
+    let release!: () => void;
+    let entered!: () => void;
+    const held = new Promise<void>((r) => (release = r)),
+      reached = new Promise<void>((r) => (entered = r));
+    const invoke = vi.fn(async () => {
+      entered();
+      await held;
+      return {
+        text: "ok",
+        inputTokens: 1,
+        outputTokens: 1,
+        reportedCostUsd: 0.01
+      };
+    });
+    let time = now;
+    const d = { ...deps({ name: "fake", complete: invoke }), now: () => time };
+    const first = complete(d, {
+      operationKey: "first",
+      runId: firstRun,
+      role: "drafter",
+      prompt: "x"
+    });
+    await reached;
+    await expect(
+      complete(d, {
+        operationKey: "second",
+        runId: secondRun,
+        role: "drafter",
+        prompt: "y"
+      })
+    ).rejects.toMatchObject({ code: "budget_stopped" });
+    time = "2026-12-03T00:00:00.000Z";
+    release();
+    await first;
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(
+      (
+        await testEnv.DB.prepare(
+          "SELECT total_cents FROM llm_period_accounting WHERE period_id IN ('broad','tight')"
+        ).all()
+      ).results
+    ).toEqual([{ total_cents: 1 }, { total_cents: 1 }]);
+  });
+  it("retains unknown outcomes on identical retries and returns a typed result-unavailable after reconciliation", async () => {
+    await insertRun();
+    await seedConfig({ drafter: { provider: "fake", model: "m" } }, 100);
+    const provider = fakeProvider({ fail: true });
+    const d = deps(provider);
+    const input = {
+      operationKey: "unknown",
+      runId: RUN_ID,
+      role: "drafter" as const,
+      prompt: "x"
+    };
+    await expect(complete(d, input)).rejects.toMatchObject({
+      code: "provider_error"
+    });
+    await expect(complete(d, input)).rejects.toMatchObject({
+      code: "accounting_uncertain"
+    });
+    const accounting = await import("../../shared/db/repos/llmAccountingRepo");
+    const op = (await accounting.getOperation(
+      testEnv.DB,
+      RUN_ID,
+      input.operationKey
+    ))!;
+    await accounting.reconcile(
+      testEnv.DB,
+      op.id,
+      {
+        requestId: "reconcile-" + op.id,
+        expectedVersion: op.version,
+        decision: "confirmed_no_charge",
+        evidenceReference: "provider-support:1",
+        note: "Provider attested no charge"
+      },
+      "Operator",
+      NOW
+    );
+    await expect(complete(d, input)).rejects.toMatchObject({
+      code: "result_unavailable"
+    });
+    expect(provider.count()).toBe(1);
+  });
+});
+
+describe("accounting recovery boundaries", () => {
+  it("retains observed over-bound response evidence after atomic settlement rollback", async () => {
+    await insertRun({ budgetCents: 100 });
+    await seedConfig({ drafter: { provider: "fake", model: "m" } }, 100);
+    let batches = 0;
+    const real = testEnv.DB;
+    const db = new Proxy(real, {
+      get(target, prop) {
+        if (prop === "batch")
+          return (statements: D1PreparedStatement[]) =>
+            ++batches === 3
+              ? target.batch([
+                  ...statements,
+                  target.prepare(
+                    "INSERT INTO gate_assertions VALUES ('settlement-injected',0)"
+                  )
+                ])
+              : target.batch(statements);
+        const v = Reflect.get(target, prop);
+        return typeof v === "function" ? v.bind(target) : v;
+      }
+    });
+    const provider: LlmProvider = {
+      name: "fake",
+      complete: async () => ({
+        text: "private observed output",
+        inputTokens: 1,
+        outputTokens: 1,
+        reportedCostUsd: 0.75,
+        providerRequestId: "observed-generation"
+      })
+    };
+    const input = {
+      operationKey: "rollback-observed",
+      runId: RUN_ID,
+      role: "drafter" as const,
+      prompt: "private prompt"
+    };
+    await expect(complete({ ...deps(provider), db }, input)).rejects.toThrow();
+    const op = await real
+      .prepare("SELECT * FROM llm_operations WHERE run_id=?")
+      .bind(RUN_ID)
+      .first<{
+        liability_cents: number;
+        provider_request_id: string;
+        response_evidence_json: string;
+        state: string;
+      }>();
+    expect(op).toMatchObject({
+      liability_cents: 75,
+      provider_request_id: "observed-generation",
+      state: "uncertain"
+    });
+    expect(op?.response_evidence_json).toContain("private observed output");
+    expect(
+      await real
+        .prepare("SELECT id FROM llm_calls WHERE run_id=?")
+        .bind(RUN_ID)
+        .first()
+    ).toBeNull();
+    await expect(
+      complete(deps(provider), { ...input, operationKey: "other" })
+    ).rejects.toMatchObject({ code: "accounting_uncertain" });
+  });
+  it.each([false, true])(
+    "captures a late uncancellable provider response without overwriting reconciliation (%s)",
+    async (reconciled) => {
+      await insertRun();
+      await seedConfig({ drafter: { provider: "fake", model: "m" } }, 100);
+      let resolve!: (
+        value: Awaited<ReturnType<LlmProvider["complete"]>>
+      ) => void;
+      let enter!: () => void;
+      const reached = new Promise<void>((r) => (enter = r));
+      const provider: LlmProvider = {
+        name: "fake",
+        complete: () => {
+          enter();
+          return new Promise((r) => (resolve = r));
+        }
+      };
+      const input = {
+        operationKey: "late",
+        runId: RUN_ID,
+        role: "drafter" as const,
+        prompt: "x"
+      };
+      let evidenceWritten!: () => void;
+      const evidenceAttempt = new Promise<void>((r) => (evidenceWritten = r));
+      let batches = 0;
+      const trackingDb = new Proxy(testEnv.DB, {
+        get(target, prop) {
+          if (prop === "batch")
+            return async (statements: D1PreparedStatement[]) => {
+              const n = ++batches;
+              try {
+                return await target.batch(statements);
+              } finally {
+                if (n === 3) evidenceWritten();
+              }
+            };
+          const value = Reflect.get(target, prop);
+          return typeof value === "function" ? value.bind(target) : value;
+        }
+      });
+      vi.useFakeTimers();
+      const failed = expect(
+        complete({ ...deps(provider), db: trackingDb }, input)
+      ).rejects.toMatchObject({ code: "provider_error" });
+      await reached;
+      await vi.advanceTimersByTimeAsync(PROVIDER_TIMEOUT_MS);
+      await failed;
+      vi.useRealTimers();
+      const a = await import("../../shared/db/repos/llmAccountingRepo");
+      const op = (await a.getOperation(testEnv.DB, RUN_ID, "late"))!;
+      if (reconciled)
+        await a.reconcile(
+          testEnv.DB,
+          op.id,
+          {
+            requestId: "late-reconcile-" + op.id,
+            expectedVersion: op.version,
+            decision: "confirmed_no_charge",
+            evidenceReference: "ticket:late",
+            note: "Confirmed"
+          },
+          "Operator",
+          NOW
+        );
+      resolve({
+        text: "late private answer",
+        inputTokens: 1,
+        outputTokens: 1,
+        reportedCostUsd: 0.75,
+        providerRequestId: "late-generation"
+      });
+      await evidenceAttempt;
+      expect(await a.getOperationById(testEnv.DB, op.id)).toMatchObject(
+        reconciled
+          ? {
+              liability_cents: 0,
+              provider_request_id: null,
+              state: "reconciled"
+            }
+          : {
+              liability_cents: 75,
+              provider_request_id: "late-generation",
+              state: "uncertain"
+            }
+      );
+    }
+  );
+  it("releases only a proven local policy refusal between claim and paid Workers invocation", async () => {
+    const policy = COST_POLICIES[0]!;
+    let clock = policy.verifiedAt;
+    await insertRun();
+    await seedConfig(
+      { drafter: { provider: "workersai", model: policy.model } },
+      100
+    );
+    let batches = 0;
+    const db = new Proxy(testEnv.DB, {
+      get(target, prop) {
+        if (prop === "batch")
+          return async (statements: D1PreparedStatement[]) => {
+            const result = await target.batch(statements);
+            if (++batches === 2) clock = policy.validUntil;
+            return result;
+          };
+        const v = Reflect.get(target, prop);
+        return typeof v === "function" ? v.bind(target) : v;
+      }
+    });
+    const run = vi.fn();
+    const provider = createWorkersAiProvider({
+      AI: { run }
+    } as unknown as Env)!;
+    await expect(
+      complete(
+        { db, provider, now: () => clock },
+        {
+          operationKey: "expiry-before-invoke",
+          runId: RUN_ID,
+          role: "drafter",
+          prompt: "x"
+        }
+      )
+    ).rejects.toMatchObject({ code: "cost_policy_invalid" });
+    expect(run).not.toHaveBeenCalled();
+    expect(
+      await testEnv.DB.prepare(
+        "SELECT state,liability_cents FROM llm_operations WHERE run_id=?"
+      )
+        .bind(RUN_ID)
+        .first()
+    ).toEqual({ state: "released", liability_cents: 0 });
+  });
+  it("rechecks identity when a duplicate reservation appears after the initial identity read", async () => {
+    await insertRun({ budgetCents: 50 });
+    await seedConfig({ drafter: { provider: "fake", model: "m" } }, 50);
+    let resume!: () => void;
+    let arrived!: () => void;
+    const paused = new Promise<void>((r) => (arrived = r)),
+      hold = new Promise<void>((r) => (resume = r));
+    let intercepted = false;
+    const db = new Proxy(testEnv.DB, {
+      get(target, prop) {
+        if (prop === "prepare")
+          return (sql: string) => {
+            const wrap = (st: D1PreparedStatement): D1PreparedStatement =>
+              new Proxy(st, {
+                get(stmt, key) {
+                  if (key === "bind")
+                    return (...v: unknown[]) => wrap(stmt.bind(...v));
+                  if (
+                    key === "first" &&
+                    !intercepted &&
+                    sql.includes("SELECT * FROM llm_operations WHERE run_id")
+                  )
+                    return async () => {
+                      intercepted = true;
+                      const value = await stmt.first();
+                      arrived();
+                      await hold;
+                      return value;
+                    };
+                  const v = Reflect.get(stmt, key);
+                  return typeof v === "function" ? v.bind(stmt) : v;
+                }
+              });
+            return wrap(target.prepare(sql));
+          };
+        const v = Reflect.get(target, prop);
+        return typeof v === "function" ? v.bind(target) : v;
+      }
+    });
+    let release!: () => void;
+    let enter!: () => void;
+    const running = new Promise<void>((r) => (enter = r)),
+      providerHold = new Promise<void>((r) => (release = r));
+    const invoke = vi.fn(async () => {
+      enter();
+      await providerHold;
+      return {
+        text: "ok",
+        inputTokens: 1,
+        outputTokens: 1,
+        reportedCostUsd: 0
+      };
+    });
+    const provider = { name: "fake", complete: invoke };
+    const input = {
+      operationKey: "identical",
+      runId: RUN_ID,
+      role: "drafter" as const,
+      prompt: "x"
+    };
+    const duplicate = expect(
+      complete({ ...deps(provider), db }, input)
+    ).rejects.toMatchObject({ code: "operation_pending" });
+    await paused;
+    const winner = complete(deps(provider), input);
+    await running;
+    resume();
+    await duplicate;
+    expect((await runsRepo.getRunById(testEnv.DB, RUN_ID))?.status).toBe(
+      "running"
+    );
+    release();
+    await winner;
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+});
+
+it.each(["run", "period"])(
+  "refuses dispatch if an %s anomaly appears after reservation but before claim",
+  async (scope) => {
+    const clock =
+      scope === "run" ? "2027-01-02T00:00:00.000Z" : "2027-01-03T00:00:00.000Z";
+    await insertRun({ budgetCents: 100 });
+    const targetRun = RUN_ID;
+    await seedConfig({ drafter: { provider: "fake", model: "m" } }, 100);
+    const a = await import("../../shared/db/repos/llmAccountingRepo");
+    let issueRun = targetRun;
+    if (scope === "period") {
+      await insertRun({ budgetCents: 100 });
+      issueRun = RUN_ID;
+      await testEnv.DB.prepare("INSERT INTO llm_periods VALUES (?,?,?,?,?)")
+        .bind(
+          "claim-" + targetRun,
+          clock,
+          "2027-01-04T00:00:00.000Z",
+          500,
+          "reviewed claim race"
+        )
+        .run();
+    }
+    let arrive!: () => void;
+    let resume!: () => void;
+    const reached = new Promise<void>((r) => (arrive = r)),
+      held = new Promise<void>((r) => (resume = r));
+    let batches = 0;
+    const db = new Proxy(testEnv.DB, {
+      get(target, prop) {
+        if (prop === "batch")
+          return async (statements: D1PreparedStatement[]) => {
+            if (++batches === 2) {
+              arrive();
+              await held;
+            }
+            return target.batch(statements);
+          };
+        const v = Reflect.get(target, prop);
+        return typeof v === "function" ? v.bind(target) : v;
+      }
+    });
+    const provider = fakeProvider();
+    const refused = expect(
+      complete(
+        { ...deps(provider), db, now: () => clock },
+        {
+          operationKey: "claim-race",
+          runId: targetRun,
+          role: "drafter",
+          prompt: "x"
+        }
+      )
+    ).rejects.toThrow();
+    await reached;
+    await testEnv.DB.prepare(
+      "INSERT INTO llm_calls (id,run_id,role,provider,model,cost_cents,currency,created_at,accounting_issue) VALUES (?,?,'reviewer','fake','m',60,'USD',?,'reported_cost_exceeds_bound')"
+    )
+      .bind("late-issue-" + targetRun, issueRun, clock)
+      .run();
+    resume();
+    await refused;
+    expect(provider.count()).toBe(0);
+    expect(
+      await a.getOperation(testEnv.DB, targetRun, "claim-race")
+    ).toMatchObject({ state: "reserved" });
+  }
+);
+
+it.each([
+  "run",
+  "fallback",
+  "shared-period",
+  "new-period",
+  "run-equality",
+  "period-equality"
+])(
+  "rechecks numeric %s capacity in the dispatch claim transaction",
+  async (scenario) => {
+    const index = [
+      "run",
+      "fallback",
+      "shared-period",
+      "new-period",
+      "run-equality",
+      "period-equality"
+    ].indexOf(scenario);
+    const clock = new Date(Date.UTC(2028, 0, index + 1)).toISOString();
+    const end = new Date(Date.parse(clock) + 86400000).toISOString();
+    await insertRun({ budgetCents: scenario === "fallback" ? null : 100 });
+    const targetRun = RUN_ID;
+    await seedConfig({ drafter: { provider: "fake", model: "m" } }, 100);
+    const a = await import("../../shared/db/repos/llmAccountingRepo");
+    const hasPrior = !["new-period", "period-equality"].includes(scenario);
+    let prior: Awaited<ReturnType<typeof a.reserve>> | undefined;
+    if (hasPrior) {
+      let priorRun = targetRun;
+      if (scenario === "shared-period") {
+        await insertRun({ budgetCents: 100 });
+        priorRun = RUN_ID;
+        await testEnv.DB.prepare("INSERT INTO llm_periods VALUES (?,?,?,?,?)")
+          .bind(
+            "numeric-" + targetRun,
+            clock,
+            end,
+            100,
+            "numeric claim regression"
+          )
+          .run();
+      }
+      prior = await a.reserve(testEnv.DB, {
+        id: "numeric-prior-" + targetRun,
+        runId: priorRun,
+        role: "reviewer",
+        key: "prior",
+        fingerprint: "prior",
+        owner: "prior-owner",
+        bound: 50,
+        budget: 100,
+        policy: fixtureCostPolicy("fake", "m", clock),
+        now: clock,
+        awaiting: false
+      });
+      await a.claimDispatch(testEnv.DB, prior, prior.owner, clock);
+    }
+    let arrive!: () => void;
+    let resume!: () => void;
+    const reached = new Promise<void>((r) => (arrive = r)),
+      held = new Promise<void>((r) => (resume = r));
+    let batches = 0;
+    const db = new Proxy(testEnv.DB, {
+      get(target, prop) {
+        if (prop === "batch")
+          return async (statements: D1PreparedStatement[]) => {
+            if (++batches === 2) {
+              arrive();
+              await held;
+            }
+            return target.batch(statements);
+          };
+        const value = Reflect.get(target, prop);
+        return typeof value === "function" ? value.bind(target) : value;
+      }
+    });
+    const provider = fakeProvider();
+    const outcome = complete(
+      { ...deps(provider), db, now: () => clock },
+      {
+        operationKey: "numeric-claim",
+        runId: targetRun,
+        role: "drafter",
+        prompt: "x"
+      }
+    ).then(
+      (result) => ({ result }),
+      (error) => ({ error })
+    );
+    await reached;
+    if (prior) {
+      await a.markUncertain(
+        testEnv.DB,
+        prior.id,
+        prior.owner,
+        "charge_under_review"
+      );
+      await a.reconcile(
+        testEnv.DB,
+        prior.id,
+        {
+          requestId: "numeric-reconcile-" + targetRun,
+          expectedVersion: 3,
+          decision: "confirmed_charge",
+          originalUsd: scenario === "run-equality" ? "0.50" : "0.60",
+          evidenceReference: "invoice:numeric",
+          note: "Verified higher provider amount"
+        },
+        "Operator",
+        clock
+      );
+      expect(await a.accountingForRun(testEnv.DB, targetRun)).toMatchObject({
+        issueCount: 0
+      });
+      expect(await a.getOperationById(testEnv.DB, prior.id)).toMatchObject({
+        state: "reconciled",
+        issue: null
+      });
+    } else {
+      await testEnv.DB.prepare("INSERT INTO llm_periods VALUES (?,?,?,?,?)")
+        .bind(
+          "new-numeric-" + targetRun,
+          clock,
+          end,
+          scenario === "period-equality" ? 50 : 49,
+          "provisioned after reservation"
+        )
+        .run();
+    }
+    resume();
+    const result = await outcome;
+    const allowed = scenario.endsWith("equality");
+    expect("error" in result).toBe(!allowed);
+    expect(provider.count()).toBe(allowed ? 1 : 0);
+    expect(
+      await a.getOperation(testEnv.DB, targetRun, "numeric-claim")
+    ).toMatchObject({ state: allowed ? "settled" : "reserved" });
+  }
+);

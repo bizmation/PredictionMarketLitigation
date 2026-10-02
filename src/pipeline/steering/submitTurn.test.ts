@@ -277,6 +277,7 @@ describe("submitTurn I/O matrix (story 3.14)", () => {
     await seedSteward();
     const provider = fakeProvider({ costCents: 6 });
     const result = await submitTurn(testEnv.DB, deps(provider), {
+      requestId: crypto.randomUUID(),
       runId,
       draftId,
       content: "Please explain the Nevada posture change.",
@@ -322,6 +323,7 @@ describe("submitTurn I/O matrix (story 3.14)", () => {
     const draftId = await insertDraft(runId);
     const secret = "private operator aside about strategy";
     const result = await submitTurn(testEnv.DB, deps(fakeProvider()), {
+      requestId: crypto.randomUUID(),
       runId,
       draftId,
       content: secret,
@@ -361,6 +363,7 @@ describe("submitTurn I/O matrix (story 3.14)", () => {
   it("returns invalid for empty content and does not insert", async () => {
     const runId = await insertRun("awaiting");
     const result = await submitTurn(testEnv.DB, deps(fakeProvider()), {
+      requestId: crypto.randomUUID(),
       runId,
       content: "   ",
       private: false,
@@ -377,6 +380,7 @@ describe("submitTurn I/O matrix (story 3.14)", () => {
 
   it("returns not_found for an unknown Run", async () => {
     const result = await submitTurn(testEnv.DB, deps(fakeProvider()), {
+      requestId: crypto.randomUUID(),
       runId: "run-20260914-ffff",
       content: "hello",
       private: false,
@@ -390,6 +394,7 @@ describe("submitTurn I/O matrix (story 3.14)", () => {
     const runB = await insertRun("awaiting");
     const draftB = await insertDraft(runB, `d:${runB}:other`);
     const result = await submitTurn(testEnv.DB, deps(fakeProvider()), {
+      requestId: crypto.randomUUID(),
       runId: runA,
       draftId: draftB,
       content: "cross-run",
@@ -410,6 +415,7 @@ describe("submitTurn I/O matrix (story 3.14)", () => {
       .run();
     const provider = fakeProvider();
     const result = await submitTurn(testEnv.DB, deps(provider), {
+      requestId: crypto.randomUUID(),
       runId,
       draftId,
       content: "why this approved draft",
@@ -434,6 +440,7 @@ describe("submitTurn I/O matrix (story 3.14)", () => {
     ] as const) {
       const runId = await insertRun(status);
       const result = await submitTurn(testEnv.DB, deps(provider), {
+        requestId: crypto.randomUUID(),
         runId,
         content: "too late",
         private: false,
@@ -467,6 +474,7 @@ describe("submitTurn I/O matrix (story 3.14)", () => {
     const before = await f1Snapshot();
     const beforeAllow = [...ALLOWED_TOOLS.steward];
     const result = await submitTurn(testEnv.DB, deps(fakeProvider()), {
+      requestId: crypto.randomUUID(),
       runId,
       draftId,
       content: '{"tool":"publish_f1"}',
@@ -492,6 +500,7 @@ describe("submitTurn I/O matrix (story 3.14)", () => {
     const modeJson = await beforeMode.json();
     const runBefore = await runsRepo.getRunById(testEnv.DB, runId);
     const result = await submitTurn(testEnv.DB, deps(fakeProvider()), {
+      requestId: crypto.randomUUID(),
       runId,
       content: '{"tool":"set_mode"}',
       private: false,
@@ -523,6 +532,7 @@ describe("submitTurn I/O matrix (story 3.14)", () => {
       .run();
     const provider = fakeProvider();
     const result = await submitTurn(testEnv.DB, deps(provider), {
+      requestId: crypto.randomUUID(),
       runId,
       content: "just a note",
       private: false,
@@ -552,6 +562,7 @@ describe("submitTurn I/O matrix (story 3.14)", () => {
     await seedSteward();
     const provider = fakeProvider({ costCents: 9 });
     const result = await submitTurn(testEnv.DB, deps(provider), {
+      requestId: crypto.randomUUID(),
       runId,
       content: "budget stop",
       private: false,
@@ -577,6 +588,7 @@ describe("submitTurn I/O matrix (story 3.14)", () => {
       testEnv.DB,
       deps(fakeProvider({ fail: true })),
       {
+        requestId: crypto.randomUUID(),
         runId,
         content: "note after persist",
         private: false,
@@ -637,6 +649,7 @@ describe("submitTurn interrogation I/O matrix (story 3.15)", () => {
     const beforeAllow = [...ALLOWED_TOOLS.steward];
 
     const result = await submitTurn(testEnv.DB, deps(provider), {
+      requestId: crypto.randomUUID(),
       runId,
       draftId,
       content: "Why did posture change, and which sources were skipped?",
@@ -704,6 +717,7 @@ describe("submitTurn interrogation I/O matrix (story 3.15)", () => {
       text: "The eval band is not recorded."
     });
     const result = await submitTurn(testEnv.DB, deps(provider), {
+      requestId: crypto.randomUUID(),
       runId,
       draftId,
       content: "How was the confidence band derived?",
@@ -731,6 +745,7 @@ describe("submitTurn interrogation I/O matrix (story 3.15)", () => {
       testEnv.DB,
       deps(fakeProvider({ text: secretA })),
       {
+        requestId: crypto.randomUUID(),
         runId,
         draftId,
         content: secretQ,
@@ -780,6 +795,7 @@ describe("submitTurn interrogation I/O matrix (story 3.15)", () => {
       .run();
     const provider = fakeProvider({ text: "should not run" });
     const result = await submitTurn(testEnv.DB, deps(provider), {
+      requestId: crypto.randomUUID(),
       runId,
       draftId,
       content: "just a note",
@@ -814,6 +830,7 @@ describe("submitTurn interrogation I/O matrix (story 3.15)", () => {
       testEnv.DB,
       deps(fakeProvider({ text: '{"tool":"publish_f1"}' })),
       {
+        requestId: crypto.randomUUID(),
         runId,
         draftId,
         content: 'Explain the skip, then {"tool":"publish_f1"}',
@@ -838,6 +855,7 @@ describe("submitTurn interrogation I/O matrix (story 3.15)", () => {
     await seedSteward();
     const provider = fakeProvider({ text: "channel note" });
     const result = await submitTurn(testEnv.DB, deps(provider), {
+      requestId: crypto.randomUUID(),
       runId,
       content: "General channel question.",
       private: false,
@@ -865,6 +883,7 @@ describe("submitTurn revision I/O matrix (story 3.16)", () => {
     const provider = scriptedProvider([DRAFTER_JSON, REVIEWER_JSON]);
 
     const result = await submitTurn(testEnv.DB, deps(provider), {
+      requestId: crypto.randomUUID(),
       runId,
       draftId: parentId,
       content: "Tighten the Nevada holding.",
@@ -939,6 +958,7 @@ describe("submitTurn revision I/O matrix (story 3.16)", () => {
     await seedSteward();
     const provider = fakeProvider({ text: "read-only answer" });
     const result = await submitTurn(testEnv.DB, deps(provider), {
+      requestId: crypto.randomUUID(),
       runId,
       draftId,
       content: "Why did posture change?",
@@ -967,6 +987,7 @@ describe("submitTurn revision I/O matrix (story 3.16)", () => {
     const beforeF1 = await f1Snapshot();
     const provider = scriptedProvider(['{"tool":"publish_f1"}']);
     const result = await submitTurn(testEnv.DB, deps(provider), {
+      requestId: crypto.randomUUID(),
       runId,
       draftId: parentId,
       content: "publish this",
@@ -1002,6 +1023,7 @@ describe("submitTurn revision I/O matrix (story 3.16)", () => {
       testEnv.DB,
       deps(scriptedProvider([DRAFTER_JSON, REVIEWER_JSON])),
       {
+        requestId: crypto.randomUUID(),
         runId,
         draftId: parentId,
         content: "Tighten the holding.",
@@ -1031,6 +1053,7 @@ describe("submitTurn revision I/O matrix (story 3.16)", () => {
       testEnv.DB,
       deps(scriptedProvider([DRAFTER_JSON, REVIEWER_JSON])),
       {
+        requestId: crypto.randomUUID(),
         runId,
         draftId: parentId,
         content: "Try again after the ceiling.",
@@ -1058,6 +1081,7 @@ describe("submitTurn revision I/O matrix (story 3.16)", () => {
       testEnv.DB,
       deps(scriptedProvider([DRAFTER_JSON, REVIEWER_JSON])),
       {
+        requestId: crypto.randomUUID(),
         runId,
         draftId: parentId,
         content: secret,
@@ -1096,6 +1120,7 @@ describe("submitTurn revision I/O matrix (story 3.16)", () => {
       testEnv.DB,
       deps(scriptedProvider([DRAFTER_JSON, REVIEWER_JSON])),
       {
+        requestId: crypto.randomUUID(),
         runId,
         draftId: parentId,
         content: "Tighten the holding.",
@@ -1139,6 +1164,7 @@ describe("submitTurn revision I/O matrix (story 3.16)", () => {
     const runId = await insertRun("awaiting");
     const draftId = await insertDraft(runId, `d:${runId}:nv`, EVAL_OK);
     const missing = await submitTurn(testEnv.DB, deps(fakeProvider()), {
+      requestId: crypto.randomUUID(),
       runId,
       content: "revise this",
       private: false,
@@ -1154,6 +1180,7 @@ describe("submitTurn revision I/O matrix (story 3.16)", () => {
       .bind(NOW, ACTOR, NOW, draftId)
       .run();
     const decided = await submitTurn(testEnv.DB, deps(fakeProvider()), {
+      requestId: crypto.randomUUID(),
       runId,
       draftId,
       content: "revise this",
@@ -1169,6 +1196,7 @@ describe("submitTurn revision I/O matrix (story 3.16)", () => {
     const runId = await insertRun("running");
     const draftId = await insertDraft(runId, `d:${runId}:nv`, EVAL_OK);
     const result = await submitTurn(testEnv.DB, deps(fakeProvider()), {
+      requestId: crypto.randomUUID(),
       runId,
       draftId,
       content: "Tighten the holding.",
@@ -1191,6 +1219,7 @@ describe("submitTurn revision I/O matrix (story 3.16)", () => {
       testEnv.DB,
       deps(fakeProvider({ fail: true })),
       {
+        requestId: crypto.randomUUID(),
         runId,
         draftId: parentId,
         content: "Tighten the holding.",
@@ -1253,6 +1282,7 @@ describe("submitTurn config I/O matrix (story 3.17)", () => {
     const provider = fakeProvider({ text: STEER_JSON });
 
     const result = await submitTurn(testEnv.DB, deps(provider), {
+      requestId: crypto.randomUUID(),
       runId,
       content: "Add the ND Cal docket to Tier-1.",
       private: false,
@@ -1316,6 +1346,7 @@ describe("submitTurn config I/O matrix (story 3.17)", () => {
       testEnv.DB,
       deps(fakeProvider({ text: "```json\n" + STEER_JSON + "\n```" })),
       {
+        requestId: crypto.randomUUID(),
         runId,
         content: "Add the ND Cal docket to Tier-1.",
         private: false,
@@ -1339,6 +1370,7 @@ describe("submitTurn config I/O matrix (story 3.17)", () => {
       value: steeredList()
     });
     const result = await submitTurn(testEnv.DB, deps(fakeProvider({ text })), {
+      requestId: crypto.randomUUID(),
       runId,
       content: "Add the ND Cal docket to Tier-1.",
       private: false,
@@ -1380,6 +1412,7 @@ describe("submitTurn config I/O matrix (story 3.17)", () => {
       }) +
       "\n```";
     const result = await submitTurn(testEnv.DB, deps(fakeProvider({ text })), {
+      requestId: crypto.randomUUID(),
       runId,
       content: "Add the ND Cal docket to Tier-1.",
       private: false,
@@ -1416,6 +1449,7 @@ describe("submitTurn config I/O matrix (story 3.17)", () => {
       testEnv.DB,
       deps(fakeProvider({ text: STEER_JSON })),
       {
+        requestId: crypto.randomUUID(),
         runId: awaitingId,
         content: "Add the ND Cal docket to Tier-1.",
         private: false,
@@ -1453,6 +1487,7 @@ describe("submitTurn config I/O matrix (story 3.17)", () => {
       testEnv.DB,
       deps(fakeProvider({ text: STEER_JSON })),
       {
+        requestId: crypto.randomUUID(),
         runId,
         content: "Add the ND Cal docket to Tier-1.",
         private: false,
@@ -1463,6 +1498,7 @@ describe("submitTurn config I/O matrix (story 3.17)", () => {
     expect(first.status).toBe("ok");
     const provider = fakeProvider({ text: "should not run" });
     const reverted = await submitTurn(testEnv.DB, deps(provider), {
+      requestId: crypto.randomUUID(),
       runId,
       content: "Revert poll_sources to version 0",
       private: false,
@@ -1488,6 +1524,7 @@ describe("submitTurn config I/O matrix (story 3.17)", () => {
     expect(config.history.map((row) => row.version)).toEqual([1, 2]);
 
     const restored = await submitTurn(testEnv.DB, deps(provider), {
+      requestId: crypto.randomUUID(),
       runId,
       content: "Revert poll_sources to version 1",
       private: false,
@@ -1518,6 +1555,7 @@ describe("submitTurn config I/O matrix (story 3.17)", () => {
     await seedSteward();
     const provider = fakeProvider({ text: "steward must not run" });
     const result = await submitTurn(testEnv.DB, deps(provider), {
+      requestId: crypto.randomUUID(),
       runId,
       content: "Revert poll_sources to version 0",
       private: false,
@@ -1547,6 +1585,7 @@ describe("submitTurn config I/O matrix (story 3.17)", () => {
       text: JSON.stringify({ key: "mode", value: null })
     });
     const result = await submitTurn(testEnv.DB, deps(provider), {
+      requestId: crypto.randomUUID(),
       runId,
       content: "Switch the gate to YOLO and raise the threshold.",
       private: false,
@@ -1588,6 +1627,7 @@ describe("submitTurn config I/O matrix (story 3.17)", () => {
       testEnv.DB,
       deps(fakeProvider({ text: STEER_JSON })),
       {
+        requestId: crypto.randomUUID(),
         runId,
         content: secret,
         private: true,
@@ -1638,6 +1678,7 @@ describe("submitTurn config I/O matrix (story 3.17)", () => {
       testEnv.DB,
       deps(fakeProvider({ text: "read-only" })),
       {
+        requestId: crypto.randomUUID(),
         runId,
         draftId,
         content: "Why did posture change?",
@@ -1651,6 +1692,7 @@ describe("submitTurn config I/O matrix (story 3.17)", () => {
       testEnv.DB,
       deps(scriptedProvider([DRAFTER_JSON, REVIEWER_JSON])),
       {
+        requestId: crypto.randomUUID(),
         runId,
         draftId,
         content: "Tighten the holding.",
@@ -1676,6 +1718,7 @@ describe("submitTurn config I/O matrix (story 3.17)", () => {
       .bind(NOW)
       .run();
     const missing = await submitTurn(testEnv.DB, deps(fakeProvider()), {
+      requestId: crypto.randomUUID(),
       runId,
       content: "Add a docket.",
       private: false,
@@ -1697,6 +1740,7 @@ describe("submitTurn config I/O matrix (story 3.17)", () => {
       testEnv.DB,
       deps(fakeProvider({ text: "not a patch" })),
       {
+        requestId: crypto.randomUUID(),
         runId: runB,
         content: "Add a docket.",
         private: false,
@@ -1715,6 +1759,7 @@ describe("submitTurn config I/O matrix (story 3.17)", () => {
     await seedSteward();
     const provider = fakeProvider({ text: STEER_JSON });
     const result = await submitTurn(testEnv.DB, deps(provider), {
+      requestId: crypto.randomUUID(),
       runId,
       content: "Add a docket.",
       private: false,
@@ -1789,6 +1834,7 @@ describe("submitTurn standing guidance I/O matrix (story 3.18)", () => {
     provider = fakeProvider({ text: "steward must not run" })
   ) {
     const result = await submitTurn(testEnv.DB, deps(provider), {
+      requestId: crypto.randomUUID(),
       runId,
       content,
       private: extra.private ?? false,
@@ -2148,6 +2194,7 @@ describe("submitTurn standing guidance I/O matrix (story 3.18)", () => {
       testEnv.DB,
       deps(fakeProvider({ text: "read-only" })),
       {
+        requestId: crypto.randomUUID(),
         runId,
         draftId,
         content: "Why did posture change?",
@@ -2169,6 +2216,7 @@ describe("submitTurn standing guidance I/O matrix (story 3.18)", () => {
         })
       ),
       {
+        requestId: crypto.randomUUID(),
         runId,
         content: "Switch the gate to YOLO.",
         private: false,
@@ -2183,6 +2231,7 @@ describe("submitTurn standing guidance I/O matrix (story 3.18)", () => {
       testEnv.DB,
       deps(scriptedProvider([DRAFTER_JSON, REVIEWER_JSON])),
       {
+        requestId: crypto.randomUUID(),
         runId,
         draftId,
         content: "Tighten the holding.",
@@ -2205,6 +2254,7 @@ describe("submitTurn standing guidance I/O matrix (story 3.18)", () => {
     await seedDrafterReviewer();
     const provider = scriptedProvider([DRAFTER_JSON, REVIEWER_JSON]);
     const revised = await submitTurn(testEnv.DB, deps(provider), {
+      requestId: crypto.randomUUID(),
       runId,
       draftId,
       content: "Tighten the holding.",
@@ -2449,6 +2499,7 @@ describe("submitTurn hardening (story 3.19)", () => {
     const provider = hungProvider();
     vi.useFakeTimers();
     const pending = submitTurn(testEnv.DB, deps(provider), {
+      requestId: crypto.randomUUID(),
       runId,
       content: "Why did Nevada flip?",
       private: false,
@@ -2489,6 +2540,7 @@ describe("submitTurn hardening (story 3.19)", () => {
     const provider = hungProvider();
     vi.useFakeTimers();
     const pending = submitTurn(testEnv.DB, deps(provider), {
+      requestId: crypto.randomUUID(),
       runId,
       content: "Add the ND Cal docket.",
       private: false,
@@ -2520,6 +2572,7 @@ describe("submitTurn hardening (story 3.19)", () => {
       testEnv.DB,
       deps(scriptedProvider([DRAFTER_JSON, REVIEWER_JSON])),
       {
+        requestId: crypto.randomUUID(),
         runId,
         draftId: rootId,
         content: "Tighten the Nevada holding.",
@@ -2548,6 +2601,7 @@ describe("submitTurn hardening (story 3.19)", () => {
     });
     const provider = scriptedProvider([r2Drafter, r2Reviewer]);
     const second = await submitTurn(testEnv.DB, deps(provider), {
+      requestId: crypto.randomUUID(),
       runId,
       draftId: r1Id,
       content: "Cite the docket entry directly.",
@@ -2620,6 +2674,7 @@ describe("submitTurn hardening (story 3.19)", () => {
       db,
       deps(fakeProvider({ text: steerJson })),
       {
+        requestId: crypto.randomUUID(),
         runId,
         content: "Drop the last two sources.",
         private: false,
@@ -2673,6 +2728,7 @@ describe("submitTurn hardening (story 3.19)", () => {
       testEnv.DB,
       deps(fakeProvider({ text: steerJson })),
       {
+        requestId: crypto.randomUUID(),
         runId,
         content: "Drop the last two sources.",
         private: false,
@@ -2686,6 +2742,7 @@ describe("submitTurn hardening (story 3.19)", () => {
     // batch #1 = turn receipt, batch #2 = config.steered + steering.applied.
     const db = failBatchAfter(testEnv.DB, 2);
     const result = await submitTurn(db, deps(provider), {
+      requestId: crypto.randomUUID(),
       runId,
       content: "Revert poll_sources to version 0",
       private: false,
@@ -2733,6 +2790,7 @@ describe("submitTurn hardening (story 3.19)", () => {
     const provider = fakeProvider({ text: "steward must not run" });
     const db = failBatchAfter(testEnv.DB, 2);
     const result = await submitTurn(db, deps(provider), {
+      requestId: crypto.randomUUID(),
       runId,
       content: "Always name the circuit.",
       private: false,
@@ -2780,6 +2838,7 @@ describe("submitTurn hardening (story 3.19)", () => {
       testEnv.DB,
       deps(fakeProvider({ text: "steward must not run" })),
       {
+        requestId: crypto.randomUUID(),
         runId,
         content: "Always name the circuit.",
         private: false,
@@ -2795,6 +2854,7 @@ describe("submitTurn hardening (story 3.19)", () => {
     const provider = fakeProvider({ text: "steward must not run" });
     const db = failBatchAfter(testEnv.DB, 2);
     const result = await submitTurn(db, deps(provider), {
+      requestId: crypto.randomUUID(),
       runId,
       content: "No longer applies.",
       private: false,
@@ -2861,6 +2921,7 @@ describe("atomic revision admission", () => {
         sql.includes("INSERT OR IGNORE INTO drafts") && sql.includes("SELECT ?")
     );
     const pending = submitTurn(barrier.db, deps(provider), {
+      requestId: crypto.randomUUID(),
       runId,
       draftId: id,
       content: "Revise",
@@ -2917,6 +2978,7 @@ describe("atomic revision admission", () => {
         sql.includes("INSERT OR IGNORE INTO drafts") && sql.includes("SELECT ?")
     );
     const input = {
+      requestId: crypto.randomUUID(),
       runId,
       draftId: id,
       content: "Revise",
@@ -2925,7 +2987,10 @@ describe("atomic revision admission", () => {
       actorDisplayName: ACTOR
     };
     const first = submitTurn(a.db, deps(provider), input);
-    const second = submitTurn(b.db, deps(losingProvider), input);
+    const second = submitTurn(b.db, deps(losingProvider), {
+      ...input,
+      requestId: crypto.randomUUID()
+    });
     await Promise.all([a.arrived, b.arrived]);
     a.release();
     expect((await first).status).toBe("ok");
@@ -2974,6 +3039,7 @@ it.each([false, true])(
     await seedDrafterReviewer();
     const provider = scriptedProvider([DRAFTER_JSON, REVIEWER_JSON]);
     const result = await submitTurn(testEnv.DB, deps(provider), {
+      requestId: crypto.randomUUID(),
       runId,
       draftId: id,
       content: "Only my child",
@@ -2993,3 +3059,174 @@ it.each([false, true])(
     ).toEqual(siblingEvidenceBefore);
   }
 );
+
+describe("durable steering submission identity (3.31)", () => {
+  it("returns the persisted public-safe result on a lost-response retry and rejects changed payload", async () => {
+    const runId = await insertRun("awaiting");
+    await seedSteward();
+    const provider = fakeProvider({ text: "PRIVATE completion" });
+    const input = {
+      requestId: "retry-" + runId,
+      runId,
+      content: "PRIVATE prompt",
+      private: true,
+      actorDisplayName: ACTOR
+    };
+    const first = await submitTurn(testEnv.DB, deps(provider), input);
+    expect(first.status).toBe("ok");
+    expect(await submitTurn(testEnv.DB, deps(provider), input)).toEqual(first);
+    expect(
+      await submitTurn(testEnv.DB, deps(provider), {
+        ...input,
+        content: "changed"
+      })
+    ).toMatchObject({ status: "conflict" });
+    expect(provider.count()).toBe(1);
+    expect(JSON.stringify(first)).not.toContain("PRIVATE");
+    expect(await steeringTurnsRepo.listByRun(testEnv.DB, runId)).toHaveLength(
+      1
+    );
+    await submitTurn(testEnv.DB, deps(provider), {
+      ...input,
+      requestId: "intentional-" + runId
+    });
+    expect(provider.count()).toBe(2);
+  });
+  it("refuses an in-flight submission before allocating another turn or provider attempt", async () => {
+    const runId = await insertRun("awaiting");
+    await seedSteward();
+    let release!: () => void;
+    let enter!: () => void;
+    const held = new Promise<void>((r) => (release = r)),
+      reached = new Promise<void>((r) => (enter = r));
+    const provider: LlmProvider = {
+      name: "fake",
+      complete: async () => {
+        enter();
+        await held;
+        return {
+          text: "answer",
+          inputTokens: 1,
+          outputTokens: 1,
+          reportedCostUsd: 0
+        };
+      }
+    };
+    const input = {
+      requestId: "pending-" + runId,
+      runId,
+      content: "ask",
+      private: false,
+      actorDisplayName: ACTOR
+    };
+    const first = submitTurn(testEnv.DB, deps(provider), input);
+    await reached;
+    expect(await submitTurn(testEnv.DB, deps(provider), input)).toMatchObject({
+      status: "conflict"
+    });
+    release();
+    await first;
+    expect(await steeringTurnsRepo.listByRun(testEnv.DB, runId)).toHaveLength(
+      1
+    );
+  });
+});
+
+it.each([false, true])(
+  "recovers a completed steering turn after final request-result write failure (private=%s)",
+  async (isPrivate) => {
+    const runId = await insertRun("awaiting");
+    await seedSteward();
+    const provider = fakeProvider({ text: "secret completion" });
+    const input = {
+      requestId: "lost-final-" + runId,
+      runId,
+      content: "secret prompt",
+      private: isPrivate,
+      actorDisplayName: ACTOR
+    };
+    const broken = new Proxy(testEnv.DB, {
+      get(target, prop) {
+        if (prop === "prepare")
+          return (sql: string) => {
+            const stmt = target.prepare(sql);
+            if (!sql.startsWith("UPDATE steering_requests SET result_json"))
+              return stmt;
+            return new Proxy(stmt, {
+              get(st, key) {
+                if (key === "bind")
+                  return () => ({
+                    run: async () => {
+                      throw new Error("final result write failed");
+                    }
+                  });
+                const value = Reflect.get(st, key);
+                return typeof value === "function" ? value.bind(st) : value;
+              }
+            });
+          };
+        const value = Reflect.get(target, prop);
+        return typeof value === "function" ? value.bind(target) : value;
+      }
+    });
+    await expect(submitTurn(broken, deps(provider), input)).rejects.toThrow(
+      "final result write failed"
+    );
+    expect(provider.count()).toBe(1);
+    const recovered = await submitTurn(testEnv.DB, deps(provider), input);
+    expect(recovered.status).toBe("ok");
+    expect(provider.count()).toBe(1);
+    if (recovered.status === "ok")
+      expect(recovered.turn.reply).toBe(isPrivate ? null : "secret completion");
+    if (isPrivate) expect(JSON.stringify(recovered)).not.toContain("secret");
+    expect(await submitTurn(testEnv.DB, deps(provider), input)).toEqual(
+      recovered
+    );
+  }
+);
+
+it("keeps the first durable recovered result when the original executor later finishes without its reply receipt", async () => {
+  const runId = await insertRun("awaiting");
+  await seedSteward();
+  const provider = fakeProvider({ text: "durable recovered reply" });
+  let entered!: () => void;
+  let release!: () => void;
+  const paused = new Promise<void>((r) => (entered = r)),
+    held = new Promise<void>((r) => (release = r));
+  let batches = 0;
+  const db = new Proxy(testEnv.DB, {
+    get(target, prop) {
+      if (prop === "batch")
+        return async (statements: D1PreparedStatement[]) => {
+          if (++batches === 2) {
+            entered();
+            await held;
+            throw new Error("reply receipt lost");
+          }
+          return target.batch(statements);
+        };
+      const value = Reflect.get(target, prop);
+      return typeof value === "function" ? value.bind(target) : value;
+    }
+  });
+  const input = {
+    requestId: "concurrent-recovery-" + runId,
+    runId,
+    content: "ordinary question",
+    private: false,
+    actorDisplayName: ACTOR
+  };
+  const original = submitTurn(db, deps(provider), input);
+  await paused;
+  const recovered = await submitTurn(testEnv.DB, deps(provider), input);
+  expect(recovered).toMatchObject({
+    status: "ok",
+    turn: { reply: "durable recovered reply" }
+  });
+  release();
+  expect(await original).toEqual(recovered);
+  expect(await submitTurn(testEnv.DB, deps(provider), input)).toEqual(
+    recovered
+  );
+  expect(provider.count()).toBe(1);
+});

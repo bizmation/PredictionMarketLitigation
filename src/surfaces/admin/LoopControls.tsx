@@ -77,6 +77,12 @@ function isRunLogItem(value: unknown): value is RunLogItem {
     typeof row.startedAt === "string" &&
     (row.completedAt === null || typeof row.completedAt === "string") &&
     isNonNegativeInt(row.spendCents) &&
+    [
+      "reservedCents",
+      "uncertainCents",
+      "legacyAdjustmentCents",
+      "accountingIssueCount"
+    ].every((key) => row[key] === undefined || isNonNegativeInt(row[key])) &&
     (row.reportedCostCents === undefined ||
       row.reportedCostCents === null ||
       isNonNegativeInt(row.reportedCostCents)) &&
@@ -315,8 +321,11 @@ export function LoopControls({ latest: injectedLatest }: LoopControlsProps) {
           <br />
           <span className="lastupd">{formatEtDateTime(latest.startedAt)}</span>
           <br />
-          Budget accounting: {latest.spendCents} cents (includes estimates). Sum
-          of rounded-up reported charges:{" "}
+          Budget accounting: {latest.spendCents} cents (includes estimates).
+          Held: {latest.reservedCents ?? 0} cents; uncertain liability:{" "}
+          {latest.uncertainCents ?? 0} cents; accounting issues:{" "}
+          {latest.accountingIssueCount ?? 0}. Sum of rounded-up reported
+          charges:{" "}
           {latest.reportedCostCents == null
             ? `unknown${latest.unmeasuredCallCount == null ? "" : ` (${latest.unmeasuredCallCount} calls without reported charges)`}`
             : `${latest.reportedCostCents} cents`}

@@ -15,7 +15,22 @@ export async function recordCall(
   }
 ): Promise<LlmCallRecord> {
   const record = LlmCallRecordSchema.parse(input);
-  await db
+  await db.batch([
+    recordCallStmt(db, record),
+    db
+      .prepare(
+        "UPDATE runs SET spend_cents=(SELECT total_cents FROM llm_run_accounting WHERE run_id=?) WHERE id=?"
+      )
+      .bind(record.runId, record.runId)
+  ]);
+  return record;
+}
+
+export function recordCallStmt(
+  db: Db,
+  record: LlmCallRecord
+): D1PreparedStatement {
+  return db
     .prepare(
       `INSERT INTO llm_calls
          (id, run_id, role, provider, model, tokens_json, cost_cents, currency, created_at, cost_basis, admission_bound_cents, estimated_cost_cents, reported_cost_cents, reported_cost_source, policy_json, accounting_issue, reported_cost_usd)
@@ -39,12 +54,10 @@ export async function recordCall(
       record.policy == null ? null : JSON.stringify(record.policy),
       record.accountingIssue,
       record.reportedCostUsd ?? null
-    )
-    .run();
-  return record;
+    );
 }
 
-type LlmCallRow = {
+export type LlmCallRow = {
   id: string;
   run_id: string;
   role: string;
@@ -64,7 +77,7 @@ type LlmCallRow = {
   created_at: string;
 };
 
-function mapLlmCall(row: LlmCallRow): LlmCallRecord {
+export function mapLlmCall(row: LlmCallRow): LlmCallRecord {
   return LlmCallRecordSchema.parse({
     id: row.id,
     runId: row.run_id,
@@ -113,7 +126,7 @@ export async function listByRun(
 export async function totalSpendForRun(db: Db, runId: string): Promise<number> {
   const row = await db
     .prepare(
-      `SELECT COALESCE(SUM(cost_cents), 0) AS total FROM llm_calls WHERE run_id = ?`
+      `SELECT total_cents AS total FROM llm_run_accounting WHERE run_id = ?`
     )
     .bind(runId)
     .first<{ total: number }>();
@@ -127,7 +140,7 @@ export async function hasAccountingIssue(
   return (
     (await db
       .prepare(
-        "SELECT 1 AS found FROM llm_calls WHERE run_id = ? AND accounting_issue IS NOT NULL LIMIT 1"
+        "SELECT 1 AS found FROM llm_run_accounting WHERE run_id = ? AND issue_count > 0"
       )
       .bind(runId)
       .first()) != null

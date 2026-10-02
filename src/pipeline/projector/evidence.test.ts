@@ -188,7 +188,12 @@ describe("evidence projector (story 3.8)", () => {
           now: () => NOW,
           newId: () => "id-stop"
         },
-        { role: "orchestrator", runId, prompt: "go" }
+        {
+          operationKey: crypto.randomUUID(),
+          role: "orchestrator",
+          runId,
+          prompt: "go"
+        }
       )
     ).rejects.toMatchObject({ code: "budget_stopped" });
 

@@ -1850,6 +1850,7 @@ describe("public run detail steering redaction (story 3.14)", () => {
         now: () => TS
       },
       {
+        requestId: crypto.randomUUID(),
         runId: "run-20260914-aa10",
         draftId: "d-steer-redact",
         content: secret,
@@ -2049,7 +2050,7 @@ describe("public accounting provenance", () => {
 it("exports the sum of individually rounded fractional reported charges on list and detail", async () => {
   const id = "run-20260926-c033";
   await testEnv.DB.prepare(
-    `INSERT INTO runs (id,origin,mode,status,started_at,spend_cents,spend_currency,budget_cents) VALUES (?,'manual','hitl','running','2026-09-26T15:00:00.000Z',3,'USD',500)`
+    `INSERT INTO runs (id,origin,mode,status,started_at,spend_cents,spend_currency,budget_cents) VALUES (?,'manual','hitl','running','2026-09-26T15:00:00.000Z',0,'USD',500)`
   )
     .bind(id)
     .run();

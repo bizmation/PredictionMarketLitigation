@@ -15,7 +15,6 @@ import * as draftsRepo from "../db/repos/draftsRepo";
 import * as entitiesRepo from "../db/repos/entitiesRepo";
 import * as evidenceRepo from "../db/repos/evidenceRepo";
 import * as kpisRepo from "../db/repos/kpisRepo";
-import * as llmCallsRepo from "../db/repos/llmCallsRepo";
 import * as modeRepo from "../db/repos/modeRepo";
 import * as pipelineConfigRepo from "../db/repos/pipelineConfigRepo";
 import * as pollVotesRepo from "../db/repos/pollVotesRepo";
@@ -317,12 +316,12 @@ export async function handlePublicApi(
         } catch {
           throw badRequest("Malformed run ID.");
         }
-        const run = await runsRepo.getRunById(db, id);
+        const run = await runsRepo.accountingSnapshot(db, id);
         if (!run) throw notFound(`Run '${id}' not found.`);
-        const [drafts, evidence, llmCalls] = await Promise.all([
+        const { llmCalls } = run;
+        const [drafts, evidence] = await Promise.all([
           draftsRepo.listByRun(db, id),
-          evidenceRepo.listByRun(db, id),
-          llmCallsRepo.listByRun(db, id)
+          evidenceRepo.listByRun(db, id)
         ]);
         // jsonNoStore so a running Run's timeline can refresh.
         return jsonNoStore(
@@ -332,6 +331,9 @@ export async function handlePublicApi(
             evidence,
             llmCalls,
             reportedCostCents:
+              !run.reservedCents &&
+              !run.uncertainCents &&
+              !run.legacyAdjustmentCents &&
               llmCalls.length > 0 &&
               llmCalls.every((c) => c.reportedCostCents != null)
                 ? llmCalls.reduce(
@@ -339,9 +341,13 @@ export async function handlePublicApi(
                     0
                   )
                 : null,
-            unmeasuredCallCount: llmCalls.filter(
-              (c) => c.reportedCostCents == null
-            ).length
+            unmeasuredCallCount:
+              llmCalls.filter((c) => c.reportedCostCents == null).length +
+              (run.accountingOperations?.filter((o) =>
+                ["reserved", "dispatched", "uncertain"].includes(
+                  String((o as { state: string }).state)
+                )
+              ).length ?? 0)
           })
         );
       }

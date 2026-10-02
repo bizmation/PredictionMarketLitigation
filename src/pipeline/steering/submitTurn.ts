@@ -1,3 +1,7 @@
+import {
+  fingerprint,
+  getOperation
+} from "../../shared/db/repos/llmAccountingRepo";
 import type { Db } from "../../shared/db/client";
 import * as draftsRepo from "../../shared/db/repos/draftsRepo";
 import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
@@ -57,6 +61,7 @@ import {
 const SUBMITTABLE = new Set(["running", "awaiting"]);
 
 export type SubmitTurnInput = {
+  requestId?: string;
   runId: string;
   content: string;
   private: boolean;
@@ -178,6 +183,7 @@ async function askSteward(
             draftId: input.turn.draftId
           });
     const result = await complete(gatewayDeps, {
+      operationKey: `steering:${input.turn.id}:${input.turn.draftId ? "draft-ask" : "ask"}`,
       role: "steward",
       runId: input.turn.runId,
       prompt
@@ -462,6 +468,7 @@ async function steerPipelineConfig(
   const effective = await pipelineConfigRepo.getEffectivePollSources(db);
   try {
     const result = await complete(gatewayDeps, {
+      operationKey: `steering:${input.turn.id}:config`,
       role: "steward",
       runId: input.turn.runId,
       prompt: buildConfigSteerPrompt({
@@ -708,10 +715,10 @@ async function steerGuidance(
   return { status: "ok", itemId: row.itemId, version: row.version };
 }
 
-export async function submitTurn(
+async function executeTurn(
   db: Db,
   gatewayDeps: GatewayDeps,
-  input: SubmitTurnInput
+  input: SubmitTurnInput & { turnId: string }
 ): Promise<SubmitTurnResult> {
   const content = input.content.trim();
   if (content.length === 0) {
@@ -777,7 +784,7 @@ export async function submitTurn(
   const newId = gatewayDeps.newId ?? (() => crypto.randomUUID());
   const createdAt = now();
   const turn: SteeringTurnRecord = {
-    id: `st:${run.id}:${newId()}`,
+    id: input.turnId,
     runId: run.id,
     draftId: draftId ?? null,
     actorDisplayName: input.actorDisplayName,
@@ -889,4 +896,166 @@ export async function submitTurn(
     now
   });
   return { status: "ok", turn: toPublicSteeringTurn(turn, reply, null) };
+}
+
+/** Reconstruct only results proven complete by durable output/effect records. */
+async function recoverCompletedTurn(
+  db: Db,
+  input: SubmitTurnInput,
+  turnId: string
+): Promise<SubmitTurnResult | null> {
+  const turn = (await steeringTurnsRepo.listByRun(db, input.runId)).find(
+    (t) => t.id === turnId
+  );
+  if (!turn || turn.actorDisplayName !== input.actorDisplayName) return null;
+  const intent = input.intent ?? "ask";
+  const events = (await evidenceRepo.listByRun(db, input.runId)).filter(
+    (e) => (e.payload as { turnId?: unknown } | null)?.turnId === turnId
+  );
+  const op = await getOperation(
+    db,
+    input.runId,
+    `steering:${turnId}:${intent === "config" ? "config" : turn.draftId ? "draft-ask" : "ask"}`
+  );
+  const result = op?.result_json
+    ? (JSON.parse(op.result_json) as { text: string })
+    : null;
+  if (intent === "ask" && result)
+    return { status: "ok", turn: toPublicSteeringTurn(turn, result.text) };
+  if (intent === "config") {
+    const event = events.find((e) => e.event === "config.steered");
+    const payload = event?.payload as
+      | { refused?: boolean; version?: number }
+      | undefined;
+    if (payload && (payload.refused || typeof payload.version === "number"))
+      return {
+        status: "ok",
+        turn: toPublicSteeringTurn(
+          turn,
+          result?.text ?? null,
+          null,
+          payload.version ?? null
+        )
+      };
+  }
+  if (intent === "revise") {
+    const event = events.find(
+      (e) =>
+        e.event === "steering.applied" &&
+        (e.payload as { effect?: unknown })?.effect === "revised"
+    );
+    const childId = (event?.payload as { draftId?: string } | undefined)
+      ?.draftId;
+    const child = childId ? await draftsRepo.getById(db, childId) : null;
+    if (child?.evalSummary)
+      return { status: "ok", turn: toPublicSteeringTurn(turn, null, child.id) };
+  }
+  if (intent === "guidance") {
+    const row = await db
+      .prepare(
+        "SELECT item_id,version FROM standing_guidance WHERE source_turn_id=?"
+      )
+      .bind(turnId)
+      .first<{ item_id: string; version: number }>();
+    if (row)
+      return {
+        status: "ok",
+        turn: toPublicSteeringTurn(turn, null, null, null, {
+          itemId: row.item_id,
+          version: row.version
+        })
+      };
+  }
+  return null;
+}
+
+/** Reserve the submission identity before any receipt, paid call, or config mutation. */
+export async function submitTurn(
+  db: Db,
+  gatewayDeps: GatewayDeps,
+  input: SubmitTurnInput
+): Promise<SubmitTurnResult> {
+  if (!input.requestId?.trim())
+    return {
+      status: "invalid",
+      message:
+        "requestId is required. Retry with the same ID after an ambiguous response."
+    };
+  const normalized = {
+    ...input,
+    content: input.content.trim(),
+    intent: input.intent ?? "ask"
+  };
+  const hash = await fingerprint(normalized);
+  const read = () =>
+    db
+      .prepare(
+        "SELECT fingerprint,result_json,actor,turn_id FROM steering_requests WHERE run_id=? AND request_id=?"
+      )
+      .bind(input.runId, input.requestId!)
+      .first<{
+        fingerprint: string;
+        result_json: string | null;
+        actor: string;
+        turn_id: string;
+      }>();
+  // Completion recovery and the original executor use the same first-writer
+  // result contract; a late executor cannot erase a committed recovered reply.
+  const persistResult = async (
+    result: SubmitTurnResult
+  ): Promise<SubmitTurnResult> => {
+    await db
+      .prepare(
+        "UPDATE steering_requests SET result_json=? WHERE run_id=? AND request_id=? AND fingerprint=? AND result_json IS NULL"
+      )
+      .bind(JSON.stringify(result), input.runId, input.requestId, hash)
+      .run();
+    const saved = await read();
+    if (!saved?.result_json)
+      throw new Error("Steering completion result was not persisted.");
+    return JSON.parse(saved.result_json) as SubmitTurnResult;
+  };
+  const replay = async (
+    row: NonNullable<Awaited<ReturnType<typeof read>>>
+  ): Promise<SubmitTurnResult> => {
+    if (row.fingerprint !== hash || row.actor !== input.actorDisplayName)
+      return {
+        status: "conflict",
+        message: "Request ID payload or operator conflicts."
+      };
+    if (row.result_json) return JSON.parse(row.result_json) as SubmitTurnResult;
+    const recovered = await recoverCompletedTurn(db, input, row.turn_id);
+    if (recovered) return persistResult(recovered);
+    return {
+      status: "conflict",
+      message:
+        "Submission is in-flight or uncertain; it cannot execute again. Inspect its Run accounting."
+    };
+  };
+  const existing = await read();
+  if (existing) return replay(existing);
+  if (!(await runsRepo.getRunById(db, input.runId)))
+    return { status: "not_found" };
+  const turnId = `st:${input.runId}:${crypto.randomUUID()}`;
+  try {
+    await db
+      .prepare(
+        "INSERT INTO steering_requests (request_id,run_id,actor,fingerprint,turn_id,created_at) VALUES (?,?,?,?,?,?)"
+      )
+      .bind(
+        input.requestId,
+        input.runId,
+        input.actorDisplayName,
+        hash,
+        turnId,
+        (gatewayDeps.now ?? (() => new Date().toISOString()))()
+      )
+      .run();
+  } catch (error) {
+    const raced = await read();
+    if (raced) return replay(raced);
+    throw error;
+  }
+  const result = await executeTurn(db, gatewayDeps, { ...input, turnId });
+  return persistResult(result);
 }

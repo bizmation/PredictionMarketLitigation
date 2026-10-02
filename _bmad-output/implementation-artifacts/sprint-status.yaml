@@ -103,7 +103,7 @@ development_status:
   3-28-enforce-evaluation-readiness-and-sealed-drafts: done
   3-29-make-publication-and-run-finalization-atomic: done
   3-30-define-and-enforce-bounded-provider-cost: done
-  3-31-reserve-and-settle-paid-calls-atomically: backlog
+  3-31-reserve-and-settle-paid-calls-atomically: done
   3-32-recover-durable-packages-and-pin-consumed-configuration: backlog
   3-33-make-run-admission-and-dispatch-failures-explicit: backlog
   3-34-test-the-executing-dailyrunworkflow: backlog
@@ -285,8 +285,8 @@ action_items:
     action: "Reserve concurrent paid spend, bound output under an explicit cost policy,
       and atomically update the LLM ledger and Run spend (R5-R7)."
     owner: "agent + Patrick (cost policy)"
-    status: open
-    note: "3.30 / PR #46 implements the approved per-request policy and explicit accounting provenance; CI 36248114402 passed. Remains open for 3.31 concurrent reservations, uncertain calls, and atomic settlement."
+    status: done
+    note: "Closed by 3.30 / PR #46 and 3.31 / PR #47: approved bounded cost, atomic Run/period reservations, stable retry identity, uncertain/late liability, atomic settlement, operator reconciliation and authoritative public totals. CI 37024712148 passed for implementation 6d9e8bf3e299efc1fa56de3cca954ad19380205e; 1267 local tests pass including populated upgrades and real-D1 races. Deployment and operational acceptance remain separate."
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
   - id: "epic-3-retro-workflow-replay-admission-safety"
     # Approved corrective stories: 3.32, 3.33; close only on linked evidence.
