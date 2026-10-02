@@ -168,6 +168,7 @@ describe("migration 0017 gateway seed (story 3.19)", () => {
     const id = runIdFor(date, "manual");
     const provider = fakeProvider(["steward reply"]);
     const result = await submitTurn(testEnv.DB, deps(provider), {
+      requestId: crypto.randomUUID(),
       runId: id,
       content: "What changed?",
       private: false,

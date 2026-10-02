@@ -31,6 +31,7 @@ export type SteeringIntent = z.infer<typeof SteeringIntentSchema>;
 
 export const SteeringPostBodySchema = z
   .object({
+    requestId: z.string().trim().min(1).max(200),
     content: z.string().trim().min(1),
     private: z.boolean(),
     draftId: z.string().min(1).optional(),

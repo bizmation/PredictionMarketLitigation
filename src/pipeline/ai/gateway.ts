@@ -8,7 +8,7 @@ import {
 } from "./costPolicy";
 import type { Db } from "../../shared/db/client";
 import * as draftsRepo from "../../shared/db/repos/draftsRepo";
-import * as llmCallsRepo from "../../shared/db/repos/llmCallsRepo";
+import * as accounting from "../../shared/db/repos/llmAccountingRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import { appendStmt } from "../projector/evidence";
 import type { GatewayErrorCode } from "../../shared/schemas/gateway";
@@ -61,6 +61,8 @@ export class GatewayError extends Error {
   }
 }
 
+class ProvenPreDispatchRefusal extends GatewayError {}
+
 /**
  * The provider contract the gateway delegates to. Production registers
  * Workers AI and (when secrets are set) OpenRouter; tests inject a fake
@@ -69,6 +71,11 @@ export class GatewayError extends Error {
  */
 export interface LlmProvider {
   readonly name: string;
+  preflight?(args: {
+    model: string;
+    policy: CostPolicy;
+    now: () => string;
+  }): Promise<void>;
 
   complete(args: {
     model: string;
@@ -82,6 +89,7 @@ export interface LlmProvider {
     outputTokens: number | null;
     reportedCostUsd?: unknown;
     accountingIssue?: string;
+    providerRequestId?: string;
   }>;
 }
 
@@ -103,6 +111,7 @@ export interface GatewayDeps {
 }
 
 export interface GatewayInput {
+  operationKey: string;
   role: GatewayRole;
   runId: string;
   prompt: string;
@@ -182,7 +191,47 @@ export async function complete(
   const now = deps.now ?? (() => new Date().toISOString());
   const newId = deps.newId ?? (() => crypto.randomUUID());
   const { role, runId, prompt } = input;
+  if (!input.operationKey?.trim())
+    throw new GatewayError(
+      "operation_conflict",
+      "A stable business operation key is required."
+    );
+  const requestFingerprint = await accounting.fingerprint({
+    role,
+    runId,
+    prompt
+  });
+  const existing = await accounting.getOperation(db, runId, input.operationKey);
+  const replay = (op: accounting.Operation): GatewayResult => {
+    if (op.fingerprint !== requestFingerprint)
+      throw new GatewayError(
+        "operation_conflict",
+        "Logical call payload changed."
+      );
+    if (op.result_json) return JSON.parse(op.result_json) as GatewayResult;
+    if (op.state === "reconciled" || op.state === "released")
+      throw new GatewayError(
+        "result_unavailable",
+        "Reconciled operation has no replayable result."
+      );
+    throw new GatewayError(
+      op.issue ? "accounting_uncertain" : "operation_pending",
+      "Existing operation cannot be dispatched again."
+    );
+  };
+  if (existing) return replay(existing);
 
+  const refuseAfterIdentityCheck = async (
+    message: string
+  ): Promise<GatewayResult> => {
+    const duplicate = await accounting.getOperation(
+      db,
+      runId,
+      input.operationKey
+    );
+    if (duplicate) return replay(duplicate);
+    return refuseBudget(deps, run!, runId, message);
+  };
   // 1. Role vocabulary — reject before any provider or storage touch.
   if (
     !GATEWAY_ROLE_VALUES.includes(role as (typeof GATEWAY_ROLE_VALUES)[number])
@@ -236,21 +285,14 @@ export async function complete(
       "No budget ceiling configured (run and config default are both null)."
     );
   }
-  const spend = await llmCallsRepo.totalSpendForRun(db, runId);
-  if (spend >= budget) {
-    await refuseBudget(
-      deps,
-      run,
-      runId,
-      `Spend ${spend} reached the ceiling ${budget}; call refused.`
-    );
-  }
-  if (await llmCallsRepo.hasAccountingIssue(db, runId)) {
+  const currentAccounting = await accounting.accountingForRun(db, runId);
+  if (currentAccounting?.issueCount)
     throw new GatewayError(
       "accounting_uncertain",
-      "Run accounting requires reconciliation before further inference."
+      "Run accounting requires reconciliation before inference."
     );
-  }
+  if ((currentAccounting?.totalCents ?? 0) >= budget)
+    return refuseAfterIdentityCheck("Budget ceiling reached.");
   let policy: CostPolicy;
   try {
     policy = validatePolicy(
@@ -277,14 +319,6 @@ export async function complete(
     policy.inputTokens,
     policy.outputTokens
   );
-  if (spend + admissionBoundCents > budget) {
-    await refuseBudget(
-      deps,
-      run,
-      runId,
-      `Accounting ${spend} plus bound ${admissionBoundCents} exceeds ceiling ${budget}; call refused.`
-    );
-  }
   const awaitingRoles =
     role === "steward" || role === "drafter" || role === "reviewer";
   const statusOk =
@@ -296,23 +330,109 @@ export async function complete(
     );
   }
 
+  if ((currentAccounting?.totalCents ?? 0) + admissionBoundCents > budget)
+    return refuseAfterIdentityCheck(
+      "Available balance is below the required bound."
+    );
+  // Definitively free validation runs before reservation/dispatch ownership.
+  if (provider.preflight)
+    await provider.preflight({ model: mapping.model, policy, now });
+  revalidateBeforeInference(policy, now());
+  const owner = crypto.randomUUID();
+  let operation: accounting.Operation;
+  try {
+    operation = await accounting.reserve(db, {
+      id: newId(),
+      runId,
+      role,
+      key: input.operationKey,
+      fingerprint: requestFingerprint,
+      owner,
+      bound: admissionBoundCents,
+      budget,
+      policy,
+      now: now(),
+      awaiting: awaitingRoles
+    });
+  } catch (error) {
+    if (error instanceof accounting.AccountingConflict)
+      throw new GatewayError("operation_conflict", error.message);
+    if (error instanceof accounting.AccountingRefused)
+      return refuseAfterIdentityCheck(error.message);
+    throw error;
+  }
+  if (operation.owner !== owner) return replay(operation);
+  await accounting.claimDispatch(db, operation, owner, now());
+
+  const retainCompletion = async (
+    value: Awaited<ReturnType<LlmProvider["complete"]>>,
+    issue: string
+  ) => {
+    let observed = admissionBoundCents;
+    try {
+      observed = Math.max(
+        observed,
+        reportedUsdCents(value.reportedCostUsd) ?? 0
+      );
+    } catch {
+      /* Preserve raw unrepresentable report. */
+    }
+    try {
+      observed = Math.max(
+        observed,
+        tokenCostCents(policy, value.inputTokens!, value.outputTokens!)
+      );
+    } catch {
+      /* Invalid usage remains evidence. */
+    }
+    await accounting.retainResponseEvidence(
+      db,
+      operation,
+      value,
+      observed,
+      value.providerRequestId ?? null,
+      issue +
+        (observed > admissionBoundCents ? "; observed_cost_exceeds_bound" : "")
+    );
+  };
   // 6. Delegate to the provider. The abortable deadline wraps the provider
   //    seam so OpenRouter's fetch can cancel; Workers AI ignores the signal.
   let completion: Awaited<ReturnType<LlmProvider["complete"]>>;
   try {
     completion = await withAbortableDeadline(
       (signal) =>
-        provider.complete({
-          model: mapping.model,
-          prompt,
-          signal,
-          policy,
-          now
-        }),
+        provider
+          .complete({
+            model: mapping.model,
+            prompt,
+            signal,
+            policy,
+            now
+          })
+          .then(async (value) => {
+            if (signal.aborted) {
+              try {
+                await retainCompletion(value, "late_provider_response");
+              } catch {
+                /* The worker/database may no longer be available after timeout. */
+              }
+            }
+            return value;
+          }),
       PROVIDER_TIMEOUT_MS,
       mapping.provider
     );
   } catch (cause) {
+    if (cause instanceof ProvenPreDispatchRefusal) {
+      await accounting.releaseBeforePaidInvocation(db, operation);
+      throw cause;
+    }
+    await accounting.markUncertain(
+      db,
+      operation.id,
+      owner,
+      "provider_outcome_unknown"
+    );
     if (cause instanceof GatewayError) throw cause;
     throw new GatewayError(
       "provider_error",
@@ -344,6 +464,7 @@ export async function complete(
       ? String(completion.reportedCostUsd)
       : null;
   const issues: string[] = [];
+  if (typeof completion.text !== "string") issues.push("non_text_output");
   if (!tokens) issues.push("missing_or_invalid_token_usage");
   if (
     tokens &&
@@ -371,34 +492,7 @@ export async function complete(
     : reportedCostCents != null
       ? "provider_reported"
       : "token_estimate";
-  await llmCallsRepo.recordCall(db, {
-    id: newId(),
-    runId,
-    role,
-    provider: mapping.provider,
-    model: mapping.model,
-    tokens,
-    costCents,
-    currency: CURRENCY,
-    createdAt: timestamp,
-    costBasis,
-    admissionBoundCents,
-    estimatedCostCents,
-    reportedCostCents,
-    reportedCostUsd,
-    reportedCostSource:
-      reportedCostUsd == null ? null : `${mapping.provider}.usage.cost`,
-    policy,
-    accountingIssue
-  });
-  if (costCents > 0) await runsRepo.bumpSpend(db, runId, costCents);
-  if (accountingIssue)
-    throw new GatewayError(
-      "accounting_uncertain",
-      "Provider usage is incomplete or exceeds the reviewed bound; further inference is blocked."
-    );
-
-  return {
+  const result: GatewayResult = {
     text: completion.text,
     role,
     provider: mapping.provider,
@@ -408,6 +502,39 @@ export async function complete(
     costCents,
     currency: CURRENCY
   };
+  await accounting.settle(
+    db,
+    operation,
+    {
+      id: operation.id,
+      runId,
+      role,
+      provider: mapping.provider,
+      model: mapping.model,
+      tokens,
+      costCents,
+      currency: CURRENCY,
+      createdAt: timestamp,
+      costBasis,
+      admissionBoundCents,
+      estimatedCostCents,
+      reportedCostCents,
+      reportedCostUsd,
+      reportedCostSource:
+        reportedCostUsd == null ? null : `${mapping.provider}.usage.cost`,
+      policy,
+      accountingIssue
+    },
+    result,
+    completion.providerRequestId ?? null
+  );
+  if (accountingIssue)
+    throw new GatewayError(
+      "accounting_uncertain",
+      "Provider usage is incomplete or exceeds the reviewed bound; further inference is blocked."
+    );
+
+  return result;
 }
 
 /**
@@ -509,7 +636,7 @@ function revalidateBeforeInference(policy: CostPolicy, now: string): void {
   try {
     validatePolicy(policy, now);
   } catch {
-    throw new GatewayError(
+    throw new ProvenPreDispatchRefusal(
       "cost_policy_invalid",
       "Cost policy expired or became invalid before inference."
     );
@@ -549,18 +676,12 @@ export function createOpenRouterProvider(env: Env): LlmProvider | null {
   const url = `https://gateway.ai.cloudflare.com/v1/${accountId}/${gatewayId}/openrouter/chat/completions`;
   return {
     name: "openrouter",
-    async complete({
-      model,
-      prompt,
-      signal,
-      policy,
-      now = () => new Date().toISOString()
-    }) {
+    async preflight({ model, policy, now }) {
       // Verify the exact bounded route before paid inference. No model/provider fallback.
       try {
         const metadata = await fetch(
           `https://openrouter.ai/api/v1/models/${model}/endpoints`,
-          { signal }
+          { signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS) }
         );
         if (!metadata.ok)
           throw new GatewayError(
@@ -627,6 +748,15 @@ export function createOpenRouterProvider(env: Env): LlmProvider | null {
         );
       }
       revalidateBeforeInference(policy, now());
+    },
+    async complete({
+      model,
+      prompt,
+      signal,
+      policy,
+      now = () => new Date().toISOString()
+    }) {
+      revalidateBeforeInference(policy, now());
       const response = await fetch(url, {
         method: "POST",
         headers: {
@@ -654,6 +784,7 @@ export function createOpenRouterProvider(env: Env): LlmProvider | null {
         throw new Error(`OpenRouter gateway HTTP ${response.status}`);
       }
       const body = (await response.json()) as {
+        id?: string;
         choices?: Array<{ message?: { content?: unknown } }>;
         usage?: {
           prompt_tokens?: number;
@@ -668,6 +799,7 @@ export function createOpenRouterProvider(env: Env): LlmProvider | null {
           typeof text === "string" ? undefined : "non_text_output",
         inputTokens: body.usage?.prompt_tokens ?? null,
         outputTokens: body.usage?.completion_tokens ?? null,
+        providerRequestId: typeof body.id === "string" ? body.id : undefined,
         reportedCostUsd: body.usage?.cost
       };
     }

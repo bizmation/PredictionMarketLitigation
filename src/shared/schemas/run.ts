@@ -65,6 +65,10 @@ export const RunSummarySchema = z
     startedAt: IsoUtcSchema,
     completedAt: IsoUtcSchema.nullable(),
     spendCents: cents,
+    reservedCents: cents.optional(),
+    uncertainCents: cents.optional(),
+    legacyAdjustmentCents: cents.optional(),
+    accountingIssueCount: cents.optional(),
     spendBasis: z.literal("budget_accounting").optional(),
     // Sum of individually rounded-UP provider-reported charges in cents, not
     // an exact USD total. Null when any call lacks a representable report.
@@ -237,7 +241,40 @@ export const RunDetailSchema = z
     ...RunSummarySchema.shape,
     drafts: z.array(DraftRecordSchema),
     evidence: z.array(EvidenceEventSchema),
-    llmCalls: z.array(LlmCallRecordSchema)
+    llmCalls: z.array(LlmCallRecordSchema),
+    accountingOperations: z
+      .array(
+        z
+          .object({
+            id: z.string(),
+            logicalKey: z.string(),
+            state: z.string(),
+            version: cents,
+            boundCents: cents,
+            liabilityCents: cents,
+            createdAt: z.string(),
+            providerRequestId: z.string().nullable(),
+            issue: z.string().nullable()
+          })
+          .strict()
+      )
+      .optional(),
+    reconciliationReceipts: z
+      .array(
+        z
+          .object({
+            requestId: z.string(),
+            operationId: z.string(),
+            actor: z.string(),
+            evidenceReference: z.string(),
+            note: z.string(),
+            beforeJson: z.string(),
+            afterJson: z.string(),
+            createdAt: z.string()
+          })
+          .strict()
+      )
+      .optional()
   })
   .strict();
 

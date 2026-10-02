@@ -25,6 +25,10 @@ function scripted(
   return { ok, status, json: async () => body };
 }
 
+function expectedRequestBody(body: Record<string, unknown>) {
+  return expect.stringContaining(JSON.stringify(body).slice(0, -1));
+}
+
 function steeringPosts(fetchMock: ReturnType<typeof vi.fn>) {
   return fetchMock.mock.calls.filter(([url]) =>
     String(url).includes("/steering")
@@ -33,6 +37,7 @@ function steeringPosts(fetchMock: ReturnType<typeof vi.fn>) {
 
 afterEach(() => {
   cleanup();
+  sessionStorage.clear();
   vi.unstubAllGlobals();
 });
 
@@ -71,7 +76,7 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
       "/api/admin/runs/run-20260914-aaa1/steering",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({
+        body: expectedRequestBody({
           content: "hello",
           private: true,
           draftId: "d-1"
@@ -117,7 +122,7 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
       "/api/admin/runs/run-20260914-aaa1/steering",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({
+        body: expectedRequestBody({
           content: "tighten the holding",
           private: false,
           draftId: "d-1",
@@ -412,7 +417,7 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
       "/api/admin/runs/run-20260914-aaa1/steering",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({
+        body: expectedRequestBody({
           content: "Add the ND Cal docket to Tier-1.",
           private: false,
           draftId: "d-1",
@@ -482,7 +487,7 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
       "/api/admin/runs/run-20260914-aaa1/steering",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({
+        body: expectedRequestBody({
           content: "Revert poll_sources to version 1",
           private: false,
           draftId: "d-1",
@@ -498,7 +503,7 @@ describe("SteeringPanel live submit (jsdom mount)", () => {
       "/api/admin/runs/run-20260914-aaa1/steering",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({
+        body: expectedRequestBody({
           content: "Revert poll_sources to version 0",
           private: false,
           draftId: "d-1",
@@ -670,7 +675,7 @@ describe("SteeringPanel standing guidance (story 3.18)", () => {
       "/api/admin/runs/run-20260914-aaa1/steering",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({
+        body: expectedRequestBody({
           content: "Cite the docket.",
           private: false,
           draftId: "d-1",
@@ -740,7 +745,7 @@ describe("SteeringPanel standing guidance (story 3.18)", () => {
       "/api/admin/runs/run-20260914-aaa1/steering",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({
+        body: expectedRequestBody({
           content: "Cite the docket and court.",
           private: false,
           draftId: "d-1",
@@ -795,7 +800,9 @@ describe("SteeringPanel standing guidance (story 3.18)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Submit turn" }));
     await act(async () => {});
     expect(steeringPosts(fetchMock)).toHaveLength(1);
-    expect(JSON.parse(String(steeringPosts(fetchMock)[0]![1]!.body))).toEqual({
+    expect(
+      JSON.parse(String(steeringPosts(fetchMock)[0]![1]!.body))
+    ).toMatchObject({
       content: "why skipped",
       private: false,
       draftId: "d-1"
@@ -953,7 +960,7 @@ describe("SteeringPanel standing guidance (story 3.18)", () => {
       "/api/admin/runs/run-20260914-aaa1/steering",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({
+        body: expectedRequestBody({
           content: "Superseded by the ruling.",
           private: false,
           draftId: "d-1",
@@ -1179,3 +1186,97 @@ it.each(["draft_not_ready", "draft_conflict"])(
     ).toBe("");
   }
 );
+
+describe("steering retry recovery (3.31)", () => {
+  it("retains only the opaque key through a lost 2xx body and browser remount; a completed turn gets a new key next time", async () => {
+    let attempts = 0;
+    const fetchMock = vi.fn(async (url: unknown) => {
+      if (!String(url).includes("/steering")) return scripted({});
+      if (++attempts === 1)
+        return {
+          ok: true,
+          status: 200,
+          json: async () => {
+            throw new Error("body lost");
+          }
+        };
+      return scripted({ id: "completed-turn", reply: "answer" });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const props = {
+      runId: "run-20261002-c033",
+      draftId: "d-retry",
+      revisionReady: true
+    };
+    const submit = async () => {
+      fireEvent.change(screen.getByLabelText("Steering turn"), {
+        target: { value: "PRIVATE retry text" }
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Submit turn" }));
+      await act(async () => {});
+    };
+    const first = render(<SteeringPanel {...props} />);
+    await submit();
+    const firstBody = JSON.parse(String(steeringPosts(fetchMock)[0]![1]!.body));
+    expect(typeof firstBody.requestId).toBe("string");
+    const storageKey = `pml-steering-pending:${props.runId}:${props.draftId}`;
+    expect(sessionStorage.getItem(storageKey)).toBe(firstBody.requestId);
+    expect(JSON.stringify({ ...sessionStorage })).not.toContain(
+      "PRIVATE retry text"
+    );
+    first.unmount();
+    render(<SteeringPanel {...props} />);
+    await submit();
+    const secondBody = JSON.parse(
+      String(steeringPosts(fetchMock)[1]![1]!.body)
+    );
+    expect(secondBody.requestId).toBe(firstBody.requestId);
+    expect(sessionStorage.getItem(storageKey)).toBeNull();
+    await submit();
+    expect(
+      JSON.parse(String(steeringPosts(fetchMock)[2]![1]!.body)).requestId
+    ).not.toBe(firstBody.requestId);
+  });
+  it("keeps the key on ambiguous failure and permits an explicitly new intentional submission after conflict", async () => {
+    const fetchMock = vi.fn(async (url: unknown) =>
+      String(url).includes("/steering")
+        ? scripted({ message: "Request ID conflicts" }, false, 409)
+        : scripted({})
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <SteeringPanel
+        runId="run-20261002-c034"
+        draftId="d-retry"
+        revisionReady
+      />
+    );
+    fireEvent.change(screen.getByLabelText("Steering turn"), {
+      target: { value: "first" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Submit turn" }));
+    await act(async () => {});
+    const key = JSON.parse(
+      String(steeringPosts(fetchMock)[0]![1]!.body)
+    ).requestId;
+    fireEvent.change(screen.getByLabelText("Steering turn"), {
+      target: { value: "changed" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Submit turn" }));
+    await act(async () => {});
+    expect(
+      JSON.parse(String(steeringPosts(fetchMock)[1]![1]!.body)).requestId
+    ).toBe(key);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Start a new intentional submission" })
+    );
+    fireEvent.change(screen.getByLabelText("Steering turn"), {
+      target: { value: "intentional" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Submit turn" }));
+    await act(async () => {});
+    expect(
+      JSON.parse(String(steeringPosts(fetchMock)[2]![1]!.body)).requestId
+    ).not.toBe(key);
+  });
+});

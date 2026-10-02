@@ -201,6 +201,15 @@ export function SteeringPanel({
     json: unknown;
     ok: boolean;
   } | null> {
+    // Only an opaque retry ID survives browser recovery; private text never does.
+    // A pending key stays assigned even if the composer is changed: the server
+    // rejects a changed payload rather than accidentally starting another turn.
+    const retryStorageKey = `pml-steering-pending:${runId}:${draftId}`;
+    let requestId = sessionStorage.getItem(retryStorageKey);
+    if (!requestId) {
+      requestId = crypto.randomUUID();
+      sessionStorage.setItem(retryStorageKey, requestId);
+    }
     const submittedRunId = runId;
     const submittedDraftId = draftId;
     // Story 3.19 — a hung steering POST rejects with a TimeoutError after
@@ -217,7 +226,7 @@ export function SteeringPanel({
           "content-type": "application/json",
           accept: "application/json"
         },
-        body: JSON.stringify(body)
+        body: JSON.stringify({ ...body, requestId })
       },
       STEERING_POST_TIMEOUT_MS
     );
@@ -233,6 +242,14 @@ export function SteeringPanel({
     } catch {
       json = {};
     }
+    if (
+      res.ok &&
+      json &&
+      typeof json === "object" &&
+      "id" in json &&
+      typeof json.id === "string"
+    )
+      sessionStorage.removeItem(retryStorageKey);
     return { status: res.status, json, ok: res.ok };
   }
 
@@ -487,6 +504,21 @@ export function SteeringPanel({
           />
           <label htmlFor="steering-private">Mark private at submit</label>
         </div>
+        {error && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              sessionStorage.removeItem(
+                `pml-steering-pending:${runId}:${draftId}`
+              );
+              setContent("");
+              setError(null);
+            }}
+          >
+            Start a new intentional submission
+          </button>
+        )}
         <button type="submit" className="btn" disabled={busy}>
           Submit turn
         </button>

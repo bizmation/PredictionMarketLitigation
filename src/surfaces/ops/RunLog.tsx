@@ -64,6 +64,12 @@ export function isRunLogItem(value: unknown): value is RunLogItem {
     typeof row.startedAt === "string" &&
     (row.completedAt === null || typeof row.completedAt === "string") &&
     isNonNegativeInt(row.spendCents) &&
+    [
+      "reservedCents",
+      "uncertainCents",
+      "legacyAdjustmentCents",
+      "accountingIssueCount"
+    ].every((key) => row[key] === undefined || isNonNegativeInt(row[key])) &&
     (row.reportedCostCents === undefined ||
       row.reportedCostCents === null ||
       isNonNegativeInt(row.reportedCostCents)) &&
@@ -194,6 +200,11 @@ export function RunLog({ items: injectedItems, dev = false }: RunLogProps) {
               <td className="num">{item.eventCount}</td>
               <td className="num">
                 {formatUsdCents(item.spendCents)}{" "}
+                <small>
+                  Held {formatUsdCents(item.reservedCents ?? 0)}; uncertain{" "}
+                  {formatUsdCents(item.uncertainCents ?? 0)}; issues{" "}
+                  {item.accountingIssueCount ?? 0}
+                </small>
                 <span className="muted">
                   includes estimates; sum of rounded-up reported charges:{" "}
                   {item.reportedCostCents == null

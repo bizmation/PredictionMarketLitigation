@@ -1,3 +1,4 @@
+import { RunDetailSchema } from "../../shared/schemas/run";
 import { draftReadinessLabel } from "../../shared/lib/draftReadiness";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
@@ -117,6 +118,12 @@ function isRunDetail(value: unknown): value is RunDetail {
     STATUSES.has(row.status) &&
     typeof row.startedAt === "string" &&
     isNonNegativeInt(row.spendCents) &&
+    [
+      "reservedCents",
+      "uncertainCents",
+      "legacyAdjustmentCents",
+      "accountingIssueCount"
+    ].every((key) => row[key] === undefined || isNonNegativeInt(row[key])) &&
     (row.reportedCostCents === undefined ||
       row.reportedCostCents === null ||
       isNonNegativeInt(row.reportedCostCents)) &&
@@ -124,6 +131,12 @@ function isRunDetail(value: unknown): value is RunDetail {
       isNonNegativeInt(row.unmeasuredCallCount)) &&
     Array.isArray(row.drafts) &&
     Array.isArray(row.evidence) &&
+    RunDetailSchema.shape.accountingOperations.safeParse(
+      row.accountingOperations
+    ).success &&
+    RunDetailSchema.shape.reconciliationReceipts.safeParse(
+      row.reconciliationReceipts
+    ).success &&
     Array.isArray(row.llmCalls)
   );
 }
@@ -713,6 +726,27 @@ function EvidenceBody({ detail }: { detail: RunDetail }) {
           <div>
             <b>{formatUsdCents(detail.spendCents)}</b>
             <span>Budget accounting · includes estimates</span>
+            <span>
+              Held: {formatUsdCents(detail.reservedCents ?? 0)} · Uncertain
+              liability: {formatUsdCents(detail.uncertainCents ?? 0)} · Legacy
+              adjustment: {formatUsdCents(detail.legacyAdjustmentCents ?? 0)} ·
+              Accounting issues: {detail.accountingIssueCount ?? 0}
+            </span>
+            {detail.accountingOperations?.map((op) => (
+              <span key={op.id}>
+                {op.id}: {op.state} · Version {op.version} · Bound{" "}
+                {formatUsdCents(op.boundCents)} · Retained liability{" "}
+                {formatUsdCents(op.liabilityCents)} · Provider request{" "}
+                {op.providerRequestId ?? "unavailable"}
+                {op.issue ? ` — ${op.issue}` : ""}
+              </span>
+            ))}
+            {detail.reconciliationReceipts?.map((receipt) => (
+              <span key={receipt.requestId}>
+                Reconciliation {receipt.requestId} by {receipt.actor}:{" "}
+                {receipt.evidenceReference}
+              </span>
+            ))}
           </div>
           <div>
             <b>

@@ -535,7 +535,11 @@ describe("steering cost policy refusal", () => {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content: "Explain this Run", private: false })
+          body: JSON.stringify({
+            requestId: crypto.randomUUID(),
+            content: "Explain this Run",
+            private: false
+          })
         }
       ),
       { ...env, ACCESS_DEV_BYPASS: "true", AI: { run } } as unknown as Env

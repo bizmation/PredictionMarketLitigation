@@ -1,3 +1,4 @@
+import { pauseBatch } from "../../test/failingDb";
 import { fixtureCostPolicy } from "../../test/costPolicyFixture";
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -351,7 +352,7 @@ describe("draftAndReview (story 3.5)", () => {
     ).toEqual([firstId, secondId].sort());
   });
 
-  it("treats a per-Draft provider error as evals_not_run and continues; Run stays awaiting", async () => {
+  it("retains failed-call liability and refuses later sibling dispatch", async () => {
     const runId = await insertRun();
     const failId = await insertShellDraft(runId, {
       id: `d:${runId}:01`
@@ -366,23 +367,18 @@ describe("draftAndReview (story 3.5)", () => {
       { text: reviewJson() }
     ]);
 
-    await draftAndReview(testEnv.DB, runId, deps(provider));
+    await expect(
+      draftAndReview(testEnv.DB, runId, deps(provider))
+    ).rejects.toMatchObject({ code: "accounting_uncertain" });
     const drafts = await draftsRepo.listByRun(testEnv.DB, runId);
     expect(evalOf(drafts.find((d) => d.id === failId)!).status).toBe(
       "evals_not_run"
     );
-    expect(evalOf(drafts.find((d) => d.id === okId)!).status).toBe("ok");
-    expect(drafts.find((d) => d.id === okId)?.confidence).toBe(72);
-    const evaluated = await evaluatedEvents(runId);
-    expect(evaluated).toHaveLength(2);
+    expect(drafts.find((d) => d.id === okId)?.evalSummary).toBeNull();
+    expect(provider.count()).toBe(1);
     expect(
-      evaluated.map((e) => (e.payload as { draftId: string }).draftId).sort()
-    ).toEqual([failId, okId].sort());
-
-    await finalizeIfRunning(runId, { draftCount: 2, anyFailure: false });
-    expect((await runsRepo.getRunById(testEnv.DB, runId))?.status).toBe(
-      "awaiting"
-    );
+      (await runsRepo.getRunById(testEnv.DB, runId))?.uncertainCents
+    ).toBeGreaterThan(0);
   });
 
   it("does not stamp evals_not_run when complete() fails on a revision child", async () => {
@@ -1199,7 +1195,7 @@ describe("draftAndReview provider deadline (story 3.19)", () => {
     };
   }
 
-  it("stamps a hung Draft evals_not_run after the deadline, keeps siblings going, and never stops the Run", async () => {
+  it("retains timeout liability and refuses siblings until reconciliation", async () => {
     const runId = await insertRun();
     const hungId = await insertShellDraft(runId, { id: `d:${runId}:01` });
     const okId = await insertShellDraft(runId, { id: `d:${runId}:02` });
@@ -1210,36 +1206,22 @@ describe("draftAndReview provider deadline (story 3.19)", () => {
     ]);
 
     vi.useFakeTimers();
-    const pending = draftAndReview(testEnv.DB, runId, deps(provider));
+    const pending = expect(
+      draftAndReview(testEnv.DB, runId, deps(provider))
+    ).rejects.toMatchObject({ code: "accounting_uncertain" });
     await provider.firstCall;
     await vi.advanceTimersByTimeAsync(PROVIDER_TIMEOUT_MS);
-    const result = await pending;
-    expect(vi.getTimerCount()).toBe(0);
+    await pending;
     vi.useRealTimers();
-
-    expect(result.budgetStopped).toBe(false);
-    expect(provider.count()).toBe(3);
+    expect(provider.count()).toBe(1);
     const drafts = await draftsRepo.listByRun(testEnv.DB, runId);
-    const hung = evalOf(drafts.find((d) => d.id === hungId)!);
-    expect(hung.status).toBe("evals_not_run");
-    expect(hung.ineligible).toContain("evals_not_run");
-    expect(evalOf(drafts.find((d) => d.id === okId)!).status).toBe("ok");
-    expect(drafts.find((d) => d.id === okId)?.confidence).toBe(72);
-
-    const evaluated = await evaluatedEvents(runId);
+    expect(evalOf(drafts.find((d) => d.id === hungId)!).status).toBe(
+      "evals_not_run"
+    );
+    expect(drafts.find((d) => d.id === okId)?.evalSummary).toBeNull();
     expect(
-      evaluated.map((e) => (e.payload as { draftId: string }).draftId).sort()
-    ).toEqual([hungId, okId].sort());
-    const evidence = await evidenceRepo.listByRun(testEnv.DB, runId);
-    expect(evidence.some((e) => e.event === "run.stopped")).toBe(false);
-    expect((await runsRepo.getRunById(testEnv.DB, runId))?.status).toBe(
-      "running"
-    );
-
-    await finalizeIfRunning(runId, { draftCount: 2, anyFailure: false });
-    expect((await runsRepo.getRunById(testEnv.DB, runId))?.status).toBe(
-      "awaiting"
-    );
+      (await runsRepo.getRunById(testEnv.DB, runId))?.uncertainCents
+    ).toBeGreaterThan(0);
   });
 });
 
@@ -1546,6 +1528,9 @@ describe("paused evaluation races (3.28)", () => {
     const resume = new Promise<void>((resolve) => {
       release = resolve;
     });
+    const currentLive = await testEnv.DB.prepare(
+      "SELECT operational_status FROM states WHERE id='st-nv'"
+    ).first<{ operational_status: string }>();
     const lateProvider: LlmProvider = {
       name: "fake",
       async complete({ model }) {
@@ -1557,14 +1542,27 @@ describe("paused evaluation races (3.28)", () => {
           text:
             model === "reviewer-v1"
               ? reviewJson({ notes: "Late evaluation" })
-              : drafterJson({ body: "Late body" }),
+              : drafterJson({
+                  body: "Late body",
+                  diff: {
+                    operationalStatus: {
+                      from: currentLive!.operational_status,
+                      to: "restricted"
+                    }
+                  }
+                }),
           inputTokens: 1,
           outputTokens: 1,
           reportedCostUsd: 0
         };
       }
     };
-    const late = draftAndReview(testEnv.DB, runId, deps(lateProvider));
+    const persistenceBarrier = pauseBatch(testEnv.DB);
+    const late = draftAndReview(
+      persistenceBarrier.db,
+      runId,
+      deps(lateProvider)
+    );
     await paused;
     try {
       expect((await draftsRepo.getById(testEnv.DB, id))?.readiness).toBe(
@@ -1595,27 +1593,20 @@ describe("paused evaluation races (3.28)", () => {
           "SELECT * FROM states WHERE id = 'st-nv'"
         ).first()
       ).toEqual(liveBefore);
-      await draftAndReview(
-        testEnv.DB,
-        runId,
-        deps(
-          fakeProvider([
-            {
-              text: drafterJson({
-                body: "Winning body",
-                diff: {
-                  operationalStatus: {
-                    from: (liveBefore as { operational_status: string })
-                      .operational_status,
-                    to: "restricted"
-                  }
-                }
-              })
-            },
-            { text: reviewJson({ notes: "Winning evaluation" }) }
-          ])
-        )
+      const competitor = fakeProvider();
+      await expect(
+        draftAndReview(testEnv.DB, runId, deps(competitor))
+      ).rejects.toMatchObject({ code: "operation_pending" });
+      expect(competitor.count()).toBe(0);
+      expect((await draftsRepo.getById(testEnv.DB, id))?.readiness).toBe(
+        "pending"
       );
+      release();
+      await persistenceBarrier.arrived;
+      // Both model results are durable, but the original evaluator's final
+      // write is paused. A retry replays them and completes valid evaluation.
+      await draftAndReview(testEnv.DB, runId, deps(competitor));
+      expect(competitor.count()).toBe(0);
       await enforceDraftGuardrails(testEnv.DB, runId, deps(fakeProvider()));
       await finalizeIfRunning(runId, { draftCount: 1, anyFailure: false });
       expect((await draftsRepo.getById(testEnv.DB, id))?.readiness).toBe(
@@ -1634,14 +1625,15 @@ describe("paused evaluation races (3.28)", () => {
       ).toBe("decided");
       const sealed = await draftsRepo.getById(testEnv.DB, id);
       const receipts = await evidenceRepo.listByRun(testEnv.DB, runId);
-      release();
+      persistenceBarrier.release();
       await late;
       expect(await draftsRepo.getById(testEnv.DB, id)).toEqual(sealed);
       expect(await evidenceRepo.listByRun(testEnv.DB, runId)).toEqual(receipts);
-      expect(sealed?.body).toBe("Winning body");
+      expect(sealed?.body).toBe("Late body");
       expect(sealed?.editedBody).toBe("Human approved version");
     } finally {
       release();
+      persistenceBarrier.release();
       await late;
     }
   });
@@ -1682,5 +1674,36 @@ describe("eligible Draft prompt privacy", () => {
       "rejectReason"
     ])
       expect(prompts).not.toContain(text);
+  });
+});
+
+describe("durable production Draft replay (3.31)", () => {
+  it("recovers settled drafter/reviewer output after the evaluation checkpoint fails", async () => {
+    const runId = await insertRun();
+    const draftId = await insertShellDraft(runId);
+    await seedConfig(DRAFTER_REVIEWER_ROLES);
+    const provider = fakeProvider([
+      { text: drafterJson() },
+      { text: reviewJson() }
+    ]);
+    const spy = vi
+      .spyOn(draftsRepo, "applyDraftReviewStmt")
+      .mockRejectedValueOnce(new Error("checkpoint lost"));
+    try {
+      await expect(
+        draftAndReview(testEnv.DB, runId, deps(provider))
+      ).rejects.toThrow("checkpoint lost");
+      expect(
+        (await draftsRepo.getById(testEnv.DB, draftId))?.evalSummary
+      ).toBeNull();
+      expect(provider.count()).toBe(2);
+      await draftAndReview(testEnv.DB, runId, deps(provider));
+      expect(provider.count()).toBe(2);
+      expect(
+        (await draftsRepo.getById(testEnv.DB, draftId))?.evalSummary?.status
+      ).toBe("ok");
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
