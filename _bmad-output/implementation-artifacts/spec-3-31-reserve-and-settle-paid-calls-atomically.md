@@ -150,6 +150,10 @@ Preserve existing 3.30 cost-policy and honest-label regressions, changing only e
 
 Independent parent verification: `npm test` passed 54 files / 1,240 tests; `npm run check`, `git diff --check`, and cached diff checks passed. Read the entire 3,995-line staged diff. Matrix audit: gateway dispatch race/shared-period/replay tests cover last balance, shared periods and duplicate identity; real-D1 repository tests cover reservation/dispatch/settlement interruption, idempotent settlement, reconciliation and over-bound retention; API/public provenance and mounted accounting tests cover public projection/privacy; actual Draft checkpoint replay and steering duplicate/pending/browser recovery tests cover production callers. All covering files ran without skips.
 
+### Repair completion
+
+All eleven review repair groups and parent audits P1/P2 are applied and verified. Numeric claim tests cover frozen/fallback Run caps, shared/new periods and equality with no double reservation counting.
+
 ## Auto Run Result
 
 Status: done
@@ -210,3 +214,12 @@ A terminated worker or unavailable D1 cannot guarantee capture of a late respons
 - `src/surfaces/ops/RunLog.tsx` — Held and uncertain amounts alongside total accounting.
 - `src/surfaces/ops/accounting.mount.test.tsx` — Regression coverage for retry identity, accounting, upgrade, authorization, privacy or mounted UI at this surface.
 - `vitest.config.ts` — Isolated local D1 database for populated upgrade verification.
+
+- `_bmad-output/implementation-artifacts/epic-3-context.md` — Verified 3.31 handoff and next corrective-story dependency.
+
+### Delivery evidence
+
+- Implementation commit: `6d9e8bf3e299efc1fa56de3cca954ad19380205e`.
+- Pull request: https://github.com/bizmation/PredictionMarketLitigation/pull/47 .
+- Required implementation CI: https://github.com/bizmation/PredictionMarketLitigation/actions/runs/37024712148 — success for the exact implementation commit.
+- Final delivery-document update will pass the same required CI before merge. No further code changes followed the verified implementation commit.
