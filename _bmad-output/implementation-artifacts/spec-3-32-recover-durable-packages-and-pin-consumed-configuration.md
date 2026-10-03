@@ -147,3 +147,7 @@ Follow-up review recommended: false. Numeric patch-volume trigger was met, but n
 - Matrix audit: durable material and partial writes; exact-Run isolation; configuration 0/nonzero changes and later consumption; competing snapshots and legacy refusal; partial/total failure; true empty; review/publication/uncertain-accounting replay all have executed passing entrypoint or focused D1 assertions.
 
 Residual limits: the harness executes the actual Workflow method with local checkpoint/fault injection; native hosted service acceptance remains 3.34. Active legacy work with unprovable source inputs is explicitly refused. Pricing was not refreshed; no paid calls, deployment or remote migrations occurred. Epic 3 operational acceptance remains rejected through 3.37, and the shared replay/admission action awaits 3.33.
+
+### Delivery evidence
+
+Implementation commit: `b899dba64908f84c74afd51881995c3209a4aeb2`. [PR #48](https://github.com/bizmation/PredictionMarketLitigation/pull/48). Required [implementation CI 37132587255](https://github.com/bizmation/PredictionMarketLitigation/actions/runs/37132587255) passed check and tests. This documentation follow-up will also pass required CI before the authorized merge.

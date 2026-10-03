@@ -296,7 +296,7 @@ action_items:
       admission (R8-R11)."
     owner: "agent"
     status: open
-    note: "Story 3.32 implements durable package/config recovery, truthful failure evidence and stopped-readiness replay; 1305 local tests and checks pass. Remains open for 3.33 admission/dispatch safety and linked merge/CI evidence."
+    note: "Story 3.32 / PR #48 implements durable package/config recovery, truthful failure evidence and stopped-readiness replay. Implementation b899dba64908f84c74afd51881995c3209a4aeb2 passed CI 37132587255; 1305 local tests and checks pass. Remains open for 3.33 admission/dispatch safety."
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
   - id: "epic-3-retro-connector-pagination-origin"
     # Approved corrective stories: 3.27; close only on linked evidence.
