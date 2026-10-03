@@ -1459,12 +1459,7 @@ describe("submitTurn config I/O matrix (story 3.17)", () => {
     );
     expect(steered.status).toBe("ok");
 
-    const packagedId = await ensureRun(
-      testEnv.DB,
-      "manual",
-      "2026-09-17",
-      "run-20260917-c017"
-    );
+    const packagedId = await ensureRun(testEnv.DB, "manual", "2026-09-17");
     const started = (await evidenceRepo.listByRun(testEnv.DB, packagedId)).find(
       (e) => e.event === "run.started"
     );
@@ -2295,12 +2290,7 @@ describe("submitTurn standing guidance I/O matrix (story 3.18)", () => {
     ).json();
 
     // Run N: package + review before any guidance exists.
-    const runN = await ensureRun(
-      testEnv.DB,
-      "manual",
-      "2026-09-18",
-      "run-20260918-c018"
-    );
+    const runN = await ensureRun(testEnv.DB, "manual", "2026-09-18");
     const startedN = (await evidenceRepo.listByRun(testEnv.DB, runN)).find(
       (e) => e.event === "run.started"
     );
@@ -2331,12 +2321,7 @@ describe("submitTurn standing guidance I/O matrix (story 3.18)", () => {
     const ref = { itemId, version: 1 };
 
     // Run N+1 sees it on run.started, in the drafter prompt, and on draft.evaluated.
-    const runN1 = await ensureRun(
-      testEnv.DB,
-      "manual",
-      "2026-09-19",
-      "run-20260919-c018"
-    );
+    const runN1 = await ensureRun(testEnv.DB, "manual", "2026-09-19");
     const startedN1 = (await evidenceRepo.listByRun(testEnv.DB, runN1)).find(
       (e) => e.event === "run.started"
     );
@@ -2382,12 +2367,7 @@ describe("submitTurn standing guidance I/O matrix (story 3.18)", () => {
       actor: ACTOR
     });
 
-    const runN2 = await ensureRun(
-      testEnv.DB,
-      "manual",
-      "2026-09-20",
-      "run-20260920-c018"
-    );
+    const runN2 = await ensureRun(testEnv.DB, "manual", "2026-09-20");
     const startedN2 = (await evidenceRepo.listByRun(testEnv.DB, runN2)).find(
       (e) => e.event === "run.started"
     );
@@ -2434,12 +2414,7 @@ describe("submitTurn standing guidance I/O matrix (story 3.18)", () => {
     expect(recorded.status).toBe("ok");
     if (recorded.status !== "ok") return;
 
-    const runB = await ensureRun(
-      testEnv.DB,
-      "manual",
-      "2026-09-21",
-      "run-20260921-c018"
-    );
+    const runB = await ensureRun(testEnv.DB, "manual", "2026-09-21");
     const packaged = await monitorAndPackage(
       testEnv.DB,
       runB,

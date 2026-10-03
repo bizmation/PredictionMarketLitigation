@@ -73,23 +73,28 @@ function parsedAppendEvent(input: AppendEventInput): EvidenceEvent {
 export function appendEventStmt(
   db: Db,
   input: AppendEventInput,
-  guard?: { draftId: string; state: "unevaluated" | "evaluated" | "undecided" }
+  guard?:
+    | { draftId: string; state: "unevaluated" | "evaluated" | "undecided" }
+    | { previousChange: true }
 ): D1PreparedStatement {
   const row = parsedAppendEvent(input);
   // Evaluator receipts precede their conditional UPDATE in the same batch.
   // Final guardrails require a real evaluation receipt, never a legacy guess.
   const statePredicate =
-    guard?.state === "unevaluated"
+    (guard && "state" in guard ? guard.state : undefined) === "unevaluated"
       ? "AND eval_summary_json IS NULL"
-      : guard?.state === "evaluated"
+      : (guard && "state" in guard ? guard.state : undefined) === "evaluated"
         ? `AND eval_summary_json IS NOT NULL AND EXISTS (
           SELECT 1 FROM evidence_events e WHERE e.run_id = drafts.run_id
             AND e.event = 'draft.evaluated'
             AND json_extract(e.payload_json, '$.draftId') = drafts.id)`
         : "";
-  const condition = guard
-    ? `WHERE EXISTS (SELECT 1 FROM drafts WHERE id = ? AND outcome IS NULL ${statePredicate})`
-    : "";
+  const condition =
+    guard && "previousChange" in guard
+      ? "WHERE changes() = 1"
+      : guard
+        ? `WHERE EXISTS (SELECT 1 FROM drafts WHERE id = ? AND outcome IS NULL ${statePredicate})`
+        : "";
   return db
     .prepare(
       `INSERT OR IGNORE INTO evidence_events (id, run_id, seq, event, payload_json, created_at)
@@ -104,7 +109,7 @@ export function appendEventStmt(
       row.event,
       row.payload == null ? null : JSON.stringify(row.payload),
       row.createdAt,
-      ...(guard ? [guard.draftId] : [])
+      ...(guard && "draftId" in guard ? [guard.draftId] : [])
     );
 }
 

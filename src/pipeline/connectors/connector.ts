@@ -1,3 +1,6 @@
+import { z } from "zod";
+import { PollSourceSchema } from "../../shared/schemas/pipelineConfig";
+import * as runPackagesRepo from "../../shared/db/repos/runPackagesRepo";
 import type { Db } from "../../shared/db/client";
 import { insertDraft } from "../../shared/db/repos/draftsRepo";
 import {
@@ -5,7 +8,7 @@ import {
   DeadlineError,
   withDeadline
 } from "../../shared/lib/timeouts";
-import { append } from "../projector/evidence";
+import { append, appendStmt, scrubPayload } from "../projector/evidence";
 import type { PollSource } from "./sources";
 
 /**
@@ -57,6 +60,14 @@ export class SourceUnavailableError extends Error {
   }
 }
 
+/** Internal storage interruption: retry collection; never commit a source outcome. */
+export class SourcePersistenceError extends Error {
+  constructor(cause: unknown) {
+    super("source_persistence_interrupted", { cause });
+    this.name = "SourcePersistenceError";
+  }
+}
+
 export type SourceCheck = (
   source: PollSource
 ) => Promise<SourceItem[]> | SourceItem[];
@@ -81,153 +92,223 @@ export function draftId(
   return ["d", runId, sourceName, entityType, entityId].join(":");
 }
 
-export async function runConnector(
-  db: Db,
-  runId: string,
+const ObservationSchema = z.object({
+  source: PollSourceSchema,
+  version: z.number().int().nonnegative().nullable(),
+  createdAt: z.string(),
+  failed: z.boolean(),
+  event: z.enum(["source.fetched", "source.skipped", "run.failed"]),
+  payload: z.record(z.string(), z.unknown()),
+  entities: z.array(
+    z.object({
+      type: z.string().min(1),
+      id: z.string().min(1),
+      diff: z.record(z.string(), z.unknown()),
+      body: z.string().min(1),
+      confidence: z.number().int().min(0).max(100).optional()
+    })
+  )
+});
+type Observation = z.infer<typeof ObservationSchema>;
+
+async function observe(
   source: PollSource,
-  check: SourceCheck
-): Promise<ConnectorResult> {
-  const now = new Date().toISOString();
+  check: SourceCheck,
+  version: number | null
+): Promise<Observation> {
+  const createdAt = new Date().toISOString();
+  const base = { source, version, createdAt };
   let items: unknown;
   try {
-    // Story 3.19 — one deadline per source. A hung check is a typed skip
-    // (`source.skipped { reason: "timeout" }`) that still counts as a
-    // failure, so a day where every source hangs is an honest `failed`
-    // Run, not an `empty` one; siblings are still polled by the caller.
     items = await withDeadline(
       Promise.resolve().then(() => check(source)),
       CONNECTOR_TIMEOUT_MS,
       source.name
     );
   } catch (err) {
-    if (err instanceof DeadlineError) {
-      await append(db, {
-        id: evidenceId(runId, "source.skipped", source.name),
-        runId,
+    if (err instanceof SourcePersistenceError) throw err;
+    if (err instanceof DeadlineError || err instanceof SourceUnavailableError) {
+      return {
+        ...base,
+        createdAt: new Date().toISOString(),
+        entities: [],
+        failed: true,
         event: "source.skipped",
-        payload: {
-          source: source.name,
-          tier: source.tier,
-          reason: "timeout",
-          timeoutMs: CONNECTOR_TIMEOUT_MS
-        },
-        // Stamped when the deadline fired, not when the check started, so
-        // the row is not 60 s early and out of order with its siblings.
-        createdAt: new Date().toISOString()
-      });
-      return { draftCount: 0, failed: true };
+        payload:
+          err instanceof DeadlineError
+            ? { reason: "timeout", timeoutMs: CONNECTOR_TIMEOUT_MS }
+            : { ...err.detail, reason: err.reason }
+      };
     }
-    if (err instanceof SourceUnavailableError) {
-      await append(db, {
-        id: evidenceId(runId, "source.skipped", source.name),
-        runId,
-        event: "source.skipped",
-        // Connector detail first; the reserved keys always win.
-        payload: {
-          ...err.detail,
-          source: source.name,
-          tier: source.tier,
-          reason: err.reason
-        },
-        createdAt: new Date().toISOString()
-      });
-      return { draftCount: 0, failed: true };
-    }
-    await append(db, {
-      id: evidenceId(runId, "run.failed", source.name),
-      runId,
+    return {
+      ...base,
+      entities: [],
+      failed: true,
       event: "run.failed",
-      payload: { connector: source.name, tier: source.tier, reason: "error" },
-      createdAt: now
-    });
-    return { draftCount: 0, failed: true };
+      payload: { connector: source.name, reason: "error" }
+    };
   }
-
   if (!Array.isArray(items)) {
-    await append(db, {
-      id: evidenceId(runId, "run.failed", source.name),
-      runId,
+    return {
+      ...base,
+      entities: [],
+      failed: true,
       event: "run.failed",
-      payload: { connector: source.name, tier: source.tier, reason: "error" },
-      createdAt: now
-    });
-    return { draftCount: 0, failed: true };
+      payload: { connector: source.name, reason: "error" }
+    };
   }
-
-  const sourceItems = items as SourceItem[];
-  if (sourceItems.length === 0) {
-    await append(db, {
-      id: evidenceId(runId, "source.skipped", source.name),
-      runId,
+  if (items.length === 0) {
+    return {
+      ...base,
+      entities: [],
+      failed: false,
       event: "source.skipped",
       payload: {
-        source: source.name,
-        tier: source.tier,
         reason: check === stubCheck ? "not wired" : "no material change"
-      },
-      createdAt: now
-    });
-    return { draftCount: 0, failed: false };
+      }
+    };
   }
-
   const fetched: Record<string, unknown> = {};
-  let entryCount = 0;
-  let sourceFailed = false;
-  for (const item of sourceItems) {
-    if (item?.fetched != null && typeof item.fetched === "object") {
+  const entities: EntityChange[] = [];
+  let failed = false;
+  for (const item of items as SourceItem[]) {
+    if (item?.fetched != null && typeof item.fetched === "object")
       Object.assign(fetched, item.fetched);
-    }
-    if (Array.isArray(item?.entities)) entryCount += item.entities.length;
-    if (item?.failed === true) sourceFailed = true;
+    if (Array.isArray(item?.entities)) entities.push(...item.entities);
+    if (item?.failed === true) failed = true;
   }
-  await append(db, {
-    id: evidenceId(runId, "source.fetched", source.name),
-    runId,
+  return {
+    ...base,
+    entities,
+    failed,
     event: "source.fetched",
-    payload: {
-      ...fetched,
-      source: source.name,
-      tier: source.tier,
-      itemCount: entryCount
-    },
-    createdAt: now
-  });
+    payload: { ...fetched, itemCount: entities.length }
+  };
+}
 
-  let draftCount = 0;
-  for (const item of sourceItems) {
-    const entities = Array.isArray(item?.entities) ? item.entities : [];
-    for (const entity of entities) {
-      await insertDraft(db, {
-        id: draftId(runId, source.name, entity.type, entity.id),
-        runId,
-        targetEntityType: entity.type,
-        targetEntityId: entity.id,
-        diff: entity.diff,
-        body: entity.body,
-        tier2Only: source.tier === "tier2",
-        confidence: entity.confidence ?? null,
-        evalSummary: null,
-        createdAt: now
-      });
-      await append(db, {
-        id: evidenceId(
-          runId,
-          "draft.created",
-          source.name,
-          entity.type,
-          entity.id
-        ),
-        runId,
-        event: "draft.created",
-        payload: {
-          source: source.name,
-          entityType: entity.type,
-          entityId: entity.id
-        },
-        createdAt: now
-      });
-      draftCount += 1;
-    }
+/** First observation wins. A journal is NOT a completion marker. */
+export async function runConnector(
+  db: Db,
+  runId: string,
+  source: PollSource,
+  check: SourceCheck
+): Promise<ConnectorResult> {
+  const read = () =>
+    db
+      .prepare(
+        "SELECT observation_json, completed FROM run_source_packages WHERE run_id = ? AND source_name = ?"
+      )
+      .bind(runId, source.name)
+      .first<{ observation_json: string; completed: number }>();
+  let stored = await read();
+  if (!stored) {
+    const snapshot = await runPackagesRepo.readSnapshot(db, runId);
+    const observation = ObservationSchema.parse(
+      await observe(source, check, snapshot?.version ?? null)
+    );
+    // Scrub arbitrary connector metadata before persisting it, as with public receipts.
+    observation.payload = scrubPayload(observation.payload) as Record<
+      string,
+      unknown
+    >;
+    await db
+      .prepare(
+        "INSERT OR IGNORE INTO run_source_packages (run_id, source_name, observation_json) VALUES (?, ?, ?)"
+      )
+      .bind(runId, source.name, JSON.stringify(observation))
+      .run();
+    stored = await read();
   }
-  return { draftCount, failed: sourceFailed };
+  if (!stored) throw new Error("source_observation_missing");
+  const observation = ObservationSchema.parse(
+    JSON.parse(stored.observation_json)
+  );
+  if (
+    observation.source.name !== source.name ||
+    observation.source.url !== source.url ||
+    observation.source.tier !== source.tier
+  )
+    throw new Error("source_observation_identity_mismatch");
+  const { entities, failed, event, createdAt, version } = observation;
+  const draftCount = new Set(
+    entities.map((entity) =>
+      draftId(runId, source.name, entity.type, entity.id)
+    )
+  ).size;
+  if (stored.completed === 1) return { draftCount, failed };
+  await append(db, {
+    id: evidenceId(runId, event, source.name),
+    runId,
+    event,
+    payload: {
+      ...observation.payload,
+      source: source.name,
+      url: source.url,
+      tier: source.tier,
+      pollSourcesVersion: version,
+      failed
+    },
+    createdAt
+  });
+  for (const entity of entities) {
+    // The journal makes insert-then-receipt safely repairable even after global
+    // connector deduplication starts hiding this event from subsequent polls.
+    await insertDraft(db, {
+      id: draftId(runId, source.name, entity.type, entity.id),
+      runId,
+      targetEntityType: entity.type,
+      targetEntityId: entity.id,
+      diff: entity.diff,
+      body: entity.body,
+      tier2Only: source.tier === "tier2",
+      confidence: entity.confidence ?? null,
+      evalSummary: null,
+      createdAt
+    });
+    await append(db, {
+      id: evidenceId(
+        runId,
+        "draft.created",
+        source.name,
+        entity.type,
+        entity.id
+      ),
+      runId,
+      event: "draft.created",
+      payload: {
+        source: source.name,
+        entityType: entity.type,
+        entityId: entity.id
+      },
+      createdAt
+    });
+  }
+  // Completion and explicit failure evidence commit together. A generic failed
+  // fetched result therefore remains failed even when replay does not poll.
+  const completion = db
+    .prepare(
+      "UPDATE run_source_packages SET completed = 1 WHERE run_id = ? AND source_name = ?"
+    )
+    .bind(runId, source.name);
+  if (failed && event === "source.fetched") {
+    await db.batch([
+      appendStmt(db, {
+        id: evidenceId(runId, "run.failed", source.name),
+        runId,
+        event: "run.failed",
+        payload: {
+          connector: source.name,
+          url: source.url,
+          tier: source.tier,
+          pollSourcesVersion: version,
+          reason: "source_failed"
+        },
+        createdAt
+      }),
+      completion
+    ]);
+  } else {
+    await completion.run();
+  }
+  return { draftCount, failed };
 }

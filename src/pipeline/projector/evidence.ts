@@ -135,7 +135,9 @@ function scrubbedInput(input: EvidenceAppendInput): EvidenceAppendInput {
 export function appendStmt(
   db: Db,
   input: EvidenceAppendInput,
-  guard?: { draftId: string; state: "unevaluated" | "evaluated" | "undecided" }
+  guard?:
+    | { draftId: string; state: "unevaluated" | "evaluated" | "undecided" }
+    | { previousChange: true }
 ): D1PreparedStatement {
   return evidenceRepo.appendEventStmt(db, scrubbedInput(input), guard);
 }

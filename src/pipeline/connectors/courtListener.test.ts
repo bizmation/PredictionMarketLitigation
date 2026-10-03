@@ -200,7 +200,7 @@ describe("CourtListener connector (story 3.21)", () => {
     const runId = await newRun();
     const result = await runConnector(testEnv.DB, runId, SOURCE, check(""));
     expect(result).toEqual({ draftCount: 0, failed: true });
-    expect(await skippedReason(runId)).toEqual({
+    expect(await skippedReason(runId)).toMatchObject({
       source: COURTLISTENER_SOURCE_NAME,
       tier: "tier1",
       reason: "unconfigured"

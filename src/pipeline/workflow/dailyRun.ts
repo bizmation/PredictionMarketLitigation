@@ -219,6 +219,14 @@ export async function startOperatorRun(
 }
 
 export class DailyRunWorkflow extends WorkflowEntrypoint<Env, DailyRunParams> {
+  protected sourceChecks(db: Db): Record<string, SourceCheck> {
+    return sourceChecksFromEnv(this.env, db);
+  }
+
+  protected gatewayDeps(db: Db): GatewayDeps {
+    return gatewayDepsFromEnv(this.env, db);
+  }
+
   async run(
     event: WorkflowEvent<DailyRunParams>,
     step: WorkflowStep
@@ -229,27 +237,34 @@ export class DailyRunWorkflow extends WorkflowEntrypoint<Env, DailyRunParams> {
     const attached = await step.do("attach-run", () =>
       ensureRun(db, origin, scheduledFor, event.payload.runId)
     );
-    const runId =
-      typeof attached === "string" && attached.length > 0
-        ? attached
-        : (event.payload.runId ??
-          (await runsRepo.findRunForDate(db, scheduledFor, origin))?.id);
-    if (!runId) return;
+    if (
+      typeof attached !== "string" ||
+      !/^run-[0-9]{8}-[0-9a-f]{4}$/.test(attached)
+    ) {
+      throw new Error("invalid_attached_run_identity");
+    }
+    const runId = attached;
+    const run = await runsRepo.getRunById(db, runId);
+    if (
+      !run ||
+      run.origin !== origin ||
+      run.scheduledFor !== scheduledFor ||
+      (event.payload.runId && event.payload.runId !== runId)
+    ) {
+      throw new Error("attached_run_identity_mismatch");
+    }
 
     const packaged = await step.do("run-daily-step", () =>
-      packageDailyRun(
-        db,
-        runId,
-        gatewayDepsFromEnv(this.env, db),
-        sourceChecksFromEnv(this.env, db)
-      )
+      packageDailyRun(db, runId, this.gatewayDeps(db), this.sourceChecks(db))
     );
 
     if (packaged.skip) return;
+    if (packaged.runId !== runId)
+      throw new Error("packaged_run_identity_mismatch");
     if (packaged.draftCount === 0) return;
 
     await step.do("draft-and-review", () =>
-      reviewDailyRun(db, packaged, gatewayDepsFromEnv(this.env, db))
+      reviewDailyRun(db, packaged, this.gatewayDeps(db))
     );
   }
 }

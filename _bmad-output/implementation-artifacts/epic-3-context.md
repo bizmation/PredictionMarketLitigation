@@ -4,7 +4,7 @@
 
 ## Goal
 
-Close the daily source → Draft → Approval Gate → canonical tracker → public Evidence loop. Patrick operates it with HITL by default and bounded optional autonomy; anyone can inspect its work. Stories 3.1–3.31 are complete, including canonical planning reconciliation, connector credential boundaries, evaluation readiness/sealing, atomic publication, bounded provider cost and atomic paid-call accounting, but operational acceptance remains rejected. The corrective backlog reopens the epic until safety regressions and a real governed staging publication demonstrate acceptance.
+Close the daily source → Draft → Approval Gate → canonical tracker → public Evidence loop. Patrick operates it with HITL by default and bounded optional autonomy; anyone can inspect its work. Stories 3.1–3.32 are complete, including canonical planning reconciliation, connector credential boundaries, evaluation readiness/sealing, atomic publication, bounded provider cost, atomic paid-call accounting and durable package/config recovery, but operational acceptance remains rejected. The corrective backlog reopens the epic until safety regressions and a real governed staging publication demonstrate acceptance.
 
 ## Stories
 
@@ -79,7 +79,7 @@ Close the daily source → Draft → Approval Gate → canonical tracker → pub
 
 - Epic 2 supplies canonical F1 entities. Foundation, gateway, orchestration, evaluation, and gate underpin public/operator surfaces. Approved steering and hardening stories 3.14–3.21 now have canonical entries in epics.md; F9/FR46–50 and UX B8/C4 are reconciled by 3.26.
 - Historical staging sequence was 3.23–3.25 before the 3.22 deployment; all are complete. The September 24 corrective plan controls the next staging deployment. R13 delayed-arrival policy and R14 failed-revision recovery remain deferred.
-- Corrective order: 3.26 planning is complete; 3.27 connector boundary is complete; 3.28 readiness and 3.29 atomic publication are complete; 3.30 bounded cost is complete (PR #46); 3.31 reservation/accounting is complete (PR #47); next is 3.32 replay/config; 3.28 + 3.31 → 3.32 replay/config; 3.33 admission. These feed 3.34 executing-Workflow coverage; 3.28 also enables 3.35 live pending count.
+- Corrective order: 3.26 planning is complete; 3.27 connector boundary is complete; 3.28 readiness and 3.29 atomic publication are complete; 3.30 bounded cost is complete (PR #46); 3.31 reservation/accounting is complete (PR #47); 3.32 replay/config is complete; next is 3.33 admission/dispatch. These feed 3.34 executing-Workflow coverage; 3.28 also enables 3.35 live pending count.
 - All 3.26–3.35 must merge with required CI before 3.36 staging gateway verification. Then 3.37 proves material publication and reruns the retrospective. Reuse one qualifying Run rather than duplicate paid work. Epic 4 waits for 3.37 and accepted Epic 3 evidence; planning completion closes no runtime acceptance gap.
 
 
@@ -91,3 +91,8 @@ Patrick approved bounded-text-v1: 2,048 output tokens, seven-day pricing validit
 ## Story 3.31 handoff — 2026-10-02
 
 PR #47 implements atomic bounded reservations and dispatch checks against Run/all configured period caps, stable Draft/steering retry identity, private result recovery, uncertain/late liability, idempotent settlement and authenticated evidence-backed reconciliation. Migration 0021 preserves legacy balances/provenance and seeds no period. Public/operator totals share one authority. Implementation 6d9e8bf3e299efc1fa56de3cca954ad19380205e passed CI 37024712148; local verification passed 1,267 tests in 55 files plus checks. The shared 3.30/3.31 paid-budget corrective action is closed on implementation evidence. No deployment or paid inference occurred. Late evidence capture depends on a living worker and available D1; retained liabilities never permit blind replay. The spec defers one unverified query-scalability concern for representative-history measurement. Existing pricing expires 2026-10-03T14:01:49.000Z and was not refreshed. Next corrective implementation is 3.32; Epic 3 operational acceptance remains rejected until 3.37.
+
+
+## Story 3.32 handoff — 2026-10-03
+
+PR #48 (implementation b899dba64908f84c74afd51881995c3209a4aeb2, successful CI 37132587255) adds durable exact-Run source journals and immutable actual source snapshots that preserve material Drafts, failures and truthful configuration versions across interrupted packaging/review. Migration 0022 is additive. CourtListener database interruptions remain replayable; stopped Runs recover unfinished readiness without new paid calls or mutation of sealed decisions. The production Workflow entrypoint has 38 focused local-D1 recovery tests, including actual CourtListener dedup, checkpoint loss, atomic receipt rollback and competing snapshots. Full verification passes 1,305 tests in 56 files plus formatting/lint/types. No deployment, remote migration, pricing refresh or paid inference occurred. Legacy inputs that cannot be proven are refused explicitly. Native Workflow-service acceptance remains 3.34; shared replay/admission corrective action remains open for 3.33. Epic 3 operational acceptance still requires 3.37.

@@ -61,7 +61,10 @@ async function latestRow(db: Db): Promise<PipelineConfigVersion | null> {
     )
     .bind(PIPELINE_CONFIG_KEY)
     .first<VersionRow>();
-  return row == null ? null : mapVersion(row);
+  if (row == null) return null;
+  const version = mapVersion(row);
+  if (!version) throw new Error("invalid_poll_sources_configuration");
+  return version;
 }
 
 export async function getEffectivePollSources(db: Db): Promise<{

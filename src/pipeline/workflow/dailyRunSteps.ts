@@ -1,11 +1,13 @@
 import { defaultBudgetCents } from "../config/modelRoles";
 import type { Db } from "../../shared/db/client";
+import * as runPackagesRepo from "../../shared/db/repos/runPackagesRepo";
+import * as draftsRepo from "../../shared/db/repos/draftsRepo";
 import * as modeRepo from "../../shared/db/repos/modeRepo";
 import * as pipelineConfigRepo from "../../shared/db/repos/pipelineConfigRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import * as standingGuidanceRepo from "../../shared/db/repos/standingGuidanceRepo";
 import { toGuidanceRef } from "../../shared/schemas/standingGuidance";
-import { append } from "../projector/evidence";
+import { append, appendStmt } from "../projector/evidence";
 import type { RunOrigin } from "../../shared/schemas/vocabulary";
 import { draftAndReview } from "../agents/draftAndReview";
 import { enforceDraftGuardrails } from "../ai/actionPolicy";
@@ -58,30 +60,54 @@ export async function ensureRun(
   const existing = runId
     ? await runsRepo.getRunById(db, runId)
     : await runsRepo.findRunForDate(db, scheduledFor, origin);
+  if (
+    existing &&
+    (existing.origin !== origin || existing.scheduledFor !== scheduledFor)
+  ) {
+    throw new Error("attached_run_identity_mismatch");
+  }
+  if (runId && !existing) throw new Error("attached_run_missing");
   const now = new Date().toISOString();
   const id = existing?.id ?? runId ?? runIdFor(scheduledFor, origin);
   if (!existing) {
     const live = await modeRepo.get(db);
     const budgetCents = await defaultBudgetCents(db);
+    const snapshot = await pipelineConfigRepo.getEffectivePollSources(db);
     try {
-      await runsRepo.insertRun(db, {
-        id,
-        origin,
-        mode: live.mode,
-        status: "running",
-        startedAt: now,
-        completedAt: null,
-        spendCents: 0,
-        spendCurrency: "USD",
-        budgetCents,
-        scheduledFor
-      });
-    } catch {
-      // Same-id retry/race: the row is already there; still backfill evidence.
+      await db.batch([
+        runsRepo.insertRunStmt(db, {
+          id,
+          origin,
+          mode: live.mode,
+          status: "running",
+          startedAt: now,
+          completedAt: null,
+          spendCents: 0,
+          spendCurrency: "USD",
+          budgetCents,
+          scheduledFor
+        }),
+        runPackagesRepo.snapshotStmt(db, id, snapshot)
+      ]);
+    } catch (error) {
+      const winner = await runsRepo.getRunById(db, id);
+      if (
+        !winner ||
+        winner.origin !== origin ||
+        winner.scheduledFor !== scheduledFor
+      )
+        throw error;
     }
   }
-  const { version: pollSourcesVersion } =
-    await pipelineConfigRepo.getEffectivePollSources(db);
+  // Sealed Runs need no new provenance or configuration on replay.
+  if (
+    existing &&
+    existing.status !== "running" &&
+    existing.status !== "awaiting"
+  )
+    return id;
+  const { version: pollSourcesVersion, sources: pollSources } =
+    await runPackagesRepo.attachSnapshot(db, id);
   // Story 3.18 — snapshot the in-force standing guidance at Run start so
   // ops. can show what the drafter was allowed to see on this Run.
   const guidanceInForce = (await standingGuidanceRepo.listInForce(db)).map(
@@ -91,22 +117,42 @@ export async function ensureRun(
     id: evidenceId(id, "run.started"),
     runId: id,
     event: "run.started",
-    payload: { origin, scheduledFor, pollSourcesVersion, guidanceInForce },
+    payload: {
+      origin,
+      scheduledFor,
+      pollSourcesVersion,
+      pollSources,
+      guidanceInForce
+    },
     createdAt: now
   });
   return id;
 }
 
-export async function finishEmpty(db: Db, runId: string): Promise<void> {
+async function finishWithReceipt(
+  db: Db,
+  runId: string,
+  status: "empty" | "awaiting" | "failed",
+  event: "run.empty" | "gate.awaiting_approval" | "run.failed",
+  payload: unknown
+): Promise<void> {
   const now = new Date().toISOString();
-  await runsRepo.completeRun(db, runId, "empty", now);
-  await append(db, {
-    id: evidenceId(runId, "run.empty"),
-    runId,
-    event: "run.empty",
-    payload: { drafts: 0 },
-    createdAt: now
-  });
+  await db.batch([
+    db
+      .prepare(
+        "UPDATE runs SET status = ?, completed_at = ? WHERE id = ? AND status = 'running'"
+      )
+      .bind(status, now, runId),
+    appendStmt(
+      db,
+      { id: evidenceId(runId, event), runId, event, payload, createdAt: now },
+      { previousChange: true }
+    )
+  ]);
+}
+
+export async function finishEmpty(db: Db, runId: string): Promise<void> {
+  await finishWithReceipt(db, runId, "empty", "run.empty", { drafts: 0 });
 }
 
 export async function finishAwaiting(
@@ -114,27 +160,14 @@ export async function finishAwaiting(
   runId: string,
   draftCount: number
 ): Promise<void> {
-  const now = new Date().toISOString();
-  await runsRepo.completeRun(db, runId, "awaiting", now);
-  await append(db, {
-    id: evidenceId(runId, "gate.awaiting_approval"),
-    runId,
-    event: "gate.awaiting_approval",
-    payload: { drafts: draftCount },
-    createdAt: now
+  await finishWithReceipt(db, runId, "awaiting", "gate.awaiting_approval", {
+    drafts: draftCount
   });
 }
 
 export async function finishFailed(db: Db, runId: string): Promise<void> {
-  const now = new Date().toISOString();
-  const moved = await runsRepo.completeRun(db, runId, "failed", now);
-  if (!moved) return;
-  await append(db, {
-    id: evidenceId(runId, "run.failed"),
-    runId,
-    event: "run.failed",
-    payload: { reason: "error" },
-    createdAt: now
+  await finishWithReceipt(db, runId, "failed", "run.failed", {
+    reason: "error"
   });
 }
 
@@ -165,15 +198,14 @@ export async function monitorAndPackage(
   runId: string,
   checks: Record<string, SourceCheck> = {}
 ): Promise<{ draftCount: number; anyFailure: boolean }> {
-  let draftCount = 0;
   let anyFailure = false;
-  const { sources } = await pipelineConfigRepo.getEffectivePollSources(db);
+  const { sources } = await runPackagesRepo.requireSnapshot(db, runId);
   for (const source of sources) {
     const check = checks[source.name] ?? stubCheck;
     const result = await runConnector(db, runId, source, check);
-    draftCount += result.draftCount;
     if (result.failed) anyFailure = true;
   }
+  const draftCount = (await draftsRepo.listByRun(db, runId)).length;
   return { draftCount, anyFailure };
 }
 
@@ -189,6 +221,13 @@ export async function afterPackaging(
   result: { draftCount: number; anyFailure: boolean },
   gatewayDeps: GatewayDeps
 ): Promise<void> {
+  const initial = await runsRepo.getRunById(db, runId);
+  if (!initial) throw new Error("attached_run_missing");
+  if (initial.status !== "running" && initial.status !== "stopped") {
+    if (initial.status === "awaiting" && initial.mode === "yolo")
+      await autoApproveRun(db, runId);
+    return;
+  }
   if (result.draftCount === 0) {
     await completeDailyStep(db, runId, result);
     return;
@@ -227,24 +266,26 @@ export async function packageDailyRun(
   checks: Record<string, SourceCheck> = {}
 ): Promise<DailyPackageResult> {
   const run = await runsRepo.getRunById(db, runId);
-  if (!run || run.status !== "running") {
-    return { skip: true };
-  }
-  try {
-    const result = await monitorAndPackage(db, run.id, checks);
-    if (result.draftCount === 0) {
-      await afterPackaging(db, run.id, result, gatewayDeps);
-    }
+  if (!run) throw new Error("attached_run_missing");
+  if (run.status === "awaiting" || run.status === "stopped") {
     return {
       skip: false,
-      runId: run.id,
-      draftCount: result.draftCount,
-      anyFailure: result.anyFailure
+      runId,
+      draftCount: (await draftsRepo.listByRun(db, runId)).length,
+      anyFailure: await runPackagesRepo.hasFailure(db, runId)
     };
-  } catch {
-    await finishFailed(db, run.id);
-    return { skip: true };
   }
+  if (run.status !== "running") return { skip: true };
+  const result = await monitorAndPackage(db, run.id, checks);
+  if (result.draftCount === 0) {
+    await afterPackaging(db, run.id, result, gatewayDeps);
+  }
+  return {
+    skip: false,
+    runId: run.id,
+    draftCount: result.draftCount,
+    anyFailure: result.anyFailure
+  };
 }
 
 /**
@@ -257,17 +298,13 @@ export async function reviewDailyRun(
   gatewayDeps: GatewayDeps
 ): Promise<void> {
   if (packaged.skip || packaged.draftCount === 0) return;
-  try {
-    await afterPackaging(
-      db,
-      packaged.runId,
-      {
-        draftCount: packaged.draftCount,
-        anyFailure: packaged.anyFailure
-      },
-      gatewayDeps
-    );
-  } catch {
-    await finishFailed(db, packaged.runId);
-  }
+  await afterPackaging(
+    db,
+    packaged.runId,
+    {
+      draftCount: packaged.draftCount,
+      anyFailure: packaged.anyFailure
+    },
+    gatewayDeps
+  );
 }

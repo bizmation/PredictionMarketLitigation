@@ -3,6 +3,7 @@ import { insertReviewedDraft } from "../../test/reviewedDraft";
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { attachSnapshot } from "../../shared/db/repos/runPackagesRepo";
 import * as draftsRepo from "../../shared/db/repos/draftsRepo";
 import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
 import * as modeRepo from "../../shared/db/repos/modeRepo";
@@ -169,12 +170,7 @@ describe("daily run (story 3.3)", () => {
       sourceTurnId: null,
       createdAt
     });
-    const id = await ensureRun(
-      testEnv.DB,
-      "manual",
-      "2026-09-18",
-      "run-20260918-a318"
-    );
+    const id = await ensureRun(testEnv.DB, "manual", "2026-09-18");
     const started = (await evidenceRepo.listByRun(testEnv.DB, id)).find(
       (e) => e.event === "run.started"
     );
@@ -620,6 +616,7 @@ describe("sourceChecksFromEnv (story 3.21)", () => {
       budgetCents: null,
       scheduledFor: "2026-09-01"
     });
+    await attachSnapshot(testEnv.DB, id);
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     const packaged = await packageDailyRun(
@@ -672,6 +669,7 @@ describe("sourceChecksFromEnv (story 3.21)", () => {
       budgetCents: null,
       scheduledFor: "2026-09-01"
     });
+    await attachSnapshot(testEnv.DB, id);
     const fetchMock = vi.fn(
       async (input: string | URL | Request, _init?: RequestInit) => {
         const docket = new URL(String(input)).searchParams.get("docket");

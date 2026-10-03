@@ -87,7 +87,7 @@ const RUN_COLUMNS = `id, origin, mode, status, started_at, completed_at,
  (SELECT issue_count FROM llm_run_accounting WHERE run_id=runs.id) AS issue_count,
  spend_currency,budget_cents,scheduled_for`;
 
-export async function insertRun(
+export function insertRunStmt(
   db: Db,
   input: {
     id: string;
@@ -101,13 +101,13 @@ export async function insertRun(
     budgetCents: number | null;
     scheduledFor: string | null;
   }
-): Promise<RunSummary> {
+): D1PreparedStatement {
   // Validate BEFORE the INSERT: a row the CHECKs accept but the schema
   // rejects would sit in D1 as poison and 500 every later read of it. The
   // CHECKs and Zod agree on shape (run-id calendar date, uppercase currency,
   // integer cents); parse first so a failed contract never hits SQL.
   const run = RunSummarySchema.parse(input);
-  await db
+  return db
     .prepare(
       `INSERT INTO runs (${RUN_INSERT_COLUMNS})
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -123,9 +123,15 @@ export async function insertRun(
       run.spendCurrency,
       run.budgetCents,
       run.scheduledFor
-    )
-    .run();
-  return run;
+    );
+}
+
+export async function insertRun(
+  db: Db,
+  input: Parameters<typeof insertRunStmt>[1]
+): Promise<RunSummary> {
+  await insertRunStmt(db, input).run();
+  return RunSummarySchema.parse(input);
 }
 
 /**

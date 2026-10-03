@@ -56,7 +56,13 @@ export const PollSourceSchema = z
 
 export type PollSource = z.infer<typeof PollSourceSchema>;
 
-export const PollSourcesSchema = z.array(PollSourceSchema);
+export const PollSourcesSchema = z
+  .array(PollSourceSchema)
+  .refine(
+    (sources) =>
+      new Set(sources.map((source) => source.name)).size === sources.length,
+    "Source names must be unique"
+  );
 export type PollSources = z.infer<typeof PollSourcesSchema>;
 
 export const PipelineConfigVersionSchema = z
