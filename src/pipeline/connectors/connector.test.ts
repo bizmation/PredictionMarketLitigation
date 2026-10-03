@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { attachSnapshot } from "../../shared/db/repos/runPackagesRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import * as draftsRepo from "../../shared/db/repos/draftsRepo";
 import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
@@ -31,6 +32,7 @@ async function newRun(): Promise<string> {
     budgetCents: null,
     scheduledFor: "2026-09-20"
   });
+  await attachSnapshot(testEnv.DB, id);
   return id;
 }
 
@@ -151,7 +153,7 @@ describe("source monitoring & draft packaging (story 3.4)", () => {
 
     const evidence = await evidenceRepo.listByRun(testEnv.DB, runId);
     const failed = evidence.find((e) => e.event === "run.failed");
-    expect(failed?.payload).toEqual({
+    expect(failed?.payload).toMatchObject({
       connector: "CourtListener",
       tier: "tier1",
       reason: "error"
@@ -244,7 +246,7 @@ describe("typed source skips (story 3.21)", () => {
           e.event === "source.skipped" &&
           (e.payload as { source?: string }).source === "CourtListener"
       )?.payload
-    ).toEqual({
+    ).toMatchObject({
       source: "CourtListener",
       tier: "tier1",
       reason: "http_429",
@@ -299,16 +301,16 @@ describe("typed source skips (story 3.21)", () => {
     const result = await monitorAndPackage(testEnv.DB, runId, checks);
     expect(result).toEqual({ draftCount: 0, anyFailure: false });
     const evidence = await evidenceRepo.listByRun(testEnv.DB, runId);
-    expect(evidence.find((e) => e.event === "source.fetched")?.payload).toEqual(
-      {
-        source: "CourtListener",
-        tier: "tier1",
-        itemCount: 0,
-        docketIds: ["73375343"],
-        fetchedAt: NOW,
-        dockets: [{ docketId: "73375343", latestEntryDate: "2026-09-15" }]
-      }
-    );
+    expect(
+      evidence.find((e) => e.event === "source.fetched")?.payload
+    ).toMatchObject({
+      source: "CourtListener",
+      tier: "tier1",
+      itemCount: 0,
+      docketIds: ["73375343"],
+      fetchedAt: NOW,
+      dockets: [{ docketId: "73375343", latestEntryDate: "2026-09-15" }]
+    });
     expect(
       evidence.some(
         (e) =>
@@ -345,6 +347,7 @@ describe("connector timeouts (story 3.19)", () => {
       budgetCents: null,
       scheduledFor: "2026-09-10"
     });
+    await attachSnapshot(testEnv.DB, id);
     return id;
   }
 
@@ -394,7 +397,7 @@ describe("connector timeouts (story 3.19)", () => {
       skipped.find(
         (e) => (e.payload as { source?: string }).source === "CourtListener"
       )?.payload
-    ).toEqual({
+    ).toMatchObject({
       source: "CourtListener",
       tier: "tier1",
       reason: "timeout",

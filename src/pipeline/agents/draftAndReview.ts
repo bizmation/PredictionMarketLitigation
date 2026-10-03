@@ -862,7 +862,8 @@ export async function draftAndReview(
               "Evaluation was skipped after a preceding evaluation stopped the run."
             );
           } catch {
-            // Stamp as many remaining Drafts as the DB will take.
+            // Keep attempting siblings, but never checkpoint incomplete readiness.
+            persistFailed = true;
           }
         }
         if (isBudgetStopped(err) && !persistFailed) {

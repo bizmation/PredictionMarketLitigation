@@ -9,6 +9,7 @@ import {
 import { IsoDateSchema } from "../../shared/schemas/common";
 import {
   SourceUnavailableError,
+  SourcePersistenceError,
   type EntityChange,
   type SourceCheck,
   type SourceItem
@@ -178,6 +179,14 @@ export interface CourtListenerCheckDeps {
 
 const defaultFetch: FetchImpl = (input, init) =>
   fetchWithTimeout(input, init, SOURCE_FETCH_TIMEOUT_MS);
+
+async function readSourceState<T>(read: () => Promise<T>): Promise<T> {
+  try {
+    return await read();
+  } catch (cause) {
+    throw new SourcePersistenceError(cause);
+  }
+}
 
 async function listDockets(db: Db): Promise<DocketRow[]> {
   const { results } = await db
@@ -462,12 +471,14 @@ async function pollDocket(
   docketId: string,
   row: DocketRow
 ): Promise<DocketOutcome> {
-  const [latest, seen, parties, trackedSince] = await Promise.all([
-    latestOccurredAt(deps.db, row.case_id),
-    seenEventIds(deps.db, row.case_id),
-    listParties(deps.db, row.case_id),
-    sourcePublishedAt(deps.db, row.case_id, row.url)
-  ]);
+  const [latest, seen, parties, trackedSince] = await readSourceState(() =>
+    Promise.all([
+      latestOccurredAt(deps.db, row.case_id),
+      seenEventIds(deps.db, row.case_id),
+      listParties(deps.db, row.case_id),
+      sourcePublishedAt(deps.db, row.case_id, row.url)
+    ])
+  );
   // Baseline floor: the latest published development, or — before any
   // exists — the day the docket source was recorded, so the first live Run
   // never backfills history the tracker never claimed to follow.
@@ -553,7 +564,7 @@ export function createCourtListenerCheck(
     const token = deps.token?.trim();
     if (!token) throw new SourceUnavailableError("unconfigured");
 
-    const dockets = await listDockets(deps.db);
+    const dockets = await readSourceState(() => listDockets(deps.db));
     const byDocket = new Map<string, DocketRow>();
     const unmatched: string[] = [];
     for (const row of dockets) {
