@@ -23,7 +23,8 @@
     "types": "wrangler types env.d.ts",
     "format": "oxfmt --write .",
     "lint": "oxlint src/",
-    "check": "oxfmt --check . && oxlint src/ && tsc"
+    "check": "oxfmt --check . && oxlint src/ && tsc",
+    "test:workflow-mutations": "node scripts/verify-workflow-mutations.mjs"
   },
   "dependencies": {
     "@cloudflare/ai-chat": "^0.9.3",

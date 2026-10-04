@@ -9,13 +9,16 @@ import react from "@vitejs/plugin-react";
 import agents from "agents/vite";
 import { defineConfig } from "vitest/config";
 
-// Two projects, because the two kinds of code under test need different runtimes.
+// Separate worker, native Workflow, and UI projects isolate runtime wrappers.
 //
 // "workers" — Worker/Agent/Workflow code, run inside workerd against
 //   wrangler.test.jsonc. Story 2.1: D1 migrations are read here in Node
 //   (readD1Migrations) and applied in a setup file via applyD1Migrations —
 //   workerd has no filesystem, so the SQL crosses the boundary as a
 //   TEST_MIGRATIONS binding. See Cloudflare Vitest D1 recipe.
+//
+// "native-workflow" — inherited production Workflow on the local native binding,
+// with deterministic external effects and the same migrated D1 schema.
 //
 // "ui" — presentational components from src/shared/ui. These cannot run in the
 //   workers project: vitest-pool-workers externalizes `react`
@@ -43,7 +46,22 @@ export default defineConfig(async () => {
           test: {
             name: "workers",
             include: ["src/**/*.test.ts"],
+            exclude: ["src/**/*.native.test.ts"],
             setupFiles: ["./src/test/apply-migrations.ts"]
+          }
+        },
+        {
+          plugins: [
+            cloudflareTest({
+              wrangler: { configPath: "./wrangler.native-test.jsonc" },
+              miniflare: { bindings: { TEST_MIGRATIONS: migrations } }
+            })
+          ],
+          test: {
+            name: "native-workflow",
+            include: ["src/**/*.native.test.ts"],
+            setupFiles: ["./src/test/apply-migrations.ts"],
+            testTimeout: 30000
           }
         },
         {
