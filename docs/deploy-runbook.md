@@ -1,5 +1,12 @@
 # Deploy runbook
 
+## Staging UI follow-up — 2026-10-04
+
+The ops/admin usability and circuit-layer update (implementation commit `d7509a7`, PR #51) is deployed to `pml-build` as version **`6a311d08-694d-4161-9d5d-a734ddbad1ab`**. Formatting, lint and TypeScript checks passed, followed by the production build and all **1,379 tests across 60 files**. No migrations were pending. Existing staging hosts, bindings and cron schedules are unchanged.
+
+Browser verification on staging confirmed First and Third Circuit can remain selected together, with two highlighted overlays and the map still visible; the selection is encoded as `circuits=cir-1%2Ccir-3`. The Run log now has sorting, filtering and pagination, with outcome colors and accounting disclosures. Admin inbox filters and keyboard safety were verified with mounted tests and local fixtures; desktop and narrow-screen layouts were inspected. Production was not deployed, and no Run or administrative decision was triggered.
+
+
 ## Staging deployment — 2026-10-04 (through Story 3.33)
 
 User-authorized deployment of main `2276a828344b59a853d7b6a68dba40477dbba470` through `npm run deploy:build`. `npm run check` passed; the deployment command built the app, passed all **1,373 tests in 58 files**, applied staging migrations **0019–0023**, and deployed Worker `pml-build` version **`6c2756d2-4d0b-43c3-9887-db355cbab2dc`** at 2026-10-04T16:34:46Z. Cloudflare API confirms deployment `822ff39c-9f4b-4e07-8555-56ae159c2de9` at 100% traffic. D1 `pml-build` records all migrations 0001–0023 applied.
