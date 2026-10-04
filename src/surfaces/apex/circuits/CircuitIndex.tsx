@@ -5,12 +5,14 @@ import { circuitShortLabel } from "./circuitView";
 type CircuitIndexProps = {
   circuits: Circuit[];
   selectedCircuitId: string | null;
+  selectedCircuitIds?: string[];
   onSelect: (circuitId: string) => void;
 };
 
 export function CircuitIndex({
   circuits,
   selectedCircuitId,
+  selectedCircuitIds,
   onSelect
 }: CircuitIndexProps) {
   const tracked = circuits.filter(
@@ -35,7 +37,11 @@ export function CircuitIndex({
             className="crow"
             data-circuit={circuit.id}
             data-posture={circuit.posture}
-            aria-pressed={selectedCircuitId === circuit.id}
+            aria-pressed={
+              selectedCircuitIds
+                ? selectedCircuitIds.includes(circuit.id)
+                : selectedCircuitId === circuit.id
+            }
             aria-label={`${label} ${circuit.name}, ${POSTURE_LABELS[circuit.posture]}`}
             onClick={() => onSelect(circuit.id)}
           >

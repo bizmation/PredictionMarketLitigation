@@ -4,8 +4,8 @@ import { formatEtDate } from "../../../shared/lib/dates";
 import type { Posture } from "../../../shared/schemas/vocabulary";
 import { useApexF1 } from "../ApexF1Context";
 import {
-  clearCircuitSelection,
-  selectionForCircuit,
+  toggleCircuitLayer,
+  selectedCircuitLayers,
   selectionForState
 } from "../selection";
 import { CircuitIndex } from "./CircuitIndex";
@@ -19,6 +19,7 @@ export function CircuitSplit() {
   const [mapPostures, setMapPostures] = useState<Set<Posture>>(new Set());
   const [showCirc, setShowCirc] = useState(true);
 
+  const layers = selectedCircuitLayers(selection);
   const freshness = maxUpdatedAt([...states, ...circuits]);
 
   function togglePosture(posture: Posture | null) {
@@ -39,11 +40,7 @@ export function CircuitSplit() {
   }
 
   function selectCircuit(circuitId: string | null) {
-    if (circuitId === null) {
-      commit(clearCircuitSelection(selection));
-      return;
-    }
-    commit(selectionForCircuit(circuitId, states, selection));
+    commit(toggleCircuitLayer(selection, circuitId));
   }
 
   return (
@@ -56,6 +53,21 @@ export function CircuitSplit() {
         onTogglePosture={togglePosture}
         onSelectCircuit={selectCircuit}
       />
+      <p className="map-selection-help">
+        Toggle circuits to compare several at once. Selecting a layer keeps you
+        on the map.{" "}
+        <span aria-live="polite">
+          {layers.length === 0
+            ? "All circuits shown."
+            : `${layers.length} circuit ${layers.length === 1 ? "layer" : "layers"} selected.`}
+        </span>
+      </p>
+      {layers.includes("cir-fed") && (
+        <p className="map-selection-help">
+          The Federal Circuit has nationwide subject-matter jurisdiction, so it
+          has no separate geographic outline.
+        </p>
+      )}
       <div className="f1">
         <div className="mapcard">
           <div className="caphead">
@@ -89,6 +101,7 @@ export function CircuitSplit() {
         <CircuitIndex
           circuits={circuits}
           selectedCircuitId={selection.circuit}
+          selectedCircuitIds={layers}
           onSelect={(id) => selectCircuit(id)}
         />
       </div>

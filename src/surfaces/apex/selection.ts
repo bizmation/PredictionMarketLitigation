@@ -1,7 +1,8 @@
 /**
  * Apex selection — URL-param contract for map, board, case record, and issue.
  *
- * Shape is `{ state, circuit, case, issue }` where `state` is the 2-letter seed
+ * State, case and issue identify records; optional `circuits` URL params store
+ * independent map layers. Legacy `circuit` links still work. `state` is the 2-letter seed
  * code (`NJ`), `circuit` is the seed id (`cir-3`), `case` is the seed id
  * (`case-flaherty`), and `issue` is the seed slug (`cea-preemption`). Invalid
  * values fail closed. Pure parse/serialize — no `window`.
@@ -10,6 +11,8 @@
 export type ApexSelection = {
   state: string | null;
   circuit: string | null;
+  /** Map comparison layers; independent of the selected state/case. */
+  circuitLayers?: string[];
   case: string | null;
   issue: string | null;
 };
@@ -42,6 +45,18 @@ export function parseApexSelection(search: string): ApexSelection {
   const rawCase = params.get("case");
   const rawIssue = params.get("issue");
   return {
+    ...(params.has("circuits")
+      ? {
+          circuitLayers: [
+            ...new Set(
+              (params.get("circuits") ?? "")
+                .split(",")
+                .filter((id) => CIRCUIT_RE.test(id))
+                .map(normalizeCircuitId)
+            )
+          ]
+        }
+      : {}),
     state: rawState && STATE_RE.test(rawState) ? rawState.toUpperCase() : null,
     circuit:
       rawCircuit && CIRCUIT_RE.test(rawCircuit)
@@ -68,6 +83,9 @@ export function serializeApexSelection(
   else params.delete("case");
   if (selection.issue) params.set("issue", selection.issue);
   else params.delete("issue");
+  if (selection.circuitLayers?.length)
+    params.set("circuits", selection.circuitLayers.join(","));
+  else params.delete("circuits");
   const query = params.toString();
   return query ? `?${query}` : "";
 }
@@ -88,6 +106,13 @@ export function constrainApexSelection(
     return { state: null, circuit: null, case: null, issue: null };
   }
   return {
+    ...(selection.circuitLayers !== undefined
+      ? {
+          circuitLayers: selection.circuitLayers.filter((id) =>
+            circuitIds.has(id)
+          )
+        }
+      : {}),
     state: axisValue(selection.state, stateCodes),
     circuit: axisValue(selection.circuit, circuitIds),
     case: axisValue(selection.case, caseIds),
@@ -131,6 +156,9 @@ export function selectionForState(
     return { state: null, circuit: null, case: null, issue: current.issue };
   }
   return {
+    ...(current.circuitLayers !== undefined
+      ? { circuitLayers: current.circuitLayers }
+      : {}),
     state: row.code,
     circuit: row.circuitId,
     case: null,
@@ -178,6 +206,8 @@ export function shouldBumpStateDetailEpoch(
   prev: ApexSelection,
   next: ApexSelection
 ): boolean {
+  if (next.state === prev.state && next.circuitLayers !== prev.circuitLayers)
+    return false;
   if (next.state !== prev.state || next.circuit !== prev.circuit) return true;
   return (
     next.state !== null && next.case === prev.case && next.issue === prev.issue
@@ -190,5 +220,30 @@ export function clearCircuitSelection(current: ApexSelection): ApexSelection {
     circuit: null,
     case: current.case,
     issue: current.issue
+  };
+}
+
+/** Legacy single-circuit URLs still select one layer. */
+export function selectedCircuitLayers(selection: ApexSelection): string[] {
+  return (
+    selection.circuitLayers ?? (selection.circuit ? [selection.circuit] : [])
+  );
+}
+
+/** Toggling map layers must never select a state or move the reader to another band. */
+export function toggleCircuitLayer(
+  current: ApexSelection,
+  id: string | null
+): ApexSelection {
+  const layers = selectedCircuitLayers(current);
+  return {
+    ...current,
+    circuit: null,
+    circuitLayers:
+      id === null
+        ? []
+        : layers.includes(id)
+          ? layers.filter((value) => value !== id)
+          : [...layers, id]
   };
 }

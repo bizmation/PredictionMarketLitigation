@@ -122,7 +122,7 @@ export function ApexShell({ dev = false }: ApexShellProps) {
             id="circuits"
             kicker="Heat map"
             title="The circuit split"
-            why="Geography and doctrine disagree. The map colors states by the posture that controls them; the index colors the courts of appeals. Select either — the other follows."
+            why="Geography and doctrine disagree. The map colors states by the posture that controls them; the index colors the courts of appeals. Toggle circuit layers to compare their geography."
           >
             <CircuitSplit />
           </SectionBand>

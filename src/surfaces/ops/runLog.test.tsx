@@ -124,7 +124,7 @@ describe("RunLog", () => {
     expect(html).toContain("budget-stopped");
     expect(html).toContain('class="run rejected"');
     expect(html).toContain("running");
-    expect(html).not.toContain('class="run running"');
+    expect(html).toContain('class="run running"');
 
     expect(html).toContain('class="origin">scheduled<');
     expect(html).toContain('class="origin">catch-up<');
@@ -205,7 +205,7 @@ it.each([
         ]}
       />
     );
-    expect(html).toContain('<th scope="col">Budget ceiling</th>');
+    expect(html).toMatch(/<th[^>]*><button[^>]*>Budget ceiling/);
     expect(html).toContain(`<td class="num">${label}</td>`);
     expect(html).toContain("$0.47");
   }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { useApexF1 } from "../ApexF1Context";
 import { maxUpdatedAt } from "../circuits/circuitView";
@@ -44,18 +44,14 @@ export function StateBoard() {
 
   function select(code: string) {
     commit(selectionForState(code, states, selection));
+    document
+      .getElementById("state-detail")
+      ?.scrollIntoView({ block: "nearest" });
   }
 
   function onSort(key: BoardSortKey) {
     setSort((current) => nextBoardSort(current, key));
   }
-
-  useEffect(() => {
-    if (!selection.state) return;
-    document
-      .getElementById("state-detail")
-      ?.scrollIntoView({ block: "nearest" });
-  }, [selection.state]);
 
   return (
     <>
