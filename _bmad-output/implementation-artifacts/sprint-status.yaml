@@ -108,7 +108,7 @@ development_status:
   3-33-make-run-admission-and-dispatch-failures-explicit: done
   3-34-test-the-executing-dailyrunworkflow: done
   3-35-drive-apex-pending-copy-from-public-draft-data: done
-  3-36-verify-the-corrected-staging-run-and-gateway: backlog
+  3-36-verify-the-corrected-staging-run-and-gateway: in-progress # blocked on paid policy/budget and OpenRouter credentials; see spec
   3-37-prove-the-live-governed-loop-and-reassess-epic-3: backlog
   # Retrospective completed; verdict remains rejected until 3.37 reassessment.
   epic-3-retrospective: done
