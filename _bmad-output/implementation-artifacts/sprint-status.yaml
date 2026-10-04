@@ -313,8 +313,9 @@ action_items:
       material draft review and failure paths; assert persisted evaluated awaiting
       Drafts (R15)."
     owner: "agent"
-    status: open
+    status: done
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
+    note: "Closed by Story 3.34 / PR #54: native Workflow execution with real D1, persisted evaluated Drafts/public Evidence, replay and admission/accounting/gate concurrency; both orchestration mutations detected and restored. Implementation 8661e0a10204abea0e1812f6fc3913004834e0db passed required CI 37223061737, with 1419 tests/62 files and checks. Hosted acceptance remains 3.36/3.37. Evidence: https://github.com/bizmation/PredictionMarketLitigation/pull/54 and https://github.com/bizmation/PredictionMarketLitigation/actions/runs/37223061737."
   - id: "epic-3-retro-live-governed-loop-acceptance"
     # Approved corrective stories: 3.37; close only on linked evidence.
     epic: 3

@@ -126,3 +126,8 @@ Residual limits: local native restart is not hosted service acceptance or precis
 ### CI portability correction
 
 Initial required CI 37222870398 correctly failed the first mutant, but colored Vitest output inserted ANSI sequences inside the literal assertion label. The verifier now normalizes terminal control characters with Node's `stripVTControlCharacters` before matching the expected assertion, preserving strict exit-code/message checks. Verified with forced-color mutation execution; source restoration remains unchanged.
+
+
+## Delivery Evidence
+
+[PR #54](https://github.com/bizmation/PredictionMarketLitigation/pull/54), implementation `8661e0a10204abea0e1812f6fc3913004834e0db`, passed required [CI 37223061737](https://github.com/bizmation/PredictionMarketLitigation/actions/runs/37223061737): checks, both mutation/restoration proofs, and full tests. R15 is closed in sprint status on this evidence. No staging deployment is needed for test-only changes; 3.35 remains deployed.
