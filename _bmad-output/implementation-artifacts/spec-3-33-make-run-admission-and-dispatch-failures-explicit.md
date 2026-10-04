@@ -208,3 +208,7 @@ Follow-up review recommendation: **false**. Although the patch-count threshold i
 ### Residual risks and scope
 
 Pre-existing competing active legacy Runs remain preserved and explicitly blocked until historical Workflow/paid-work outcomes are verified; no automatic destructive reconciliation is invented. Local tests execute the production method with deterministic checkpoint/binding fixtures and fake providers; native Workflow-service and hosted acceptance remain 3.34/3.36/3.37. No deployment, remote migration, paid inference or pricing refresh occurred. Epic 3 operational acceptance remains rejected and Epic 4 blocked pending the remaining corrective stories.
+
+### Delivery evidence
+
+[PR #49](https://github.com/bizmation/PredictionMarketLitigation/pull/49) contains implementation commit `c69eb9c95f6af3c8154f44f4d654d4860bedc05e`, which passed [CI 37212176029](https://github.com/bizmation/PredictionMarketLitigation/actions/runs/37212176029) (dependency install, formatting/lint/types and full tests). The shared 3.32/3.33 replay/admission corrective action is closed using this evidence together with PR #48 / CI 37132587255. Final documentation commit is subject to the same CI before merge.

@@ -295,8 +295,8 @@ action_items:
       version, surface non-duplicate dispatch failures and enforce cross-origin Run
       admission (R8-R11)."
     owner: "agent"
-    status: open
-    note: "Story 3.32 / PR #48 implements durable package/config recovery, truthful failure evidence and stopped-readiness replay. Implementation b899dba64908f84c74afd51881995c3209a4aeb2 passed CI 37132587255; 1305 local tests and checks pass. Remains open for 3.33 admission/dispatch safety."
+    status: done
+    note: "Closed by 3.32 / PR #48 (implementation b899dba64908f84c74afd51881995c3209a4aeb2, CI 37132587255) and 3.33 / PR #49 (implementation c69eb9c95f6af3c8154f44f4d654d4860bedc05e, CI 37212176029): durable package/config recovery, atomic cross-origin admission, stable dispatch/recovery identity, explicit uncertainty and stale source/paid-work fencing. 1373 local tests plus checks pass; hosted acceptance remains separate. Pre-existing competing active legacy history requires verified reconciliation as recorded in the 3.33 spec. Evidence: https://github.com/bizmation/PredictionMarketLitigation/pull/49 and https://github.com/bizmation/PredictionMarketLitigation/actions/runs/37212176029."
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
   - id: "epic-3-retro-connector-pagination-origin"
     # Approved corrective stories: 3.27; close only on linked evidence.
