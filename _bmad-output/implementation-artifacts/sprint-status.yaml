@@ -107,7 +107,7 @@ development_status:
   3-32-recover-durable-packages-and-pin-consumed-configuration: done
   3-33-make-run-admission-and-dispatch-failures-explicit: done
   3-34-test-the-executing-dailyrunworkflow: backlog
-  3-35-drive-apex-pending-copy-from-public-draft-data: backlog
+  3-35-drive-apex-pending-copy-from-public-draft-data: done
   3-36-verify-the-corrected-staging-run-and-gateway: backlog
   3-37-prove-the-live-governed-loop-and-reassess-epic-3: backlog
   # Retrospective completed; verdict remains rejected until 3.37 reassessment.
@@ -226,9 +226,9 @@ action_items:
     action: "Retire apex copy that says the daily pipeline is not live, and drive
       the pending-drafts line from the draft API"
     owner: "agent"
-    status: in-progress
+    status: done
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
-    note: "Story 3.24 retired stale copy. Live pending-draft count remains unwired."
+    note: "Closed by 3.24 copy cleanup and 3.35 PR #53 (implementation a2006c674c7b3b9bbbcc5bdfa5edafbed85efdd2, CI 37220744011 passed). 1,410 tests pass; staging version c063fe36-59b8-42af-b6ec-88b8695d1cf9 verified tracker/API/ops agreement at zero pending, correct #drafts navigation, and rendered positive/failure/revision transitions."
 
   - id: "epic-3-retro-item-14-make-the-ops-shell-reachable-on-staging"
     epic: 3

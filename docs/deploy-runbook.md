@@ -1,5 +1,9 @@
 # Deploy runbook
 
+## Story 3.35 staging — 2026-10-04
+
+PR #53 implementation `a2006c674c7b3b9bbbcc5bdfa5edafbed85efdd2` deployed as `pml-build` version `c063fe36-59b8-42af-b6ec-88b8695d1cf9`. Build and all 1,410 tests/61 files passed; no migrations pending. Public API, apex masthead and ops pending band agree on zero pending, and the inspect link reaches ops-build/#drafts. Positive/error/stale/revision behavior is covered by 31 mounted matrix cases. No paid Run, approval or production deployment occurred.
+
 ## Staging UI follow-up — 2026-10-04
 
 The ops/admin usability and circuit-layer update (implementation commit `d7509a7`, PR #51) is deployed to `pml-build` as version **`6a311d08-694d-4161-9d5d-a734ddbad1ab`**. Formatting, lint and TypeScript checks passed, followed by the production build and all **1,379 tests across 60 files**. No migrations were pending. Existing staging hosts, bindings and cron schedules are unchanged.

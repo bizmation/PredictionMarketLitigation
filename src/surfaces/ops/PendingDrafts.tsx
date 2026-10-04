@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import {
   draftReadinessLabel,
@@ -6,16 +6,18 @@ import {
 } from "../../shared/lib/draftReadiness";
 import { formatEtDateTime } from "../../shared/lib/dates";
 import { surfaceHref } from "../../shared/lib/surface";
+import { selectPublicDrafts } from "../../shared/lib/publicDrafts";
 import {
-  CLIENT_GET_TIMEOUT_MS,
-  fetchWithTimeout
-} from "../../shared/lib/timeouts";
+  usePublicDrafts,
+  publicDraftsStatus
+} from "../../shared/lib/usePublicDrafts";
+export { isDraftRecord } from "../../shared/lib/publicDrafts";
 import type { DraftRecord } from "../../shared/schemas/run";
 import { EmptyState, NotLiveDraftBanner, WarnChip } from "../../shared/ui";
 
 /**
  * Public ops. pending-drafts band (Story 3.9). Fetches `GET /api/drafts`
- * with no login; fail closed to EmptyState. Pending cards live inside
+ * with no login and explicit loading/unavailable/stale states. Pending cards live inside
  * NotLiveDraftBanner; rejected Drafts are archived with their outcome.
  */
 
@@ -25,116 +27,6 @@ type PendingDraftsProps = {
   /** True in local development — Evidence links go through `?surface=ops`. */
   dev?: boolean;
 };
-
-const RUN_ID = /^run-\d{8}-[0-9a-f]{4}$/;
-const OUTCOMES = new Set(["approved", "edited", "rejected"]);
-const EVAL_STATUSES = new Set(["ok", "eval_fail", "evals_not_run"]);
-
-function isNonNegativeInt(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0;
-}
-
-function isConfidence(value: unknown): value is number {
-  return isNonNegativeInt(value) && value <= 100;
-}
-
-function isEvalSummary(value: unknown): boolean {
-  if (value === null || typeof value !== "object") return false;
-  const row = value as Record<string, unknown>;
-  if (
-    typeof row.status !== "string" ||
-    !EVAL_STATUSES.has(row.status) ||
-    typeof row.basis !== "string"
-  ) {
-    return false;
-  }
-  const disagreement = row.disagreement;
-  return (
-    disagreement !== null &&
-    typeof disagreement === "object" &&
-    typeof (disagreement as Record<string, unknown>).flagged === "boolean"
-  );
-}
-
-export function isDraftRecord(value: unknown): value is DraftRecord {
-  if (value === null || typeof value !== "object") return false;
-  const row = value as Record<string, unknown>;
-  return (
-    typeof row.id === "string" &&
-    row.id.length > 0 &&
-    typeof row.runId === "string" &&
-    RUN_ID.test(row.runId) &&
-    (row.targetEntityType === null ||
-      typeof row.targetEntityType === "string") &&
-    (row.targetEntityId === null || typeof row.targetEntityId === "string") &&
-    typeof row.body === "string" &&
-    row.body.length > 0 &&
-    typeof row.tier2Only === "boolean" &&
-    (row.confidence === null || isConfidence(row.confidence)) &&
-    (row.evalSummary === null || isEvalSummary(row.evalSummary)) &&
-    (row.readiness === undefined ||
-      row.readiness === "ready" ||
-      row.readiness === "pending" ||
-      row.readiness === "unavailable") &&
-    (row.outcome === null ||
-      (typeof row.outcome === "string" && OUTCOMES.has(row.outcome))) &&
-    (row.decidedAt === null || typeof row.decidedAt === "string") &&
-    (row.decidedBy === null || typeof row.decidedBy === "string") &&
-    (row.editedBody === null || typeof row.editedBody === "string") &&
-    (row.rejectReason === null || typeof row.rejectReason === "string") &&
-    (row.parentDraftId === null || typeof row.parentDraftId === "string") &&
-    isNonNegativeInt(row.revisionIndex) &&
-    typeof row.createdAt === "string" &&
-    typeof row.updatedAt === "string" &&
-    row.diff !== null &&
-    typeof row.diff === "object" &&
-    !Array.isArray(row.diff)
-  );
-}
-
-function unwrapItems(body: unknown): unknown[] | null {
-  if (body !== null && typeof body === "object" && "items" in body) {
-    const items = (body as { items: unknown }).items;
-    return Array.isArray(items) ? items : null;
-  }
-  return null;
-}
-
-function useDrafts(): DraftRecord[] | null {
-  const [drafts, setDrafts] = useState<DraftRecord[] | null>(null);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    fetchWithTimeout(
-      "/api/drafts",
-      {
-        signal: controller.signal,
-        headers: { accept: "application/json" }
-      },
-      CLIENT_GET_TIMEOUT_MS
-    )
-      .then((res) => (res.ok ? res.json() : null))
-      .then((body: unknown) => {
-        if (controller.signal.aborted) return;
-        const raw = unwrapItems(body);
-        if (raw && raw.every(isDraftRecord)) {
-          setDrafts(raw);
-          return;
-        }
-        setDrafts([]);
-      })
-      .catch(() => {
-        // Unmount abort stays silent; a TimeoutError (story 3.19) lands in
-        // the designed empty state like any other fetch failure.
-        if (controller.signal.aborted) return;
-        setDrafts([]);
-      });
-
-    return () => controller.abort();
-  }, []);
-
-  return drafts;
-}
 
 function draftTitle(draft: DraftRecord): string {
   return [
@@ -371,10 +263,14 @@ function ArchiveCard({ draft, dev }: { draft: DraftRecord; dev: boolean }) {
   );
 }
 
-function emptyBand() {
+function emptyBand(snapshotOnly: boolean) {
   return (
     <EmptyState
-      title="No drafts awaiting approval"
+      title={
+        snapshotOnly
+          ? "Last successful snapshot had no drafts awaiting approval"
+          : "No drafts awaiting approval"
+      }
       hint="Pending drafts are public here before they are published anywhere."
     >
       Each pending draft shows its full body, the changes it proposes, any
@@ -388,19 +284,28 @@ export function PendingDrafts({
   drafts: injectedDrafts,
   dev = false
 }: PendingDraftsProps) {
-  const fetched = useDrafts();
-  const drafts = injectedDrafts ?? fetched;
-
-  if (drafts === null) return null;
-
-  if (drafts.length === 0) return emptyBand();
-
-  const pending = drafts.filter((draft) => draft.outcome == null);
-  const rejected = drafts.filter((draft) => draft.outcome === "rejected");
-  if (pending.length + rejected.length === 0) return emptyBand();
+  const state = usePublicDrafts(injectedDrafts);
+  const { pending, rejected } = selectPublicDrafts(state.drafts ?? []);
 
   return (
     <div className="drafts">
+      <p>
+        <output aria-live="polite" aria-atomic="true">
+          {publicDraftsStatus(state)}
+        </output>
+      </p>
+      {state.status === "error" || state.status === "stale" ? (
+        <button
+          type="button"
+          onClick={state.refresh}
+          disabled={state.refreshing}
+        >
+          Retry pending drafts
+        </button>
+      ) : null}
+      {state.drafts !== null && pending.length === 0
+        ? emptyBand(state.status === "stale" || state.refreshing)
+        : null}
       {pending.map((draft) => (
         <PendingCard key={draft.id} draft={draft} dev={dev} />
       ))}

@@ -6,9 +6,9 @@ import type { DraftRecord } from "../../shared/schemas/run";
 import { PendingDrafts } from "./PendingDrafts";
 
 /**
- * Story 3.9 review follow-through: the live fetch wiring of `useDrafts`
- * (the RunLog pattern — fetch once, every() guard, fail closed). Static
- * markup coverage lives in pendingDrafts.test.tsx.
+ * Public fetch wiring and strict payload validation. Full shared lifecycle
+ * coverage lives in publicDrafts.mount.test.tsx; static card rendering is in
+ * pendingDrafts.test.tsx.
  */
 
 function draftRecord(id: string): DraftRecord {
@@ -78,18 +78,21 @@ describe("PendingDrafts live fetch (jsdom mount)", () => {
     );
   });
 
-  it("fails closed to the EmptyState when the fetch is not OK", async () => {
+  it("reports unavailable when the fetch is not OK", async () => {
     stubFetch(null, false);
 
     render(<PendingDrafts />);
     await act(async () => {});
 
-    expect(document.body.textContent).toContain("No drafts awaiting approval");
+    expect(document.body.textContent).toContain("Pending drafts unavailable");
+    expect(document.body.textContent).not.toContain(
+      "No drafts awaiting approval"
+    );
     expect(document.body.textContent).not.toContain("Not live");
     expect(document.body.textContent).not.toContain("draft-nv-1");
   });
 
-  it("fails closed to the EmptyState on a guard-failing payload", async () => {
+  it("reports unavailable on a guard-failing payload", async () => {
     stubFetch({
       items: [
         {
@@ -103,7 +106,10 @@ describe("PendingDrafts live fetch (jsdom mount)", () => {
     render(<PendingDrafts />);
     await act(async () => {});
 
-    expect(document.body.textContent).toContain("No drafts awaiting approval");
+    expect(document.body.textContent).toContain("Pending drafts unavailable");
+    expect(document.body.textContent).not.toContain(
+      "No drafts awaiting approval"
+    );
     expect(document.body.textContent).not.toContain("draft-broken");
   });
 });
