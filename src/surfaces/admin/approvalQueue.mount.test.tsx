@@ -177,8 +177,23 @@ describe("ApprovalQueue live fetch and keyboard (jsdom mount)", () => {
 
     expect(document.body.textContent).toContain("Nothing awaiting approval");
     expect(document.body.textContent).toContain(
-      "An empty queue means the pipeline proposed nothing, not that it failed."
+      "No drafts currently need a decision."
     );
+  });
+
+  it("disables decision shortcuts while the queue is inactive", async () => {
+    const fetchMock = stubQueueFetch([draftRecord("d-a")], { body: {} });
+    const { rerender } = render(<ApprovalQueue active={false} />);
+    await act(async () => {});
+    fetchMock.mockClear();
+    fireEvent.keyDown(document, { key: "a" });
+    fireEvent.keyDown(document, { key: "e" });
+    await act(async () => {});
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText("Edited draft body")).toBeNull();
+    rerender(<ApprovalQueue active />);
+    fireEvent.keyDown(document, { key: "e" });
+    expect(screen.getByLabelText("Edited draft body")).toBeTruthy();
   });
 
   it("J and K move the selection, and both are ignored while typing", async () => {

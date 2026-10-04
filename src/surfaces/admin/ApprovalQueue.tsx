@@ -36,6 +36,8 @@ import { SteeringPanel } from "./SteeringPanel";
  */
 
 type ApprovalQueueProps = {
+  /** Disable global shortcuts while another admin task is visible. */
+  active?: boolean;
   /** Injected rows for tests. Omit in production — the hook fetches. */
   items?: DraftRecord[];
   /** True in local development — Evidence links go through `?surface=ops`. */
@@ -470,6 +472,7 @@ const SECTION_LABEL_STYLE = { margin: "var(--space-4) 0 var(--space-2)" };
 
 export function ApprovalQueue({
   items: injectedItems,
+  active = true,
   dev = false,
   threshold = AUTO_APPROVE_CONFIDENCE_THRESHOLD
 }: ApprovalQueueProps) {
@@ -693,6 +696,7 @@ export function ApprovalQueue({
 
   const keyHandler = useRef<(event: KeyboardEvent) => void>(() => {});
   keyHandler.current = (event: KeyboardEvent) => {
+    if (!active) return;
     const target = event.target as HTMLElement | null;
     if (target && /input|textarea|select/i.test(target.tagName)) return;
     if (event.metaKey || event.ctrlKey || event.altKey) return;
@@ -776,11 +780,13 @@ export function ApprovalQueue({
     return (
       <EmptyState
         title="Nothing awaiting approval"
-        hint="An empty queue means the pipeline proposed nothing, not that it failed."
+        hint="No drafts currently need a decision."
       >
-        Pending drafts appear here with their full text and proposed changes.
-        Editing before approving preserves both versions, so the public diff
-        shows exactly what the operator changed.
+        Check the latest Run for source coverage, failures, and proposed
+        changes.
+        <p>
+          <a href="#loop">Manage runs →</a>
+        </p>
       </EmptyState>
     );
   }
