@@ -2759,22 +2759,13 @@ button:focus-visible {
 .workspace-ui .wrap {
   max-width: 1320px;
 }
+/* Keep the site's established editorial headings across all surfaces. */
 .workspace-ui h1,
 .workspace-ui h2,
 .workspace-ui h3,
 .workspace-ui h4 {
-  font-family: ui-sans-serif, system-ui, sans-serif;
-  letter-spacing: -0.025em;
-  line-height: 1.25;
-}
-.workspace-ui h1 {
-  font-size: clamp(26px, 3vw, 38px);
-}
-.workspace-ui h2 {
-  font-size: 25px;
-}
-.workspace-ui h3 {
-  font-size: 18px;
+  font-family: var(--font-heading);
+  color: var(--color-text);
 }
 .workspace-ui a {
   color: var(--ui-blue);
@@ -3428,4 +3419,31 @@ button:focus-visible {
   section.band {
     scroll-margin-top: 105px;
   }
+}
+
+.evidence-breadcrumb {
+  padding-top: 20px;
+  padding-bottom: 20px;
+}
+.evidence-breadcrumb ol {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.evidence-breadcrumb li {
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.evidence-breadcrumb a {
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.evidence-breadcrumb [aria-current] {
+  color: var(--ui-muted);
 }

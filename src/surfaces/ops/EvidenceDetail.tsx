@@ -641,9 +641,11 @@ function ranEvals(
 }
 
 function EvidenceChrome({
+  runId,
   dev,
   children
 }: {
+  runId: string;
   dev: boolean;
   children: ReactNode;
 }) {
@@ -678,6 +680,17 @@ function EvidenceChrome({
         }
       />
       <main>
+        <nav className="wrap evidence-breadcrumb" aria-label="Breadcrumb">
+          <ol>
+            <li>
+              <a href={`${logHref}#runs`}>← Run log</a>
+            </li>
+            <li>
+              <span aria-hidden="true">/</span>
+              <span aria-current="page">Run evidence · {runId}</span>
+            </li>
+          </ol>
+        </nav>
         <SectionBand
           id="evidence"
           kicker="Evidence"
@@ -1169,12 +1182,16 @@ export function EvidenceDetail({
 
   const resolved = injected !== undefined ? injected : view;
   if (resolved === null) {
-    return <EvidenceChrome dev={dev}>{null}</EvidenceChrome>;
+    return (
+      <EvidenceChrome dev={dev} runId={runId}>
+        {null}
+      </EvidenceChrome>
+    );
   }
 
   if (resolved === "missing" || resolved === "error") {
     return (
-      <EvidenceChrome dev={dev}>
+      <EvidenceChrome dev={dev} runId={runId}>
         <EmptyState
           title={
             resolved === "missing" ? "Run not found" : "Evidence unavailable"
@@ -1190,7 +1207,7 @@ export function EvidenceDetail({
   }
 
   return (
-    <EvidenceChrome dev={dev}>
+    <EvidenceChrome dev={dev} runId={runId}>
       <EvidenceBody detail={resolved} />
     </EvidenceChrome>
   );
