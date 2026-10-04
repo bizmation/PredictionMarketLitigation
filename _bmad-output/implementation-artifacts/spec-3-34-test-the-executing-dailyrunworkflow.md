@@ -121,3 +121,8 @@ Parent verification after repairs:
 - `git diff --check`: clean; production dailyRun.ts has no diff.
 
 Residual limits: local native restart is not hosted service acceptance or precise commit/checkpoint-loss injection; retained synthetic tests cover the latter. Shared external barriers poll in their own request context because cross-request Promise resolution stalled local workerd I/O during development. No paid inference, remote migration, pricing refresh or real editorial approval occurred. Stories 3.36 and 3.37 remain operational acceptance work.
+
+
+### CI portability correction
+
+Initial required CI 37222870398 correctly failed the first mutant, but colored Vitest output inserted ANSI sequences inside the literal assertion label. The verifier now normalizes terminal control characters with Node's `stripVTControlCharacters` before matching the expected assertion, preserving strict exit-code/message checks. Verified with forced-color mutation execution; source restoration remains unchanged.

@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { stripVTControlCharacters } from "node:util";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const source = new URL("../src/pipeline/workflow/dailyRun.ts", import.meta.url);
@@ -48,7 +49,7 @@ function run(focused) {
   process.stdout.write(output);
   if (result.error || result.signal)
     throw new Error(`Runtime failed: ${result.error ?? result.signal}`);
-  return { status: result.status, output };
+  return { status: result.status, output: stripVTControlCharacters(output) };
 }
 try {
   if (run(false).status !== 0)
