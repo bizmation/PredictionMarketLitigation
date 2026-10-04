@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pml-native-test",
+  "main": "src/test/nativeWorkflow.ts",
+  "compatibility_date": "2026-06-11",
+  "compatibility_flags": ["nodejs_compat"],
+  "workflows": [
+    {
+      "binding": "DAILY_RUN",
+      "name": "native-daily-run",
+      "class_name": "NativeDailyRun"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "native-test",
+      "database_id": "local-only",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

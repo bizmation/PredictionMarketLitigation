@@ -106,7 +106,7 @@ development_status:
   3-31-reserve-and-settle-paid-calls-atomically: done
   3-32-recover-durable-packages-and-pin-consumed-configuration: done
   3-33-make-run-admission-and-dispatch-failures-explicit: done
-  3-34-test-the-executing-dailyrunworkflow: backlog
+  3-34-test-the-executing-dailyrunworkflow: done
   3-35-drive-apex-pending-copy-from-public-draft-data: done
   3-36-verify-the-corrected-staging-run-and-gateway: backlog
   3-37-prove-the-live-governed-loop-and-reassess-epic-3: backlog

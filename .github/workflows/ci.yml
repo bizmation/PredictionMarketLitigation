@@ -33,5 +33,8 @@ jobs:
       - name: Check (format + lint + typecheck)
         run: npm run check
 
-      - name: Test (real Worker + Miniflare D1)
+      - name: Verify native Workflow mutation detection and restoration
+        run: npm run test:workflow-mutations
+
+      - name: Test (real Worker + native Workflow + Miniflare D1)
         run: npm test
