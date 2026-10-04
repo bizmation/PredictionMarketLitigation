@@ -65,12 +65,14 @@ class ProvenPreDispatchRefusal extends GatewayError {}
 
 /**
  * The provider contract the gateway delegates to. Production registers
- * Workers AI and (when secrets are set) OpenRouter; tests inject a fake
+ * Workers AI and (when configured) OpenRouter/DeepInfra; tests inject a fake
  * whose `name` matches the seeded config. Provider costs are optional reported USD;
  * budget accounting is derived centrally from validated policy and usage.
  */
 export interface LlmProvider {
   readonly name: string;
+  /** Free, bounded, request-scoped credential resolution before reservation. */
+  prepare?(signal: AbortSignal): Promise<LlmProvider["complete"]>;
   preflight?(args: {
     model: string;
     policy: CostPolicy;
@@ -337,6 +339,21 @@ export async function complete(
   // Definitively free validation runs before reservation/dispatch ownership.
   if (provider.preflight)
     await provider.preflight({ model: mapping.model, policy, now });
+  let invoke = provider.complete.bind(provider);
+  if (provider.prepare) {
+    try {
+      invoke = await withAbortableDeadline(
+        (signal) => provider.prepare!(signal),
+        PROVIDER_TIMEOUT_MS,
+        "provider preparation"
+      );
+    } catch {
+      throw new GatewayError(
+        "gateway_not_configured",
+        "Provider credentials unavailable."
+      );
+    }
+  }
   revalidateBeforeInference(policy, now());
   const owner = crypto.randomUUID();
   let operation: accounting.Operation;
@@ -401,24 +418,22 @@ export async function complete(
   try {
     completion = await withAbortableDeadline(
       (signal) =>
-        provider
-          .complete({
-            model: mapping.model,
-            prompt,
-            signal,
-            policy,
-            now
-          })
-          .then(async (value) => {
-            if (signal.aborted) {
-              try {
-                await retainCompletion(value, "late_provider_response");
-              } catch {
-                /* The worker/database may no longer be available after timeout. */
-              }
+        invoke({
+          model: mapping.model,
+          prompt,
+          signal,
+          policy,
+          now
+        }).then(async (value) => {
+          if (signal.aborted) {
+            try {
+              await retainCompletion(value, "late_provider_response");
+            } catch {
+              /* The worker/database may no longer be available after timeout. */
             }
-            return value;
-          }),
+          }
+          return value;
+        }),
       PROVIDER_TIMEOUT_MS,
       mapping.provider
     );
@@ -649,12 +664,15 @@ function nonEmptySecret(value: string | undefined): value is string {
 
 /**
  * Production provider registry: Workers AI when `env.AI` is bound, OpenRouter
- * when all three secrets are set. Shared by the Workflow and the steering POST.
+ * when all required bindings are set, plus DeepInfra via its custom route.
+ * Shared by the Workflow and the steering POST.
  */
 export function llmProvidersFromEnv(env: Env): LlmProvider[] {
-  return [createWorkersAiProvider(env), createOpenRouterProvider(env)].filter(
-    (p): p is LlmProvider => p != null
-  );
+  return [
+    createWorkersAiProvider(env),
+    createOpenRouterProvider(env),
+    createDeepInfraProvider(env)
+  ].filter((p): p is LlmProvider => p != null);
 }
 
 /**
@@ -802,6 +820,224 @@ export function createOpenRouterProvider(env: Env): LlmProvider | null {
         providerRequestId: typeof body.id === "string" ? body.id : undefined,
         reportedCostUsd: body.usage?.cost
       };
+    }
+  };
+}
+
+/** Expand finite nonnegative catalog decimals, including JSON scientific notation. */
+function catalogDecimal(value: unknown): string | undefined {
+  if (typeof value !== "number" && typeof value !== "string") return undefined;
+  const match = /^(0|[1-9]\d*)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/.exec(
+    String(value)
+  );
+  if (!match) return undefined;
+  const exponent = Number(match[3] ?? 0);
+  if (!Number.isSafeInteger(exponent) || Math.abs(exponent) > 100)
+    return undefined;
+  const digits = match[1]! + (match[2] ?? "");
+  const point = match[1]!.length + exponent;
+  const expanded =
+    point <= 0
+      ? "0." + "0".repeat(-point) + digits
+      : point >= digits.length
+        ? digits + "0".repeat(point - digits.length)
+        : digits.slice(0, point) + "." + digits.slice(point);
+  return expanded.replace(/^0+(?=\d)/, "");
+}
+
+/** Fixed custom provider route. Credentials are captured only in a per-call closure. */
+export function createDeepInfraProvider(env: Env): LlmProvider | null {
+  const configured = (value: unknown): boolean =>
+    typeof value === "string"
+      ? value.trim().length > 0
+      : value != null && typeof (value as { get?: unknown }).get === "function";
+  if (
+    !configured(env.DEEPINFRA_API_KEY) ||
+    !env.AI_GATEWAY_ID?.trim() ||
+    !env.CLOUDFLARE_ACCOUNT_ID?.trim() ||
+    (env.AI_GATEWAY_TOKEN !== undefined && !configured(env.AI_GATEWAY_TOKEN))
+  )
+    return null;
+  const url = `https://gateway.ai.cloudflare.com/v1/${encodeURIComponent(env.CLOUDFLARE_ACCOUNT_ID)}/${encodeURIComponent(env.AI_GATEWAY_ID)}/custom-deepinfra/v1/openai/chat/completions`;
+  const resolve = async (value: Env["DEEPINFRA_API_KEY"]): Promise<string> => {
+    const secret = typeof value === "string" ? value : await value?.get();
+    if (typeof secret !== "string" || !secret.trim())
+      throw new Error("Credential unavailable");
+    return secret.trim();
+  };
+  return {
+    name: "deepinfra",
+    async preflight({ model, policy, now }) {
+      try {
+        await withAbortableDeadline(
+          async (signal) => {
+            const response = await fetch(
+              "https://api.deepinfra.com/models/list",
+              { signal, redirect: "error" }
+            );
+            if (!response.ok) throw new Error();
+            const catalog: unknown = await response.json();
+            if (!Array.isArray(catalog)) throw new Error();
+            const matches = catalog.filter((m) => m?.model_name === model);
+            if (matches.length !== 1 || model !== "zai-org/GLM-5.3-Flash")
+              throw new Error();
+            const m = matches[0];
+            if (
+              m.type !== "text-generation" ||
+              m.reported_type !== "text-generation" ||
+              m.private !== 0 ||
+              m.deprecated !== null ||
+              m.replaced_by !== null ||
+              m.max_tokens !== policy.inputTokens ||
+              !Array.isArray(m.tags) ||
+              !["openai", "reasoning", "json"].every((tag) =>
+                m.tags.includes(tag)
+              )
+            )
+              throw new Error();
+            const p = m.pricing;
+            if (!p || p.type !== "tokens") throw new Error();
+            const limits: Record<string, string> = {
+              cents_per_input_token: "0.000015",
+              cents_per_output_token: "0.00005",
+              rate_per_input_token_cached: "1",
+              discount: "1"
+            };
+            const nullFields = [
+              "discount_ends_at",
+              "short",
+              "full",
+              "table",
+              "rate_per_input_token_cache_write",
+              "rate_per_service_tier_priority",
+              "rate_per_service_tier_flex",
+              "rate_per_explicit_cache_write_token",
+              "explicit_cache_granularity_tokens"
+            ];
+            if (
+              !Object.keys(limits).every((key) => key in p) ||
+              !nullFields.every((key) => key in p) ||
+              !Object.entries(p).every(([key, value]) => {
+                if (key === "type") return value === "tokens";
+                if (key === "discount_ends_at")
+                  return (
+                    value === null ||
+                    (typeof value === "string" &&
+                      Number.isFinite(Date.parse(value)))
+                  );
+                if (key in limits)
+                  return decimalAtMost(catalogDecimal(value), limits[key]!);
+                return nullFields.includes(key) && value === null;
+              })
+            )
+              throw new Error();
+          },
+          PROVIDER_TIMEOUT_MS,
+          "DeepInfra catalog"
+        );
+        revalidateBeforeInference(policy, now());
+      } catch {
+        throw new GatewayError(
+          "cost_policy_invalid",
+          "DeepInfra catalog could not validate the reviewed bound."
+        );
+      }
+    },
+    async prepare(signal) {
+      try {
+        const [key, token] = await Promise.all([
+          resolve(env.DEEPINFRA_API_KEY),
+          env.AI_GATEWAY_TOKEN === undefined
+            ? undefined
+            : resolve(env.AI_GATEWAY_TOKEN)
+        ]);
+        if (signal.aborted) throw new Error();
+        // Workerd can log non-ASCII header values; reject them before construction.
+        if (
+          [key, token].some(
+            (value) => value !== undefined && /[^\x20-\x7e]/.test(value)
+          )
+        )
+          throw new Error();
+        // Validate header values while refusal is still definitively free.
+        const headers = new Headers({
+          Authorization: `Bearer ${key}`,
+          "Content-Type": "application/json",
+          "cf-aig-max-attempts": "1",
+          "cf-aig-skip-cache": "true",
+          ...(token ? { "cf-aig-authorization": `Bearer ${token}` } : {})
+        });
+        return async ({
+          model,
+          prompt,
+          policy,
+          signal,
+          now = () => new Date().toISOString()
+        }) => {
+          revalidateBeforeInference(policy, now());
+          if (signal?.aborted)
+            throw new ProvenPreDispatchRefusal(
+              "provider_error",
+              "Inference cancelled before dispatch."
+            );
+          try {
+            const response = await fetch(url, {
+              method: "POST",
+              redirect: "error",
+              signal,
+              headers,
+              body: JSON.stringify({
+                model,
+                messages: [{ role: "user", content: prompt }],
+                max_tokens: policy.outputTokens,
+                stream: false,
+                n: 1,
+                reasoning_effort: "none"
+              })
+            });
+            if (!response.ok) throw new Error();
+            const body = (await response.json()) as {
+              id?: unknown;
+              model?: unknown;
+              choices?: Array<{ message?: { content?: unknown } }>;
+              usage?: { prompt_tokens?: number; completion_tokens?: number };
+            };
+            const content = body.choices?.[0]?.message?.content;
+            const mismatch = body.model !== undefined && body.model !== model;
+            return {
+              text: !mismatch && typeof content === "string" ? content : "",
+              inputTokens: body.usage?.prompt_tokens ?? null,
+              outputTokens: body.usage?.completion_tokens ?? null,
+              accountingIssue: mismatch
+                ? "returned_model_mismatch"
+                : typeof content !== "string"
+                  ? "non_text_output"
+                  : undefined,
+              providerRequestId:
+                typeof body.id === "string" &&
+                /^[a-zA-Z0-9_.:-]{1,200}$/.test(body.id)
+                  ? body.id
+                  : undefined
+            };
+          } catch {
+            throw new GatewayError(
+              "provider_error",
+              "DeepInfra gateway request failed."
+            );
+          }
+        };
+      } catch {
+        throw new GatewayError(
+          "gateway_not_configured",
+          "Provider credentials unavailable."
+        );
+      }
+    },
+    async complete() {
+      throw new ProvenPreDispatchRefusal(
+        "gateway_not_configured",
+        "Request-scoped provider preparation required."
+      );
     }
   };
 }

@@ -203,6 +203,13 @@
   "env": {
     "build": {
       "name": "pml-build",
+      "secrets_store_secrets": [
+        {
+          "binding": "DEEPINFRA_API_KEY",
+          "store_id": "74197b544ea642c086a7d02133350a91",
+          "secret_name": "PML_DEEPINFRA_AI"
+        }
+      ],
       "workers_dev": false,
       "preview_urls": false,
       // `durable_objects` and `ai` are NOT inherited by environments — without

@@ -1147,8 +1147,8 @@ As an operator, I have deployment-specific evidence that the corrected runtime a
 Effort: Medium, operational. Dependencies: 3.26–3.35 merged and required CI green. Covers existing action 17 remainder / R18.
 
 - Deploy the merged corrective commit through the staging process; record commit, Worker version, migrations, target hosts, and time. Verify production behavior remains unchanged.
-- Record a new post-deployment Run, frozen budget/source config, public Evidence, and authenticated OpenRouter gateway success. Document the actual successful route and status without tokens or credential-bearing headers.
-- Before a paid call, establish the authorized staging budget and cost policy. Planning approval alone is not an instruction to incur unspecified charges.
+- Record a new post-deployment Run, frozen budget/source config, public Evidence, and authenticated DeepInfra gateway success using `zai-org/GLM-5.3-Flash`. Document the actual successful route and status without tokens or credential-bearing headers.
+- Patrick authorized a USD 1 total staging acceptance cap on 2026-10-04 and selected DeepInfra instead of OpenRouter. Before a paid call, enforce that cumulative cap and a valid exact-model cost policy. Planning approval alone is not an instruction to incur unspecified charges.
 - A pre-deploy Run, empty static screen, or fabricated fixture is insufficient. If credentials, provider availability, or budget block execution, record the precise blocker and leave this story/action incomplete.
 
 ### Story 3.37: Prove the live governed loop and reassess Epic 3

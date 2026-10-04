@@ -54,4 +54,7 @@ interface Env {
   OPENROUTER_API_KEY?: string;
   AI_GATEWAY_ID?: string;
   CLOUDFLARE_ACCOUNT_ID?: string;
+  /** Account Secrets Store, workers scope; local strings are fixture/dev only. */
+  DEEPINFRA_API_KEY?: string | { get(): Promise<string> };
+  AI_GATEWAY_TOKEN?: string | { get(): Promise<string> };
 }
