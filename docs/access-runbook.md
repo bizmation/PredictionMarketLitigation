@@ -190,3 +190,7 @@ To restore break-glass, put the one-time PIN IdP back and drop Instant Auth (whi
 - [Cloudflare identity provider](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/cloudflare/)
 - [Local dev tunnels](https://developers.cloudflare.com/workers/local-development/local-dev-tunnels/)
 - [Static assets: SPA routing](https://developers.cloudflare.com/workers/static-assets/routing/single-page-application/)
+
+## Staging Access — 2026-10-04
+
+Patrick explicitly approved a separate staging-only Access application. `PML staging admin` (`82e36406-471d-4762-8790-43e10a628fa8`) protects `/admin`, `/admin/*`, and `/api/admin/*` on both `build.predictionmarketlitigation.com` and `ops-build.predictionmarketlitigation.com`. It uses the existing Cloudflare identity provider, the existing operator-only email rule, and 24-hour sessions. Production's Access application was not changed. The staging Worker's `POLICY_AUD` was updated to the new application's audience identifier. Anonymous staging admin navigation now redirects to Cloudflare sign-in; successful operator authentication and a governed live Run still require a signed-in browser session. No JWT bypass or service-token substitute was added.
