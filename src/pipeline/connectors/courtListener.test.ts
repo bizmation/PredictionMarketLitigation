@@ -166,7 +166,6 @@ describe("CourtListener helpers", () => {
     expect(Object.fromEntries(url.searchParams)).toEqual({
       docket: "73375343",
       order_by: "-date_filed",
-      limit: "20",
       fields: "id,entry_number,date_filed,description"
     });
     expect(reasonForStatus(401)).toBe("http_401");
@@ -193,6 +192,30 @@ describe("CourtListener helpers", () => {
 });
 
 describe("CourtListener connector (story 3.21)", () => {
+  it("collects entries when the v4 API rejects the legacy limit parameter", async () => {
+    stubFetch((docketId, url) => {
+      if (new URL(url).searchParams.has("limit"))
+        return {
+          status: 400,
+          body: {
+            detail: "Unknown filter parameters are not allowed.",
+            unknown_params: ["limit"]
+          }
+        };
+      return {
+        status: 200,
+        body: {
+          results: docketId === FURCOLO ? [{ ...ENTRIES[0], id: 700001 }] : []
+        }
+      };
+    });
+    const runId = await newRun();
+    const result = await runConnector(testEnv.DB, runId, SOURCE, check());
+    expect(result).toEqual({ draftCount: 1, failed: false });
+    expect(await draftsRepo.listByRun(testEnv.DB, runId)).toHaveLength(1);
+    expect(await fetchedPayload(runId)).toMatchObject({ itemCount: 1 });
+  });
+
   afterEach(() => vi.useRealTimers());
 
   it("skips as unconfigured when the token is absent, without calling the API", async () => {

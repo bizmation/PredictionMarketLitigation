@@ -40,7 +40,6 @@ import {
 export const COURTLISTENER_SOURCE_NAME = "CourtListener";
 export const COURTLISTENER_API_BASE =
   "https://www.courtlistener.com/api/rest/v4/docket-entries/";
-export const COURTLISTENER_PAGE_LIMIT = 20;
 export const COURTLISTENER_FIELDS = "id,entry_number,date_filed,description";
 export const RECAP_LAG_NOTE =
   "RECAP is crowd-sourced and may lag PACER; dates are as seen on CourtListener.";
@@ -62,11 +61,12 @@ export function entryUrl(docketUrl: string, entryNumber: number | null) {
   return entryNumber == null ? base : `${base}?entry=${entryNumber}`;
 }
 
+// v4 rejects the legacy `limit` filter. Follow its pagination links; the
+// connector enforces COURTLISTENER_MAX_PAGES independently of server page size.
 export function entriesUrl(docketId: string): string {
   const params = new URLSearchParams({
     docket: docketId,
     order_by: "-date_filed",
-    limit: String(COURTLISTENER_PAGE_LIMIT),
     fields: COURTLISTENER_FIELDS
   });
   return `${COURTLISTENER_API_BASE}?${params.toString()}`;
