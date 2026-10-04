@@ -11,7 +11,7 @@ describe("bounded-text-v1", () => {
   it("computes approved bounds by summing before ceiling", () => {
     expect(
       COST_POLICIES.map((p) => tokenCostCents(p, p.inputTokens, p.outputTokens))
-    ).toEqual([2, 124]);
+    ).toEqual([2, 124, 16]);
     expect(
       tokenCostCents(
         {

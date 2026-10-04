@@ -1,5 +1,11 @@
 # Deploy runbook
 
+## Story 3.36 preflight and deployment — 2026-10-04 (acceptance incomplete)
+
+Merged revision `bd388d2d7d0159891983404ec307689b1830feeb` (main CI 37223566338 passed) deployed through `npm run deploy:build` as staging version `026234cd-6468-404f-a069-9517f31b16fe` at 2026-10-04T19:01:40.282684Z. Build and 1,419 tests/62 files passed; migrations 0001–0023 already applied. Initial D1 API 7403 was transient; migration retry and then the full deployment succeeded. Both staging hosts/public APIs respond 200; anonymous admin loop returns 403. Production version `d894f294-d530-4f17-bb73-6b6d2db60845` and both brochure hashes `bffcd5c604008e866cc2d71a0b9aa74478ba024167898f45fc910f3f0d41b270` remain unchanged.
+
+**Not operational acceptance:** no new Run or paid call was triggered. OpenRouter key/account/gateway bindings are missing on staging; all roles remain Workers AI; both policies are expired; current OpenRouter tier overrides fail the provider guard; no explicit campaign spend authorization or cumulative cap exists. Gateway `default` is present, but that is not inference success. See [3.36 spec and blocker evidence](../_bmad-output/implementation-artifacts/spec-3-36-verify-the-corrected-staging-run-and-gateway.md). Action 17 remains open.
+
 ## Story 3.35 staging — 2026-10-04
 
 PR #53 implementation `a2006c674c7b3b9bbbcc5bdfa5edafbed85efdd2` deployed as `pml-build` version `c063fe36-59b8-42af-b6ec-88b8695d1cf9`. Build and all 1,410 tests/61 files passed; no migrations pending. Public API, apex masthead and ops pending band agree on zero pending, and the inspect link reaches ops-build/#drafts. Positive/error/stale/revision behavior is covered by 31 mounted matrix cases. No paid Run, approval or production deployment occurred.

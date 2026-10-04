@@ -6,7 +6,7 @@ export const CostPolicySchema = z
     version: z.literal("bounded-text-v1"),
     provider: z.string().min(1),
     model: z.string().min(1),
-    inputTokens: z.number().int().positive().max(200000),
+    inputTokens: z.number().int().positive().max(1048576),
     outputTokens: z.literal(2048),
     inputUsdPerMillion: decimal,
     outputUsdPerMillion: decimal,
@@ -53,6 +53,22 @@ export const COST_POLICIES: readonly CostPolicy[] = [
       "https://openrouter.ai/api/v1/models/anthropic/claude-sonnet-4/endpoints",
       "https://openrouter.ai/docs/guides/routing/provider-selection",
       "https://developers.cloudflare.com/ai-gateway/configuration/request-handling/"
+    ]
+  },
+  {
+    ...common,
+    provider: "deepinfra",
+    model: "zai-org/GLM-5.3-Flash",
+    inputTokens: 1048576,
+    inputUsdPerMillion: "0.15",
+    outputUsdPerMillion: "0.50",
+    verifiedAt: "2026-10-04T19:10:00.000Z",
+    validUntil: "2026-10-11T19:10:00.000Z",
+    sources: [
+      "https://api.deepinfra.com/models/list",
+      "https://deepinfra.com/zai-org/GLM-5.3-Flash",
+      "https://docs.deepinfra.com/chat/overview",
+      "https://docs.deepinfra.com/chat/reasoning"
     ]
   }
 ];

@@ -108,7 +108,7 @@ development_status:
   3-33-make-run-admission-and-dispatch-failures-explicit: done
   3-34-test-the-executing-dailyrunworkflow: done
   3-35-drive-apex-pending-copy-from-public-draft-data: done
-  3-36-verify-the-corrected-staging-run-and-gateway: backlog
+  3-36-verify-the-corrected-staging-run-and-gateway: in-progress # USD 1 total authorized; DeepInfra/GLM Secrets Store implementation in review; live acceptance pending
   3-37-prove-the-live-governed-loop-and-reassess-epic-3: backlog
   # Retrospective completed; verdict remains rejected until 3.37 reassessment.
   epic-3-retrospective: done
@@ -267,7 +267,7 @@ action_items:
     owner: "agent + Patrick"
     status: in-progress
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
-    note: "Main through 3.33 (2276a828344b59a853d7b6a68dba40477dbba470) deployed to staging 2026-10-04 as 6c2756d2-4d0b-43c3-9887-db355cbab2dc; migrations 0001-0023 applied, 1373 tests and checks pass. Public/browser/admin-boundary smoke checks pass; production unchanged. Post-deploy governed Run, authenticated OpenRouter 200 and remaining 3.36 verification remain outstanding. See docs/deploy-runbook.md."
+    note: "Main through 3.33 (2276a828344b59a853d7b6a68dba40477dbba470) deployed to staging 2026-10-04 as 6c2756d2-4d0b-43c3-9887-db355cbab2dc; migrations 0001-0023 applied, 1373 tests and checks pass. Public/browser/admin-boundary smoke checks pass; production unchanged. Post-deploy governed Run, authenticated provider 200 and remaining 3.36 verification remain outstanding. Patrick selected DeepInfra zai-org/GLM-5.3-Flash with USD 1 total cap on 2026-10-04; this supersedes OpenRouter acceptance. See docs/deploy-runbook.md."
   - id: "epic-3-retro-gate-transaction-safety"
     # Approved corrective stories: 3.28, 3.29; close only on linked evidence.
     epic: 3
