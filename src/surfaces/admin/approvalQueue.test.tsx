@@ -141,9 +141,7 @@ describe("ApprovalQueue markup", () => {
     const html = renderToStaticMarkup(<ApprovalQueue items={[]} />);
     expect(html).toContain('class="empty"');
     expect(html).toContain("Nothing awaiting approval");
-    expect(html).toContain(
-      "An empty queue means the pipeline proposed nothing, not that it failed."
-    );
+    expect(html).toContain("No drafts currently need a decision.");
     expect(html).not.toContain('class="qitem"');
   });
 

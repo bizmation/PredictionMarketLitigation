@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
+import { surfaceHref } from "../../shared/lib/surface";
 import { etCalendarDate } from "../../shared/lib/schedule";
 import { formatEtDateTime } from "../../shared/lib/dates";
 import {
@@ -29,6 +30,7 @@ import {
  */
 
 type LoopControlsProps = {
+  dev?: boolean;
   /** Injected latest row for tests. `null` is "no runs"; omit to fetch. */
   latest?: RunLogItem | null;
 };
@@ -160,7 +162,10 @@ function errorCode(body: unknown): string | null {
   return typeof code === "string" ? code : null;
 }
 
-export function LoopControls({ latest: injectedLatest }: LoopControlsProps) {
+export function LoopControls({
+  latest: injectedLatest,
+  dev = false
+}: LoopControlsProps) {
   const injected = injectedLatest !== undefined;
   const [view, setView] = useState<LoopView>({ status: "loading" });
   const [reload, setReload] = useState(0);
@@ -474,7 +479,7 @@ export function LoopControls({ latest: injectedLatest }: LoopControlsProps) {
   return (
     <div className="loop-workspace">
       {latest ? (
-        <div className="latest-run-card">
+        <div className={`latest-run-card latest-run-${latest.status}`}>
           <div className="kicker">Latest Run</div>
           <span className="rid">{latest.id}</span>
           {" · "}
@@ -490,6 +495,14 @@ export function LoopControls({ latest: injectedLatest }: LoopControlsProps) {
           (latest.accountingIssueCount ?? 0) > 0 ? (
             <p className="accounting-alert">Accounting needs review</p>
           ) : null}
+          <p>
+            <a
+              className="run-evidence-link"
+              href={surfaceHref("ops", { path: `/runs/${latest.id}`, dev })}
+            >
+              View run evidence →
+            </a>
+          </p>
           <details className="cost-details">
             <summary>Budget accounting details</summary>
             Budget accounting: {latest.spendCents} cents (includes estimates).

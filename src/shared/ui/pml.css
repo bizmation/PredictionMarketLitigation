@@ -3447,3 +3447,81 @@ button:focus-visible {
 .evidence-breadcrumb [aria-current] {
   color: var(--ui-muted);
 }
+
+/* The operator workspace shows one task without discarding unsaved form state. */
+.admin-workspace main > [hidden] {
+  display: none !important;
+}
+.admin-workspace .workspace-intro {
+  padding-block: 24px 16px;
+}
+.admin-workspace .workspace-intro h1 {
+  font-size: clamp(28px, 3vw, 40px);
+}
+.admin-workspace .workspace-intro p {
+  margin-block: 6px;
+}
+.admin-task-nav {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding-bottom: 24px;
+}
+.admin-task-nav a {
+  display: grid;
+  gap: 4px;
+  padding: 16px 18px;
+  border: 1px solid var(--ui-line);
+  border-radius: 10px;
+  background: var(--ui-paper);
+  color: var(--ui-ink);
+  text-decoration: none;
+  border-top: 4px solid var(--ui-line);
+}
+.admin-task-nav a span {
+  font-size: 13px;
+  color: var(--ui-muted);
+}
+.admin-task-nav a:hover {
+  background: var(--ui-blue-soft);
+}
+.admin-task-nav a[aria-current] {
+  background: var(--ui-blue-soft);
+  border-color: var(--ui-blue);
+}
+.admin-task-nav a:focus-visible {
+  outline: 3px solid var(--ui-blue);
+  outline-offset: 3px;
+}
+.admin-workspace .band {
+  padding-block: 24px 36px;
+}
+.admin-workspace .sec-head {
+  margin-bottom: 16px;
+}
+.admin-workspace .latest-run-card {
+  border-left: 4px solid var(--ui-blue);
+}
+.admin-workspace .latest-run-failed {
+  border-left-color: #b42318;
+  background: #fff8f7;
+}
+.admin-workspace .latest-run-published {
+  border-left-color: #15803d;
+  background: #f5fbf6;
+}
+.admin-workspace .run-evidence-link {
+  font-weight: 600;
+}
+@media (max-width: 640px) {
+  .admin-task-nav {
+    gap: 6px;
+  }
+  .admin-task-nav a {
+    padding: 10px 8px;
+    font-size: 13px;
+  }
+  .admin-task-nav a span {
+    display: none;
+  }
+}

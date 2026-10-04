@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { surfaceHref } from "../../shared/lib/surface";
 import {
   AdminBar,
@@ -49,7 +50,23 @@ type AdminShellProps = {
   dev?: boolean;
 };
 
+type AdminView = "queue" | "loop" | "mode";
+function viewFromHash(): AdminView {
+  const hash = typeof window === "undefined" ? "" : window.location.hash;
+  return hash === "#loop" ? "loop" : hash === "#mode" ? "mode" : "queue";
+}
+
 export function AdminShell({ dev = false, operator }: AdminShellProps) {
+  const [view, setView] = useState<AdminView>(viewFromHash);
+  useEffect(() => {
+    const sync = () => setView(viewFromHash());
+    window.addEventListener("hashchange", sync);
+    window.addEventListener("popstate", sync);
+    return () => {
+      window.removeEventListener("hashchange", sync);
+      window.removeEventListener("popstate", sync);
+    };
+  }, []);
   const apexHref = surfaceHref("apex", { dev });
   const opsHref = surfaceHref("ops", { dev });
 
@@ -61,15 +78,12 @@ export function AdminShell({ dev = false, operator }: AdminShellProps) {
   const yolo = mode.mode === "yolo";
 
   const links: TopBarLink[] = [
-    { href: "#queue", label: "Approval queue" },
-    { href: "#loop", label: "Loop controls" },
-    { href: "#mode", label: "Mode controls" },
     { href: opsHref, label: "ops.", external: true },
     { href: apexHref, label: "Tracker", external: true }
   ];
 
   return (
-    <div className="workspace-ui">
+    <div className="workspace-ui admin-workspace">
       <AdminBar operator={resolvedOperator} />
 
       <TopBar
@@ -100,10 +114,10 @@ export function AdminShell({ dev = false, operator }: AdminShellProps) {
         }
         message={
           yolo
-            ? "Gate: YOLO · this surface and the admin APIs both require a verified operator"
-            : "Gate: HITL · this surface and the admin APIs both require a verified operator"
+            ? "Gate: YOLO · eligible drafts may be approved automatically"
+            : "Gate: HITL · drafts require your approval"
         }
-        meta="Operator actions are published, not logged privately."
+        meta=""
       />
 
       <main>
@@ -111,49 +125,75 @@ export function AdminShell({ dev = false, operator }: AdminShellProps) {
           <div>
             <p className="kicker">Operator workspace</p>
             <h1>Review. Decide. Keep control.</h1>
-            <p>
-              Start with the approval queue. Run scheduling and automation
-              settings are separate below.
-            </p>
+            <p>Review drafts, follow a Run, or adjust automation.</p>
           </div>
-          <nav className="workspace-shortcuts" aria-label="Operator tasks">
-            <a href="#queue">
-              Review drafts <span>01 →</span>
-            </a>
-            <a href="#loop">
-              Manage runs <span>02 →</span>
-            </a>
-            <a href="#mode">
-              Automation settings <span>03 →</span>
-            </a>
-          </nav>
         </div>
-        <SectionBand
-          id="queue"
-          kicker="01"
-          title="Approval queue"
-          why="Approve, edit-then-approve, or reject each pending draft. Every outcome is published."
-        >
-          <ApprovalQueue threshold={mode.threshold} />
-        </SectionBand>
-
-        <SectionBand
-          id="loop"
-          kicker="02"
-          title="Loop controls"
-          why="Start a Run without waiting for noon ET. Re-running a published day requires confirming supersede."
-        >
-          <LoopControls />
-        </SectionBand>
-
-        <SectionBand
-          id="mode"
-          kicker="03"
-          title="Mode controls"
-          why="Switching autonomous mode on or off — restricted to the operator, and audited publicly."
-        >
-          <ModeControls current={mode} onChange={setMode} opsHref={opsHref} />
-        </SectionBand>
+        <nav className="admin-task-nav wrap" aria-label="Operator tasks">
+          {(
+            [
+              ["queue", "Review drafts", "Approve or reject proposed changes"],
+              ["loop", "Manage runs", "Start a Run and inspect evidence"],
+              ["mode", "Automation settings", "Control approval rules"]
+            ] as const
+          ).map(([id, label, description]) => (
+            <a
+              key={id}
+              href={`#${id}`}
+              onClick={(event) => {
+                if (
+                  event.button !== 0 ||
+                  event.metaKey ||
+                  event.ctrlKey ||
+                  event.shiftKey ||
+                  event.altKey
+                )
+                  return;
+                event.preventDefault();
+                if (window.location.hash !== `#${id}`)
+                  window.history.pushState(null, "", `#${id}`);
+                setView(id);
+              }}
+              aria-current={view === id ? "page" : undefined}
+            >
+              <strong>{label}</strong>
+              <span>{description}</span>
+            </a>
+          ))}
+        </nav>
+        <div hidden={view !== "queue"}>
+          <SectionBand
+            id="queue"
+            kicker="01"
+            title="Approval queue"
+            why="Approve, edit-then-approve, or reject each pending draft. Every outcome is published."
+          >
+            <ApprovalQueue
+              threshold={mode.threshold}
+              active={view === "queue"}
+              dev={dev}
+            />
+          </SectionBand>
+        </div>
+        <div hidden={view !== "loop"}>
+          <SectionBand
+            id="loop"
+            kicker="02"
+            title="Loop controls"
+            why="Start a Run without waiting for noon ET. Re-running a published day requires confirming supersede."
+          >
+            <LoopControls dev={dev} />
+          </SectionBand>
+        </div>
+        <div hidden={view !== "mode"}>
+          <SectionBand
+            id="mode"
+            kicker="03"
+            title="Mode controls"
+            why="Switching autonomous mode on or off — restricted to the operator, and audited publicly."
+          >
+            <ModeControls current={mode} onChange={setMode} opsHref={opsHref} />
+          </SectionBand>
+        </div>
       </main>
 
       <SiteFooter

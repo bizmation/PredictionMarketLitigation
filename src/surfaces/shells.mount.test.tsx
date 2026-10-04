@@ -74,6 +74,7 @@ function docketDraft(): DraftRecord {
 
 afterEach(() => {
   cleanup();
+  window.history.replaceState(null, "", "/");
   vi.unstubAllGlobals();
 });
 
@@ -170,5 +171,36 @@ describe("shell TrustBar live mode (jsdom mount)", () => {
     expect(document.body.textContent).toContain("Gate: YOLO");
     expect(document.body.textContent).toContain("Autonomous ON — YOLO");
     expect(document.body.textContent).not.toContain("Autonomous OFF");
+  });
+});
+
+describe("admin task navigation", () => {
+  it("opens a deep link, switches without anchor scrolling, and follows history", async () => {
+    stubMode(DEFAULT_APPROVAL_MODE);
+    window.history.replaceState(null, "", "/admin#loop");
+    const { container, getByRole } = render(<AdminShell />);
+    await act(async () => {});
+    const panel = (id: string) =>
+      container.querySelector(`#${id}`)!.parentElement!;
+    expect(panel("loop").hidden).toBe(false);
+    expect(panel("queue").hidden).toBe(true);
+    const modePanel = panel("mode");
+    const originalToggle = modePanel.querySelector("button");
+    fireEvent.click(getByRole("link", { name: /Automation settings/ }));
+    expect(window.location.hash).toBe("#mode");
+    expect(panel("loop").hidden).toBe(true);
+    expect(modePanel.hidden).toBe(false);
+    expect(modePanel.querySelector("button")).toBe(originalToggle);
+    expect(
+      getByRole("link", { name: /Automation settings/ }).getAttribute(
+        "aria-current"
+      )
+    ).toBe("page");
+    await act(async () => {
+      window.history.replaceState(null, "", "/admin#queue");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(panel("queue").hidden).toBe(false);
+    expect(modePanel.hidden).toBe(true);
   });
 });
