@@ -198,6 +198,11 @@ describe("ApexShell orientation chrome (story 2.2)", () => {
     const html = apex();
     expect(html).toContain('class="about"');
     expect(html).toContain('class="masthead"');
+    expect(html).toContain("Loading pending drafts…");
+    expect(html).not.toContain("No pending drafts");
+    expect(html).toContain(
+      'href="https://ops.predictionmarketlitigation.com#drafts"'
+    );
     expect(html).toContain('class="kpis"');
     expect(html).toContain("What this fight is about");
     expect(html).toContain('href="#states"');
@@ -377,6 +382,7 @@ describe("dev mode", () => {
   it("routes cross-surface links through ?surface= so one origin reaches all three", () => {
     const html = renderToStaticMarkup(<ApexShell dev />);
     expect(html).toContain("?surface=ops");
+    expect(html).toContain('href="/?surface=ops#drafts"');
     expect(html).not.toContain("https://ops.predictionmarketlitigation.com");
   });
 });

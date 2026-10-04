@@ -107,7 +107,7 @@ development_status:
   3-32-recover-durable-packages-and-pin-consumed-configuration: done
   3-33-make-run-admission-and-dispatch-failures-explicit: done
   3-34-test-the-executing-dailyrunworkflow: backlog
-  3-35-drive-apex-pending-copy-from-public-draft-data: backlog
+  3-35-drive-apex-pending-copy-from-public-draft-data: done
   3-36-verify-the-corrected-staging-run-and-gateway: backlog
   3-37-prove-the-live-governed-loop-and-reassess-epic-3: backlog
   # Retrospective completed; verdict remains rejected until 3.37 reassessment.
@@ -228,7 +228,7 @@ action_items:
     owner: "agent"
     status: in-progress
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
-    note: "Story 3.24 retired stale copy. Live pending-draft count remains unwired."
+    note: "Story 3.24 retired stale copy. Story 3.35 now implements the shared public Draft count/band lifecycle and rendered refresh/failure matrix; local UI and check verification pass. Closure awaits full verification and review evidence."
 
   - id: "epic-3-retro-item-14-make-the-ops-shell-reachable-on-staging"
     epic: 3

@@ -1,4 +1,8 @@
 import type { ReactNode } from "react";
+import {
+  usePublicDrafts,
+  publicDraftsStatus
+} from "../../../shared/lib/usePublicDrafts";
 import { EmptyState } from "../../../shared/ui";
 import { formatEtDate, formatIsoDate } from "../../../shared/lib/dates";
 import type { ApexKpis } from "../../../shared/schemas/kpi";
@@ -22,6 +26,7 @@ export function Masthead({
   developments,
   children
 }: MastheadProps) {
+  const drafts = usePublicDrafts();
   const asOf = kpis ? formatEtDate(kpis.freshness) : null;
 
   return (
@@ -58,9 +63,24 @@ export function Masthead({
               </dd>
               <dt>Pending drafts</dt>
               <dd>
-                <a href={opsHref} rel="noopener">
-                  No pending drafts — see the run log on ops.
+                <output aria-live="polite" aria-atomic="true">
+                  {publicDraftsStatus(drafts)}
+                </output>{" "}
+                <a href={`${opsHref.split("#")[0]}#drafts`} rel="noopener">
+                  Inspect drafts on ops.
                 </a>
+                {drafts.status === "error" || drafts.status === "stale" ? (
+                  <>
+                    {" "}
+                    <button
+                      type="button"
+                      onClick={drafts.refresh}
+                      disabled={drafts.refreshing}
+                    >
+                      Retry pending drafts
+                    </button>
+                  </>
+                ) : null}
               </dd>
               <dt>Approval gate</dt>
               <dd>HITL (human in the loop) · Autonomous mode off</dd>
