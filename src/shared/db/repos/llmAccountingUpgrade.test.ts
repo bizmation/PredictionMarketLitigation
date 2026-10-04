@@ -113,6 +113,12 @@ it("upgrades populated legacy accounting without fabricating or discarding charg
     .prepare("UPDATE gateway_config SET roles_json=? WHERE id='current'")
     .bind(JSON.stringify({ drafter: { provider: "fake", model: "m" } }))
     .run();
+  // Exercise today's gateway against the complete current schema after proving
+  // the populated 0021 upgrade above preserves all original accounting.
+  await applyD1Migrations(
+    db,
+    migrations.filter((m) => m.name > migration.name)
+  );
   const dispatch = vi.fn(async () => ({
     text: "ok",
     inputTokens: 1,

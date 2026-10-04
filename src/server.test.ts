@@ -38,8 +38,12 @@ describe("worker module", () => {
 
     await worker.scheduled(controller, envWithWorkflow);
     expect(create).toHaveBeenCalledWith({
-      params: { origin: "scheduled", scheduledFor: "2026-01-15" },
-      id: "daily-2026-01-15"
+      params: {
+        origin: "scheduled",
+        scheduledFor: "2026-01-15",
+        runId: "run-20260115-0000"
+      },
+      id: "daily-run-20260115-0000"
     });
 
     create.mockClear();
@@ -550,5 +554,203 @@ describe("steering cost policy refusal", () => {
       message: expect.stringContaining("cost policy")
     });
     expect(run).not.toHaveBeenCalled();
+  });
+});
+
+describe("authenticated Run dispatch recovery (3.33)", () => {
+  const post = (path: string, body: unknown) =>
+    new Request(`http://localhost:5173${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body)
+    });
+  it("retains identified uncertainty on response and reload; checks the same Run without creating another", async () => {
+    const create = vi.fn(async () => {
+      throw new Error("already exists sk-do-not-log");
+    });
+    let visible = false;
+    const binding = {
+      create,
+      get: async () => {
+        if (!visible) throw new Error("unavailable");
+        return { status: async () => ({ status: "running" }) };
+      }
+    };
+    const testEnv = { ...authed, DAILY_RUN: binding } as unknown as Env;
+    const request = {
+      origin: "manual",
+      scheduledFor: "2025-11-01",
+      requestId: "api-recovery-333"
+    };
+    const response = await worker.fetch(
+      post("/api/admin/runs", request),
+      testEnv
+    );
+    expect(response.status).toBe(503);
+    const body = (await response.json()) as {
+      run: { id: string };
+      dispatch: { runId: string; state: string };
+    };
+    expect(body.dispatch.state).toBe("uncertain");
+    expect(body.dispatch.runId).toBe(body.run.id);
+    const reload = await worker.fetch(
+      new Request("http://localhost:5173/api/admin/loop"),
+      testEnv
+    );
+    expect(JSON.stringify(await reload.json())).toContain(body.run.id);
+    const denied = await worker.fetch(
+      post(`/api/admin/runs/${body.run.id}/dispatch`, { action: "resolve" }),
+      anon
+    );
+    expect(denied.status).toBe(403);
+    visible = true;
+    const checked = await worker.fetch(
+      post(`/api/admin/runs/${body.run.id}/dispatch`, { action: "check" }),
+      testEnv
+    );
+    expect(checked.status).toBe(200);
+    expect(
+      ((await checked.json()) as { dispatch: { state: string } }).dispatch.state
+    ).toBe("confirmed");
+    expect(create).toHaveBeenCalledTimes(1);
+    const evidence = await worker.fetch(
+      get(`/api/runs/${body.run.id}`),
+      testEnv
+    );
+    expect(evidence.status).toBe(200);
+    const detail = (await evidence.json()) as {
+      id: string;
+      evidence: Array<{ event: string; runId: string; payload: unknown }>;
+    };
+    expect(detail.id).toBe(body.run.id);
+    expect(detail.evidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "run.dispatch",
+          runId: body.run.id,
+          payload: { dispatch: "uncertain", instanceStatus: null }
+        }),
+        expect.objectContaining({
+          event: "run.dispatch",
+          runId: body.run.id,
+          payload: { dispatch: "confirmed", instanceStatus: "running" }
+        })
+      ])
+    );
+    expect(JSON.stringify(detail)).not.toContain("sk-do-not-log");
+  });
+  it("resolves a never-entered uncertain dispatch with an authenticated same-Run action", async () => {
+    const testEnv = { ...authed, DAILY_RUN: undefined } as unknown as Env;
+    const response = await worker.fetch(
+      post("/api/admin/runs", {
+        origin: "manual",
+        scheduledFor: "2025-11-02",
+        requestId: "api-resolve-333"
+      }),
+      testEnv
+    );
+    const { run } = (await response.json()) as { run: { id: string } };
+    const resolved = await worker.fetch(
+      post(`/api/admin/runs/${run.id}/dispatch`, { action: "resolve" }),
+      testEnv
+    );
+    expect(resolved.status).toBe(200);
+    const body = (await resolved.json()) as {
+      run: { id: string; status: string };
+      dispatch: { state: string; ownsDate: boolean };
+    };
+    expect(body.run.id).toBe(run.id);
+    expect(body.run.status).toBe("failed");
+    expect(body.dispatch).toMatchObject({ state: "resolved", ownsDate: false });
+    // The first commit may have succeeded even when its HTTP response was lost.
+    const repeated = await worker.fetch(
+      post(`/api/admin/runs/${run.id}/dispatch`, { action: "resolve" }),
+      testEnv
+    );
+    expect(repeated.status).toBe(200);
+    expect(await repeated.json()).toEqual(body);
+    const detail = (await (
+      await worker.fetch(get(`/api/runs/${run.id}`), testEnv)
+    ).json()) as {
+      evidence: Array<{ event: string; payload?: { reason?: string } }>;
+    };
+    expect(
+      detail.evidence.filter(
+        (e) =>
+          e.event === "run.dispatch" &&
+          e.payload?.reason === "dispatch_fenced_resolution"
+      )
+    ).toHaveLength(1);
+  });
+});
+
+describe("scheduled dispatch outcomes (3.33)", () => {
+  it("reports an admission conflict with its date instead of silently dropping it", async () => {
+    const create = vi.fn().mockResolvedValue({});
+    const testEnv = { ...authed, DAILY_RUN: { create } } as unknown as Env;
+    await worker.fetch(
+      new Request("http://localhost:5173/api/admin/runs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          origin: "manual",
+          scheduledFor: "2025-11-03",
+          requestId: "scheduled-conflict-333"
+        })
+      }),
+      testEnv
+    );
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      await worker.scheduled(
+        {
+          scheduledTime: Date.parse("2025-11-03T17:00:00.000Z"),
+          cron: "0 17 * * *",
+          noRetry() {}
+        } as ScheduledController,
+        testEnv
+      );
+      expect(info).toHaveBeenCalledWith("scheduled_run_dispatch", {
+        status: "conflict",
+        scheduledFor: "2025-11-03"
+      });
+      expect(create).toHaveBeenCalledTimes(1);
+    } finally {
+      info.mockRestore();
+    }
+  });
+  it("reports identified uncertainty without logging raw dispatch errors", async () => {
+    const testEnv = {
+      ...env,
+      DAILY_RUN: {
+        create: async () => {
+          throw new Error("Bearer private-create-token");
+        },
+        get: async () => {
+          throw new Error("private-lookup-token");
+        }
+      }
+    } as unknown as Env;
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      await worker.scheduled(
+        {
+          scheduledTime: Date.parse("2025-11-04T17:00:00.000Z"),
+          cron: "0 17 * * *",
+          noRetry() {}
+        } as ScheduledController,
+        testEnv
+      );
+      expect(info).toHaveBeenCalledWith("scheduled_run_dispatch", {
+        status: "dispatch_pending",
+        scheduledFor: "2025-11-04",
+        runId: "run-20251104-0000",
+        instanceId: "daily-run-20251104-0000",
+        dispatch: "uncertain"
+      });
+      expect(JSON.stringify(info.mock.calls)).not.toContain("private-");
+    } finally {
+      info.mockRestore();
+    }
   });
 });

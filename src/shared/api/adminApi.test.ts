@@ -1103,7 +1103,7 @@ describe("admin loop controls (story 3.12)", () => {
     await testEnv.DB.prepare("DELETE FROM runs").run();
     const res = await auth("/api/admin/loop");
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ latest: null });
+    expect(await res.json()).toEqual({ latest: null, dispatches: [] });
   });
 
   it("defaults scheduledFor to today's ET date when omitted", async () => {
@@ -1145,7 +1145,7 @@ describe("admin loop controls (story 3.12)", () => {
         scheduledFor: "2026-11-10",
         runId: "run-20261110-0002"
       },
-      id: "manual-2026-11-10-0002"
+      id: "daily-run-20261110-0002"
     });
 
     const pub = await worker.fetch(get("/api/runs"), envW);
@@ -1289,7 +1289,7 @@ describe("admin loop controls (story 3.12)", () => {
     expect(create).not.toHaveBeenCalled();
   });
 
-  it("is idempotent while the same origin is running (no second instance)", async () => {
+  it("refuses legacy same-origin running history without claiming that a Workflow started", async () => {
     await seedDated({
       id: "run-20261113-0002",
       origin: "manual",
@@ -1304,10 +1304,13 @@ describe("admin loop controls (story 3.12)", () => {
       }),
       loopEnv(create)
     );
-    expect(res.status).toBe(200);
-    expect((await res.json()) as { id: string }).toMatchObject({
-      id: "run-20261113-0002"
-    });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: "conflict" });
+    expect(
+      (await runsRepo.listRunsForDate(testEnv.DB, "2026-11-13")).map(
+        (run) => run.id
+      )
+    ).toEqual(["run-20261113-0002"]);
     expect(create).not.toHaveBeenCalled();
   });
 
@@ -1345,7 +1348,7 @@ describe("admin loop controls (story 3.12)", () => {
         scheduledFor: "2026-11-14",
         runId: "run-20261114-0001"
       },
-      id: "catch-up-2026-11-14-0001"
+      id: "daily-run-20261114-0001"
     });
   });
 
@@ -1366,19 +1369,94 @@ describe("admin loop controls (story 3.12)", () => {
     expect(badDate.status).toBe(400);
   });
 
-  it("fails closed with 500 and marks the Run failed when DAILY_RUN is missing", async () => {
+  it("retains identified unavailable admission on missing binding and recovers the same Run", async () => {
     const res = await worker.fetch(
       jsonPost(await sign(EMAIL), "/api/admin/runs", {
         origin: "manual",
-        scheduledFor: "2026-11-17"
+        scheduledFor: "2026-11-17",
+        requestId: "missing-binding-333"
       }),
       realEnv()
     );
-    expect(res.status).toBe(500);
-    const row = await testEnv.DB.prepare(
-      "SELECT status FROM runs WHERE id = 'run-20261117-0002'"
-    ).first<{ status: string }>();
-    expect(row?.status).toBe("failed");
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({
+      code: "workflow_unavailable",
+      run: { id: "run-20261117-0002", status: "running" },
+      dispatch: {
+        runId: "run-20261117-0002",
+        instanceId: "daily-run-20261117-0002",
+        state: "unavailable",
+        ownsDate: true,
+        canResolve: true
+      }
+    });
+    const loop = await auth("/api/admin/loop");
+    expect(
+      ((await loop.json()) as { dispatches: unknown[] }).dispatches
+    ).toContainEqual(
+      expect.objectContaining({
+        runId: "run-20261117-0002",
+        state: "unavailable"
+      })
+    );
+    const create = vi.fn().mockResolvedValue({});
+    const recovered = await worker.fetch(
+      jsonPost(
+        await sign(EMAIL),
+        "/api/admin/runs/run-20261117-0002/dispatch",
+        { action: "check" }
+      ),
+      loopEnv(create)
+    );
+    expect(recovered.status).toBe(200);
+    expect(await recovered.json()).toMatchObject({
+      code: "started",
+      run: { id: "run-20261117-0002" },
+      dispatch: { state: "confirmed" }
+    });
+    expect(create).toHaveBeenCalledExactlyOnceWith({
+      id: "daily-run-20261117-0002",
+      params: {
+        origin: "manual",
+        scheduledFor: "2026-11-17",
+        runId: "run-20261117-0002"
+      }
+    });
+    expect(
+      await runsRepo.listRunsForDate(testEnv.DB, "2026-11-17")
+    ).toHaveLength(1);
+  });
+
+  it("retries an admitted request with the same identity after positive instance inspection", async () => {
+    const create = vi.fn().mockResolvedValue({});
+    const inspect = vi.fn(async () => ({
+      status: async () => ({ status: "running" })
+    }));
+    const envW = {
+      ...realEnv(),
+      DAILY_RUN: { create, get: inspect }
+    } as unknown as Env;
+    const request = {
+      origin: "manual",
+      scheduledFor: "2026-11-23",
+      requestId: "same-request-333"
+    };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const response = await worker.fetch(
+        jsonPost(await sign(EMAIL), "/api/admin/runs", request),
+        envW
+      );
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        id: "run-20261123-0002",
+        status: "running"
+      });
+    }
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(inspect).toHaveBeenLastCalledWith("daily-run-20261123-0002");
+    expect(
+      await runsRepo.listRunsForDate(testEnv.DB, "2026-11-23")
+    ).toHaveLength(1);
   });
 
   it("keeps unknown admin paths as 404 after the new routes", async () => {

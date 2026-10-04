@@ -1,3 +1,4 @@
+import * as admission from "../../shared/db/repos/runAdmissionRepo";
 import { z } from "zod";
 import { PollSourceSchema } from "../../shared/schemas/pipelineConfig";
 import * as runPackagesRepo from "../../shared/db/repos/runPackagesRepo";
@@ -6,9 +7,9 @@ import { insertDraft } from "../../shared/db/repos/draftsRepo";
 import {
   CONNECTOR_TIMEOUT_MS,
   DeadlineError,
-  withDeadline
+  withAbortableDeadline
 } from "../../shared/lib/timeouts";
-import { append, appendStmt, scrubPayload } from "../projector/evidence";
+import { appendStmt, scrubPayload } from "../projector/evidence";
 import type { PollSource } from "./sources";
 
 /**
@@ -68,8 +69,14 @@ export class SourcePersistenceError extends Error {
   }
 }
 
+export type SourceCheckContext = {
+  signal: AbortSignal;
+  beforeRequest: () => Promise<void>;
+};
+
 export type SourceCheck = (
-  source: PollSource
+  source: PollSource,
+  context?: SourceCheckContext
 ) => Promise<SourceItem[]> | SourceItem[];
 
 export const stubCheck: SourceCheck = () => [];
@@ -114,14 +121,23 @@ type Observation = z.infer<typeof ObservationSchema>;
 async function observe(
   source: PollSource,
   check: SourceCheck,
-  version: number | null
+  version: number | null,
+  beforeRequest: () => Promise<void>
 ): Promise<Observation> {
   const createdAt = new Date().toISOString();
   const base = { source, version, createdAt };
   let items: unknown;
   try {
-    items = await withDeadline(
-      Promise.resolve().then(() => check(source)),
+    items = await withAbortableDeadline(
+      async (signal) => {
+        const guard = async () => {
+          signal.throwIfAborted();
+          await beforeRequest();
+          signal.throwIfAborted();
+        };
+        await guard();
+        return check(source, { signal, beforeRequest: guard });
+      },
       CONNECTOR_TIMEOUT_MS,
       source.name
     );
@@ -204,19 +220,23 @@ export async function runConnector(
   if (!stored) {
     const snapshot = await runPackagesRepo.readSnapshot(db, runId);
     const observation = ObservationSchema.parse(
-      await observe(source, check, snapshot?.version ?? null)
+      await observe(source, check, snapshot?.version ?? null, () =>
+        admission.assertOwned(db, runId)
+      )
     );
     // Scrub arbitrary connector metadata before persisting it, as with public receipts.
     observation.payload = scrubPayload(observation.payload) as Record<
       string,
       unknown
     >;
-    await db
-      .prepare(
-        "INSERT OR IGNORE INTO run_source_packages (run_id, source_name, observation_json) VALUES (?, ?, ?)"
-      )
-      .bind(runId, source.name, JSON.stringify(observation))
-      .run();
+    await db.batch([
+      admission.assertOwnedStmt(db, runId),
+      db
+        .prepare(
+          "INSERT OR IGNORE INTO run_source_packages (run_id, source_name, observation_json) VALUES (?, ?, ?)"
+        )
+        .bind(runId, source.name, JSON.stringify(observation))
+    ]);
     stored = await read();
   }
   if (!stored) throw new Error("source_observation_missing");
@@ -236,52 +256,62 @@ export async function runConnector(
     )
   ).size;
   if (stored.completed === 1) return { draftCount, failed };
-  await append(db, {
-    id: evidenceId(runId, event, source.name),
-    runId,
-    event,
-    payload: {
-      ...observation.payload,
-      source: source.name,
-      url: source.url,
-      tier: source.tier,
-      pollSourcesVersion: version,
-      failed
-    },
-    createdAt
-  });
+  await db.batch([
+    admission.assertOwnedStmt(db, runId),
+    appendStmt(db, {
+      id: evidenceId(runId, event, source.name),
+      runId,
+      event,
+      payload: {
+        ...observation.payload,
+        source: source.name,
+        url: source.url,
+        tier: source.tier,
+        pollSourcesVersion: version,
+        failed
+      },
+      createdAt
+    })
+  ]);
   for (const entity of entities) {
     // The journal makes insert-then-receipt safely repairable even after global
     // connector deduplication starts hiding this event from subsequent polls.
-    await insertDraft(db, {
-      id: draftId(runId, source.name, entity.type, entity.id),
-      runId,
-      targetEntityType: entity.type,
-      targetEntityId: entity.id,
-      diff: entity.diff,
-      body: entity.body,
-      tier2Only: source.tier === "tier2",
-      confidence: entity.confidence ?? null,
-      evalSummary: null,
-      createdAt
-    });
-    await append(db, {
-      id: evidenceId(
+    await insertDraft(
+      db,
+      {
+        id: draftId(runId, source.name, entity.type, entity.id),
         runId,
-        "draft.created",
-        source.name,
-        entity.type,
-        entity.id
-      ),
-      runId,
-      event: "draft.created",
-      payload: {
-        source: source.name,
-        entityType: entity.type,
-        entityId: entity.id
+        targetEntityType: entity.type,
+        targetEntityId: entity.id,
+        diff: entity.diff,
+        body: entity.body,
+        tier2Only: source.tier === "tier2",
+        confidence: entity.confidence ?? null,
+        evalSummary: null,
+        createdAt
       },
-      createdAt
-    });
+      admission.assertOwnedStmt(db, runId)
+    );
+    await db.batch([
+      admission.assertOwnedStmt(db, runId),
+      appendStmt(db, {
+        id: evidenceId(
+          runId,
+          "draft.created",
+          source.name,
+          entity.type,
+          entity.id
+        ),
+        runId,
+        event: "draft.created",
+        payload: {
+          source: source.name,
+          entityType: entity.type,
+          entityId: entity.id
+        },
+        createdAt
+      })
+    ]);
   }
   // Completion and explicit failure evidence commit together. A generic failed
   // fetched result therefore remains failed even when replay does not poll.
@@ -292,6 +322,7 @@ export async function runConnector(
     .bind(runId, source.name);
   if (failed && event === "source.fetched") {
     await db.batch([
+      admission.assertOwnedStmt(db, runId),
       appendStmt(db, {
         id: evidenceId(runId, "run.failed", source.name),
         runId,
@@ -308,7 +339,7 @@ export async function runConnector(
       completion
     ]);
   } else {
-    await completion.run();
+    await db.batch([admission.assertOwnedStmt(db, runId), completion]);
   }
   return { draftCount, failed };
 }

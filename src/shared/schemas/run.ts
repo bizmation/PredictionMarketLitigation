@@ -279,3 +279,23 @@ export const RunDetailSchema = z
   .strict();
 
 export type RunDetail = z.infer<typeof RunDetailSchema>;
+
+/** Admission/dispatch is independent from the Run's editorial lifecycle. */
+export const RunDispatchSchema = z
+  .object({
+    runId: RunIdSchema,
+    instanceId: z.string().min(1),
+    state: z.enum([
+      "pending",
+      "submitting",
+      "confirmed",
+      "uncertain",
+      "unavailable",
+      "resolved"
+    ]),
+    instanceStatus: z.string().nullable(),
+    ownsDate: z.boolean(),
+    canResolve: z.boolean()
+  })
+  .strict();
+export type RunDispatch = z.infer<typeof RunDispatchSchema>;

@@ -1,3 +1,4 @@
+import { fenceSql } from "./runAdmissionRepo";
 import type { Db } from "../client";
 import { assertStmt } from "./gateAssertions";
 import { recordCallStmt } from "./llmCallsRepo";
@@ -93,7 +94,7 @@ export async function reserve(
       assertStmt(
         db,
         "llm_run_admission",
-        `EXISTS(SELECT 1 FROM runs r JOIN llm_run_accounting a ON a.run_id=r.id WHERE r.id=? AND (r.status='running' OR (?=1 AND r.status='awaiting')) AND a.total_cents + ? <= MIN(?,COALESCE(r.budget_cents,(SELECT default_budget_cents FROM gateway_config WHERE id='current'),-1)) AND a.issue_count=0)`,
+        `EXISTS(SELECT 1 FROM runs r JOIN llm_run_accounting a ON a.run_id=r.id WHERE r.id=? AND ${fenceSql("r")} AND (r.status='running' OR (?=1 AND r.status='awaiting')) AND a.total_cents + ? <= MIN(?,COALESCE(r.budget_cents,(SELECT default_budget_cents FROM gateway_config WHERE id='current'),-1)) AND a.issue_count=0)`,
         [input.runId, Number(input.awaiting), input.bound, input.budget]
       ),
       assertStmt(
@@ -162,7 +163,7 @@ export async function claimDispatch(
       db,
       "llm_dispatch_run_ceiling",
       `EXISTS(SELECT 1 FROM runs r JOIN llm_run_accounting a ON a.run_id=r.id
-        WHERE r.id=? AND a.total_cents<=COALESCE(r.budget_cents,
+        WHERE r.id=? AND ${fenceSql("r")} AND a.total_cents<=COALESCE(r.budget_cents,
         (SELECT default_budget_cents FROM gateway_config WHERE id='current'),-1))`,
       [op.run_id]
     ),

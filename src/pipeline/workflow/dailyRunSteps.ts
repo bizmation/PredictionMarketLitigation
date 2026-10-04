@@ -1,9 +1,9 @@
+import * as admission from "../../shared/db/repos/runAdmissionRepo";
 import { defaultBudgetCents } from "../config/modelRoles";
 import type { Db } from "../../shared/db/client";
 import * as runPackagesRepo from "../../shared/db/repos/runPackagesRepo";
 import * as draftsRepo from "../../shared/db/repos/draftsRepo";
 import * as modeRepo from "../../shared/db/repos/modeRepo";
-import * as pipelineConfigRepo from "../../shared/db/repos/pipelineConfigRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import * as standingGuidanceRepo from "../../shared/db/repos/standingGuidanceRepo";
 import { toGuidanceRef } from "../../shared/schemas/standingGuidance";
@@ -55,7 +55,8 @@ export async function ensureRun(
   db: Db,
   origin: RunOrigin,
   scheduledFor: string,
-  runId?: string
+  runId?: string,
+  legacyInstanceId?: string
 ): Promise<string> {
   const existing = runId
     ? await runsRepo.getRunById(db, runId)
@@ -72,10 +73,10 @@ export async function ensureRun(
   if (!existing) {
     const live = await modeRepo.get(db);
     const budgetCents = await defaultBudgetCents(db);
-    const snapshot = await pipelineConfigRepo.getEffectivePollSources(db);
     try {
-      await db.batch([
-        runsRepo.insertRunStmt(db, {
+      await admission.admit(
+        db,
+        {
           id,
           origin,
           mode: live.mode,
@@ -86,9 +87,13 @@ export async function ensureRun(
           spendCurrency: "USD",
           budgetCents,
           scheduledFor
-        }),
-        runPackagesRepo.snapshotStmt(db, id, snapshot)
-      ]);
+        },
+        admission.legacyRequestId(id),
+        false,
+        undefined,
+        legacyInstanceId ??
+          admission.historicalInstanceId({ id, origin, scheduledFor })
+      );
     } catch (error) {
       const winner = await runsRepo.getRunById(db, id);
       if (
@@ -99,6 +104,12 @@ export async function ensureRun(
         throw error;
     }
   }
+  const claim = await admission.get(db, id);
+  if (!runId && claim && claim.request_id !== admission.legacyRequestId(id))
+    throw new Error("run_admission_fenced");
+  if (!claim || claim.request_id === admission.legacyRequestId(id))
+    await admission.attachLegacy(db, id, legacyInstanceId);
+  await admission.assertOwned(db, id);
   // Sealed Runs need no new provenance or configuration on replay.
   if (
     existing &&
@@ -201,6 +212,7 @@ export async function monitorAndPackage(
   let anyFailure = false;
   const { sources } = await runPackagesRepo.requireSnapshot(db, runId);
   for (const source of sources) {
+    await admission.assertOwned(db, runId);
     const check = checks[source.name] ?? stubCheck;
     const result = await runConnector(db, runId, source, check);
     if (result.failed) anyFailure = true;
@@ -221,6 +233,7 @@ export async function afterPackaging(
   result: { draftCount: number; anyFailure: boolean },
   gatewayDeps: GatewayDeps
 ): Promise<void> {
+  await admission.assertOwned(db, runId);
   const initial = await runsRepo.getRunById(db, runId);
   if (!initial) throw new Error("attached_run_missing");
   if (initial.status !== "running" && initial.status !== "stopped") {
@@ -265,6 +278,7 @@ export async function packageDailyRun(
   gatewayDeps: GatewayDeps,
   checks: Record<string, SourceCheck> = {}
 ): Promise<DailyPackageResult> {
+  await admission.assertOwned(db, runId);
   const run = await runsRepo.getRunById(db, runId);
   if (!run) throw new Error("attached_run_missing");
   if (run.status === "awaiting" || run.status === "stopped") {

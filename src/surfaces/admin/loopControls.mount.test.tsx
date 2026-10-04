@@ -49,6 +49,9 @@ function scripted(
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+  sessionStorage.clear();
   vi.unstubAllGlobals();
 });
 
@@ -140,7 +143,9 @@ describe("LoopControls live fetch (jsdom mount)", () => {
     expect(confirmCall).toBeDefined();
     expect(JSON.parse(String(confirmCall![1]?.body))).toEqual({
       origin: "manual",
-      supersedePriorPublish: true
+      supersedePriorPublish: true,
+      requestId: expect.any(String),
+      scheduledFor: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/)
     });
     expect(document.body.textContent).toContain("run-20261111-0002");
     expect(document.body.textContent).toContain("running");
@@ -221,7 +226,7 @@ describe("LoopControls live fetch (jsdom mount)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Run now" }));
     await act(async () => {});
     expect(document.body.textContent).toContain(
-      "The run was not started. Try again."
+      "Dispatch is unresolved. Check the identified Run before starting other work."
     );
     expect(document.body.textContent).toContain("run-20261113-0002");
     expect(document.body.textContent).toContain("failed");
@@ -329,4 +334,338 @@ describe("LoopControls timeouts (story 3.19, jsdom mount)", () => {
     // The GET reload after the timeout keeps the controls on the loop row.
     expect(document.body.textContent).toContain("No runs yet.");
   });
+});
+
+describe("identified dispatch recovery (3.33)", () => {
+  it("restores unresolved dispatch on reload and retries only its Run", async () => {
+    const run = item({ id: "run-20261113-0002", status: "running" });
+    const dispatch = {
+      runId: run.id,
+      instanceId: `daily-${run.id}`,
+      state: "uncertain",
+      instanceStatus: null,
+      ownsDate: true,
+      canResolve: true
+    };
+    const fetchMock = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        if (init?.method === "POST")
+          return scripted({
+            run,
+            dispatch: {
+              ...dispatch,
+              state: "confirmed",
+              instanceStatus: "running"
+            }
+          });
+        return scripted({ latest: run, dispatches: [dispatch] });
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LoopControls />);
+    await act(async () => {});
+    expect(document.body.textContent).toContain("dispatch uncertain");
+    fireEvent.click(
+      screen.getByRole("button", { name: `Check / retry ${run.id}` })
+    );
+    await act(async () => {});
+    const posts = fetchMock.mock.calls.filter((c) => c[1]?.method === "POST");
+    expect(posts).toHaveLength(1);
+    expect(posts[0]![0]).toBe(`/api/admin/runs/${run.id}/dispatch`);
+    expect(JSON.parse(String(posts[0]![1]?.body))).toEqual({ action: "check" });
+    expect(document.body.textContent).not.toContain("not started");
+  });
+  it("retains the request identity after an unknown response", async () => {
+    const fetchMock = vi.fn(
+      async (_input: string | URL | Request, init?: RequestInit) =>
+        init?.method === "POST"
+          ? scripted({ code: "internal" }, false)
+          : scripted({ latest: null })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LoopControls />);
+    await act(async () => {});
+    for (let i = 0; i < 2; i++) {
+      fireEvent.click(screen.getByRole("button", { name: "Run now" }));
+      await act(async () => {});
+    }
+    const posts = fetchMock.mock.calls.filter((c) => c[1]?.method === "POST");
+    expect(posts).toHaveLength(2);
+    expect(JSON.parse(String(posts[0]![1]?.body)).requestId).toBe(
+      JSON.parse(String(posts[1]![1]?.body)).requestId
+    );
+  });
+});
+
+describe("durable manual request identity", () => {
+  it("keeps the same request and ET date after midnight and remount even when the original Run finished", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-14T04:59:59.000Z"));
+    let accepted = false;
+    const fetchMock = vi.fn(
+      async (_input: string | URL | Request, init?: RequestInit) => {
+        if (init?.method === "POST")
+          return scripted({ code: "unknown" }, false, 503);
+        return scripted({
+          latest: accepted ? item({ status: "empty" }) : null,
+          dispatches: []
+        });
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const first = render(<LoopControls />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Run now" }));
+    await act(async () => {});
+    first.unmount();
+    accepted = true;
+    vi.setSystemTime(new Date("2026-11-14T05:01:00.000Z"));
+    render(<LoopControls />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Run now" }));
+    await act(async () => {});
+    const requests = fetchMock.mock.calls
+      .filter((c) => c[1]?.method === "POST")
+      .map((c) => JSON.parse(String(c[1]?.body)));
+    expect(requests).toHaveLength(2);
+    expect(requests[0]).toEqual(requests[1]);
+    expect(requests[1].scheduledFor).toBe("2026-11-13");
+  });
+  it("does not dispatch if its retry identity cannot be persisted", async () => {
+    const fetchMock = vi.fn(async () => scripted({ latest: null }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("unavailable");
+    });
+    render(<LoopControls />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Run now" }));
+    await act(async () => {});
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(document.body.textContent).toContain("No new request was sent");
+  });
+  it("clears the saved identity after a confirmed response, allowing a distinct later request", async () => {
+    const fetchMock = vi.fn(
+      async (_input: string | URL | Request, init?: RequestInit) =>
+        init?.method === "POST"
+          ? scripted(item({ origin: "manual", status: "running" }))
+          : scripted({ latest: null })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LoopControls />);
+    await act(async () => {});
+    for (let i = 0; i < 2; i++) {
+      fireEvent.click(screen.getByRole("button", { name: "Run now" }));
+      await act(async () => {});
+    }
+    const requests = fetchMock.mock.calls
+      .filter((c) => c[1]?.method === "POST")
+      .map((c) => JSON.parse(String(c[1]?.body)));
+    expect(requests).toHaveLength(2);
+    expect(requests[0].requestId).not.toBe(requests[1].requestId);
+    expect(sessionStorage.getItem("pml.pending-run-request")).toBeNull();
+  });
+});
+
+it("does not discard another unresolved request when checking a different Run", async () => {
+  const pending = {
+    requestId: "held-request",
+    scheduledFor: "2026-11-13",
+    runId: "run-20261113-0002"
+  };
+  sessionStorage.setItem("pml.pending-run-request", JSON.stringify(pending));
+  const other = "run-20261114-0002";
+  const dispatch = {
+    runId: other,
+    instanceId: `daily-${other}`,
+    state: "confirmed",
+    instanceStatus: "running",
+    ownsDate: true,
+    canResolve: false
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_input: string | URL | Request, init?: RequestInit) =>
+      scripted(
+        init?.method === "POST"
+          ? { dispatch }
+          : { latest: null, dispatches: [dispatch] }
+      )
+    )
+  );
+  render(<LoopControls />);
+  await act(async () => {});
+  fireEvent.click(
+    screen.getByRole("button", { name: `Check / retry ${other}` })
+  );
+  await act(async () => {});
+  expect(
+    JSON.parse(sessionStorage.getItem("pml.pending-run-request")!)
+  ).toEqual(pending);
+});
+
+describe("tab-local request recovery and confirmation", () => {
+  it("isolates another tab without losing the first tab's pending request", async () => {
+    const firstStorage = window.sessionStorage;
+    const fetchMock = vi.fn(
+      async (_input: string | URL | Request, init?: RequestInit) =>
+        init?.method === "POST"
+          ? scripted({ code: "unknown" }, false, 503)
+          : scripted({ latest: null })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const first = render(<LoopControls />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Run now" }));
+    await act(async () => {});
+    const saved = firstStorage.getItem("pml.pending-run-request");
+    expect(saved).not.toBeNull();
+    first.unmount();
+    const secondData = new Map<string, string>();
+    vi.stubGlobal("sessionStorage", {
+      getItem: (key: string) => secondData.get(key) ?? null,
+      setItem: (key: string, value: string) => secondData.set(key, value),
+      removeItem: (key: string) => secondData.delete(key),
+      clear: () => secondData.clear()
+    });
+    render(<LoopControls />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Run now" }));
+    await act(async () => {});
+    const posts = fetchMock.mock.calls
+      .filter((c) => c[1]?.method === "POST")
+      .map((c) => JSON.parse(String(c[1]?.body)));
+    expect(posts[0].requestId).not.toBe(posts[1].requestId);
+    expect(firstStorage.getItem("pml.pending-run-request")).toBe(saved);
+    expect(
+      JSON.parse(secondData.get("pml.pending-run-request")!).requestId
+    ).toBe(posts[1].requestId);
+    firstStorage.clear();
+  });
+  it("removes Cancel after uncertain supersede submission and retries the retained identity", async () => {
+    let posts = 0;
+    const fetchMock = vi.fn(
+      async (_input: string | URL | Request, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          if (++posts === 1)
+            return scripted({ code: "supersede_required" }, false, 409);
+          throw new Error("response lost");
+        }
+        return scripted({ latest: item() });
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LoopControls />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Run now" }));
+    await act(async () => {});
+    fireEvent.click(
+      screen.getByRole("button", { name: "Supersede prior publish" })
+    );
+    await act(async () => {});
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    const saved = sessionStorage.getItem("pml.pending-run-request");
+    expect(saved).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Run now" }));
+    await act(async () => {});
+    const requests = fetchMock.mock.calls
+      .filter((c) => c[1]?.method === "POST")
+      .map((c) => JSON.parse(String(c[1]?.body)));
+    expect(requests).toHaveLength(3);
+    expect(requests[1].supersedePriorPublish).toBe(true);
+    expect(requests[2].requestId).toBe(requests[1].requestId);
+    expect(sessionStorage.getItem("pml.pending-run-request")).toBe(saved);
+  });
+  it("Cancel clears only the identity belonging to its confirmation dialog", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: string | URL | Request, init?: RequestInit) =>
+        init?.method === "POST"
+          ? scripted({ code: "supersede_required" }, false, 409)
+          : scripted({ latest: item() })
+      )
+    );
+    render(<LoopControls />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Run now" }));
+    await act(async () => {});
+    const replacement = {
+      requestId: "another-control",
+      scheduledFor: "2026-11-15"
+    };
+    sessionStorage.setItem(
+      "pml.pending-run-request",
+      JSON.stringify(replacement)
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await act(async () => {});
+    expect(
+      JSON.parse(sessionStorage.getItem("pml.pending-run-request")!)
+    ).toEqual(replacement);
+  });
+  it.each(["resolved", "confirmed"])(
+    "clears its matching saved request after %s recovery and starts a fresh request",
+    async (state) => {
+      const runId = "run-20261113-0002";
+      const pending = {
+        requestId: "matching-old-request",
+        scheduledFor: "2026-11-13",
+        runId
+      };
+      sessionStorage.setItem(
+        "pml.pending-run-request",
+        JSON.stringify(pending)
+      );
+      const dispatch = {
+        runId,
+        instanceId: `daily-${runId}`,
+        state: "uncertain",
+        instanceStatus: null,
+        ownsDate: true,
+        canResolve: true
+      };
+      let recovered = false;
+      const fetchMock = vi.fn(
+        async (input: string | URL | Request, init?: RequestInit) => {
+          if (init?.method === "POST") {
+            if (String(input).endsWith("/dispatch")) {
+              recovered = true;
+              return scripted({
+                dispatch: {
+                  ...dispatch,
+                  state,
+                  ownsDate: state !== "resolved",
+                  instanceStatus: state === "confirmed" ? "running" : null
+                }
+              });
+            }
+            return scripted(item({ origin: "manual", status: "running" }));
+          }
+          return scripted({
+            latest: null,
+            dispatches: recovered ? [] : [dispatch]
+          });
+        }
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      render(<LoopControls />);
+      await act(async () => {});
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: `${state === "resolved" ? "Fence and close" : "Check / retry"} ${runId}`
+        })
+      );
+      await act(async () => {});
+      expect(document.body.textContent).toContain(`dispatch ${state}`);
+      expect(sessionStorage.getItem("pml.pending-run-request")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Run now" }));
+      await act(async () => {});
+      const submission = fetchMock.mock.calls.find(
+        (c) => c[0] === "/api/admin/runs" && c[1]?.method === "POST"
+      )!;
+      expect(JSON.parse(String(submission[1]?.body)).requestId).not.toBe(
+        pending.requestId
+      );
+    }
+  );
 });
