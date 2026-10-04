@@ -1,3 +1,4 @@
+import * as runAdmissionRepo from "./shared/db/repos/runAdmissionRepo";
 import { ReconciliationInputSchema } from "./shared/schemas/gateway";
 import {
   reconcile,
@@ -39,6 +40,7 @@ import { SteeringPostBodySchema } from "./shared/schemas/steering";
 import {
   DailyRunWorkflow,
   kickDailyRun,
+  recoverRunDispatch,
   startOperatorRun
 } from "./pipeline/workflow/dailyRun";
 
@@ -92,7 +94,8 @@ const OperatorRunBodySchema = z
   .object({
     origin: z.enum(["manual", "catch-up"]),
     scheduledFor: IsoDateSchema.optional(),
-    supersedePriorPublish: z.boolean().optional()
+    supersedePriorPublish: z.boolean().optional(),
+    requestId: z.string().min(1).max(128).optional()
   })
   .strict();
 
@@ -330,7 +333,10 @@ export default {
         try {
           const items = await runsRepo.listRuns(getDb(env));
           return Response.json(
-            { latest: items[0] ?? null },
+            {
+              latest: items[0] ?? null,
+              dispatches: await runAdmissionRepo.listActive(getDb(env))
+            },
             { headers: ADMIN_CACHE_HEADERS }
           );
         } catch (error) {
@@ -344,6 +350,67 @@ export default {
           return jsonError(internalError(), {
             headers: ADMIN_CACHE_HEADERS
           });
+        }
+      }
+
+      const dispatchMatch =
+        /^\/api\/admin\/runs\/(run-[0-9]{8}-[0-9a-f]{4})\/dispatch$/.exec(
+          adminPath
+        );
+      if (dispatchMatch) {
+        if (request.method !== "POST")
+          return new Response("Method not allowed", {
+            status: 405,
+            headers: ADMIN_CACHE_HEADERS
+          });
+        let body: unknown;
+        try {
+          body = await request.json();
+        } catch {
+          return jsonError(badRequest("Malformed JSON body."), {
+            headers: ADMIN_CACHE_HEADERS
+          });
+        }
+        const parsed = z
+          .object({ action: z.enum(["check", "resolve"]) })
+          .strict()
+          .safeParse(body);
+        if (!parsed.success)
+          return jsonError(badRequest("Invalid dispatch recovery."), {
+            headers: ADMIN_CACHE_HEADERS
+          });
+        try {
+          const result = await recoverRunDispatch(
+            getDb(env),
+            env.DAILY_RUN,
+            dispatchMatch[1]!,
+            parsed.data.action === "resolve"
+          );
+          if (
+            result.status === "conflict" ||
+            result.status === "supersede_required"
+          )
+            return jsonError(conflict("Run dispatch is not available."), {
+              headers: ADMIN_CACHE_HEADERS
+            });
+          return Response.json(
+            {
+              run: result.run,
+              dispatch: await runAdmissionRepo.inspect(
+                getDb(env),
+                dispatchMatch[1]!
+              ),
+              code: result.status
+            },
+            { headers: ADMIN_CACHE_HEADERS }
+          );
+        } catch {
+          return jsonError(
+            conflict(
+              "Recovery could not be persisted or work remains unresolved. Check this Run and its accounting before retrying."
+            ),
+            { headers: ADMIN_CACHE_HEADERS }
+          );
         }
       }
 
@@ -374,6 +441,7 @@ export default {
             origin: parsed.data.origin,
             scheduledFor: parsed.data.scheduledFor ?? etCalendarDate(now),
             supersedePriorPublish: parsed.data.supersedePriorPublish,
+            requestId: parsed.data.requestId,
             now
           });
           switch (result.status) {
@@ -399,9 +467,21 @@ export default {
                 { headers: ADMIN_CACHE_HEADERS }
               );
             case "workflow_unavailable":
-              return jsonError(internalError(), {
-                headers: ADMIN_CACHE_HEADERS
-              });
+            case "dispatch_pending":
+              return Response.json(
+                {
+                  run: result.run,
+                  dispatch: await runAdmissionRepo
+                    .inspect(getDb(env), result.run.id)
+                    .catch(() =>
+                      result.status === "dispatch_pending"
+                        ? runAdmissionRepo.project(result.dispatch)
+                        : null
+                    ),
+                  code: result.status
+                },
+                { status: 503, headers: ADMIN_CACHE_HEADERS }
+              );
           }
         } catch (error) {
           console.error(
@@ -646,6 +726,27 @@ export default {
   // ET-hour guard BEFORE create so the off-hour twin never occupies the
   // deterministic instance id.
   async scheduled(controller: ScheduledController, env: Env) {
-    await kickDailyRun(env.DAILY_RUN, new Date(controller.scheduledTime));
+    const at = new Date(controller.scheduledTime);
+    try {
+      const outcome = await kickDailyRun(env.DAILY_RUN, at, getDb(env));
+      if (outcome)
+        console.info("scheduled_run_dispatch", {
+          status: outcome.status,
+          scheduledFor: etCalendarDate(at),
+          ...("run" in outcome ? { runId: outcome.run.id } : {}),
+          ...("dispatch" in outcome
+            ? {
+                instanceId: outcome.dispatch.instance_id,
+                dispatch: outcome.dispatch.state
+              }
+            : {})
+        });
+    } catch {
+      console.error("scheduled_run_dispatch", {
+        status: "storage_unavailable",
+        scheduledFor: etCalendarDate(at)
+      });
+      throw new Error("scheduled_run_dispatch_unresolved");
+    }
   }
 } satisfies ExportedHandler<Env>;

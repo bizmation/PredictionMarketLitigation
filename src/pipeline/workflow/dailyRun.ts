@@ -6,10 +6,10 @@ import {
 import { defaultBudgetCents } from "../config/modelRoles";
 import type { Db } from "../../shared/db/client";
 import * as modeRepo from "../../shared/db/repos/modeRepo";
+import * as admission from "../../shared/db/repos/runAdmissionRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import type { RunOrigin, RunSummary } from "../../shared/schemas/run";
-import { append } from "../projector/evidence";
-import { evidenceId, type SourceCheck } from "../connectors/connector";
+import { type SourceCheck } from "../connectors/connector";
 import {
   COURTLISTENER_SOURCE_NAME,
   createCourtListenerCheck
@@ -17,7 +17,6 @@ import {
 import { llmProvidersFromEnv, type GatewayDeps } from "../ai/gateway";
 import {
   ensureRun,
-  finishFailed,
   nextFreeRunId,
   packageDailyRun,
   reviewDailyRun
@@ -29,49 +28,51 @@ export type OperatorRunOrigin = Extract<RunOrigin, "manual" | "catch-up">;
 export interface DailyRunParams {
   origin: RunOrigin;
   scheduledFor: string;
-  /** Operator path pins the pre-inserted row so packaging cannot attach elsewhere. */
+  /** All new dispatches pin the admitted Run; optional only for legacy instances. */
   runId?: string;
 }
 
 /** Narrow enough for tests to stub without a real Workflow binding. */
 export interface DailyRunCreateBinding {
   create: (options: { params: DailyRunParams; id: string }) => Promise<unknown>;
+  get?: (id: string) => Promise<{ status: () => Promise<{ status: string }> }>;
 }
 
 export type StartOperatorRunInput = {
   origin: OperatorRunOrigin;
   scheduledFor: string;
   supersedePriorPublish?: boolean;
+  /** Omission is a legacy one-shot/fresh request; retries must supply the same key. */
+  requestId?: string;
   now: Date;
 };
 
 export type StartOperatorRunResult =
   | { status: "started"; run: RunSummary }
   | { status: "conflict" }
+  | { status: "scheduled_duplicate"; run: RunSummary }
   | { status: "supersede_required"; priorRunId: string }
-  | { status: "workflow_unavailable"; run: RunSummary };
+  | { status: "workflow_unavailable"; run: RunSummary }
+  | {
+      status: "dispatch_pending";
+      run: RunSummary;
+      dispatch: admission.Admission;
+    };
 
-/**
- * Cron entry: only the noon-ET twin creates an instance. Duplicate `create`
- * (same-day retry, or a delayed twin) is a no-op — Workflow ids are unique
- * even after completion. Operator triggers use `startOperatorRun` (no ET guard,
- * never `daily-{date}`).
- */
+/** Noon-ET twins share a durable scheduled request identity, independent of
+ * date ownership. Even terminal scheduled retries inspect the original Run. */
 export async function kickDailyRun(
   workflow: DailyRunCreateBinding | undefined,
-  at: Date
-): Promise<void> {
-  if (!workflow) return;
+  at: Date,
+  db: Db
+): Promise<StartOperatorRunResult | undefined> {
   if (!isRunTime(at)) return;
-  const scheduledFor = etCalendarDate(at);
-  try {
-    await workflow.create({
-      params: { origin: "scheduled", scheduledFor },
-      id: `daily-${scheduledFor}`
-    });
-  } catch {
-    // Instance id already used (completed or running). Same-day idempotent.
-  }
+  return startRun(db, workflow, {
+    origin: "scheduled",
+    scheduledFor: etCalendarDate(at),
+    now: at,
+    requestId: `scheduled-${etCalendarDate(at)}`
+  });
 }
 
 export function gatewayDepsFromEnv(
@@ -101,121 +102,182 @@ export function sourceChecksFromEnv(
   };
 }
 
-function operatorInstanceId(
-  origin: OperatorRunOrigin,
-  scheduledFor: string,
-  runId: string
-): string {
-  return `${origin}-${scheduledFor}-${runId.slice(-4)}`;
+/** Every retry inspects the same durable identity. A failed lookup proves nothing. */
+export async function recoverRunDispatch(
+  db: Db,
+  workflow: DailyRunCreateBinding | undefined,
+  runId: string,
+  resolve = false
+): Promise<StartOperatorRunResult> {
+  let claim = await admission.get(db, runId);
+  const run = await runsRepo.getRunById(db, runId);
+  if (!claim || !run) return { status: "conflict" };
+  if (resolve) {
+    await admission.resolve(db, runId);
+    return {
+      status: "dispatch_pending",
+      run: (await runsRepo.getRunById(db, runId))!,
+      dispatch: (await admission.get(db, runId))!
+    };
+  }
+  try {
+    if (claim.released)
+      return { status: "dispatch_pending", run, dispatch: claim };
+    if (!workflow) {
+      if (claim.state === "pending")
+        await admission.record(db, runId, "unavailable");
+      return { status: "workflow_unavailable", run };
+    }
+    let accepted = false;
+    if (await admission.claimSubmission(db, runId)) {
+      try {
+        await workflow.create({
+          id: claim.instance_id,
+          params: {
+            origin: run.origin,
+            scheduledFor: claim.scheduled_for,
+            runId
+          }
+        });
+        accepted = true;
+      } catch {
+        /* Positive inspection below is the only duplicate confirmation. */
+      }
+    }
+    let observed: string | null = null;
+    try {
+      observed =
+        (await (await workflow.get?.(claim.instance_id))?.status())?.status ??
+        null;
+    } catch {
+      /* Unknown is retained. */
+    }
+    const known = [
+      "queued",
+      "running",
+      "paused",
+      "waiting",
+      "waitingForPause",
+      "complete",
+      "errored",
+      "terminated"
+    ];
+    if (observed && known.includes(observed)) {
+      await admission.record(db, runId, "confirmed", observed);
+    } else if (accepted && observed === null && !workflow.get) {
+      await admission.record(db, runId, "confirmed", "queued");
+    } else await admission.record(db, runId, "uncertain");
+    claim = (await admission.get(db, runId))!;
+    const actualRun = (await runsRepo.getRunById(db, runId))!;
+    const confirmedThisAttempt =
+      (observed !== null && known.includes(observed)) ||
+      (accepted && observed === null && !workflow.get);
+    if (
+      confirmedThisAttempt &&
+      !claim.released &&
+      claim.state === "confirmed" &&
+      !claim.finished &&
+      ["queued", "running", "waiting"].includes(claim.instance_status ?? "")
+    )
+      return { status: "started", run: actualRun };
+    return {
+      status: "dispatch_pending",
+      run: actualRun,
+      dispatch: claim
+    };
+  } catch {
+    // A receipt failure is never success. Keep the identified durable intent
+    // inspectable even if the database remains unavailable during this response.
+    const durable = await admission.get(db, runId).catch(() => claim);
+    const actualRun = await runsRepo.getRunById(db, runId).catch(() => run);
+    return {
+      status: "dispatch_pending",
+      run: actualRun ?? run,
+      dispatch: durable ?? claim
+    };
+  }
 }
-
-/**
- * Story 3.12 — Access-gated operator start. Inserts the D1 `running` row
- * before `workflow.create` so `GET /api/runs` lists it immediately. Skips the
- * noon-ET guard. Same-date published Runs require `supersedePriorPublish`.
- */
 export async function startOperatorRun(
   db: Db,
   workflow: DailyRunCreateBinding | undefined,
   input: StartOperatorRunInput
 ): Promise<StartOperatorRunResult> {
+  return startRun(db, workflow, input);
+}
+async function startRun(
+  db: Db,
+  workflow: DailyRunCreateBinding | undefined,
+  input: Omit<StartOperatorRunInput, "origin"> & { origin: RunOrigin }
+): Promise<StartOperatorRunResult> {
   const { origin, scheduledFor, now } = input;
+  const requestId =
+    origin === "scheduled"
+      ? `internal:scheduled:${scheduledFor}`
+      : `operator:${input.requestId ?? crypto.randomUUID()}`;
+  const retry = await admission.byRequest(db, requestId);
+  if (retry) {
+    const run = await runsRepo.getRunById(db, retry.run_id);
+    if (run?.origin !== origin || retry.scheduled_for !== scheduledFor)
+      return { status: "conflict" };
+    return recoverRunDispatch(db, workflow, retry.run_id);
+  }
   const existing = await runsRepo.listRunsForDate(db, scheduledFor);
-  const sameOrigin = existing.find((run) => run.origin === origin);
-
-  if (sameOrigin?.status === "running") {
-    return { status: "started", run: sameOrigin };
+  if (origin === "scheduled") {
+    const legacy = existing.find((r) => r.origin === "scheduled");
+    if (legacy) return { status: "scheduled_duplicate", run: legacy };
   }
-  if (sameOrigin?.status === "awaiting") {
-    return { status: "conflict" };
-  }
-  if (
-    existing.some(
-      (run) =>
-        run.origin !== origin &&
-        (run.status === "running" || run.status === "awaiting")
-    )
-  ) {
-    return { status: "conflict" };
-  }
-
-  const published = existing.find((run) => run.status === "published");
-  if (published && input.supersedePriorPublish !== true) {
+  const published = existing.find((r) => r.status === "published");
+  if (published && !input.supersedePriorPublish)
     return { status: "supersede_required", priorRunId: published.id };
-  }
-
-  const startedAt = now.toISOString();
   const id = nextFreeRunId(
     scheduledFor,
     origin,
-    existing.map((run) => run.id)
+    existing.map((r) => r.id)
   );
   const live = await modeRepo.get(db);
   const budgetCents = await defaultBudgetCents(db);
-  let run: RunSummary;
   try {
-    run = await runsRepo.insertRun(db, {
-      id,
-      origin,
-      mode: live.mode,
-      status: "running",
-      startedAt,
-      completedAt: null,
-      spendCents: 0,
-      spendCurrency: "USD",
-      budgetCents,
-      scheduledFor
-    });
-  } catch {
-    const raced = await runsRepo.findRunForDate(db, scheduledFor, origin);
-    if (raced?.status === "running") {
-      return { status: "started", run: raced };
+    await admission.admit(
+      db,
+      {
+        id,
+        origin,
+        scheduledFor,
+        mode: live.mode,
+        status: "running",
+        startedAt: now.toISOString(),
+        completedAt: null,
+        spendCents: 0,
+        spendCurrency: "USD",
+        budgetCents
+      },
+      requestId,
+      input.supersedePriorPublish === true,
+      published?.id
+    );
+  } catch (error) {
+    const raced = await admission.byRequest(db, requestId);
+    if (raced) {
+      const winner = await runsRepo.getRunById(db, raced.run_id);
+      if (winner?.origin !== origin || raced.scheduled_for !== scheduledFor)
+        return { status: "conflict" };
+      return recoverRunDispatch(db, workflow, raced.run_id);
     }
-    throw new Error("operator_run_insert_failed");
+    if (
+      (await admission.active(db, scheduledFor)) ||
+      (await runsRepo.listRunsForDate(db, scheduledFor)).some(
+        (r) =>
+          r.status === "running" ||
+          r.status === "awaiting" ||
+          (r.reservedCents ?? 0) > 0 ||
+          (r.uncertainCents ?? 0) > 0 ||
+          (r.accountingIssueCount ?? 0) > 0
+      )
+    )
+      return { status: "conflict" };
+    throw error;
   }
-
-  try {
-    if (published && input.supersedePriorPublish === true) {
-      await append(db, {
-        id: evidenceId(run.id, "run.superseded"),
-        runId: run.id,
-        event: "run.superseded",
-        payload: { priorRunId: published.id },
-        createdAt: startedAt
-      });
-    }
-    if (!workflow) {
-      throw new Error("workflow_unavailable");
-    }
-    await workflow.create({
-      params: { origin, scheduledFor, runId: run.id },
-      id: operatorInstanceId(origin, scheduledFor, run.id)
-    });
-  } catch {
-    try {
-      await finishFailed(db, run.id);
-    } catch {
-      // Best-effort: still mark the row failed so a cleanup throw cannot
-      // leave a running orphan after insert-then-create failed.
-      try {
-        await runsRepo.completeRun(
-          db,
-          run.id,
-          "failed",
-          new Date().toISOString()
-        );
-      } catch {
-        /* last resort — response still reports unavailable below */
-      }
-    }
-    const failed = (await runsRepo.getRunById(db, run.id)) ?? {
-      ...run,
-      status: "failed" as const
-    };
-    return { status: "workflow_unavailable", run: failed };
-  }
-
-  return { status: "started", run };
+  return recoverRunDispatch(db, workflow, id);
 }
 
 export class DailyRunWorkflow extends WorkflowEntrypoint<Env, DailyRunParams> {
@@ -234,8 +296,14 @@ export class DailyRunWorkflow extends WorkflowEntrypoint<Env, DailyRunParams> {
     const { origin, scheduledFor } = event.payload;
     const db = this.env.DB;
 
+    if (event.payload.runId) {
+      const pinned = await runsRepo.getRunById(db, event.payload.runId);
+      if (!pinned) throw new Error("attached_run_missing");
+      if (pinned.origin !== origin || pinned.scheduledFor !== scheduledFor)
+        throw new Error("attached_run_identity_mismatch");
+    }
     const attached = await step.do("attach-run", () =>
-      ensureRun(db, origin, scheduledFor, event.payload.runId)
+      ensureRun(db, origin, scheduledFor, event.payload.runId, event.instanceId)
     );
     if (
       typeof attached !== "string" ||
@@ -254,17 +322,36 @@ export class DailyRunWorkflow extends WorkflowEntrypoint<Env, DailyRunParams> {
       throw new Error("attached_run_identity_mismatch");
     }
 
+    // This also runs when attach-run was cached before admission existed.
+    const claim = await admission.get(db, runId);
+    if (
+      !event.payload.runId &&
+      claim &&
+      claim.request_id !== admission.legacyRequestId(runId)
+    )
+      throw new Error("run_admission_fenced");
+    if (!claim || claim.request_id === admission.legacyRequestId(runId))
+      await admission.attachLegacy(db, runId, event.instanceId);
+    await admission.enter(db, runId);
     const packaged = await step.do("run-daily-step", () =>
       packageDailyRun(db, runId, this.gatewayDeps(db), this.sourceChecks(db))
     );
 
-    if (packaged.skip) return;
+    if (packaged.skip) {
+      await admission.finish(db, runId);
+      return;
+    }
     if (packaged.runId !== runId)
       throw new Error("packaged_run_identity_mismatch");
-    if (packaged.draftCount === 0) return;
+    if (packaged.draftCount === 0) {
+      await admission.finish(db, runId);
+      return;
+    }
 
+    await admission.assertOwned(db, runId);
     await step.do("draft-and-review", () =>
       reviewDailyRun(db, packaged, this.gatewayDeps(db))
     );
+    await admission.finish(db, runId);
   }
 }

@@ -1,3 +1,4 @@
+import * as admission from "../../shared/db/repos/runAdmissionRepo";
 import { fixtureCostPolicy } from "../../test/costPolicyFixture";
 import { insertReviewedDraft } from "../../test/reviewedDraft";
 import { env } from "cloudflare:workers";
@@ -87,28 +88,45 @@ describe("kickDailyRun (story 3.3)", () => {
     const create = vi.fn();
     await kickDailyRun(
       { create },
-      new Date("2026-01-15T16:00:00.000Z") // 11:00 EST
+      new Date("2026-01-15T16:00:00.000Z"), // 11:00 EST
+      testEnv.DB
     );
     expect(create).not.toHaveBeenCalled();
   });
 
   it("creates a scheduled instance at noon ET with the ET calendar date", async () => {
     const create = vi.fn().mockResolvedValue({ id: "daily-2026-01-15" });
-    await kickDailyRun({ create }, new Date("2026-01-15T17:00:00.000Z"));
+    await kickDailyRun(
+      { create },
+      new Date("2026-01-15T17:00:00.000Z"),
+      testEnv.DB
+    );
     expect(create).toHaveBeenCalledWith({
-      params: { origin: "scheduled", scheduledFor: "2026-01-15" },
-      id: "daily-2026-01-15"
+      params: {
+        origin: "scheduled",
+        scheduledFor: "2026-01-15",
+        runId: "run-20260115-0000"
+      },
+      id: "daily-run-20260115-0000"
     });
   });
 
-  it("treats a duplicate instance id as a same-day no-op", async () => {
+  it("retains scheduled identity across repeats without submitting twice", async () => {
     const create = vi.fn().mockRejectedValue(new Error("already exists"));
-    await kickDailyRun({ create }, new Date("2026-01-15T17:00:00.000Z"));
-    expect(create).toHaveBeenCalledTimes(1);
+    await kickDailyRun(
+      { create },
+      new Date("2026-01-15T17:00:00.000Z"),
+      testEnv.DB
+    );
+    expect(create).not.toHaveBeenCalled();
   });
 
-  it("no-ops when the Workflow binding is missing", async () => {
-    await kickDailyRun(undefined, new Date("2026-01-15T17:00:00.000Z"));
+  it("retains scheduled identity when the Workflow binding is missing", async () => {
+    await kickDailyRun(
+      undefined,
+      new Date("2026-01-15T17:00:00.000Z"),
+      testEnv.DB
+    );
   });
 });
 
@@ -128,14 +146,22 @@ describe("daily run (story 3.3)", () => {
     expect(done?.status).toBe("empty");
 
     const evidence = await evidenceRepo.listByRun(testEnv.DB, id);
-    expect(evidence.map((e) => e.event)).toEqual(["run.started", "run.empty"]);
-    expect(evidence[0]?.payload).toMatchObject({
+    expect(evidence.map((e) => e.event)).toEqual([
+      "run.dispatch",
+      "run.started",
+      "run.empty"
+    ]);
+    expect(
+      evidence.find((e) => e.event === "run.started")?.payload
+    ).toMatchObject({
       origin: "scheduled",
       scheduledFor: date,
       pollSourcesVersion: 0,
       guidanceInForce: []
     });
-    expect(evidence[1]?.payload).toEqual({ drafts: 0 });
+    expect(evidence.find((e) => e.event === "run.empty")?.payload).toEqual({
+      drafts: 0
+    });
   });
 
   it("snapshots in-force standing guidance refs on run.started (story 3.18)", async () => {
@@ -194,6 +220,7 @@ describe("daily run (story 3.3)", () => {
   });
 
   it("records a catch-up (origin) Run alongside, never replacing the day's record", async () => {
+    await admission.finish(testEnv.DB, runIdFor(date, "scheduled"));
     await ensureRun(testEnv.DB, "catch-up", date);
     const matches = await testEnv.DB.prepare(
       "SELECT COUNT(*) AS n FROM runs WHERE scheduled_for = ?"
@@ -204,7 +231,8 @@ describe("daily run (story 3.3)", () => {
   });
 
   it("resumes an awaiting Run under the same id (no new Run, no duplicate start)", async () => {
-    const id = runIdFor(date, "scheduled");
+    const date = "2026-09-19";
+    const id = await ensureRun(testEnv.DB, "scheduled", date);
     await testEnv.DB.prepare(
       "UPDATE runs SET status = 'awaiting', completed_at = NULL WHERE id = ?"
     )
@@ -924,7 +952,7 @@ describe("nextFreeRunId / startOperatorRun (story 3.12)", () => {
         scheduledFor: "2026-11-01",
         runId: "run-20261101-0002"
       },
-      id: "manual-2026-11-01-0002"
+      id: "daily-run-20261101-0002"
     });
   });
 
@@ -991,7 +1019,7 @@ describe("nextFreeRunId / startOperatorRun (story 3.12)", () => {
     ).toBe("published");
   });
 
-  it("marks the inserted Run failed when the workflow binding is missing", async () => {
+  it("retains identified pending admission when the workflow binding is missing", async () => {
     const result = await startOperatorRun(testEnv.DB, undefined, {
       origin: "manual",
       scheduledFor: "2026-11-04",
@@ -999,12 +1027,12 @@ describe("nextFreeRunId / startOperatorRun (story 3.12)", () => {
     });
     expect(result.status).toBe("workflow_unavailable");
     if (result.status !== "workflow_unavailable") return;
-    expect(result.run.status).toBe("failed");
+    expect(result.run.status).toBe("running");
     const evidence = await evidenceRepo.listByRun(testEnv.DB, result.run.id);
-    expect(evidence.some((event) => event.event === "run.failed")).toBe(true);
+    expect(evidence.some((event) => event.event === "run.dispatch")).toBe(true);
   });
 
-  it("marks the inserted Run failed when workflow.create rejects", async () => {
+  it("retains uncertain ownership when workflow.create rejects", async () => {
     const create = vi.fn().mockRejectedValue(new Error("already exists"));
     const result = await startOperatorRun(
       testEnv.DB,
@@ -1015,14 +1043,14 @@ describe("nextFreeRunId / startOperatorRun (story 3.12)", () => {
         now: NOW
       }
     );
-    expect(result.status).toBe("workflow_unavailable");
-    if (result.status !== "workflow_unavailable") return;
-    expect(result.run.status).toBe("failed");
+    expect(result.status).toBe("dispatch_pending");
+    if (result.status !== "dispatch_pending") return;
+    expect(result.run.status).toBe("running");
     const evidence = await evidenceRepo.listByRun(testEnv.DB, result.run.id);
-    expect(evidence.some((event) => event.event === "run.failed")).toBe(true);
+    expect(evidence.some((event) => event.event === "run.dispatch")).toBe(true);
   });
 
-  it("still returns workflow_unavailable when finishFailed throws after create rejects", async () => {
+  it("does not invoke failed-Run cleanup on uncertain create rejection", async () => {
     const evidenceMod = await import("../projector/evidence");
     const spy = vi
       .spyOn(evidenceMod, "append")
@@ -1038,12 +1066,12 @@ describe("nextFreeRunId / startOperatorRun (story 3.12)", () => {
           now: NOW
         }
       );
-      expect(result.status).toBe("workflow_unavailable");
-      if (result.status !== "workflow_unavailable") return;
-      expect(result.run.status).toBe("failed");
+      expect(result.status).toBe("dispatch_pending");
+      if (result.status !== "dispatch_pending") return;
+      expect(result.run.status).toBe("running");
       expect(
         (await runsRepo.getRunById(testEnv.DB, result.run.id))?.status
-      ).toBe("failed");
+      ).toBe("running");
     } finally {
       spy.mockRestore();
     }
@@ -1322,7 +1350,12 @@ describe("Run budget snapshots (story 3.25)", () => {
           );
         }
       },
-      { origin, scheduledFor: date, now: new Date(`${date}T16:00:00.000Z`) }
+      {
+        origin,
+        scheduledFor: date,
+        requestId: `budget-${date}`,
+        now: new Date(`${date}T16:00:00.000Z`)
+      }
     );
     if (result.status !== "started") throw new Error(result.status);
     return result.run.id;
@@ -1368,9 +1401,17 @@ describe("Run budget snapshots (story 3.25)", () => {
               {
                 create: async () => {
                   throw new Error("retry must not create workflow");
-                }
+                },
+                get: async () => ({
+                  status: async () => ({ status: "running" })
+                })
               },
-              { origin, scheduledFor: run.scheduledFor!, now: new Date() }
+              {
+                origin,
+                scheduledFor: run.scheduledFor!,
+                requestId: `budget-${run.scheduledFor}`,
+                now: new Date()
+              }
             );
             expect(retry.status).toBe("started");
           }

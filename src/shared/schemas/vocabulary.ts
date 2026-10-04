@@ -265,6 +265,7 @@ export type RunMode = z.infer<typeof RunModeSchema>;
  */
 export const EVIDENCE_EVENT_VALUES = [
   "run.started",
+  "run.dispatch",
   "run.completed",
   "run.failed",
   "run.stopped",

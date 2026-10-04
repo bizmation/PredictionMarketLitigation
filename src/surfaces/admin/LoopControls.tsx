@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
+import { etCalendarDate } from "../../shared/lib/schedule";
 import { formatEtDateTime } from "../../shared/lib/dates";
 import {
   ADMIN_POST_TIMEOUT_MS,
@@ -8,7 +9,12 @@ import {
   isAbortError,
   isTimeoutError
 } from "../../shared/lib/timeouts";
-import type { RunLogItem } from "../../shared/schemas/run";
+import {
+  RunDispatchSchema,
+  RunSummarySchema,
+  type RunDispatch,
+  type RunLogItem
+} from "../../shared/schemas/run";
 import {
   EmptyState,
   OriginFlag,
@@ -53,6 +59,44 @@ const OUTCOMES = new Set(["approved", "edited", "rejected"]);
 const RUN_ID = /^run-\d{8}-[0-9a-f]{4}$/;
 const CURRENCY = /^[A-Z]{3}$/;
 const POLL_MS = 4000;
+
+const PENDING_REQUEST_KEY = "pml.pending-run-request";
+type PendingRequest = {
+  requestId: string;
+  scheduledFor: string;
+  runId?: string;
+};
+function readPendingRequest(): PendingRequest | null {
+  const raw = sessionStorage.getItem(PENDING_REQUEST_KEY);
+  if (raw === null) return null;
+  const value: unknown = JSON.parse(raw);
+  if (!value || typeof value !== "object")
+    throw new Error("invalid_saved_request");
+  const row = value as Record<string, unknown>;
+  if (
+    typeof row.requestId !== "string" ||
+    !row.requestId.length ||
+    row.requestId.length > 128 ||
+    typeof row.scheduledFor !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(row.scheduledFor) ||
+    (row.runId !== undefined &&
+      (typeof row.runId !== "string" || !RUN_ID.test(row.runId)))
+  )
+    throw new Error("invalid_saved_request");
+  return {
+    requestId: row.requestId,
+    scheduledFor: row.scheduledFor,
+    ...(row.runId ? { runId: row.runId as string } : {})
+  };
+}
+function savePendingRequest(request: PendingRequest) {
+  sessionStorage.setItem(PENDING_REQUEST_KEY, JSON.stringify(request));
+}
+function clearPendingRequest(requestId: string) {
+  // Clear only this request; another mounted control may have replaced it.
+  if (readPendingRequest()?.requestId === requestId)
+    sessionStorage.removeItem(PENDING_REQUEST_KEY);
+}
 
 function isChipStatus(status: RunLogItem["status"]): status is ChipStatus {
   return status !== "running";
@@ -122,9 +166,26 @@ export function LoopControls({ latest: injectedLatest }: LoopControlsProps) {
   const [reload, setReload] = useState(0);
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [dispatches, setDispatches] = useState<RunDispatch[]>([]);
+  const pendingRequest = useRef<PendingRequest | null>(null);
+  const confirmationRequest = useRef<PendingRequest | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const viewRef = useRef(view);
   viewRef.current = view;
+
+  useEffect(() => {
+    try {
+      const pending = readPendingRequest();
+      if (pending)
+        setNotice(
+          `An earlier Run request for ${pending.scheduledFor} still needs checking. Run now retries that request.`
+        );
+    } catch {
+      setNotice(
+        "The saved Run request could not be read. Check existing Runs and restore browser storage before retrying."
+      );
+    }
+  }, []);
 
   useEffect(() => {
     if (injected) return;
@@ -152,6 +213,18 @@ export function LoopControls({ latest: injectedLatest }: LoopControlsProps) {
         const body: unknown = await res.json();
         if (cancelled) return;
         const latest = unwrapLatest(body);
+        if (
+          body &&
+          typeof body === "object" &&
+          "dispatches" in body &&
+          Array.isArray(body.dispatches)
+        )
+          setDispatches(
+            body.dispatches.flatMap((d) => {
+              const parsed = RunDispatchSchema.safeParse(d);
+              return parsed.success ? [parsed.data] : [];
+            })
+          );
         if (latest === undefined) {
           setView({ status: "signedOut" });
           return;
@@ -203,6 +276,26 @@ export function LoopControls({ latest: injectedLatest }: LoopControlsProps) {
     setBusy(true);
     setNotice(null);
     try {
+      // Persist before dispatch: a lost response must survive reload and midnight.
+      const pending = readPendingRequest() ?? {
+        requestId: crypto.randomUUID(),
+        scheduledFor: etCalendarDate(new Date())
+      };
+      savePendingRequest(pending);
+      pendingRequest.current = pending;
+    } catch {
+      setNotice(
+        "Could not save the Run request for safe retry. No new request was sent. Check existing Runs and restore browser storage before retrying."
+      );
+      setBusy(false);
+      return;
+    }
+    const pending = pendingRequest.current;
+    // Once submitted, a lost response is recoverable only with this identity.
+    // Cancel applies solely to a confirmation that has not been submitted.
+    setConfirming(false);
+    confirmationRequest.current = null;
+    try {
       const res = await fetchWithTimeout(
         "/api/admin/runs",
         {
@@ -214,6 +307,8 @@ export function LoopControls({ latest: injectedLatest }: LoopControlsProps) {
           },
           body: JSON.stringify({
             origin: "manual",
+            requestId: pending.requestId,
+            scheduledFor: pending.scheduledFor,
             ...(supersedePriorPublish ? { supersedePriorPublish: true } : {})
           })
         },
@@ -231,10 +326,13 @@ export function LoopControls({ latest: injectedLatest }: LoopControlsProps) {
         body = null;
       }
       if (res.status === 409 && errorCode(body) === "supersede_required") {
+        confirmationRequest.current = pending;
         setConfirming(true);
         return;
       }
       if (res.status === 409) {
+        clearPendingRequest(pending.requestId);
+        pendingRequest.current = null;
         setConfirming(false);
         setNotice(
           "A run is already in flight or awaiting approval for this date."
@@ -243,19 +341,86 @@ export function LoopControls({ latest: injectedLatest }: LoopControlsProps) {
         return;
       }
       if (!res.ok) {
-        setNotice("The run was not started. Try again.");
+        if (body && typeof body === "object" && "dispatch" in body) {
+          const parsed = RunDispatchSchema.safeParse(body.dispatch);
+          if (parsed.success) {
+            setDispatches([parsed.data]);
+            savePendingRequest({ ...pending, runId: parsed.data.runId });
+            if (
+              parsed.data.state === "resolved" ||
+              parsed.data.state === "confirmed"
+            ) {
+              clearPendingRequest(pending.requestId);
+              setNotice(
+                `Run ${parsed.data.runId}: dispatch ${parsed.data.state}.`
+              );
+              setConfirming(false);
+              setReload((value) => value + 1);
+              return;
+            }
+          }
+        }
+        setNotice(
+          "Dispatch is unresolved. Check the identified Run before starting other work."
+        );
         setReload((value) => value + 1);
         return;
       }
+      if (!RunSummarySchema.strip().safeParse(body).success)
+        throw new Error("invalid_run_response");
+      clearPendingRequest(pending.requestId);
+      pendingRequest.current = null;
       setConfirming(false);
       setReload((value) => value + 1);
     } catch (err) {
       setNotice(
         isTimeoutError(err)
           ? RUN_TIMEOUT_NOTICE
-          : "The run was not started. Try again."
+          : "Dispatch outcome is unknown. Retry with the same request or check the Run below."
       );
       setReload((value) => value + 1);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function recover(runId: string, action: "check" | "resolve") {
+    setBusy(true);
+    try {
+      const res = await fetchWithTimeout(
+        `/api/admin/runs/${runId}/dispatch`,
+        {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action })
+        },
+        ADMIN_POST_TIMEOUT_MS
+      );
+      if (!res.ok) {
+        setNotice(
+          "Recovery remains unresolved. Inspect this Run's accounting and try checking again."
+        );
+        return;
+      }
+      const body = (await res.json()) as { dispatch?: unknown };
+      const dispatch = RunDispatchSchema.parse(body.dispatch);
+      if (dispatch.runId !== runId)
+        throw new Error("dispatch_identity_mismatch");
+      setDispatches((current) =>
+        current.map((d) => (d.runId === runId ? dispatch : d))
+      );
+      if (dispatch.state === "resolved" || dispatch.state === "confirmed") {
+        const pending = readPendingRequest();
+        if (pending?.runId === runId) {
+          clearPendingRequest(pending.requestId);
+          pendingRequest.current = null;
+        }
+      }
+      setNotice(`Run ${runId}: dispatch ${dispatch.state}.`);
+      setReload((v) => v + 1);
+    } catch {
+      setNotice("Recovery outcome is unknown. Check this same Run again.");
     } finally {
       setBusy(false);
     }
@@ -335,7 +500,31 @@ export function LoopControls({ latest: injectedLatest }: LoopControlsProps) {
         <p className="muted">No runs yet.</p>
       )}
 
-      {notice ? <p className="muted">{notice}</p> : null}
+      {notice ? <output className="muted">{notice}</output> : null}
+      {dispatches.map((d) => (
+        <div key={d.runId}>
+          <p>
+            Run {d.runId}: dispatch {d.state}
+            {d.instanceStatus ? ` (${d.instanceStatus})` : ""}.
+          </p>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void recover(d.runId, "check")}
+          >
+            Check / retry {d.runId}
+          </button>
+          {d.canResolve && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void recover(d.runId, "resolve")}
+            >
+              Fence and close {d.runId}
+            </button>
+          )}
+        </div>
+      ))}
 
       {confirming ? (
         <div className="rejectbox">
@@ -354,7 +543,19 @@ export function LoopControls({ latest: injectedLatest }: LoopControlsProps) {
           <button
             type="button"
             className="btn btn-ghost"
-            onClick={() => setConfirming(false)}
+            onClick={() => {
+              try {
+                const pending = confirmationRequest.current;
+                if (pending) clearPendingRequest(pending.requestId);
+                confirmationRequest.current = null;
+                pendingRequest.current = null;
+                setConfirming(false);
+              } catch {
+                setNotice(
+                  "Could not clear the saved request. Restore browser storage before starting another Run."
+                );
+              }
+            }}
             disabled={busy}
           >
             Cancel

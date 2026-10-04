@@ -1,3 +1,6 @@
+import * as admission from "../../shared/db/repos/runAdmissionRepo";
+import { startOperatorRun } from "./dailyRun";
+import { runConnector } from "../connectors/connector";
 import { decide } from "../gate/approval";
 import { PollSourcesSchema } from "../../shared/schemas/pipelineConfig";
 import { env, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
@@ -522,7 +525,13 @@ describe("DailyRunWorkflow durable replay (3.32)", () => {
       await h.run();
       expect(await packagesRepo.requireSnapshot(db, runId)).toEqual(before);
       for (const s of before.sources) {
-        expect(checks[s.name]).toHaveBeenCalledExactlyOnceWith(s);
+        expect(checks[s.name]).toHaveBeenCalledExactlyOnceWith(
+          s,
+          expect.objectContaining({
+            beforeRequest: expect.any(Function),
+            signal: expect.any(AbortSignal)
+          })
+        );
         expect(
           (await state()).evidence.find(
             (event) =>
@@ -536,16 +545,27 @@ describe("DailyRunWorkflow durable replay (3.32)", () => {
           pollSourcesVersion: before.version
         });
       }
-      const next = await ensureRun(db, "manual", date);
+      const nextDate = new Date(
+        Date.parse(`${date}T00:00:00Z`) + 366 * 86400000
+      )
+        .toISOString()
+        .slice(0, 10);
+      const next = await ensureRun(db, "manual", nextDate);
       const latest = await configRepo.getEffectivePollSources(db);
       expect(await packagesRepo.requireSnapshot(db, next)).toEqual(latest);
       const newest = vi.fn(() => [{ entities: [entity] }]);
       await harness({ newest }).run({
         origin: "manual",
-        scheduledFor: date,
+        scheduledFor: nextDate,
         runId: next
       });
-      expect(newest).toHaveBeenCalledExactlyOnceWith(latest.sources[0]);
+      expect(newest).toHaveBeenCalledExactlyOnceWith(
+        latest.sources[0],
+        expect.objectContaining({
+          beforeRequest: expect.any(Function),
+          signal: expect.any(AbortSignal)
+        })
+      );
       expect(
         (await evidenceRepo.listByRun(db, next)).find(
           (event) => event.event === "source.fetched"
@@ -565,9 +585,9 @@ describe("DailyRunWorkflow durable replay (3.32)", () => {
       id: other,
       origin: "scheduled",
       mode: "hitl",
-      status: "running",
+      status: "empty",
       startedAt: new Date().toISOString(),
-      completedAt: null,
+      completedAt: new Date().toISOString(),
       spendCents: 0,
       spendCurrency: "USD",
       budgetCents: 500,
@@ -785,6 +805,7 @@ describe("3.32 review regressions", () => {
       expect(interrupted).toBe(true);
       expect((await state()).run?.status).toBe("running");
       expect((await state()).evidence.map((event) => event.event)).toEqual([
+        "run.dispatch",
         "run.started"
       ]);
       expect(
@@ -821,8 +842,11 @@ describe("3.32 review regressions", () => {
     expect((await state()).run?.status).toBe("awaiting");
     const original = await state();
     const other = harness(undefined);
-    await other.run({ origin: "manual", scheduledFor: date });
-    const otherId = runIdFor(date, "manual");
+    const otherDate = new Date(Date.parse(`${date}T00:00:00Z`) + 366 * 86400000)
+      .toISOString()
+      .slice(0, 10);
+    await other.run({ origin: "manual", scheduledFor: otherDate });
+    const otherId = runIdFor(otherDate, "manual");
     expect((await runsRepo.getRunById(db, otherId))?.status).toBe("empty");
     expect(await draftsRepo.listByRun(db, otherId)).toEqual([]);
     expect(other.provider.complete).not.toHaveBeenCalled();
@@ -1110,4 +1134,80 @@ describe("3.32 review regressions", () => {
       (await state()).evidence.filter((event) => event.event === "run.empty")
     ).toHaveLength(1);
   });
+});
+
+describe("atomic source ownership at write (3.33)", () => {
+  it.each([
+    "journal",
+    "source-receipt",
+    "draft",
+    "draft-receipt",
+    "completion"
+  ])(
+    "rolls back a stale %s write when ownership transfers at the D1 boundary",
+    async (boundary) => {
+      await ensureRun(db, "scheduled", date);
+      let transferred = false;
+      let before: unknown;
+      const snapshot = async () => ({
+        journals: (
+          await db
+            .prepare("SELECT * FROM run_source_packages WHERE run_id=?")
+            .bind(runId)
+            .all()
+        ).results,
+        drafts: await draftsRepo.listByRun(db, runId),
+        evidence: await evidenceRepo.listByRun(db, runId)
+      });
+      const interrupted = interruptDb(async (sql, phase, values) => {
+        if (transferred || phase !== "before") return;
+        const matched =
+          boundary === "journal"
+            ? sql.includes("INSERT OR IGNORE INTO run_source_packages")
+            : boundary === "draft"
+              ? sql.includes("INSERT OR IGNORE INTO drafts")
+              : boundary === "completion"
+                ? sql.includes("UPDATE run_source_packages SET completed")
+                : sql.includes("INSERT OR IGNORE INTO evidence_events") &&
+                  values.includes(
+                    boundary === "source-receipt"
+                      ? "source.fetched"
+                      : "draft.created"
+                  );
+        if (!matched) return;
+        transferred = true;
+        // A concurrent replay finishes as this callback reaches a write.
+        // Complete transfer before submitting that write's transaction.
+        await runsRepo.completeRun(
+          db,
+          runId,
+          "failed",
+          new Date().toISOString()
+        );
+        await admission.finish(db, runId);
+        const successor = await startOperatorRun(db, undefined, {
+          origin: "manual",
+          scheduledFor: date,
+          requestId: crypto.randomUUID(),
+          now: new Date()
+        });
+        expect(successor.status).toBe("workflow_unavailable");
+        expect((await admission.get(db, runId))?.released).toBe(1);
+        before = await snapshot();
+      });
+      const check = vi.fn(async () => [{ entities: [entity], failed: true }]);
+      await expect(
+        runConnector(interrupted, runId, source, check)
+      ).rejects.toThrow();
+      expect(transferred).toBe(true);
+      expect(check).toHaveBeenCalledTimes(1);
+      expect(await snapshot()).toEqual(before);
+      // Completion cannot commit either its marker or companion failure receipt.
+      expect(
+        (await evidenceRepo.listByRun(db, runId)).some(
+          (e) => e.event === "run.failed"
+        )
+      ).toBe(false);
+    }
+  );
 });

@@ -12,6 +12,7 @@ import {
   SourcePersistenceError,
   type EntityChange,
   type SourceCheck,
+  type SourceCheckContext,
   type SourceItem
 } from "./connector";
 
@@ -323,12 +324,16 @@ function validatedPageUrl(input: string, base: string): string {
 async function fetchPage(
   fetchImpl: FetchImpl,
   token: string,
-  input: string
+  input: string,
+  context?: SourceCheckContext
 ): Promise<{ entries: DocketEntry[]; next: string | null }> {
   const url = validatedPageUrl(input, COURTLISTENER_API_BASE);
   let response: Awaited<ReturnType<FetchImpl>>;
+  await context?.beforeRequest();
+  context?.signal.throwIfAborted();
   try {
     response = await fetchImpl(url, {
+      signal: context?.signal,
       redirect: "manual",
       headers: {
         authorization: `Token ${token}`,
@@ -338,6 +343,7 @@ async function fetchPage(
   } catch (err) {
     throw new DocketError(isTimeoutError(err) ? "timeout" : "network");
   }
+  context?.signal.throwIfAborted();
   // Redirects are unsupported, including same-origin ones. Do not inspect
   // their body or Location, which may contain credentials or unsafe URLs.
   if (response.status >= 300 && response.status < 400) {
@@ -388,7 +394,8 @@ async function fetchEntries(
   fetchImpl: FetchImpl,
   token: string,
   docketId: string,
-  baseline: string | null
+  baseline: string | null,
+  context?: SourceCheckContext
 ): Promise<{ entries: DocketEntry[]; pages: number; truncated: boolean }> {
   const entries: DocketEntry[] = [];
   let url: string | null = entriesUrl(docketId);
@@ -399,7 +406,7 @@ async function fetchEntries(
       truncated = true;
       break;
     }
-    const page = await fetchPage(fetchImpl, token, url);
+    const page = await fetchPage(fetchImpl, token, url, context);
     pages += 1;
     entries.push(...page.entries);
     let oldest: string | null = null;
@@ -469,7 +476,8 @@ async function pollDocket(
   fetchImpl: FetchImpl,
   token: string,
   docketId: string,
-  row: DocketRow
+  row: DocketRow,
+  context?: SourceCheckContext
 ): Promise<DocketOutcome> {
   const [latest, seen, parties, trackedSince] = await readSourceState(() =>
     Promise.all([
@@ -493,7 +501,8 @@ async function pollDocket(
     fetchImpl,
     token,
     docketId,
-    baseline?.date ?? null
+    baseline?.date ?? null,
+    context
   );
 
   const entities: EntityChange[] = [];
@@ -560,7 +569,19 @@ export function createCourtListenerCheck(
   deps: CourtListenerCheckDeps
 ): SourceCheck {
   const fetchImpl = deps.fetchImpl ?? defaultFetch;
-  return async (): Promise<SourceItem[]> => {
+  return async (_source, context): Promise<SourceItem[]> => {
+    const siblings = new AbortController();
+    const signal = context
+      ? AbortSignal.any([context.signal, siblings.signal])
+      : siblings.signal;
+    const guarded: SourceCheckContext = {
+      signal,
+      beforeRequest: async () => {
+        signal.throwIfAborted();
+        await context?.beforeRequest();
+        signal.throwIfAborted();
+      }
+    };
     const token = deps.token?.trim();
     if (!token) throw new SourceUnavailableError("unconfigured");
 
@@ -590,10 +611,18 @@ export function createCourtListenerCheck(
       [...byDocket].map(async ([key, row]) => {
         const docketId = key.slice(0, key.indexOf(":"));
         try {
-          return await pollDocket(deps, fetchImpl, token, docketId, row);
+          return await pollDocket(
+            deps,
+            fetchImpl,
+            token,
+            docketId,
+            row,
+            guarded
+          );
         } catch (err) {
           if (err instanceof DocketError) {
             if (SOURCE_LEVEL_REASONS.has(err.reason)) {
+              siblings.abort();
               throw new SourceUnavailableError(err.reason, {
                 docketId,
                 ...(err.status == null ? {} : { status: err.status }),
@@ -612,6 +641,7 @@ export function createCourtListenerCheck(
               }
             } satisfies DocketOutcome;
           }
+          siblings.abort();
           throw err;
         }
       })

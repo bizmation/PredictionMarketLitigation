@@ -268,7 +268,8 @@ export async function insertDraft(
     parentDraftId?: string | null;
     revisionIndex?: number;
     createdAt: string;
-  }
+  },
+  writeGuard?: D1PreparedStatement
 ): Promise<DraftRecord> {
   const record = DraftRecordSchema.parse({
     id: input.id,
@@ -290,7 +291,7 @@ export async function insertDraft(
     createdAt: input.createdAt,
     updatedAt: input.createdAt
   });
-  await db
+  const statement = db
     .prepare(
       `INSERT OR IGNORE INTO drafts (id, run_id, target_entity_type, target_entity_id,
           diff_json, body, tier2_only, confidence, eval_summary_json,
@@ -312,8 +313,9 @@ export async function insertDraft(
       record.revisionIndex,
       record.createdAt,
       record.updatedAt
-    )
-    .run();
+    );
+  if (writeGuard) await db.batch([writeGuard, statement]);
+  else await statement.run();
   return record;
 }
 
