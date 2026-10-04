@@ -267,8 +267,7 @@ action_items:
     owner: "agent + Patrick"
     status: in-progress
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
-    note: "Current implementation deployed 2026-09-24 as 98ed45b4-f131-4d40-b5b7-944138869779.
-      Post-deploy Run and authenticated OpenRouter 200 verification remain outstanding."
+    note: "Main through 3.33 (2276a828344b59a853d7b6a68dba40477dbba470) deployed to staging 2026-10-04 as 6c2756d2-4d0b-43c3-9887-db355cbab2dc; migrations 0001-0023 applied, 1373 tests and checks pass. Public/browser/admin-boundary smoke checks pass; production unchanged. Post-deploy governed Run, authenticated OpenRouter 200 and remaining 3.36 verification remain outstanding. See docs/deploy-runbook.md."
   - id: "epic-3-retro-gate-transaction-safety"
     # Approved corrective stories: 3.28, 3.29; close only on linked evidence.
     epic: 3

@@ -1,5 +1,15 @@
 # Deploy runbook
 
+## Staging deployment — 2026-10-04 (through Story 3.33)
+
+User-authorized deployment of main `2276a828344b59a853d7b6a68dba40477dbba470` through `npm run deploy:build`. `npm run check` passed; the deployment command built the app, passed all **1,373 tests in 58 files**, applied staging migrations **0019–0023**, and deployed Worker `pml-build` version **`6c2756d2-4d0b-43c3-9887-db355cbab2dc`** at 2026-10-04T16:34:46Z. Cloudflare API confirms deployment `822ff39c-9f4b-4e07-8555-56ae159c2de9` at 100% traffic. D1 `pml-build` records all migrations 0001–0023 applied.
+
+Verified both staging custom domains on `pml-build`; tracker data loads 18 tracked states and 25 cases, with ops links targeting `ops-build`. The ops Run log and `run-20261004-0000` Evidence render updated accounting and evaluation fields. Both roots and public Run APIs return 200; pipeline-config returns 200; anonymous `/api/admin/loop` on both hosts and `/api/admin/queue` on build return 403. `/admin` remains a public SPA shell (200), with administrative data gated separately.
+
+Production remains on `pml` version `d894f294-d530-4f17-bb73-6b6d2db60845` with its September 8 deployment. Both production roots returned 200 with unchanged before/after SHA-256 `bffcd5c604008e866cc2d71a0b9aa74478ba024167898f45fc910f3f0d41b270`. No production deployment, secret/Access changes, pricing refresh, manual Run, paid inference test or Draft approval was performed. Existing cron schedules remain configured. The latest visible scheduled Run (October 4, 12:02 ET) predates this deployment and was already failed; it is not acceptance evidence for the new code.
+
+This deploy brings the merged 3.26–3.33 work to staging. It does **not** complete Story 3.36’s full verification matrix, authenticated provider checks, or Story 3.37’s governed publication and retrospective acceptance. The existing cost policy expired October 3 and was not refreshed. Earlier deployment records below are historical.
+
 ## Current staging hosts (story 3.22 — 2026-09-24)
 
 The current staging configuration serves the tracker at
