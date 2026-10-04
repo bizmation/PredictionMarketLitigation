@@ -106,3 +106,8 @@ Atomic cross-origin date admission, stable keyed dispatch/recovery, explicit unc
 ## Staging handoff — 2026-10-04
 
 At Patrick’s explicit request, main through 3.33 (`2276a828344b59a853d7b6a68dba40477dbba470`) is now deployed on `pml-build` as `6c2756d2-4d0b-43c3-9887-db355cbab2dc`, with migrations 0001–0023 applied. Build/check and 1,373 tests passed; tracker, ops Run/Evidence, public API and anonymous admin-denial smoke checks passed. Production version and brochure hashes are unchanged. See `docs/deploy-runbook.md`. This later deployment supersedes the individual stories’ historical “no deployment occurred” handoff statements. No manual/paid Run or editorial approval was performed; policy remains expired. 3.34/3.35 implementation and the remaining 3.36/3.37 acceptance work remain pending.
+
+
+## Story 3.35 handoff — 2026-10-04
+
+At Patrick's request 3.35 ran before independent 3.34 (its dependency 3.28 was complete). PR #53, implementation `a2006c674c7b3b9bbbcc5bdfa5edafbed85efdd2`, passed CI 37220744011 and 1,410 tests/61 files. The tracker pending count and ops cards share public membership, freshness/error handling and 30-second/focus refresh, with accessible status and stale/retry behavior. Four review layers completed; five repairs are covered by 31 rendered matrix cases. Staging `pml-build` version `c063fe36-59b8-42af-b6ec-88b8695d1cf9` shows matching API/masthead/ops zero pending and correct #drafts navigation. Positive/failure/revision states use deterministic automated fixtures, not fabricated staging content. Action 13 is closed; a low pre-existing validator completeness issue remains deferred in the story. No paid calls or approvals. Next at Patrick's explicit request: 3.34, then 3.36/3.37 acceptance; Epic 3 remains in progress.

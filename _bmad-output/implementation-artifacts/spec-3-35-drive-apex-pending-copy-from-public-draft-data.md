@@ -117,3 +117,8 @@ Follow-up review recommendation: false. The four medium patches have direct rend
 Verification: `npx vitest run --project ui --reporter=verbose`: 469 passed, 32 files; `npm test`: 1410 passed, 61 files; `npm run check` and `git diff --check`: passed. All seven matrix rows ran successfully, including initial failures of eight kinds, zero/positive stale snapshots, valid ready/pending/unavailable cards, timer/focus/visibility decision/revision refresh, cleanup and StrictMode obsolete requests. No new skips. Existing repository/API eligibility regressions remain unchanged and pass.
 
 Residual limits: separate public hosts refresh independently and can observe different moments within the refresh interval. Schema completeness deferral is pre-existing and does not change pending membership. Staging confirmation and action 13 closure follow delivery; 3.34 remains backlog until its own build. No paid inference or approvals were performed.
+
+
+### Delivery evidence
+
+[PR #53](https://github.com/bizmation/PredictionMarketLitigation/pull/53), implementation `a2006c674c7b3b9bbbcc5bdfa5edafbed85efdd2`, passed [CI 37220744011](https://github.com/bizmation/PredictionMarketLitigation/actions/runs/37220744011). `npm run deploy:build` passed build and 1,410 tests, found no migrations, and deployed staging `pml-build` version `c063fe36-59b8-42af-b6ec-88b8695d1cf9`. Read-only verification matched the real public API's zero records to the tracker masthead and ops band, following the inspect link to ops-build/#drafts. No positive staging proposal was created; positive/readiness/revision/failure transitions are automated fixture evidence. Action 13 closes on this delivery. Final documentation remains subject to PR CI. Production and paid operations unchanged.
