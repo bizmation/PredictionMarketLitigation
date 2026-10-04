@@ -111,7 +111,7 @@ export function OpsShell({ dev = false, items, drafts }: OpsShellProps) {
   ];
 
   return (
-    <div>
+    <div className="workspace-ui">
       <TopBar
         brand={
           <>
@@ -137,6 +137,19 @@ export function OpsShell({ dev = false, items, drafts }: OpsShellProps) {
       />
 
       <main>
+        <div className="workspace-intro wrap">
+          <div>
+            <p className="kicker">Public operations</p>
+            <h1>The pipeline, at a glance.</h1>
+            <p>
+              See what ran, what needs approval, and the evidence behind each
+              outcome.
+            </p>
+          </div>
+          <a className="btn btn-primary" href="#drafts">
+            View pending drafts →
+          </a>
+        </div>
         <SectionBand
           id="runs"
           kicker="01"

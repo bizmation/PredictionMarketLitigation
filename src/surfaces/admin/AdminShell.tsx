@@ -69,7 +69,7 @@ export function AdminShell({ dev = false, operator }: AdminShellProps) {
   ];
 
   return (
-    <div>
+    <div className="workspace-ui">
       <AdminBar operator={resolvedOperator} />
 
       <TopBar
@@ -104,13 +104,30 @@ export function AdminShell({ dev = false, operator }: AdminShellProps) {
             : "Gate: HITL · this surface and the admin APIs both require a verified operator"
         }
         meta="Operator actions are published, not logged privately."
-        provenance={
-          // Handoff PML Admin.html:99 — static placeholder, no data until 3.x.
-          <span className="num">Budget today $0.38 of $2.00</span>
-        }
       />
 
       <main>
+        <div className="workspace-intro wrap">
+          <div>
+            <p className="kicker">Operator workspace</p>
+            <h1>Review. Decide. Keep control.</h1>
+            <p>
+              Start with the approval queue. Run scheduling and automation
+              settings are separate below.
+            </p>
+          </div>
+          <nav className="workspace-shortcuts" aria-label="Operator tasks">
+            <a href="#queue">
+              Review drafts <span>01 →</span>
+            </a>
+            <a href="#loop">
+              Manage runs <span>02 →</span>
+            </a>
+            <a href="#mode">
+              Automation settings <span>03 →</span>
+            </a>
+          </nav>
+        </div>
         <SectionBand
           id="queue"
           kicker="01"

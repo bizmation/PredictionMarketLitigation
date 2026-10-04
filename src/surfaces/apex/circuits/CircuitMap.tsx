@@ -20,7 +20,7 @@ import type { Circuit } from "../../../shared/schemas/circuit";
 import type { State } from "../../../shared/schemas/state";
 import type { Posture } from "../../../shared/schemas/vocabulary";
 import { POSTURE_LABELS } from "../../../shared/ui";
-import type { ApexSelection } from "../selection";
+import { selectedCircuitLayers, type ApexSelection } from "../selection";
 import { rowMatchesStatusFilter, type StatusFilter } from "../states/boardView";
 import { circStroke, circuitShortLabel } from "./circuitView";
 
@@ -307,6 +307,10 @@ export function CircuitMap({
 
     function paint() {
       const sel = selectionRef.current;
+      const layers = selectedCircuitLayers(sel);
+      const geographicLayers = layers.filter((id) =>
+        statesRef.current.some((state) => state.circuitId === id)
+      );
       const selectedName = sel.state
         ? (statesRef.current.find((state) => state.code === sel.state)?.name ??
           null)
@@ -330,13 +334,10 @@ export function CircuitMap({
           const row = statesRef.current.find(
             (state) => state.name === d.properties.name
           );
-          const circuitHasMembers =
-            !sel.circuit ||
-            statesRef.current.some((state) => state.circuitId === sel.circuit);
           const inCircuit =
-            !sel.circuit ||
-            !circuitHasMembers ||
-            (row !== undefined && row.circuitId === sel.circuit);
+            geographicLayers.length === 0 ||
+            (row?.circuitId != null &&
+              geographicLayers.includes(row.circuitId));
           const posture = postureOf(d.properties.name, statesRef.current);
           const inPosture = postures.size === 0 || postures.has(posture);
           const inStatus = rowMatchesStatusFilter(row, statusFilterRef.current);
@@ -351,17 +352,18 @@ export function CircuitMap({
       g.selectAll<SVGPathElement, CircOverlay>("path.circ")
         .attr("stroke", (d) => circStroke(d.id))
         .attr("opacity", (d) =>
-          !sel.circuit || d.id === sel.circuit ? 1 : 0.22
+          layers.length === 0 || layers.includes(d.id) ? 1 : 0.22
         )
-        .classed("sel", (d) => d.id === sel.circuit)
+        .classed("sel", (d) => layers.includes(d.id))
         .attr("display", showCircRef.current ? null : "none");
 
       g.selectAll<SVGTextElement, CircOverlay>("text.clabel")
+        .attr("aria-pressed", (d) => String(layers.includes(d.id)))
         .attr("fill", (d) => circStroke(d.id))
         .attr("opacity", (d) =>
-          !sel.circuit || d.id === sel.circuit ? 1 : 0.22
+          layers.length === 0 || layers.includes(d.id) ? 1 : 0.22
         )
-        .classed("sel", (d) => d.id === sel.circuit)
+        .classed("sel", (d) => layers.includes(d.id))
         .attr("display", showCircRef.current ? null : "none");
     }
 

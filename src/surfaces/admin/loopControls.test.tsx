@@ -30,11 +30,11 @@ describe("LoopControls (story 3.12)", () => {
     expect(html).toContain('class="btn btn-primary"');
   });
 
-  it("renders running as muted text, not a status chip", () => {
+  it("renders running with a distinct status chip", () => {
     const html = renderToStaticMarkup(
       <LoopControls latest={item({ status: "running", completedAt: null })} />
     );
-    expect(html).toContain('class="muted"');
+    expect(html).toContain('class="run running"');
     expect(html).toContain("running");
     expect(html).not.toContain('class="run published"');
     expect(html).toContain('class="origin"');

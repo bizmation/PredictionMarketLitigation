@@ -472,37 +472,44 @@ export function LoopControls({ latest: injectedLatest }: LoopControlsProps) {
       : null;
 
   return (
-    <div>
+    <div className="loop-workspace">
       {latest ? (
-        <p>
+        <div className="latest-run-card">
+          <div className="kicker">Latest Run</div>
           <span className="rid">{latest.id}</span>
           {" · "}
           {isChipStatus(latest.status) ? (
             <RunStatusChip status={latest.status} />
           ) : (
-            <span className="muted">running</span>
+            <span className="run running">running</span>
           )}{" "}
           <OriginFlag origin={latest.origin} />
           <br />
           <span className="lastupd">{formatEtDateTime(latest.startedAt)}</span>
-          <br />
-          Budget accounting: {latest.spendCents} cents (includes estimates).
-          Held: {latest.reservedCents ?? 0} cents; uncertain liability:{" "}
-          {latest.uncertainCents ?? 0} cents; accounting issues:{" "}
-          {latest.accountingIssueCount ?? 0}. Sum of rounded-up reported
-          charges:{" "}
-          {latest.reportedCostCents == null
-            ? `unknown${latest.unmeasuredCallCount == null ? "" : ` (${latest.unmeasuredCallCount} calls without reported charges)`}`
-            : `${latest.reportedCostCents} cents`}
-          .
-        </p>
+          {(latest.uncertainCents ?? 0) > 0 ||
+          (latest.accountingIssueCount ?? 0) > 0 ? (
+            <p className="accounting-alert">Accounting needs review</p>
+          ) : null}
+          <details className="cost-details">
+            <summary>Budget accounting details</summary>
+            Budget accounting: {latest.spendCents} cents (includes estimates).
+            Held: {latest.reservedCents ?? 0} cents; uncertain liability:{" "}
+            {latest.uncertainCents ?? 0} cents; accounting issues:{" "}
+            {latest.accountingIssueCount ?? 0}. Sum of rounded-up reported
+            charges:{" "}
+            {latest.reportedCostCents == null
+              ? `unknown${latest.unmeasuredCallCount == null ? "" : ` (${latest.unmeasuredCallCount} calls without reported charges)`}`
+              : `${latest.reportedCostCents} cents`}
+            .
+          </details>
+        </div>
       ) : (
         <p className="muted">No runs yet.</p>
       )}
 
       {notice ? <output className="muted">{notice}</output> : null}
       {dispatches.map((d) => (
-        <div key={d.runId}>
+        <div key={d.runId} className="dispatch-card">
           <p>
             Run {d.runId}: dispatch {d.state}
             {d.instanceStatus ? ` (${d.instanceStatus})` : ""}.
@@ -510,6 +517,7 @@ export function LoopControls({ latest: injectedLatest }: LoopControlsProps) {
           <button
             type="button"
             disabled={busy}
+            className="btn btn-secondary"
             onClick={() => void recover(d.runId, "check")}
           >
             Check / retry {d.runId}
@@ -518,6 +526,7 @@ export function LoopControls({ latest: injectedLatest }: LoopControlsProps) {
             <button
               type="button"
               disabled={busy}
+              className="btn btn-secondary"
               onClick={() => void recover(d.runId, "resolve")}
             >
               Fence and close {d.runId}

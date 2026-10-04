@@ -478,6 +478,8 @@ export function ApprovalQueue({
   const [selected, setSelected] = useState(0);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [rejecting, setRejecting] = useState(false);
+  const [queueQuery, setQueueQuery] = useState("");
+  const [queueFilter, setQueueFilter] = useState("all");
   const [editTexts, setEditTexts] = useState<Record<string, string>>({});
   const [rejectText, setRejectText] = useState("");
   const [rejectPrivate, setRejectPrivate] = useState(false);
@@ -692,7 +694,7 @@ export function ApprovalQueue({
   const keyHandler = useRef<(event: KeyboardEvent) => void>(() => {});
   keyHandler.current = (event: KeyboardEvent) => {
     const target = event.target as HTMLElement | null;
-    if (target && /input|textarea/i.test(target.tagName)) return;
+    if (target && /input|textarea|select/i.test(target.tagName)) return;
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     if (items === null || items.length === 0) return;
     const key = event.key.toLowerCase();
@@ -797,9 +799,52 @@ export function ApprovalQueue({
     dev
   });
 
+  const inbox = items
+    .map((draft, index) => ({ draft, index }))
+    .filter(({ draft }) => {
+      const decision = resolved[draft.id];
+      return (
+        `${draftTitle(draft)} ${draft.runId}`
+          .toLowerCase()
+          .includes(queueQuery.trim().toLowerCase()) &&
+        (queueFilter === "all" ||
+          (queueFilter === "decided"
+            ? Boolean(decision)
+            : !decision &&
+              (queueFilter === "ready"
+                ? isDraftReady(draft)
+                : !isDraftReady(draft))))
+      );
+    });
   return (
     <div className="queue">
-      <div className="panel">
+      <div className="panel queue-sidebar">
+        <div className="queue-tools">
+          <h3>Draft inbox</h3>
+          <label>
+            Find a draft
+            <input
+              className="input"
+              type="search"
+              placeholder="Title or Run ID…"
+              value={queueQuery}
+              onChange={(event) => setQueueQuery(event.target.value)}
+            />
+          </label>
+          <label>
+            Readiness
+            <select
+              className="input"
+              value={queueFilter}
+              onChange={(event) => setQueueFilter(event.target.value)}
+            >
+              <option value="all">All drafts</option>
+              <option value="ready">Ready for decision</option>
+              <option value="waiting">Not ready for decision</option>
+              <option value="decided">Decided this session</option>
+            </select>
+          </label>
+        </div>
         <button
           type="button"
           className="btn btn-secondary"
@@ -808,7 +853,28 @@ export function ApprovalQueue({
         >
           Refresh queue
         </button>
-        {items.map((draft, index) => {
+        <p className="queue-filter-note">
+          Filters narrow the inbox. The selected draft stays open while you
+          review it.
+        </p>
+        <p className="queue-filter-note" aria-live="polite">
+          {inbox.length} of {items.length} drafts shown
+        </p>
+        {inbox.length === 0 && (
+          <div className="filter-empty">
+            No drafts match.
+            <button
+              className="btn btn-secondary"
+              onClick={() => {
+                setQueueQuery("");
+                setQueueFilter("all");
+              }}
+            >
+              Clear inbox filters
+            </button>
+          </div>
+        )}
+        {inbox.map(({ draft, index }) => {
           const decision = resolved[draft.id];
           return (
             /* oxlint-disable jsx-a11y/role-supports-aria-props -- aria-selected is the handoff's own qitem list semantics; not a menu */

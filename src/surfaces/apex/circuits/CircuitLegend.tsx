@@ -2,7 +2,7 @@ import { POSTURE_LABELS, PostureSwatch } from "../../../shared/ui";
 import type { Circuit } from "../../../shared/schemas/circuit";
 import type { State } from "../../../shared/schemas/state";
 import type { Posture } from "../../../shared/schemas/vocabulary";
-import type { ApexSelection } from "../selection";
+import { selectedCircuitLayers, type ApexSelection } from "../selection";
 import { circStroke, circuitShortLabel, POSTURE_RAMP } from "./circuitView";
 
 type CircuitLegendProps = {
@@ -61,7 +61,7 @@ export function CircuitLegend({
         <button
           type="button"
           className="cchip"
-          aria-pressed={selection.circuit === null}
+          aria-pressed={selectedCircuitLayers(selection).length === 0}
           onClick={() => onSelectCircuit(null)}
         >
           All
@@ -72,7 +72,7 @@ export function CircuitLegend({
             type="button"
             className="cchip"
             data-circuit={circuit.id}
-            aria-pressed={selection.circuit === circuit.id}
+            aria-pressed={selectedCircuitLayers(selection).includes(circuit.id)}
             title={circuit.name}
             onClick={() => onSelectCircuit(circuit.id)}
           >

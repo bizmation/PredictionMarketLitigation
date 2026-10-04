@@ -658,7 +658,7 @@ function EvidenceChrome({
   ];
 
   return (
-    <div>
+    <div className="workspace-ui">
       <TopBar
         brand={
           <>
@@ -706,13 +706,13 @@ function EvidenceBody({ detail }: { detail: RunDetail }) {
   const exportHref = `/api/runs/${detail.id}`;
 
   return (
-    <div className="panel">
+    <div className="panel evidence-panel">
       <div className="ph">
         <span className="kicker">Evidence · run</span>
         {isChipStatus(detail.status) ? (
           <RunStatusChip status={detail.status} />
         ) : (
-          <span className="muted">running</span>
+          <span className="run running">running</span>
         )}
       </div>
       <div className="pb">
@@ -722,31 +722,39 @@ function EvidenceBody({ detail }: { detail: RunDetail }) {
           <OriginFlag origin={detail.origin} />
         </div>
 
+        <div className={`run-outcome outcome-${detail.status}`}>
+          <strong>
+            {
+              {
+                failed: "This run failed",
+                stopped: "This run stopped at its budget boundary",
+                awaiting: "Waiting for an approval decision",
+                published: "Changes published",
+                empty: "No material changes found",
+                rejected: "Draft rejected",
+                running: "Run in progress"
+              }[detail.status]
+            }
+          </strong>
+          <p>
+            {detail.status === "failed"
+              ? "Review the recorded steps below for the failure. No successful completion is implied."
+              : detail.status === "awaiting"
+                ? "Proposed changes remain separate from the tracker until approved."
+                : "The timeline and supporting records below explain this outcome."}
+          </p>
+          {((detail.uncertainCents ?? 0) > 0 ||
+            (detail.accountingIssueCount ?? 0) > 0) && (
+            <p className="accounting-alert">
+              Accounting needs review: held or uncertain amounts are included in
+              the recorded total.
+            </p>
+          )}
+        </div>
         <div className="spend">
           <div>
             <b>{formatUsdCents(detail.spendCents)}</b>
             <span>Budget accounting · includes estimates</span>
-            <span>
-              Held: {formatUsdCents(detail.reservedCents ?? 0)} · Uncertain
-              liability: {formatUsdCents(detail.uncertainCents ?? 0)} · Legacy
-              adjustment: {formatUsdCents(detail.legacyAdjustmentCents ?? 0)} ·
-              Accounting issues: {detail.accountingIssueCount ?? 0}
-            </span>
-            {detail.accountingOperations?.map((op) => (
-              <span key={op.id}>
-                {op.id}: {op.state} · Version {op.version} · Bound{" "}
-                {formatUsdCents(op.boundCents)} · Retained liability{" "}
-                {formatUsdCents(op.liabilityCents)} · Provider request{" "}
-                {op.providerRequestId ?? "unavailable"}
-                {op.issue ? ` — ${op.issue}` : ""}
-              </span>
-            ))}
-            {detail.reconciliationReceipts?.map((receipt) => (
-              <span key={receipt.requestId}>
-                Reconciliation {receipt.requestId} by {receipt.actor}:{" "}
-                {receipt.evidenceReference}
-              </span>
-            ))}
           </div>
           <div>
             <b>
@@ -780,258 +788,312 @@ function EvidenceBody({ detail }: { detail: RunDetail }) {
           </div>
         </div>
 
+        <details className="evidence-section accounting-details">
+          <summary>
+            Accounting details{" "}
+            <span>Held funds, uncertainty and reconciliation</span>
+          </summary>
+          <div className="disclosure-body">
+            <span>
+              Held: {formatUsdCents(detail.reservedCents ?? 0)} · Uncertain
+              liability: {formatUsdCents(detail.uncertainCents ?? 0)} · Legacy
+              adjustment: {formatUsdCents(detail.legacyAdjustmentCents ?? 0)} ·
+              Accounting issues: {detail.accountingIssueCount ?? 0}
+            </span>
+            {detail.accountingOperations?.map((op) => (
+              <span key={op.id}>
+                {op.id}: {op.state} · Version {op.version} · Bound{" "}
+                {formatUsdCents(op.boundCents)} · Retained liability{" "}
+                {formatUsdCents(op.liabilityCents)} · Provider request{" "}
+                {op.providerRequestId ?? "unavailable"}
+                {op.issue ? ` — ${op.issue}` : ""}
+              </span>
+            ))}
+            {detail.reconciliationReceipts?.map((receipt) => (
+              <span key={receipt.requestId}>
+                Reconciliation {receipt.requestId} by {receipt.actor}:{" "}
+                {receipt.evidenceReference}
+              </span>
+            ))}
+          </div>
+        </details>
+
         <div className="export">
           <a href={exportHref} download={`${detail.id}.json`}>
             Export JSON
           </a>
         </div>
 
-        <div className="kicker">Steps</div>
-        {detail.evidence.length === 0 ? (
-          <p className="muted">No steps recorded.</p>
-        ) : (
-          <ul className="steps">
-            {detail.evidence.map((event, index) => (
-              <li
-                key={event.id}
-                className={evidenceStepClass(detail.status, index, lastIndex)}
-              >
-                <span className="sd">{formatEtDateTime(event.createdAt)}</span>
-                <br />
-                {stepLabel(event)}
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <div className="kicker">Provenance</div>
-        <dl className="kv">
-          <dt>Mode</dt>
-          <dd>{detail.mode}</dd>
-          <dt>Approver</dt>
-          <dd>
-            {decidedBy ? (
-              <ProvenanceLabel
-                kind={detail.mode === "yolo" ? "agent" : "human"}
-                detail={decidedBy}
-              />
-            ) : (
-              <span className="muted">none — not approved</span>
-            )}
-          </dd>
-          <dt>Model</dt>
-          <dd>
-            {detail.llmCalls.length === 0 ? (
-              <span className="muted">—</span>
-            ) : (
-              detail.llmCalls.map((call) => (
-                <div key={call.id}>
-                  {call.role} · {call.provider} · {call.model}
-                  <div>
-                    Accounting: {formatUsdCents(call.costCents)} ·{" "}
-                    {COST_BASIS_LABELS[call.costBasis ?? "legacy_estimate"] ??
-                      "unknown accounting basis"}
-                  </div>
-                  <div>
-                    Admission bound:{" "}
-                    {call.admissionBoundCents == null
-                      ? "unknown"
-                      : formatUsdCents(call.admissionBoundCents)}
-                  </div>
-                  <div>
-                    Estimate:{" "}
-                    {call.estimatedCostCents == null
-                      ? call.costBasis === "legacy_estimate"
-                        ? formatUsdCents(call.costCents)
-                        : "unknown"
-                      : formatUsdCents(call.estimatedCostCents)}
-                  </div>
-                  <div>
-                    Provider-reported charge:{" "}
-                    {call.reportedCostUsd != null
-                      ? `$${call.reportedCostUsd} USD`
-                      : call.reportedCostCents == null
-                        ? "unknown"
-                        : `${formatUsdCents(call.reportedCostCents)} (rounded up)`}
-                  </div>
-                  {call.policy && (
-                    <div>
+        <section
+          className="evidence-section timeline-section"
+          aria-label="Run steps"
+        >
+          <h3>What happened</h3>
+          <p className="section-help">Steps in the order they were recorded.</p>
+          {detail.evidence.length === 0 ? (
+            <p className="muted">No steps recorded.</p>
+          ) : (
+            <ul className="steps">
+              {detail.evidence.map((event, index) => (
+                <li
+                  key={event.id}
+                  data-event={event.event}
+                  className={evidenceStepClass(detail.status, index, lastIndex)}
+                >
+                  <span className="sd">
+                    {formatEtDateTime(event.createdAt)}
+                  </span>
+                  <br />
+                  {stepLabel(event)}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+        <details className="evidence-section">
+          <summary>
+            Provenance <span>Models, policy and approval history</span>
+          </summary>
+          <div className="disclosure-body">
+            <dl className="kv">
+              <dt>Mode</dt>
+              <dd>{detail.mode}</dd>
+              <dt>Approver</dt>
+              <dd>
+                {decidedBy ? (
+                  <ProvenanceLabel
+                    kind={detail.mode === "yolo" ? "agent" : "human"}
+                    detail={decidedBy}
+                  />
+                ) : (
+                  <span className="muted">none — not approved</span>
+                )}
+              </dd>
+              <dt>Model</dt>
+              <dd>
+                {detail.llmCalls.length === 0 ? (
+                  <span className="muted">—</span>
+                ) : (
+                  detail.llmCalls.map((call) => (
+                    <div key={call.id}>
+                      {call.role} · {call.provider} · {call.model}
                       <div>
-                        Cost policy: {String(call.policy.version ?? "unknown")}
+                        Accounting: {formatUsdCents(call.costCents)} ·{" "}
+                        {COST_BASIS_LABELS[
+                          call.costBasis ?? "legacy_estimate"
+                        ] ?? "unknown accounting basis"}
                       </div>
                       <div>
-                        Prices verified:{" "}
-                        {String(call.policy.verifiedAt ?? "unknown")}
+                        Admission bound:{" "}
+                        {call.admissionBoundCents == null
+                          ? "unknown"
+                          : formatUsdCents(call.admissionBoundCents)}
                       </div>
                       <div>
-                        Policy expires:{" "}
-                        {String(call.policy.validUntil ?? "unknown")}
+                        Estimate:{" "}
+                        {call.estimatedCostCents == null
+                          ? call.costBasis === "legacy_estimate"
+                            ? formatUsdCents(call.costCents)
+                            : "unknown"
+                          : formatUsdCents(call.estimatedCostCents)}
                       </div>
-                      {Array.isArray(call.policy.sources) && (
-                        <ul aria-label="Cost policy sources">
-                          {call.policy.sources
-                            .filter(
-                              (source): source is string =>
-                                typeof source === "string" &&
-                                source.startsWith("https://")
-                            )
-                            .map((source) => (
-                              <li key={source}>
-                                <a href={source}>{source}</a>
-                              </li>
-                            ))}
-                        </ul>
+                      <div>
+                        Provider-reported charge:{" "}
+                        {call.reportedCostUsd != null
+                          ? `$${call.reportedCostUsd} USD`
+                          : call.reportedCostCents == null
+                            ? "unknown"
+                            : `${formatUsdCents(call.reportedCostCents)} (rounded up)`}
+                      </div>
+                      {call.policy && (
+                        <div>
+                          <div>
+                            Cost policy:{" "}
+                            {String(call.policy.version ?? "unknown")}
+                          </div>
+                          <div>
+                            Prices verified:{" "}
+                            {String(call.policy.verifiedAt ?? "unknown")}
+                          </div>
+                          <div>
+                            Policy expires:{" "}
+                            {String(call.policy.validUntil ?? "unknown")}
+                          </div>
+                          {Array.isArray(call.policy.sources) && (
+                            <ul aria-label="Cost policy sources">
+                              {call.policy.sources
+                                .filter(
+                                  (source): source is string =>
+                                    typeof source === "string" &&
+                                    source.startsWith("https://")
+                                )
+                                .map((source) => (
+                                  <li key={source}>
+                                    <a href={source}>{source}</a>
+                                  </li>
+                                ))}
+                            </ul>
+                          )}
+                        </div>
+                      )}
+                      {call.accountingIssue && (
+                        <output>
+                          Accounting uncertainty:{" "}
+                          {accountingIssueLabel(call.accountingIssue)}
+                        </output>
                       )}
                     </div>
-                  )}
-                  {call.accountingIssue && (
-                    <output>
-                      Accounting uncertainty:{" "}
-                      {accountingIssueLabel(call.accountingIssue)}
-                    </output>
-                  )}
-                </div>
-              ))
-            )}
-          </dd>
-          <dt>Prompt version</dt>
-          <dd>not recorded</dd>
-          <dt>Lineage</dt>
-          <dd>sources → draft → guardrails → gate → {detail.status}</dd>
-        </dl>
-
-        <div className="kicker">Evals</div>
-        {evals.length === 0 ? (
-          <EmptyState
-            title={
-              detail.status === "running"
-                ? "Evaluation in progress"
-                : "Evaluation unavailable"
-            }
-            hint="An empty eval is not a passing eval."
-          >
-            No completed evaluation is recorded. Missing evidence does not mean
-            evaluation passed or was explicitly skipped.
-          </EmptyState>
-        ) : (
-          evals.map(({ draftId, summary }) => (
-            <div key={`eval-${draftId}`}>
-              {detail.drafts.length > 1 ? (
-                <div className="kicker">{draftId}</div>
-              ) : null}
-              <dl className="kv">
-                <dt>Status</dt>
-                <dd>{summary.status}</dd>
-                <dt>Basis</dt>
-                <dd>{summary.basis}</dd>
-                <dt>Citation completeness</dt>
-                <dd>
-                  {summary.citationCompleteness == null ? (
-                    <span className="muted">—</span>
-                  ) : (
-                    summary.citationCompleteness
-                  )}
-                </dd>
-              </dl>
-            </div>
-          ))
-        )}
-
-        {detail.drafts.map((draft) =>
-          draft.evalSummary?.disagreement.flagged ? (
-            <div key={`flag-${draft.id}`}>
-              <div className="kicker">
-                Disagreement flag
-                {detail.drafts.length > 1 ? ` · ${draft.id}` : ""}
-              </div>
-              <EmptyState
-                title="Flagged"
-                hint="v1 records the flag and a summary. The full inter-agent explorer is phase-in."
-              >
-                {draft.evalSummary.disagreement.description}
-              </EmptyState>
-            </div>
-          ) : null
-        )}
-
-        {detail.drafts.length === 0 ? (
-          <EmptyState
-            title="No draft produced"
-            hint="Empty runs are published deliberately — absence of drama is not absence of evidence."
-          >
-            The run did its work and found nothing to change.
-          </EmptyState>
-        ) : (
-          draftsInChainOrder(detail.drafts).map((draft) => {
-            const instruction = revisionInstruction(draft, detail.evidence);
-            const body = (
-              <>
-                {instruction != null ? (
-                  <p className="lastupd">
-                    {instruction.effect}
-                    {" · "}
-                    {instruction.withheld
-                      ? "content withheld"
-                      : (instruction.text ?? "not recorded")}
-                  </p>
-                ) : null}
-                <p>{draft.body}</p>
-                {(() => {
-                  const docket = docketDraftView(draft);
-                  return docket == null ? null : (
-                    <DocketDraftBlock view={docket} />
-                  );
-                })()}
-                {draft.editedBody ? (
-                  <div className="diff">
-                    <div className="col">
-                      <h4>Agent draft</h4>
-                      <p>
-                        <del>{draft.body}</del>
-                      </p>
-                    </div>
-                    <div className="col">
-                      <h4>Published</h4>
-                      <p>
-                        <ins>{draft.editedBody}</ins>
-                      </p>
-                    </div>
-                  </div>
-                ) : null}
-              </>
-            );
-            return (
-              <div key={draft.id}>
-                <div className="kicker">
-                  Draft
-                  {draft.revisionIndex > 0 ? ` · r${draft.revisionIndex}` : ""}
-                </div>
-                {draft.outcome == null ? (
-                  <p>
-                    {isReadyPendingTip(draft, detail.drafts)
-                      ? draftReadinessLabel(draft)
-                      : "Historical draft"}
-                  </p>
-                ) : null}
-                {isReadyPendingTip(draft, detail.drafts) ? (
-                  <NotLiveDraftBanner>{body}</NotLiveDraftBanner>
-                ) : (
-                  body
+                  ))
                 )}
+              </dd>
+              <dt>Prompt version</dt>
+              <dd>not recorded</dd>
+              <dt>Lineage</dt>
+              <dd>sources → draft → guardrails → gate → {detail.status}</dd>
+            </dl>
+          </div>
+        </details>
+        <section
+          className="evidence-section"
+          aria-label="Evaluations and drafts"
+        >
+          <h3>Evaluations &amp; drafts</h3>
+          {evals.length === 0 ? (
+            <EmptyState
+              title={
+                detail.status === "running"
+                  ? "Evaluation in progress"
+                  : "Evaluation unavailable"
+              }
+              hint="An empty eval is not a passing eval."
+            >
+              No completed evaluation is recorded. Missing evidence does not
+              mean evaluation passed or was explicitly skipped.
+            </EmptyState>
+          ) : (
+            evals.map(({ draftId, summary }) => (
+              <div key={`eval-${draftId}`}>
+                {detail.drafts.length > 1 ? (
+                  <div className="kicker">{draftId}</div>
+                ) : null}
+                <dl className="kv">
+                  <dt>Status</dt>
+                  <dd>{summary.status}</dd>
+                  <dt>Basis</dt>
+                  <dd>{summary.basis}</dd>
+                  <dt>Citation completeness</dt>
+                  <dd>
+                    {summary.citationCompleteness == null ? (
+                      <span className="muted">—</span>
+                    ) : (
+                      summary.citationCompleteness
+                    )}
+                  </dd>
+                </dl>
+              </div>
+            ))
+          )}
+
+          {detail.drafts.map((draft) =>
+            draft.evalSummary?.disagreement.flagged ? (
+              <div key={`flag-${draft.id}`}>
+                <div className="kicker">
+                  Disagreement flag
+                  {detail.drafts.length > 1 ? ` · ${draft.id}` : ""}
+                </div>
+                <EmptyState
+                  title="Flagged"
+                  hint="v1 records the flag and a summary. The full inter-agent explorer is phase-in."
+                >
+                  {draft.evalSummary.disagreement.description}
+                </EmptyState>
+              </div>
+            ) : null
+          )}
+
+          {detail.drafts.length === 0 ? (
+            <EmptyState
+              title="No draft produced"
+              hint="Empty runs are published deliberately — absence of drama is not absence of evidence."
+            >
+              {detail.status === "empty"
+                ? "The run did its work and found nothing to change."
+                : "No draft is recorded for this Run. See the outcome and recorded steps above."}
+            </EmptyState>
+          ) : (
+            draftsInChainOrder(detail.drafts).map((draft) => {
+              const instruction = revisionInstruction(draft, detail.evidence);
+              const body = (
+                <>
+                  {instruction != null ? (
+                    <p className="lastupd">
+                      {instruction.effect}
+                      {" · "}
+                      {instruction.withheld
+                        ? "content withheld"
+                        : (instruction.text ?? "not recorded")}
+                    </p>
+                  ) : null}
+                  <p>{draft.body}</p>
+                  {(() => {
+                    const docket = docketDraftView(draft);
+                    return docket == null ? null : (
+                      <DocketDraftBlock view={docket} />
+                    );
+                  })()}
+                  {draft.editedBody ? (
+                    <div className="diff">
+                      <div className="col">
+                        <h4>Agent draft</h4>
+                        <p>
+                          <del>{draft.body}</del>
+                        </p>
+                      </div>
+                      <div className="col">
+                        <h4>Published</h4>
+                        <p>
+                          <ins>{draft.editedBody}</ins>
+                        </p>
+                      </div>
+                    </div>
+                  ) : null}
+                </>
+              );
+              return (
+                <div key={draft.id}>
+                  <div className="kicker">
+                    Draft
+                    {draft.revisionIndex > 0
+                      ? ` · r${draft.revisionIndex}`
+                      : ""}
+                  </div>
+                  {draft.outcome == null ? (
+                    <p>
+                      {isReadyPendingTip(draft, detail.drafts)
+                        ? draftReadinessLabel(draft)
+                        : "Historical draft"}
+                    </p>
+                  ) : null}
+                  {isReadyPendingTip(draft, detail.drafts) ? (
+                    <NotLiveDraftBanner>{body}</NotLiveDraftBanner>
+                  ) : (
+                    body
+                  )}
+                </div>
+              );
+            })
+          )}
+          {(() => {
+            const approved = decidedApprovedText(detail.evidence);
+            if (approved == null) return null;
+            return (
+              <div>
+                <div className="kicker">Approved text</div>
+                <p>{approved}</p>
               </div>
             );
-          })
-        )}
-        {(() => {
-          const approved = decidedApprovedText(detail.evidence);
-          if (approved == null) return null;
-          return (
-            <div>
-              <div className="kicker">Approved text</div>
-              <p>{approved}</p>
-            </div>
-          );
-        })()}
+          })()}
+        </section>
       </div>
     </div>
   );

@@ -1218,3 +1218,32 @@ it("a steering conflict refreshes the mounted queue and does not transfer ancest
     content: "Child instruction"
   });
 });
+
+it("filters the inbox without replacing the open draft or firing decision shortcuts from selects", async () => {
+  const pending = {
+    ...draftRecord("d-b"),
+    targetEntityId: "st-ny",
+    readiness: "pending" as const,
+    body: "New York proposed text."
+  };
+  const fetchMock = stubQueueFetch([draftRecord("d-a"), pending], { body: {} });
+  render(<ApprovalQueue />);
+  await act(async () => {});
+  fireEvent.change(screen.getByRole("searchbox", { name: "Find a draft" }), {
+    target: { value: "st-ny" }
+  });
+  expect(screen.getByText("1 of 2 drafts shown")).toBeTruthy();
+  expect(screen.getByText("Nevada posture proposal body.")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: /states · st-ny/ }));
+  expect(screen.getByText("New York proposed text.")).toBeTruthy();
+  const readiness = screen.getByRole("combobox", { name: "Readiness" });
+  fireEvent.change(readiness, { target: { value: "ready" } });
+  expect(screen.getByText("0 of 2 drafts shown")).toBeTruthy();
+  fireEvent.keyDown(readiness, { key: "a" });
+  fireEvent.keyDown(readiness, { key: "r" });
+  expect(
+    fetchMock.mock.calls.some((call) => String(call[0]).includes("/decision"))
+  ).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "Clear inbox filters" }));
+  expect(screen.getByText("2 of 2 drafts shown")).toBeTruthy();
+});
