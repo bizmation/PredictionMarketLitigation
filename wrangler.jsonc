@@ -194,7 +194,7 @@
   // concept and `run_worker_first` carries over unchanged.
   //
   // Keys overridden at env level (name, workers_dev, preview_urls, routes,
-  // d1_databases) are exactly the non-inheritable or production-binding ones;
+  // d1_databases, vars) are exactly the non-inheritable or production-binding ones;
   // everything else (main, assets, ai, durable_objects, migrations,
   // observability, compatibility) inherits from the top level. Access on
   // `/admin` is Worker-gated only here — same deliberate asymmetry as `ops.`
@@ -212,6 +212,11 @@
       ],
       "workers_dev": false,
       "preview_urls": false,
+      // String, because Wrangler vars are strings. Set on this environment so
+      // `deploy:build` records the staging first-fetch window instead of wiping it.
+      "vars": {
+        "FIRST_FETCH_WINDOW_DAYS": "3"
+      },
       // `durable_objects` and `ai` are NOT inherited by environments — without
       // these the staging Worker would deploy with no AI binding and no DO
       // (wrangler warns loudly; the deploy would not start).

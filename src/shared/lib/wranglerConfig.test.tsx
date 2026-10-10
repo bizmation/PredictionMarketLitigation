@@ -37,15 +37,27 @@ describe("dev bypass cannot be deployed", () => {
     expect(source).not.toContain("ACCESS_DEV_BYPASS");
   });
 
-  it.each(configs)("%s declares no vars block at all", (file) => {
-    // No code currently reads a Wrangler `vars` value (the single-environment
-    // config has nothing left to distinguish via one). The invariant that
-    // matters: nothing dev-only or secret-shaped can become deployable, and
-    // the simplest version of that is "there is no vars block to smuggle
-    // anything into" — narrow this again, deliberately, the day something
-    // legitimately needs one.
-    const source = readFileSync(file, "utf8");
+  it("wrangler.test.jsonc declares no vars block", () => {
+    const source = readFileSync("wrangler.test.jsonc", "utf8");
     expect(source).not.toMatch(/"vars"\s*:/);
+  });
+
+  it("wrangler.jsonc vars are only the staging first-fetch window", () => {
+    // Nothing dev-only or secret-shaped may become deployable. The one
+    // legitimate var is the non-secret staging window, and only on env.build.
+    const parsed = ts.parseConfigFileTextToJson(
+      "wrangler.jsonc",
+      readFileSync("wrangler.jsonc", "utf8")
+    );
+    expect(parsed.error).toBeUndefined();
+    const config = parsed.config;
+    expect(config.vars).toBeUndefined();
+    expect(config.env.build.vars).toEqual({ FIRST_FETCH_WINDOW_DAYS: "3" });
+    expect(typeof config.env.build.vars.FIRST_FETCH_WINDOW_DAYS).toBe("string");
+    for (const [name, env] of Object.entries(config.env)) {
+      if (name === "build") continue;
+      expect((env as { vars?: unknown }).vars).toBeUndefined();
+    }
   });
 
   it(".dev.vars is gitignored", () => {

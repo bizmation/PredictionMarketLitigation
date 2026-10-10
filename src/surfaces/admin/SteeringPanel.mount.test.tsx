@@ -1130,7 +1130,7 @@ describe("SteeringPanel POST timeout (story 3.19, jsdom mount)", () => {
     expect((submit as HTMLButtonElement).disabled).toBe(false);
     expect(onSubmittingChange).toHaveBeenLastCalledWith(false);
     expect(document.body.textContent).toContain(STEERING_TIMEOUT_MESSAGE);
-    expect(STEERING_TIMEOUT_MESSAGE).toContain("130 seconds");
+    expect(STEERING_TIMEOUT_MESSAGE).toContain("250 seconds");
     // The composer keeps the operator's text: a timed-out turn is not lost.
     expect(
       (screen.getByLabelText("Steering turn") as HTMLTextAreaElement).value

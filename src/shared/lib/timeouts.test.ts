@@ -4,8 +4,10 @@ import {
   ADMIN_POST_TIMEOUT_MS,
   CLIENT_GET_TIMEOUT_MS,
   CONNECTOR_TIMEOUT_MS,
+  DEEPINFRA_CHAT_TIMEOUT_MS,
   DeadlineError,
   PROVIDER_TIMEOUT_MS,
+  STEERING_POST_TIMEOUT_MS,
   fetchWithTimeout,
   isAbortError,
   isTimeoutError,
@@ -33,6 +35,10 @@ describe("timeout constants (story 3.19)", () => {
     expect(ADMIN_POST_TIMEOUT_MS).toBe(30_000);
     expect(CONNECTOR_TIMEOUT_MS).toBe(60_000);
     expect(PROVIDER_TIMEOUT_MS).toBe(60_000);
+    expect(DEEPINFRA_CHAT_TIMEOUT_MS).toBe(120_000);
+    expect(STEERING_POST_TIMEOUT_MS).toBe(
+      2 * DEEPINFRA_CHAT_TIMEOUT_MS + 10_000
+    );
   });
 });
 
