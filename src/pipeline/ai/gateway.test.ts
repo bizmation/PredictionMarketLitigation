@@ -804,8 +804,67 @@ describe("bounded provider cost", () => {
     const w = workers();
     await expect(
       complete({ ...w.deps, now: () => COST_POLICIES[0]!.validUntil }, input())
-    ).rejects.toMatchObject({ code: "cost_policy_invalid" });
+    ).rejects.toMatchObject({
+      code: "cost_policy_invalid",
+      message: "cost_policy_invalid: policy_lookup"
+    });
     expect(w.run).not.toHaveBeenCalled();
+  });
+  it("names a policy lookup failure and a model mismatch", async () => {
+    await setup();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const w = workers();
+      await expect(
+        complete(
+          {
+            ...w.deps,
+            costPolicy: () => {
+              throw new Error("missing policy");
+            }
+          },
+          input()
+        )
+      ).rejects.toMatchObject({
+        code: "cost_policy_invalid",
+        message: "cost_policy_invalid: policy_lookup",
+        detail: expect.objectContaining({
+          stage: "policy_lookup",
+          errorName: "Error",
+          errorMessage: "missing policy"
+        })
+      });
+      await expect(
+        complete(
+          {
+            ...w.deps,
+            costPolicy: () => fixtureCostPolicy("other", "other-model", now)
+          },
+          input()
+        )
+      ).rejects.toMatchObject({
+        code: "cost_policy_invalid",
+        message: "cost_policy_invalid: policy_model_mismatch",
+        detail: expect.objectContaining({ stage: "policy_model_mismatch" })
+      });
+      expect(w.run).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: "cost_policy_invalid",
+          stage: "policy_lookup",
+          errorName: "Error",
+          errorMessage: "missing policy"
+        })
+      );
+      expect(warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: "cost_policy_invalid",
+          stage: "policy_model_mismatch"
+        })
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
   it.each([
     undefined,
@@ -931,7 +990,10 @@ describe("bounded provider cost", () => {
     vi.stubGlobal("fetch", fetch);
     await expect(
       complete({ db: testEnv.DB, provider: router(), now: () => time }, input())
-    ).rejects.toMatchObject({ code: "cost_policy_invalid" });
+    ).rejects.toMatchObject({
+      code: "cost_policy_invalid",
+      message: "cost_policy_invalid: revalidate_before_inference"
+    });
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(String(fetch.mock.calls[0]?.[0] ?? "")).not.toContain(
       "chat/completions"
@@ -956,8 +1018,173 @@ describe("bounded provider cost", () => {
     vi.stubGlobal("fetch", fetch);
     await expect(
       complete({ db: testEnv.DB, provider: router(), now: () => now }, input())
-    ).rejects.toMatchObject({ code: "cost_policy_invalid" });
+    ).rejects.toMatchObject({
+      code: "cost_policy_invalid",
+      message: "cost_policy_invalid: openrouter_preflight",
+      detail: expect.objectContaining({
+        stage: "openrouter_preflight",
+        field: "pricing.completion"
+      })
+    });
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it.each([
+    {
+      label: "context_length",
+      metadata: { ...endpoint, context_length: 1 },
+      field: "context_length"
+    },
+    {
+      label: "supported_parameters",
+      metadata: { ...endpoint, supported_parameters: ["temperature"] },
+      field: "supported_parameters"
+    },
+    {
+      label: "pricing.prompt",
+      metadata: {
+        ...endpoint,
+        pricing: { ...endpoint.pricing, prompt: undefined }
+      },
+      field: "pricing.prompt"
+    },
+    {
+      label: "pricing.completion",
+      metadata: {
+        ...endpoint,
+        pricing: { ...endpoint.pricing, completion: undefined }
+      },
+      field: "pricing.completion"
+    },
+    {
+      label: "endpoints",
+      metadata: { ...endpoint, tag: "together" },
+      field: "endpoints"
+    }
+  ])(
+    "rejects an OpenRouter endpoint when $label fails",
+    async ({ metadata, field }) => {
+      await setup(500, "openrouter", COST_POLICIES[1]!.model);
+      const fetch = vi.fn(async () =>
+        Response.json({ data: { endpoints: [metadata] } })
+      );
+      vi.stubGlobal("fetch", fetch);
+      await expect(
+        complete(
+          { db: testEnv.DB, provider: router(), now: () => now },
+          input()
+        )
+      ).rejects.toMatchObject({
+        code: "cost_policy_invalid",
+        message: "cost_policy_invalid: openrouter_preflight",
+        detail: expect.objectContaining({
+          stage: "openrouter_preflight",
+          field
+        })
+      });
+      expect(fetch).toHaveBeenCalledTimes(1);
+    }
+  );
+  it("names an OpenRouter preflight HTTP failure", async () => {
+    await setup(500, "openrouter", COST_POLICIES[1]!.model);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const body = `line1\nBearer SECRET-KEY\n${"x".repeat(200)}\n\n  more   spaces`;
+    const bodyPrefix = "line1 bearer [redacted] " + "x".repeat(156);
+    try {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response(body, { status: 403 }))
+      );
+      await expect(
+        complete(
+          { db: testEnv.DB, provider: router(), now: () => now },
+          input()
+        )
+      ).rejects.toMatchObject({
+        code: "cost_policy_invalid",
+        message: "cost_policy_invalid: openrouter_preflight (http 403)",
+        detail: expect.objectContaining({
+          stage: "openrouter_preflight",
+          status: 403,
+          errorName: "Error",
+          errorMessage: "HTTP 403",
+          bodyPrefix
+        })
+      });
+      expect(bodyPrefix).toHaveLength(180);
+      expect(bodyPrefix).not.toContain("\n");
+      expect(JSON.stringify(warn.mock.calls)).not.toContain("SECRET-KEY");
+      expect(warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: "cost_policy_invalid",
+          stage: "openrouter_preflight",
+          status: 403,
+          errorName: "Error",
+          errorMessage: "HTTP 403",
+          bodyPrefix
+        })
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+  it("keeps the OpenRouter HTTP status when the error body cannot be read", async () => {
+    await setup(500, "openrouter", COST_POLICIES[1]!.model);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 403,
+        text: async () => {
+          throw new Error("unreadable");
+        }
+      }))
+    );
+    await expect(
+      complete({ db: testEnv.DB, provider: router(), now: () => now }, input())
+    ).rejects.toMatchObject({
+      code: "cost_policy_invalid",
+      message: "cost_policy_invalid: openrouter_preflight (http 403)",
+      detail: expect.objectContaining({
+        stage: "openrouter_preflight",
+        status: 403
+      })
+    });
+  });
+  it("records a thrown OpenRouter endpoints fetch", async () => {
+    await setup(500, "openrouter", COST_POLICIES[1]!.model);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          throw new TypeError("endpoints down");
+        })
+      );
+      await expect(
+        complete(
+          { db: testEnv.DB, provider: router(), now: () => now },
+          input()
+        )
+      ).rejects.toMatchObject({
+        code: "cost_policy_invalid",
+        message: "cost_policy_invalid: openrouter_preflight",
+        detail: expect.objectContaining({
+          stage: "openrouter_preflight",
+          errorName: "TypeError",
+          errorMessage: "endpoints down"
+        })
+      });
+      expect(warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: "cost_policy_invalid",
+          stage: "openrouter_preflight",
+          errorName: "TypeError",
+          errorMessage: "endpoints down"
+        })
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
   it("Sonnet refuses 123 cents before even endpoint lookup", async () => {
     await setup(123, "openrouter", COST_POLICIES[1]!.model);
