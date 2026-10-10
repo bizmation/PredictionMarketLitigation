@@ -489,6 +489,11 @@ export function LoopControls({
         setReload((value) => value + 1);
         return;
       }
+      if (res.status === 404) {
+        setRejectRunId(null);
+        setReload((value) => value + 1);
+        return;
+      }
       if (!res.ok) {
         setNotice(
           "Reject did not complete. The run is unchanged until you confirm it again."
@@ -503,11 +508,15 @@ export function LoopControls({
           ? body.rejectedCount
           : null;
       setRejectRunId(null);
-      setNotice(
-        rejectedCount === null
-          ? `Run ${runId} rejected.`
-          : `Run ${runId} rejected. ${rejectedCount} drafts were rejected.`
-      );
+      if (rejectedCount === 1) {
+        setNotice(`Run ${runId} rejected. 1 draft was rejected.`);
+      } else if (rejectedCount === null) {
+        setNotice(`Run ${runId} rejected.`);
+      } else {
+        setNotice(
+          `Run ${runId} rejected. ${rejectedCount} drafts were rejected.`
+        );
+      }
       setView((current) =>
         current.status === "ready" && current.latest?.id === runId
           ? {
@@ -580,6 +589,11 @@ export function LoopControls({
     : view.status === "ready"
       ? view.pendingHeadCount
       : null;
+  const draftNoun = pendingHeadCount === 1 ? "draft" : "drafts";
+  const rejectQuestion =
+    latest && pendingHeadCount !== null && pendingHeadCount > 0
+      ? `Reject ${pendingHeadCount} undecided ${draftNoun} in ${latest.id}?`
+      : null;
 
   return (
     <div className="loop-workspace">
@@ -613,17 +627,14 @@ export function LoopControls({
           pendingHeadCount > 0 ? (
             rejectRunId === latest.id ? (
               <div className="rejectbox">
-                <p>
-                  Reject {pendingHeadCount} undecided drafts in {latest.id}?
-                  Nothing will be published.
-                </p>
+                <p>{rejectQuestion} Nothing will be published.</p>
                 <button
                   type="button"
                   className="btn btn-primary"
                   disabled={busy}
                   onClick={() => void rejectRun(latest.id)}
                 >
-                  Reject {pendingHeadCount} drafts
+                  Reject {pendingHeadCount} {draftNoun}
                 </button>
                 <button
                   type="button"

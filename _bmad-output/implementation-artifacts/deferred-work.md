@@ -219,3 +219,7 @@ Ledger entries above are not edited; this block records where each Epic 3 entry 
 - When pace stops during a timeout retry (deadline or budget), the `timeoutFact` is dropped, so the skip loses `requestKind`, `elapsedMs`, `timeoutMs` and `attempt`. The summary `timeouts` is also lost when a later page fails.
 - The `courtlistener_request_timeout` console log has no `runId`, so Observability lines can't be matched to a Run.
 - A body that stalls after the headers arrive has no per-request limit: `response.json()` is bounded only by the 8-minute poll deadline. This predates the PR.
+
+## Deferred from: code review of spec-gh-64-apply-approved-review-patches.md (2026-10-10)
+
+- Using `currentHeadSql("drafts")` inside `UPDATE drafts` lets the CTE's `FROM drafts` shadow the outer name. `run_id = drafts.run_id` is then always true, so the chain collects roots from every run. The result is still correct, because `current.id` binds to the outer row, but it's slow at scale. The same pattern exists in `READY_HEAD_SQL`. The fix is an alias, e.g. `UPDATE drafts AS t … currentHeadSql('t')`. [`src/pipeline/gate/approval.ts`, `src/shared/db/repos/draftsRepo.ts`]

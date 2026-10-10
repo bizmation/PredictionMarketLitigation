@@ -848,4 +848,175 @@ describe("tab-local request recovery and confirmation", () => {
     gate.release?.();
     await act(async () => {});
   });
+
+  function loopGets(fetchMock: { mock: { calls: unknown[][] } }): number {
+    return fetchMock.mock.calls.filter((call) =>
+      String(call[0]).includes("/api/admin/loop")
+    ).length;
+  }
+
+  function awaitingLoop(pendingHeadCount: number) {
+    return scripted({
+      latest: item({
+        status: "awaiting",
+        completedAt: null,
+        approvalOutcome: null
+      }),
+      pendingHeadCount,
+      dispatches: []
+    });
+  }
+
+  it("closes the confirm step when reject returns 409 for the same run", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/reject") && init?.method === "POST") {
+          return scripted(
+            { code: "conflict", message: "Run cannot be rejected." },
+            false,
+            409
+          );
+        }
+        return awaitingLoop(4);
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LoopControls />);
+    await act(async () => {});
+    const before = loopGets(fetchMock);
+    fireEvent.click(screen.getByRole("button", { name: "Reject this run" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reject 4 drafts" }));
+    await act(async () => {});
+    expect(document.body.textContent).toContain("This run cannot be rejected.");
+    expect(document.body.textContent).not.toContain(
+      "Reject did not complete. The run is unchanged until you confirm it again."
+    );
+    expect(document.body.textContent).not.toContain(
+      "Reject 4 undecided drafts"
+    );
+    expect(
+      screen.getByRole("button", { name: "Reject this run" })
+    ).toBeTruthy();
+    expect(loopGets(fetchMock)).toBe(before + 1);
+  });
+
+  it("keeps the confirm step open when reject returns 500", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/reject") && init?.method === "POST") {
+          return scripted({ code: "internal_error" }, false, 500);
+        }
+        return awaitingLoop(4);
+      })
+    );
+    render(<LoopControls />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Reject this run" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reject 4 drafts" }));
+    await act(async () => {});
+    expect(document.body.textContent).toContain(
+      "Reject did not complete. The run is unchanged until you confirm it again."
+    );
+    expect(document.body.textContent).toContain(
+      "Reject 4 undecided drafts in run-20261111-0000?"
+    );
+    expect(
+      screen.getByRole("button", { name: "Reject 4 drafts" })
+    ).toBeTruthy();
+  });
+
+  it("closes the confirm step after a timeout when the same awaiting run reloads", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/reject") && init?.method === "POST") {
+          throw new DOMException(
+            "Request timed out after 30000 ms",
+            "TimeoutError"
+          );
+        }
+        return awaitingLoop(4);
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LoopControls />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Reject this run" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reject 4 drafts" }));
+    await act(async () => {});
+    expect(document.body.textContent).toContain("No answer within 30 seconds");
+    expect(document.body.textContent).toContain("run-20261111-0000");
+    expect(document.body.textContent).not.toContain(
+      "Reject 4 undecided drafts"
+    );
+    expect(
+      screen.getByRole("button", { name: "Reject this run" })
+    ).toBeTruthy();
+  });
+
+  it("closes the confirm step and reloads when reject returns 404", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/reject") && init?.method === "POST") {
+          return scripted({ code: "not_found" }, false, 404);
+        }
+        return awaitingLoop(4);
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LoopControls />);
+    await act(async () => {});
+    const before = loopGets(fetchMock);
+    fireEvent.click(screen.getByRole("button", { name: "Reject this run" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reject 4 drafts" }));
+    await act(async () => {});
+    expect(document.body.textContent).not.toContain(
+      "Reject did not complete. The run is unchanged until you confirm it again."
+    );
+    expect(document.body.textContent).not.toContain(
+      "This run cannot be rejected."
+    );
+    expect(document.body.textContent).not.toContain(
+      "Reject 4 undecided drafts"
+    );
+    expect(
+      screen.getByRole("button", { name: "Reject this run" })
+    ).toBeTruthy();
+    expect(loopGets(fetchMock)).toBe(before + 1);
+  });
+
+  it("uses singular copy when one undecided draft is rejected", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/reject") && init?.method === "POST") {
+          return scripted({
+            runId: "run-20261111-0000",
+            status: "rejected",
+            rejectedCount: 1
+          });
+        }
+        return awaitingLoop(1);
+      })
+    );
+    render(<LoopControls />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Reject this run" }));
+    expect(document.body.textContent).toContain(
+      "Reject 1 undecided draft in run-20261111-0000?"
+    );
+    expect(document.body.textContent).toContain("Nothing will be published.");
+    expect(document.body.textContent).not.toContain("undecided drafts");
+    fireEvent.click(screen.getByRole("button", { name: "Reject 1 draft" }));
+    await act(async () => {});
+    expect(document.body.textContent).toContain(
+      "Run run-20261111-0000 rejected. 1 draft was rejected."
+    );
+    expect(document.body.textContent).not.toContain("drafts were rejected");
+  });
 });

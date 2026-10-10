@@ -1,4 +1,8 @@
-import { pauseBatch, pauseStatement } from "../../test/failingDb";
+import {
+  failBatchAfter,
+  pauseBatch,
+  pauseStatement
+} from "../../test/failingDb";
 import { recordReviewCompletion } from "../../test/reviewedDraft";
 import { env } from "cloudflare:workers";
 import { SignJWT, exportJWK, generateKeyPair } from "jose";
@@ -3201,6 +3205,116 @@ describe("admin run reject", () => {
     expect((await draftRow("d-atomic")).outcome).toBeNull();
     expect(await runStatus(runId)).toBe("awaiting");
   });
+
+  function rejectBody(runId: string, token: string, body: string) {
+    return signed(token, `/api/admin/runs/${runId}/reject`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body
+    });
+  }
+
+  it("returns 400 for a non-JSON reject body and writes nothing", async () => {
+    const runId = "run-20260507-0b07";
+    await seedAwaiting(runId, "2026-05-07");
+    await seedDraft("d-malformed-reject", runId);
+    const res = await worker.fetch(
+      rejectBody(runId, await sign(EMAIL), "{not json"),
+      realEnv()
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      code: "bad_request",
+      message: "Malformed JSON body."
+    });
+    expect((await draftRow("d-malformed-reject")).outcome).toBeNull();
+    expect(await runStatus(runId)).toBe("awaiting");
+    expect(await evidenceCount(`run-completed-${runId}`)).toBe(0);
+  });
+
+  it("returns 400 for an array reject body and writes nothing", async () => {
+    const runId = "run-20260508-0b08";
+    await seedAwaiting(runId, "2026-05-08");
+    await seedDraft("d-array-reject", runId);
+    const res = await worker.fetch(
+      rejectBody(runId, await sign(EMAIL), "[]"),
+      realEnv()
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      code: "bad_request",
+      message: "Invalid reject body."
+    });
+    expect((await draftRow("d-array-reject")).outcome).toBeNull();
+    expect(await runStatus(runId)).toBe("awaiting");
+    expect(await evidenceCount(`run-completed-${runId}`)).toBe(0);
+  });
+
+  it.each([
+    {
+      message: "CHECK constraint failed: gate_assertion_failed",
+      status: 409,
+      runId: "run-20260501-0b01",
+      draftId: "d-batch-gate",
+      scheduledFor: "2026-05-01"
+    },
+    {
+      message: "UNIQUE constraint failed: evidence_events.id",
+      status: 409,
+      runId: "run-20260502-0b02",
+      draftId: "d-batch-evidence-id",
+      scheduledFor: "2026-05-02"
+    },
+    {
+      message: "CHECK constraint failed: seq >= 0",
+      status: 500,
+      runId: "run-20260503-0b03",
+      draftId: "d-batch-check",
+      scheduledFor: "2026-05-03"
+    },
+    {
+      message: "NOT NULL constraint failed: evidence_events.event",
+      status: 500,
+      runId: "run-20260504-0b04",
+      draftId: "d-batch-null",
+      scheduledFor: "2026-05-04"
+    },
+    {
+      message: "FOREIGN KEY constraint failed",
+      status: 500,
+      runId: "run-20260505-0b05",
+      draftId: "d-batch-fk",
+      scheduledFor: "2026-05-05"
+    },
+    {
+      message:
+        "UNIQUE constraint failed: evidence_events.run_id, evidence_events.seq",
+      status: 500,
+      runId: "run-20260506-0b06",
+      draftId: "d-batch-seq",
+      scheduledFor: "2026-05-06"
+    }
+  ])(
+    "maps a reject batch failure ($message) to $status and writes nothing",
+    async ({ message, status, runId, draftId, scheduledFor }) => {
+      await seedAwaiting(runId, scheduledFor);
+      await seedDraft(draftId, runId);
+      const db = failBatchAfter(testEnv.DB, 1, new Error(message));
+      const res = await worker.fetch(reject(runId, await sign(EMAIL)), {
+        ...realEnv(),
+        DB: db
+      });
+      expect(res.status).toBe(status);
+      expect(await res.json()).toEqual(
+        status === 409
+          ? { code: "conflict", message: "Run cannot be rejected." }
+          : { code: "internal_error", message: "Unexpected server error." }
+      );
+      expect((await draftRow(draftId)).outcome).toBeNull();
+      expect(await runStatus(runId)).toBe("awaiting");
+      expect(await evidenceCount(`run-completed-${runId}`)).toBe(0);
+    }
+  );
 
   it("refuses a run that is not awaiting, an unknown id, and an approved head", async () => {
     const published = "run-20260418-0b01";
