@@ -45,6 +45,7 @@ Close the daily source → Draft → Approval Gate → canonical tracker → pub
 - Story 3.35: Drive apex pending copy from public Draft data
 - Story 3.36: Verify the corrected staging Run and gateway
 - Story 3.37: Prove the live governed loop and reassess Epic 3
+- Story 3.38: Pace CourtListener requests and recover from HTTP 429 (blocks the remaining live 3.36 Run; does not replace 3.36 or 3.37)
 
 ## Requirements & Constraints
 
@@ -79,7 +80,7 @@ Close the daily source → Draft → Approval Gate → canonical tracker → pub
 
 - Epic 2 supplies canonical F1 entities. Foundation, gateway, orchestration, evaluation, and gate underpin public/operator surfaces. Approved steering and hardening stories 3.14–3.21 now have canonical entries in epics.md; F9/FR46–50 and UX B8/C4 are reconciled by 3.26.
 - Historical staging sequence was 3.23–3.25 before the 3.22 deployment; all are complete. The September 24 corrective plan controls the next staging deployment. R13 delayed-arrival policy and R14 failed-revision recovery remain deferred.
-- Corrective order: 3.26 planning is complete; 3.27 connector boundary is complete; 3.28 readiness and 3.29 atomic publication are complete; 3.30 bounded cost is complete (PR #46); 3.31 reservation/accounting is complete (PR #47); 3.32 replay/config and 3.33 admission/dispatch are complete; 3.34 native executing-Workflow coverage and 3.35 live pending count are complete (PR #54 and PR #53). Next is 3.36 staging gateway verification, followed by 3.37 live acceptance.
+- Corrective order: 3.26 planning is complete; 3.27 connector boundary is complete; 3.28 readiness and 3.29 atomic publication are complete; 3.30 bounded cost is complete (PR #46); 3.31 reservation/accounting is complete (PR #47); 3.32 replay/config and 3.33 admission/dispatch are complete; 3.34 native executing-Workflow coverage and 3.35 live pending count are complete (PR #54 and PR #53). Story 3.38 must land before the remaining live 3.36 Run. Then 3.36 staging gateway verification, followed by 3.37 live acceptance.
 - All 3.26–3.35 must merge with required CI before 3.36 staging gateway verification. Then 3.37 proves material publication and reruns the retrospective. Reuse one qualifying Run rather than duplicate paid work. Epic 4 waits for 3.37 and accepted Epic 3 evidence; planning completion closes no runtime acceptance gap.
 
 
@@ -122,3 +123,7 @@ PR #54, implementation `8661e0a10204abea0e1812f6fc3913004834e0db`, passed requir
 Patrick explicitly selected DeepInfra `zai-org/GLM-5.3-Flash` instead of OpenRouter, with USD 1 total acceptance authorization. Cloudflare Secrets Store is the default for new credentials; supplied `PML_DEEPINFRA_AI` is bound only to staging as `DEEPINFRA_API_KEY`. Staging period `acceptance-3-36-deepinfra-20261004` caps all participating Runs at 100 cents through reviewed policy expiry on 2026-10-11T19:10:00Z, and default Run budget is 100 cents. No silent renewal/reset is authorized. Implementation remains in review; live 3.36 success is not claimed. Staging lacks an Access login application; creating a separate same-operator app is awaiting explicit approval after automatic review rejected the configuration mutation. Production remains unchanged; 3.37 publication is not authorized by this preparation.
 
 Staging continuation: Patrick approved the separate operator-only Access app; it is now configured and browser navigation reaches Cloudflare sign-in. DeepInfra PR #55 is merged/deployed with config version 3 and the shared $1 cap. The observed CourtListener legacy `limit` request is being corrected with a reproduced 400 regression test. Live Run acceptance remains pending signed-in operator execution.
+
+## Story 3.38 handoff — 2026-10-10
+
+CourtListener request starts are serial and at least 15 seconds apart. HTTP 429 retries at most three times, using a capped `Retry-After` or a 60-second window, inside a 6-minute wait budget and an 8-minute poll deadline. Exhaustion still fails the Run with scrubbed `http_429` evidence. `run-daily-step` is unchanged. Local `npm run check` passed and `npm test` passed 1,482 tests with 6 skipped. No deploy and no paid call. Story 3.36 stays in progress; its live Run is blocked until 3.38 is merged and deployed to `pml-build`. Then 3.37.

@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Db } from "../../shared/db/client";
 import {
   fetchWithTimeout,
+  isAbortError,
   isTimeoutError,
   SOURCE_FETCH_TIMEOUT_MS
 } from "../../shared/lib/timeouts";
@@ -23,14 +24,17 @@ import {
  * `docket_events` Draft whose `diff` is the verbatim record (LLM read-only)
  * plus a `context` block the drafter classifies from.
  *
- * Failure is typed: a missing token, a 401/403/429/5xx, a network error or
+ * Failure is typed: a missing token, a 401/403/5xx, a network error or
  * a per-request timeout throws `SourceUnavailableError`, which
  * `runConnector` records as `source.skipped { reason }` with `failed: true`.
  * An isolated 4xx or malformed body stays on that docket. When every polled
  * docket errors, the summary is still `source.fetched` and the connector
  * returns `failed: true` (story 3.23).
- * No retries, no backoff, no connector state table — newness is decided
- * against `docket_events` and prior Drafts, and the Draft id embeds the
+ * Story 3.38 paces request starts and retries HTTP 429 only. Other failures
+ * still fail on the first response. An exhausted 429 is still source-level
+ * `http_429`. A wait that will not fit, when no 429 was received, is
+ * source-level `timeout` with no status. Newness is decided against
+ * `docket_events` and prior Drafts, and the Draft id embeds the
  * CourtListener entry id so a re-Run is idempotent.
  *
  * RECAP data is crowd-sourced and may lag PACER; the `source.fetched`
@@ -167,7 +171,28 @@ export type DocketEventRecord = {
 export type FetchImpl = (
   input: string,
   init: RequestInit
-) => Promise<Pick<Response, "status" | "ok" | "json" | "text">>;
+) => Promise<Pick<Response, "status" | "ok" | "json" | "text" | "headers">>;
+
+/** Four starts per minute, under CourtListener's about-5-per-minute limit. */
+export const COURTLISTENER_MIN_INTERVAL_MS = 15_000;
+/** One initial request plus two retries. */
+export const COURTLISTENER_MAX_ATTEMPTS = 3;
+/** Used when Retry-After is missing or unparseable. Matches the 5/minute window. */
+export const COURTLISTENER_DEFAULT_BACKOFF_MS = 60_000;
+/** Cap delta-seconds and HTTP-date delays so one header cannot stall the Run. */
+export const COURTLISTENER_MAX_BACKOFF_MS = 60_000;
+/** Deliberate 429 and spacing waits per check. Fetches are outside this budget. */
+export const COURTLISTENER_WAIT_BUDGET_MS = 6 * 60 * 1000;
+/**
+ * Whole CourtListener poll, including waits. Inside the default 10-minute
+ * Workflow step timeout and above the generic 60-second connector deadline.
+ */
+export const COURTLISTENER_POLL_TIMEOUT_MS = 8 * 60 * 1000;
+
+export type CourtListenerWait = (
+  ms: number,
+  signal: AbortSignal
+) => Promise<void>;
 
 export interface CourtListenerCheckDeps {
   db: Db;
@@ -176,7 +201,57 @@ export interface CourtListenerCheckDeps {
   /** Defaults to `fetchWithTimeout` over the global `fetch`. */
   fetchImpl?: FetchImpl;
   now?: () => string;
+  /** Clock for spacing. Defaults to `Date.now`. */
+  nowMs?: () => number;
+  /** Defaults to an abortable `setTimeout`. Tests inject an instant wait. */
+  wait?: CourtListenerWait;
+  /** Defaults to `COURTLISTENER_WAIT_BUDGET_MS`. */
+  waitBudgetMs?: number;
 }
+
+/**
+ * `Retry-After` as delay-seconds or an HTTP-date, capped at one limit window.
+ * Unparseable values return null so the caller uses the default window.
+ */
+export function retryAfterMs(
+  headers: { get(name: string): string | null } | undefined,
+  now = Date.now()
+): number | null {
+  const raw = headers?.get("retry-after")?.trim();
+  if (!raw) return null;
+  if (/^\d+(\.\d+)?$/.test(raw)) {
+    const ms = Math.ceil(Number(raw) * 1000);
+    if (!Number.isFinite(ms)) return null;
+    return Math.min(ms, COURTLISTENER_MAX_BACKOFF_MS);
+  }
+  const when = Date.parse(raw);
+  if (!Number.isFinite(when)) return null;
+  return Math.min(Math.max(0, when - now), COURTLISTENER_MAX_BACKOFF_MS);
+}
+
+function abortError(): DOMException {
+  return new DOMException("The operation was aborted", "AbortError");
+}
+
+const defaultWait: CourtListenerWait = (ms, signal) => {
+  if (signal.aborted) {
+    return Promise.reject(
+      signal.reason instanceof Error ? signal.reason : abortError()
+    );
+  }
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal.reason instanceof Error ? signal.reason : abortError());
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+};
 
 const defaultFetch: FetchImpl = (input, init) =>
   fetchWithTimeout(input, init, SOURCE_FETCH_TIMEOUT_MS);
@@ -279,15 +354,24 @@ class DocketError extends Error {
   readonly reason: string;
   readonly status: number | undefined;
   readonly detail: string | undefined;
+  readonly attempts: number | undefined;
 
-  constructor(reason: string, status?: number, detail?: string) {
+  constructor(
+    reason: string,
+    status?: number,
+    detail?: string,
+    attempts?: number
+  ) {
     super(`docket ${reason}`);
     this.name = "DocketError";
     this.reason = reason;
     this.status = status;
     this.detail = detail;
+    this.attempts = attempts;
   }
 }
+
+type Pace = (extraMs: number, signal: AbortSignal) => Promise<void>;
 
 /** Resolve links against the current page, then check before adding the token. */
 function validatedPageUrl(input: string, base: string): string {
@@ -321,68 +405,99 @@ function validatedPageUrl(input: string, base: string): string {
   return url.href;
 }
 
+async function responseDetail(
+  response: Awaited<ReturnType<FetchImpl>>,
+  token: string
+): Promise<string | undefined> {
+  try {
+    const scrubbed = scrubResponseDetail(await response.text(), token);
+    return scrubbed || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function fetchPage(
   fetchImpl: FetchImpl,
   token: string,
   input: string,
+  pace: Pace,
+  noteStart: () => void,
+  nowMs: () => number,
+  noteRateLimit: () => void,
   context?: SourceCheckContext
 ): Promise<{ entries: DocketEntry[]; next: string | null }> {
   const url = validatedPageUrl(input, COURTLISTENER_API_BASE);
-  let response: Awaited<ReturnType<FetchImpl>>;
-  await context?.beforeRequest();
-  context?.signal.throwIfAborted();
-  try {
-    response = await fetchImpl(url, {
-      signal: context?.signal,
-      redirect: "manual",
-      headers: {
-        authorization: `Token ${token}`,
-        accept: "application/json"
-      }
-    });
-  } catch (err) {
-    throw new DocketError(isTimeoutError(err) ? "timeout" : "network");
-  }
-  context?.signal.throwIfAborted();
-  // Redirects are unsupported, including same-origin ones. Do not inspect
-  // their body or Location, which may contain credentials or unsafe URLs.
-  if (response.status >= 300 && response.status < 400) {
-    throw new DocketError("redirect", response.status);
-  }
-  if (!response.ok) {
-    let detail: string | undefined;
+  const signal = context?.signal ?? new AbortController().signal;
+  let backoff = 0;
+  for (let attempt = 1; attempt <= COURTLISTENER_MAX_ATTEMPTS; attempt++) {
+    signal.throwIfAborted();
+    await pace(backoff, signal);
+    signal.throwIfAborted();
+    // Ownership is checked after the wait so a lost Run does not send.
+    await context?.beforeRequest();
+    signal.throwIfAborted();
+    noteStart();
+    let response: Awaited<ReturnType<FetchImpl>>;
     try {
-      const scrubbed = scrubResponseDetail(await response.text(), token);
-      if (scrubbed) detail = scrubbed;
-    } catch {
-      detail = undefined;
+      response = await fetchImpl(url, {
+        signal,
+        redirect: "manual",
+        headers: {
+          authorization: `Token ${token}`,
+          accept: "application/json"
+        }
+      });
+    } catch (err) {
+      if (isAbortError(err) || signal.aborted) throw err;
+      throw new DocketError(isTimeoutError(err) ? "timeout" : "network");
     }
-    throw new DocketError(
-      reasonForStatus(response.status),
-      response.status,
-      detail
-    );
+    signal.throwIfAborted();
+    // Redirects are unsupported, including same-origin ones. Do not inspect
+    // their body or Location, which may contain credentials or unsafe URLs.
+    if (response.status >= 300 && response.status < 400) {
+      throw new DocketError("redirect", response.status);
+    }
+    if (response.status === 429) {
+      noteRateLimit();
+      const detail = await responseDetail(response, token);
+      backoff =
+        retryAfterMs(response.headers, nowMs()) ??
+        COURTLISTENER_DEFAULT_BACKOFF_MS;
+      if (attempt === COURTLISTENER_MAX_ATTEMPTS) {
+        throw new DocketError("http_429", 429, detail, attempt);
+      }
+      continue;
+    }
+    if (!response.ok) {
+      throw new DocketError(
+        reasonForStatus(response.status),
+        response.status,
+        await responseDetail(response, token)
+      );
+    }
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch {
+      throw new DocketError("malformed");
+    }
+    const entries = parseEntries(body);
+    if (entries == null) throw new DocketError("malformed");
+    const next =
+      body != null && typeof body === "object"
+        ? (body as { next?: unknown }).next
+        : null;
+    if (next != null && typeof next !== "string") {
+      throw new DocketError("malformed");
+    }
+    // Validate even if the baseline/page cap later means this link is unused.
+    return {
+      entries,
+      next: next == null ? null : validatedPageUrl(next, url)
+    };
   }
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch {
-    throw new DocketError("malformed");
-  }
-  const entries = parseEntries(body);
-  if (entries == null) throw new DocketError("malformed");
-  const next =
-    body != null && typeof body === "object"
-      ? (body as { next?: unknown }).next
-      : null;
-  if (next != null && typeof next !== "string") {
-    throw new DocketError("malformed");
-  }
-  // Validate even if the baseline/page cap later means this link is unused.
-  return {
-    entries,
-    next: next == null ? null : validatedPageUrl(next, url)
-  };
+  throw new DocketError("http_429", 429, undefined, COURTLISTENER_MAX_ATTEMPTS);
 }
 
 /**
@@ -395,6 +510,10 @@ async function fetchEntries(
   token: string,
   docketId: string,
   baseline: string | null,
+  pace: Pace,
+  noteStart: () => void,
+  nowMs: () => number,
+  noteRateLimit: () => void,
   context?: SourceCheckContext
 ): Promise<{ entries: DocketEntry[]; pages: number; truncated: boolean }> {
   const entries: DocketEntry[] = [];
@@ -406,7 +525,16 @@ async function fetchEntries(
       truncated = true;
       break;
     }
-    const page = await fetchPage(fetchImpl, token, url, context);
+    const page = await fetchPage(
+      fetchImpl,
+      token,
+      url,
+      pace,
+      noteStart,
+      nowMs,
+      noteRateLimit,
+      context
+    );
     pages += 1;
     entries.push(...page.entries);
     let oldest: string | null = null;
@@ -477,6 +605,10 @@ async function pollDocket(
   token: string,
   docketId: string,
   row: DocketRow,
+  pace: Pace,
+  noteStart: () => void,
+  nowMs: () => number,
+  noteRateLimit: () => void,
   context?: SourceCheckContext
 ): Promise<DocketOutcome> {
   const [latest, seen, parties, trackedSince] = await readSourceState(() =>
@@ -502,6 +634,10 @@ async function pollDocket(
     token,
     docketId,
     baseline?.date ?? null,
+    pace,
+    noteStart,
+    nowMs,
+    noteRateLimit,
     context
   );
 
@@ -569,7 +705,10 @@ export function createCourtListenerCheck(
   deps: CourtListenerCheckDeps
 ): SourceCheck {
   const fetchImpl = deps.fetchImpl ?? defaultFetch;
-  return async (_source, context): Promise<SourceItem[]> => {
+  const check: SourceCheck = async (
+    _source,
+    context
+  ): Promise<SourceItem[]> => {
     const siblings = new AbortController();
     const signal = context
       ? AbortSignal.any([context.signal, siblings.signal])
@@ -602,50 +741,102 @@ export function createCourtListenerCheck(
     }
 
     const fetchedAt = deps.now?.() ?? new Date().toISOString();
-    // Dockets poll concurrently so N dockets cost one request-deadline, not
-    // N. A docket that fails on its own (404, other 4xx, malformed JSON) is
-    // recorded and the rest continue; a failure that means the whole account
-    // cannot poll (auth, rate limit, outage, network, timeout) fails the
-    // source.
-    const outcomes = await Promise.all(
-      [...byDocket].map(async ([key, row]) => {
-        const docketId = key.slice(0, key.indexOf(":"));
-        try {
-          return await pollDocket(
+    // One pace clock per poll. Starts are serial so four dockets stay under
+    // 5 requests/minute. A docket that fails on its own (404, other 4xx,
+    // malformed JSON) is recorded and the rest continue; auth, exhausted
+    // rate limit, outage, network, and timeout fail the source.
+    let lastRequestAt: number | null = null;
+    let waitSpent = 0;
+    let seenRateLimit = false;
+    const nowMs = deps.nowMs ?? Date.now;
+    const wait = deps.wait ?? defaultWait;
+    const budget = deps.waitBudgetMs ?? COURTLISTENER_WAIT_BUDGET_MS;
+    const pollStartedAt = nowMs();
+    const noteStart = () => {
+      lastRequestAt = nowMs();
+    };
+    const noteRateLimit = () => {
+      seenRateLimit = true;
+    };
+    const pace: Pace = async (extraMs, paceSignal) => {
+      const elapsed =
+        lastRequestAt == null
+          ? COURTLISTENER_MIN_INTERVAL_MS
+          : nowMs() - lastRequestAt;
+      const intervalWait =
+        lastRequestAt == null
+          ? 0
+          : Math.max(0, COURTLISTENER_MIN_INTERVAL_MS - elapsed);
+      const waitMs = Math.max(intervalWait, extraMs);
+      const timeLeft =
+        COURTLISTENER_POLL_TIMEOUT_MS - (nowMs() - pollStartedAt);
+      // A request with no spacing wait can still miss the poll if one fetch
+      // would not fit. Check that before returning.
+      if (waitMs + SOURCE_FETCH_TIMEOUT_MS > timeLeft) {
+        const detail = "poll deadline would not fit the next request";
+        if (seenRateLimit) throw new DocketError("http_429", 429, detail);
+        throw new DocketError("timeout", undefined, detail);
+      }
+      if (waitMs <= 0) return;
+      if (waitSpent + waitMs > budget) {
+        if (seenRateLimit) {
+          throw new DocketError(
+            "http_429",
+            429,
+            "rate limit wait budget exhausted"
+          );
+        }
+        throw new DocketError("timeout", undefined, "wait budget exhausted");
+      }
+      waitSpent += waitMs;
+      await wait(waitMs, paceSignal);
+    };
+    const outcomes: DocketOutcome[] = [];
+    for (const [key, row] of byDocket) {
+      const docketId = key.slice(0, key.indexOf(":"));
+      try {
+        outcomes.push(
+          await pollDocket(
             deps,
             fetchImpl,
             token,
             docketId,
             row,
+            pace,
+            noteStart,
+            nowMs,
+            noteRateLimit,
             guarded
-          );
-        } catch (err) {
-          if (err instanceof DocketError) {
-            if (SOURCE_LEVEL_REASONS.has(err.reason)) {
-              siblings.abort();
-              throw new SourceUnavailableError(err.reason, {
-                docketId,
-                ...(err.status == null ? {} : { status: err.status }),
-                ...(err.detail ? { detail: err.detail } : {})
-              });
-            }
-            return {
+          )
+        );
+      } catch (err) {
+        if (err instanceof DocketError) {
+          if (SOURCE_LEVEL_REASONS.has(err.reason)) {
+            siblings.abort();
+            throw new SourceUnavailableError(err.reason, {
               docketId,
-              entities: [],
-              summary: {
-                docketId,
-                caseId: row.case_id,
-                error: err.reason,
-                ...(err.status == null ? {} : { status: err.status }),
-                ...(err.detail ? { detail: err.detail } : {})
-              }
-            } satisfies DocketOutcome;
+              ...(err.status == null ? {} : { status: err.status }),
+              ...(err.detail ? { detail: err.detail } : {}),
+              ...(err.attempts == null ? {} : { attempts: err.attempts })
+            });
           }
-          siblings.abort();
-          throw err;
+          outcomes.push({
+            docketId,
+            entities: [],
+            summary: {
+              docketId,
+              caseId: row.case_id,
+              error: err.reason,
+              ...(err.status == null ? {} : { status: err.status }),
+              ...(err.detail ? { detail: err.detail } : {})
+            }
+          });
+          continue;
         }
-      })
-    );
+        siblings.abort();
+        throw err;
+      }
+    }
 
     const everyDocketErrored =
       outcomes.length > 0 &&
@@ -664,4 +855,6 @@ export function createCourtListenerCheck(
       }
     ];
   };
+  Object.assign(check, { pollTimeoutMs: COURTLISTENER_POLL_TIMEOUT_MS });
+  return check;
 }

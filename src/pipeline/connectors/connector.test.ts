@@ -7,6 +7,7 @@ import * as draftsRepo from "../../shared/db/repos/draftsRepo";
 import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
 import * as pipelineConfigRepo from "../../shared/db/repos/pipelineConfigRepo";
 import { CONNECTOR_TIMEOUT_MS } from "../../shared/lib/timeouts";
+import { COURTLISTENER_POLL_TIMEOUT_MS } from "./courtListener";
 import { POLL_SOURCES } from "./sources";
 import {
   completeDailyStep,
@@ -416,6 +417,37 @@ describe("connector timeouts (story 3.19)", () => {
     expect((await runsRepo.getRunById(testEnv.DB, runId))?.status).toBe(
       "awaiting"
     );
+  });
+
+  it("records the enforced pollTimeoutMs when that deadline fires", async () => {
+    const runId = await pastRun();
+    const hung = hungCheck();
+    Object.assign(hung, { pollTimeoutMs: COURTLISTENER_POLL_TIMEOUT_MS });
+    const checks: Record<string, SourceCheck> = {
+      CourtListener: hung,
+      ...oneMaterial
+    };
+    vi.useFakeTimers();
+    const pending = monitorAndPackage(testEnv.DB, runId, checks);
+    await hung.calls[0];
+    await vi.advanceTimersByTimeAsync(CONNECTOR_TIMEOUT_MS);
+    await vi.advanceTimersByTimeAsync(COURTLISTENER_POLL_TIMEOUT_MS);
+    const result = await pending;
+    expect(vi.getTimerCount()).toBe(0);
+    vi.useRealTimers();
+
+    expect(result).toEqual({ draftCount: 1, anyFailure: true });
+    const evidence = await evidenceRepo.listByRun(testEnv.DB, runId);
+    expect(
+      evidence.find(
+        (event) =>
+          event.event === "source.skipped" &&
+          (event.payload as { source?: string }).source === "CourtListener"
+      )?.payload
+    ).toMatchObject({
+      reason: "timeout",
+      timeoutMs: COURTLISTENER_POLL_TIMEOUT_MS
+    });
   });
 
   it("marks the Run failed, never empty, when every source times out with zero drafts", async () => {

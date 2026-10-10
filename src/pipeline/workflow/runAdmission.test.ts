@@ -1,7 +1,10 @@
 import { attachSnapshot } from "../../shared/db/repos/runPackagesRepo";
 import { SourcePersistenceError } from "../connectors/connector";
 import { decide } from "../gate/approval";
-import { createCourtListenerCheck } from "../connectors/courtListener";
+import {
+  COURTLISTENER_POLL_TIMEOUT_MS,
+  createCourtListenerCheck
+} from "../connectors/courtListener";
 import { CONNECTOR_TIMEOUT_MS } from "../../shared/lib/timeouts";
 import * as drafts from "../../shared/db/repos/draftsRepo";
 import type { SourceCheck } from "../connectors/connector";
@@ -606,7 +609,7 @@ describe("durable shared Run admission", () => {
       const fetcher = vi.fn(async (_url: string, init: RequestInit) => {
         signals.push(init.signal!);
         const index = ++requests;
-        if (requests === 4) entered.release();
+        if (requests === 1) entered.release();
         if (outcome === "sibling_failure" && index === 1) {
           await fatal.promise;
           return Response.json({}, { status: 503 });
@@ -639,10 +642,19 @@ describe("durable shared Run admission", () => {
           runId: id
         });
         await entered.promise;
-        if (outcome === "deadline")
+        if (outcome === "deadline") {
+          let settled = false;
+          const done = execution.finally(() => {
+            settled = true;
+          });
           await vi.advanceTimersByTimeAsync(CONNECTOR_TIMEOUT_MS + 1);
-        else fatal.release();
-        await execution;
+          expect(settled).toBe(false);
+          await vi.advanceTimersByTimeAsync(COURTLISTENER_POLL_TIMEOUT_MS);
+          await done;
+        } else {
+          fatal.release();
+          await execution;
+        }
         expect(signals.every((s) => s.aborted)).toBe(true);
         expect((await runs.getRunById(db, id))?.status).toBe("failed");
         const receipts = await evidence.listByRun(db, id);
@@ -657,7 +669,7 @@ describe("durable shared Run admission", () => {
         late.release();
         // Flush late ignored-abort responses through their pagination continuations.
         for (let n = 0; n < 20; n++) await Promise.resolve();
-        expect(fetcher).toHaveBeenCalledTimes(4);
+        expect(fetcher).toHaveBeenCalledTimes(1);
         expect(await drafts.listByRun(db, id)).toEqual([]);
         expect(await evidence.listByRun(db, id)).toEqual(receipts);
         expect(provider.complete).not.toHaveBeenCalled();

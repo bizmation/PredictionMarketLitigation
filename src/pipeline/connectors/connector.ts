@@ -118,6 +118,17 @@ const ObservationSchema = z.object({
 });
 type Observation = z.infer<typeof ObservationSchema>;
 
+/** CourtListener sets this so rate-limit waits fit. Every other check stays at 60s. */
+function pollTimeoutMs(check: SourceCheck): number {
+  if (typeof check !== "function" || !("pollTimeoutMs" in check)) {
+    return CONNECTOR_TIMEOUT_MS;
+  }
+  const timeout = (check as { pollTimeoutMs?: unknown }).pollTimeoutMs;
+  return typeof timeout === "number" && timeout > 0
+    ? timeout
+    : CONNECTOR_TIMEOUT_MS;
+}
+
 async function observe(
   source: PollSource,
   check: SourceCheck,
@@ -138,7 +149,7 @@ async function observe(
         await guard();
         return check(source, { signal, beforeRequest: guard });
       },
-      CONNECTOR_TIMEOUT_MS,
+      pollTimeoutMs(check),
       source.name
     );
   } catch (err) {
@@ -152,7 +163,7 @@ async function observe(
         event: "source.skipped",
         payload:
           err instanceof DeadlineError
-            ? { reason: "timeout", timeoutMs: CONNECTOR_TIMEOUT_MS }
+            ? { reason: "timeout", timeoutMs: err.ms }
             : { ...err.detail, reason: err.reason }
       };
     }

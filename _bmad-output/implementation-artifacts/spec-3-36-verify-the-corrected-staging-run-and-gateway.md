@@ -123,4 +123,6 @@ CourtListener's historical live HTTP 400 identified `limit` as unsupported. The 
 
 Patrick signed in successfully. The verified operator used Run now once after PR #56 deployment (`3a6bd96c-8157-4a8b-af35-5e1f83e3445b`). Governed admission created `run-20261004-0002` at 21:26:34Z with the 100-cent Run limit. It failed at 21:26:42Z when CourtListener returned HTTP 429: `Rate limit exceeded: 5/min. Expected available in 59 seconds.` Public evidence: https://ops-build.predictionmarketlitigation.com/runs/run-20261004-0002 . No Drafts, LLM calls, or accounting operations were produced; spent, reserved, and uncertain balances were zero. Authentication is resolved; Story 3.36 remains incomplete pending source rate-limit handling and an actual successful governed DeepInfra call. No legal content was approved.
 
+Live acceptance is blocked on 3.38 (CourtListener 429 pacing) merge and deploy. Do not start another paid staging Run until that code is on `pml-build`.
+
 Patrick also requested an admin usability correction. The admin now presents separate draft-review, Run, and automation views, retaining the existing serif heading text/style and unsaved forms. Hidden queue shortcuts are disabled so keys on other views cannot approve a Draft. The latest Run links directly to its public evidence; the empty queue does not imply source success.
