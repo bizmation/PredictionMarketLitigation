@@ -363,8 +363,10 @@ export class DailyRunWorkflow extends WorkflowEntrypoint<Env, DailyRunParams> {
     }
 
     await admission.assertOwned(db, runId);
-    await step.do("draft-and-review", () =>
-      reviewDailyRun(db, packaged, this.gatewayDeps(db))
+    await step.do(
+      "draft-and-review",
+      { retries: { limit: 0, delay: 0 }, timeout: "20 minutes" },
+      () => reviewDailyRun(db, packaged, this.gatewayDeps(db))
     );
     await admission.finish(db, runId);
   }

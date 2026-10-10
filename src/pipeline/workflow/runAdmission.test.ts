@@ -103,7 +103,15 @@ function localWorkflow(
   Object.defineProperty(workflow, "env", { value: { ...env, DB: db } });
   const cache = new Map<string, unknown>();
   const step = {
-    do: async (name: string, body: () => Promise<unknown>) => {
+    do: async (
+      name: string,
+      configOrBody: unknown,
+      maybeBody?: () => Promise<unknown>
+    ) => {
+      const body =
+        typeof configOrBody === "function"
+          ? (configOrBody as () => Promise<unknown>)
+          : maybeBody!;
       if (cache.has(name)) return cache.get(name);
       const value = await body();
       cache.set(name, value);

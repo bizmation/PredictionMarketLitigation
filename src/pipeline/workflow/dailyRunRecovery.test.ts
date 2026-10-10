@@ -49,10 +49,21 @@ let runId: string;
  * This deliberately does not pretend to test the hosted Workflow service. */
 class Checkpoints {
   values = new Map<string, unknown>();
+  configs = new Map<string, unknown>();
   lose: string | undefined;
   after?: (name: string) => Promise<void>;
   step = {
-    do: async (name: string, body: () => Promise<unknown>) => {
+    do: async (
+      name: string,
+      configOrBody: unknown,
+      maybeBody?: () => Promise<unknown>
+    ) => {
+      const body =
+        typeof configOrBody === "function"
+          ? (configOrBody as () => Promise<unknown>)
+          : maybeBody!;
+      if (typeof configOrBody !== "function")
+        this.configs.set(name, configOrBody);
       if (this.values.has(name)) return this.values.get(name);
       const value = await body();
       await this.after?.(name);
@@ -236,6 +247,17 @@ afterEach(() => {
 });
 
 describe("DailyRunWorkflow durable replay (3.32)", () => {
+  it("runs draft-and-review once with no retries and a 20 minute timeout", async () => {
+    const h = harness({ original: vi.fn(() => [{ entities: [entity] }]) });
+    await h.run();
+    expect(h.checkpoints.configs.get("draft-and-review")).toEqual({
+      retries: { limit: 0, delay: 0 },
+      timeout: "20 minutes"
+    });
+    expect(h.checkpoints.configs.has("attach-run")).toBe(false);
+    expect(h.checkpoints.configs.has("run-daily-step")).toBe(false);
+  });
+
   it("recovers its durable package after checkpoint loss and performs paid review only once", async () => {
     const check = vi.fn(() => [{ entities: [entity] }]);
     const h = harness({ original: check });

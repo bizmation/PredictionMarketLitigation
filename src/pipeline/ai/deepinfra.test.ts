@@ -9,7 +9,10 @@ import {
 import { resolveCostPolicy } from "./costPolicy";
 import { insertRun } from "../../shared/db/repos/runsRepo";
 import { accountingForRun } from "../../shared/db/repos/llmAccountingRepo";
-import { PROVIDER_TIMEOUT_MS } from "../../shared/lib/timeouts";
+import {
+  DEEPINFRA_CHAT_TIMEOUT_MS,
+  PROVIDER_TIMEOUT_MS
+} from "../../shared/lib/timeouts";
 
 const db = (env as Env).DB;
 const NOW = "2026-10-04T19:12:00.000Z";
@@ -195,7 +198,24 @@ describe("DeepInfra central gateway", () => {
       code: "provider_error"
     });
     await reached;
-    await vi.advanceTimersByTimeAsync(PROVIDER_TIMEOUT_MS + 1);
+    expect(PROVIDER_TIMEOUT_MS).toBe(60_000);
+    expect(DEEPINFRA_CHAT_TIMEOUT_MS).toBe(120_000);
+    await vi.advanceTimersByTimeAsync(PROVIDER_TIMEOUT_MS);
+    let settled = false;
+    void pending.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      }
+    );
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(requestSignal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(
+      DEEPINFRA_CHAT_TIMEOUT_MS - PROVIDER_TIMEOUT_MS + 1
+    );
     await check;
     expect(requestSignal?.aborted).toBe(true);
     expect(await accountingForRun(db, input.runId)).toMatchObject({
@@ -271,6 +291,7 @@ describe("DeepInfra central gateway", () => {
         messages: [{ role: "user", content: "PRIVATE prompt" }],
         max_tokens: 2048,
         reasoning_effort: "none",
+        reasoning: { enabled: false },
         stream: false,
         n: 1
       });
@@ -653,6 +674,8 @@ describe("DeepInfra central gateway", () => {
     });
     await vi.advanceTimersByTimeAsync(PROVIDER_TIMEOUT_MS + 1);
     await check;
+    expect(PROVIDER_TIMEOUT_MS).toBe(60_000);
+    expect(DEEPINFRA_CHAT_TIMEOUT_MS).toBe(120_000);
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
   it.each([

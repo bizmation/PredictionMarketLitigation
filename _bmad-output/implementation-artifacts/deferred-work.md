@@ -243,3 +243,27 @@ Ledger entries above are not edited; this block records where each Epic 3 entry 
 - Story 3.37 has no story file yet. Patrick's 2026-10-10 ruling for 3.37 is recorded in `spec-3-36-verify-the-corrected-staging-run-and-gateway.md` under "Scope rulings (2026-10-10)": the revised `run-20261010-0003` draft may close 3.37 on the same Run as 3.36. Approval still needs his named go-ahead on that specific draft after he reads the text. Known gap: once that draft is approved, #64 batch reject refuses the Run (`reject_run_unpublished`); closing 0003 needs a separate follow-up that rejects the remaining undecided heads.
 
 - **Revise failure surfaces as 400 and strands a NULL-eval child (from 0003 entry 170, Oct 10).** `submitTurn` maps `reviseDraft` status `invalid` to HTTP 400 "Revision did not complete" after the turn receipt and child draft are already persisted. The retry then gets 409 from `hasInFlightSuccessor`. Fix: return a 5xx/502-class error for gateway or provider failures, have the UI refresh the draft chain after any revise error, and decide whether a failed revise child should be marked terminal so the parent can be revised again. Doesn't block 3.36.
+
+## Deferred from: code review of #69 (2026-10-10)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-gh-68-deepinfra-provider-call-failed-diagnostics.md`
+  summary: Bound the read of a DeepInfra error body.
+  evidence: The chat failure path reads `response.text()` with no size cap. A hostile or huge error body is limited only by the chat deadline.
+- source_spec: `_bmad-output/implementation-artifacts/spec-gh-68-deepinfra-provider-call-failed-diagnostics.md`
+  summary: Guard an empty or 4-character-or-shorter account id, and share the path mask helper.
+  evidence: `accountIdLast4` uses `slice(-4)` and the path mask does the same inline. An empty id or an id of four characters or fewer is not rejected, and the mask is not one helper.
+- source_spec: `_bmad-output/implementation-artifacts/spec-gh-68-deepinfra-provider-call-failed-diagnostics.md`
+  summary: Size the steering client timeout for preflight plus prepare plus two chats.
+  evidence: Worst case is catalog preflight 60s plus prepare 60s plus two DeepInfra chats at 120s, about 480s. `STEERING_POST_TIMEOUT_MS` is 250s.
+- source_spec: `_bmad-output/implementation-artifacts/spec-gh-68-deepinfra-provider-call-failed-diagnostics.md`
+  summary: Scale the draft-and-review step timeout with `draftCount`.
+  evidence: The step timeout is a fixed 20 minutes, not a function of how many drafts the run will review.
+- source_spec: `_bmad-output/implementation-artifacts/spec-gh-68-deepinfra-provider-call-failed-diagnostics.md`
+  summary: Add an end-to-end 120s abort test that spies on the warn.
+  evidence: The 120s deadline test checks the abort signal and liability. It does not assert the `provider_call_failed` warn.
+- source_spec: `_bmad-output/implementation-artifacts/spec-gh-68-deepinfra-provider-call-failed-diagnostics.md`
+  summary: Use realistic opaque-redirect stubs.
+  evidence: Opaque-redirect tests use a hand-built response object, not a runtime opaque redirect.
+- source_spec: `_bmad-output/implementation-artifacts/spec-gh-68-deepinfra-provider-call-failed-diagnostics.md`
+  summary: Set `followup_review_recommended` and cite symbols instead of line numbers.
+  evidence: The spec leaves `followup_review_recommended` false, and the Code Map still points at line numbers rather than symbols.
