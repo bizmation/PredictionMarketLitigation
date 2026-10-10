@@ -2,7 +2,7 @@
 title: 'Apply approved review patches for awaiting-run reject'
 type: 'bugfix'
 created: '2026-10-10'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '103fb656a6173eda92d9cd93824706cc5c9183cd'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -79,6 +79,23 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-10-10 — Review pass
+- verdicts: 13 findings — high 0, medium 0, low 7, false 6, maybe-false 0
+- findings:
+  - `[false]` `[reject]` Deferred note treats `run_id = drafts.run_id` as always true for the whole CTE — that expression is the anchor `FROM drafts`, which is tautological and does collect every root. The recursive arm is `d.run_id = drafts.run_id`, a different expression that still sees the outer row.
+  - `[false]` `[reject]` The alias example does not also rewrite `READY_HEAD_SQL` or the sibling `EXISTS` — the note says "e.g." and already names `READY_HEAD_SQL` separately. A partial alias fails when SQLite prepares the leftover `drafts.run_id`.
+  - `[low]` `[patch]` The 404 test did not assert an empty notice — added `expect(document.querySelector("output")).toBeNull()` after the 404.
+  - `[low]` `[patch]` The same-run timeout test stayed green without `setReload` — it now expects one more `/api/admin/loop` GET, same as the 409 and 404 tests.
+  - `[low]` `[reject]` `null` and other non-object JSON bodies are not pinned — the intent names only `"{not json"` and `"[]"`, and deleting the whole body guard now fails those two tests.
+  - `[low]` `[patch]` A success body with no `rejectedCount` was untested — added a mount test for `Run run-20261111-0000 rejected.`
+  - `[low]` `[patch]` Injected batch rows did not prove `db.batch` ran — each row now expects `batchCalls()` to be 1. The catch matches message text, so synthetic `Error` strings are the surface under test. The live duplicate-id route test still uses real D1.
+  - `[false]` `[reject]` Spec `deferred: []` and empty logs mean the head-SQL note was missed — the intent records that note in `deferred-work.md`. The spec `deferred` list is for this review, and the logs are written in this pass.
+  - `[low]` `[reject]` Exact loop-GET counts can flake if the 4s awaiting poll fires — these assertions run in about 15ms. Guarding them needs fake timers, not a one-line correction.
+  - `[false]` `[reject]` A 500 does not prove `rejectAwaitingRun` rethrew — the route returns 409 only for `conflict` and 500 only when that function throws. The injected rows observe that split.
+  - `[false]` `[reject]` The older duplicate-id test still passes under a broad `UNIQUE` match — the new 500 rows fail if `includes("constraint")` or a bare `includes("UNIQUE")` returns.
+  - `[low]` `[patch]` Intent alignment noted the same missing timeout reload count — same fix as the timeout row above.
+  - `[false]` `[reject]` Frontmatter `deferred` is empty while the SQL note exists — that note belongs in `deferred-work.md`, which is where it was appended.
+
 ## Design Notes
 
 SQLite reports the primary-key clash as `UNIQUE constraint failed: evidence_events.id` and the seq index as `UNIQUE constraint failed: evidence_events.run_id, evidence_events.seq`. Match the id text only. `String(error).includes("constraint")` is the bug.
@@ -90,3 +107,23 @@ The CTE note to append, verbatim in substance: using `currentHeadSql("drafts")` 
 **Commands:**
 - `npm run check` — expected: exit 0
 - `npm test` — expected: exit 0
+
+## Auto Run Result
+
+Summary: Awaiting-run reject now returns a conflict only for `gate_assertion_failed` and `UNIQUE constraint failed: evidence_events.id`. Other batch errors propagate. The confirm step uses singular copy at count 1, closes on 409, 404, and a same-run timeout, and a 500 still shows the did-not-complete notice. The head-SQL shadowing note is recorded and the SQL is unchanged.
+
+Files changed:
+- `src/pipeline/gate/approval.ts` — narrows the `rejectAwaitingRun` batch catch.
+- `src/shared/api/adminApi.test.ts` — pins the two bad bodies and both sides of the catch, including `batchCalls()`.
+- `src/surfaces/admin/LoopControls.tsx` — singular copy at count 1, and 404 closes the confirm step and reloads.
+- `src/surfaces/admin/loopControls.mount.test.tsx` — 409, 500, same-run timeout, 404, singular copy, empty 404 notice, and a count-free success sentence.
+- `_bmad-output/implementation-artifacts/deferred-work.md` — records the `currentHeadSql("drafts")` shadowing note.
+- `_bmad-output/implementation-artifacts/spec-gh-64-apply-approved-review-patches.md` — this spec.
+
+Review findings breakdown: Four low patch entries were applied (empty 404 notice, timeout reload count, missing `rejectedCount`, and `batchCalls()`). No items were deferred. Rejected findings: the deferred-note wording and alias example match the requested text; non-object JSON bodies other than the two named ones are outside the intent; the 4s poll does not flake these millisecond assertions; HTTP 500 is the rethrow; the new 500 rows lock the narrow matcher; the SQL note lives in `deferred-work.md`.
+
+Follow-up review recommendation: false. Patched entries by verdict: low 4, medium 0, high 0.
+
+Verification: `npm run check` exited 0. `npm test` exited 0 — 1530 passed, 6 skipped. A verbose run of the reject route and loop-controls files showed each matrix row's test passing, including the six injected batch messages, both 400 bodies, 409, 500, same-run timeout, 404, singular copy, and the existing plural confirm test.
+
+Residual risk: `currentHeadSql("drafts")` inside `UPDATE drafts` still scans roots from every run. The result stays correct because `current.id` binds to the outer row. The same pattern remains in `READY_HEAD_SQL`.
