@@ -44,14 +44,20 @@ export const CONNECTOR_TIMEOUT_MS = 60_000;
  * `COURTLISTENER_FETCH_TIMEOUT_MS`, and this shared value stays 12 seconds.
  */
 export const SOURCE_FETCH_TIMEOUT_MS = 12_000;
-/** One `provider.complete` call inside `gateway.complete`. */
+/** One `provider.complete` call inside `gateway.complete`, except DeepInfra chat. */
 export const PROVIDER_TIMEOUT_MS = 60_000;
 /**
- * The steering POST only: a revise turn runs drafter + reviewer, each under
- * `PROVIDER_TIMEOUT_MS`, so the client must outlast two provider deadlines
- * (plus persistence slack) or a slow-but-successful turn reads as a timeout.
+ * DeepInfra chat POST only. Catalog preflight, credential `prepare`, and
+ * every other provider stay on `PROVIDER_TIMEOUT_MS`.
  */
-export const STEERING_POST_TIMEOUT_MS = 2 * PROVIDER_TIMEOUT_MS + 10_000;
+export const DEEPINFRA_CHAT_TIMEOUT_MS = 120_000;
+/**
+ * The steering POST only: a revise turn runs drafter + reviewer. DeepInfra
+ * chat is the longer deadline, so the client must outlast two of those
+ * (plus the same 10s persistence slack) or a slow-but-successful turn
+ * reads as a timeout.
+ */
+export const STEERING_POST_TIMEOUT_MS = 2 * DEEPINFRA_CHAT_TIMEOUT_MS + 10_000;
 
 export class DeadlineError extends Error {
   readonly label: string;

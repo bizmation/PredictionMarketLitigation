@@ -17,6 +17,7 @@ import {
   type GatewayRole
 } from "../../shared/schemas/vocabulary";
 import {
+  DEEPINFRA_CHAT_TIMEOUT_MS,
   PROVIDER_TIMEOUT_MS,
   withAbortableDeadline
 } from "../../shared/lib/timeouts";
@@ -43,7 +44,9 @@ import { GUARDRAIL_RULE_ID, isToolAllowed } from "./actionPolicy";
  *   5. resolve + enforce the budget ceiling BEFORE the provider call
  *      (`budget_stopped` — marks the Run stopped + `run.stopped` evidence);
  *      also refuse when `spend + admissionBoundCents > budget`
- *   6. delegate to the provider under `PROVIDER_TIMEOUT_MS` (story 3.19)
+ *   6. delegate to the provider under its chat deadline (story 3.19).
+ *      DeepInfra chat uses `DEEPINFRA_CHAT_TIMEOUT_MS`; every other
+ *      provider, and DeepInfra catalog/prepare, stay on `PROVIDER_TIMEOUT_MS`.
  *      with an abortable deadline signal (story 3.20); on error or deadline,
  *      surface a typed `provider_error` with no spend row written — a hung
  *      model is a per-Draft `evals_not_run`, never a budget stop and never a
@@ -509,6 +512,11 @@ export async function complete(
   };
   // 6. Delegate to the provider. The abortable deadline wraps the provider
   //    seam so OpenRouter's fetch can cancel; Workers AI ignores the signal.
+  //    DeepInfra chat is the only caller of the longer deadline.
+  const chatTimeout =
+    mapping.provider === "deepinfra"
+      ? DEEPINFRA_CHAT_TIMEOUT_MS
+      : PROVIDER_TIMEOUT_MS;
   let completion: Awaited<ReturnType<LlmProvider["complete"]>>;
   try {
     completion = await withAbortableDeadline(
@@ -529,7 +537,7 @@ export async function complete(
           }
           return value;
         }),
-      PROVIDER_TIMEOUT_MS,
+      chatTimeout,
       mapping.provider
     );
   } catch (cause) {
@@ -1054,6 +1062,156 @@ function deepInfraRedirectRefused(response: Response): boolean {
   );
 }
 
+/** 3xx, status 0, and opaque redirects. Other non-OK responses stay `http`. */
+function chatRedirectRefused(response: Response): boolean {
+  return (
+    response.type === "opaqueredirect" ||
+    response.status === 0 ||
+    (response.status >= 300 && response.status < 400)
+  );
+}
+
+function headerValue(response: Response, name: string): string | undefined {
+  try {
+    const value = response.headers?.get(name);
+    return typeof value === "string" && value.length > 0 ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function scrubLoggedText(
+  value: string,
+  secrets: readonly string[],
+  accountId: string
+): string {
+  let raw = value;
+  for (const secret of secrets) {
+    if (secret.length > 0) raw = raw.split(secret).join("[redacted]");
+  }
+  if (accountId.length > 0) {
+    const mask = `****${accountId.slice(-4)}`;
+    raw = raw.split(accountId).join(mask);
+    const encoded = encodeURIComponent(accountId);
+    if (encoded !== accountId) raw = raw.split(encoded).join(mask);
+  }
+  return diagnosticText(raw);
+}
+
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
+function parsedUsageFacts(parsed: unknown): {
+  finishReason?: string;
+  completionTokens?: number;
+  reasoningTokens?: number;
+} {
+  if (parsed == null || typeof parsed !== "object") return {};
+  const body = parsed as {
+    choices?: Array<{ finish_reason?: unknown }>;
+    usage?: {
+      completion_tokens?: unknown;
+      completion_tokens_details?: { reasoning_tokens?: unknown };
+    };
+  };
+  const finish = body.choices?.[0]?.finish_reason;
+  const completionTokens = finiteNumber(body.usage?.completion_tokens);
+  const reasoningTokens = finiteNumber(
+    body.usage?.completion_tokens_details?.reasoning_tokens
+  );
+  return {
+    ...(typeof finish === "string" ? { finishReason: finish } : {}),
+    ...(completionTokens == null ? {} : { completionTokens }),
+    ...(reasoningTokens == null ? {} : { reasoningTokens })
+  };
+}
+
+function deepInfraFailureStage(
+  error: unknown,
+  response: Response | undefined
+): string {
+  const name = error instanceof Error ? error.name : "";
+  if (name === "AbortError" || name === "TimeoutError") return "timeout";
+  if (response && chatRedirectRefused(response)) return "redirect_refused";
+  if (response && !response.ok) return "http";
+  if (response && error instanceof SyntaxError) return "invalid_body";
+  if (!response) return "network";
+  return "unknown";
+}
+
+function maskedChatPath(url: string, accountId: string): string {
+  const path = new URL(url).pathname;
+  const mask = `****${accountId.slice(-4)}`;
+  return path.replace(`/${encodeURIComponent(accountId)}/`, `/${mask}/`);
+}
+
+function logDeepInfraChatFailure(input: {
+  error: unknown;
+  response?: Response;
+  bodyText?: string;
+  parsed?: unknown;
+  started: number;
+  dispatchedAt: string;
+  model: string;
+  gatewayId: string;
+  accountId: string;
+  url: string;
+  hasAuthorization: boolean;
+  hasGatewayAuth: boolean;
+  secrets: readonly string[];
+}): void {
+  const response = input.response;
+  const stage = deepInfraFailureStage(input.error, response);
+  const facts = errorFacts(input.error);
+  const scrub = (value: string) =>
+    scrubLoggedText(value, input.secrets, input.accountId);
+  const parsedJson = input.parsed != null && typeof input.parsed === "object";
+  const usage = parsedJson ? parsedUsageFacts(input.parsed) : {};
+  const bodyPrefix =
+    !parsedJson &&
+    stage !== "redirect_refused" &&
+    stage !== "timeout" &&
+    stage !== "network" &&
+    input.bodyText
+      ? scrub(input.bodyText)
+      : "";
+  const aigLogId = response
+    ? headerValue(response, "cf-aig-log-id")
+    : undefined;
+  console.warn({
+    event: "provider_call_failed",
+    provider: "deepinfra",
+    stage,
+    elapsedMs: Math.max(0, Date.now() - input.started),
+    model: scrub(input.model),
+    gatewayId: scrub(input.gatewayId),
+    accountIdLast4: input.accountId.slice(-4),
+    urlHost: new URL(input.url).host,
+    urlPath: maskedChatPath(input.url, input.accountId),
+    hasAuthorization: input.hasAuthorization,
+    hasGatewayAuth: input.hasGatewayAuth,
+    dispatchedAt: input.dispatchedAt,
+    headersReceived: response != null,
+    ...(response
+      ? { status: response.status, responseType: response.type }
+      : {}),
+    ...(bodyPrefix ? { bodyPrefix } : {}),
+    ...(facts.errorName ? { errorName: facts.errorName } : {}),
+    ...(facts.errorMessage ? { errorMessage: scrub(facts.errorMessage) } : {}),
+    ...(aigLogId ? { aigLogId: scrub(aigLogId) } : {}),
+    ...(usage.finishReason ? { finishReason: scrub(usage.finishReason) } : {}),
+    ...(usage.completionTokens == null
+      ? {}
+      : { completionTokens: usage.completionTokens }),
+    ...(usage.reasoningTokens == null
+      ? {}
+      : { reasoningTokens: usage.reasoningTokens })
+  });
+}
+
 /** Fixed custom provider route. Credentials are captured only in a per-call closure. */
 export function createDeepInfraProvider(env: Env): LlmProvider | null {
   const configured = (value: unknown): boolean =>
@@ -1167,8 +1325,13 @@ export function createDeepInfraProvider(env: Env): LlmProvider | null {
               "provider_error",
               "Inference cancelled before dispatch."
             );
+          const started = Date.now();
+          const dispatchedAt = now();
+          let response: Response | undefined;
+          let bodyText: string | undefined;
+          let parsed: unknown;
           try {
-            const response = await fetch(
+            response = await fetch(
               url,
               deepInfraChatRequestInit(
                 headers,
@@ -1179,12 +1342,30 @@ export function createDeepInfraProvider(env: Env): LlmProvider | null {
                   max_tokens: policy.outputTokens,
                   stream: false,
                   n: 1,
-                  reasoning_effort: "none"
+                  reasoning_effort: "none",
+                  reasoning: { enabled: false }
                 })
               )
             );
-            if (deepInfraRedirectRefused(response)) throw new Error();
-            const body = (await response.json()) as {
+            if (chatRedirectRefused(response)) throw new Error();
+            if (!response.ok) {
+              try {
+                bodyText = await response.text();
+              } catch {
+                bodyText = undefined;
+              }
+              if (bodyText != null) {
+                try {
+                  parsed = JSON.parse(bodyText);
+                } catch {
+                  parsed = undefined;
+                }
+              }
+              throw new Error(`HTTP ${response.status}`);
+            }
+            bodyText = await response.text();
+            parsed = JSON.parse(bodyText);
+            const body = parsed as {
               id?: unknown;
               model?: unknown;
               choices?: Array<{ message?: { content?: unknown } }>;
@@ -1207,7 +1388,28 @@ export function createDeepInfraProvider(env: Env): LlmProvider | null {
                   ? body.id
                   : undefined
             };
-          } catch {
+          } catch (error) {
+            try {
+              logDeepInfraChatFailure({
+                error,
+                response,
+                bodyText,
+                parsed,
+                started,
+                dispatchedAt,
+                model,
+                gatewayId: env.AI_GATEWAY_ID ?? "",
+                accountId: env.CLOUDFLARE_ACCOUNT_ID ?? "",
+                url,
+                hasAuthorization: headers.has("authorization"),
+                hasGatewayAuth: headers.has("cf-aig-authorization"),
+                secrets: [key, token].filter(
+                  (secret): secret is string => secret !== undefined
+                )
+              });
+            } catch {
+              /* A diagnostic failure must not replace the provider error. */
+            }
             throw new GatewayError(
               "provider_error",
               "DeepInfra gateway request failed."

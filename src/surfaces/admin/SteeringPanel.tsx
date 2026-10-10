@@ -214,7 +214,7 @@ export function SteeringPanel({
     const submittedDraftId = draftId;
     // Story 3.19 — a hung steering POST rejects with a TimeoutError after
     // STEERING_POST_TIMEOUT_MS (a revise runs drafter + reviewer, each under
-    // the 60 s provider deadline, so this outlasts both); every caller's
+    // the DeepInfra chat deadline, so this outlasts both); every caller's
     // `finally` clears `submitting`/busy so the queue's keyboard controls
     // come back.
     const res = await fetchWithTimeout(
