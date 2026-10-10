@@ -16,6 +16,7 @@ scopeAmendments:
   - '2026-08-09: UX handoff promotes to v1 — reader poll, issue map, entity ledger, apex chrome (KPI/credibility/brief), rich case filters (elevates FR-3 phase-in)'
   - '2026-08-09: Correction/feedback form is moderated — submissions queue for operator approval before a GitHub issue is created'
   - '2026-08-09: Readiness punch list applied (implementation-readiness-report-2026-08-09) — added Story 1.5 (CI/CD, envs, domains) and Story 3.6 (guardrails/action-policy/scoped-context enforcement, split from 3.5; old 3.6–3.12 renumbered 3.7–3.13); Vitest test ACs (1.1, 3.3, 3.11); governance-consequence ACs for FR20/FR21/FR22/FR37; state deep-link AC (2.4); named migrations for poll tally (2.9) and submissions (4.5); journal storage decided D1 (4.3); noon-ET DST AC (3.3); 2.10 scope made definite'
+  - '2026-10-10: Story 3.38 paces CourtListener requests and retries a bounded HTTP 429. This supersedes only the story 3.23 fail-on-first 429 clause. Live story 3.36 acceptance depends on 3.38. See sprint-change-proposal-2026-10-10.md.'
 ---
 
 # PML - Epic Breakdown
@@ -1027,6 +1028,8 @@ Existing rows on `pml-build` stay null.
 
 Source: [approved change proposal](sprint-change-proposal-2026-09-24.md). Stories 3.1–3.25 remain complete. Stories 3.26–3.37 were added as backlog; current lifecycle states are tracked in `sprint-status.yaml`. The epic is in progress and operational acceptance remains rejected pending corrective evidence. Each implementation story requires targeted regression evidence, review, required CI, and a merged PR.
 
+Story 3.38 was added on 2026-10-10 by [sprint change proposal 2026-10-10](sprint-change-proposal-2026-10-10.md). It supersedes only the fail-on-first HTTP 429 clause in story 3.23. Live acceptance of story 3.36 depends on 3.38.
+
 ### Story 3.26: Reconcile canonical Epic 3 planning
 
 As a maintainer, I can find all approved Epic 3 requirements in canonical planning documents.
@@ -1145,12 +1148,13 @@ Effort: Low. Dependencies: 3.28. Covers R16 / existing action 13 remainder.
 
 As an operator, I have deployment-specific evidence that the corrected runtime and paid gateway work.
 
-Effort: Medium, operational. Dependencies: 3.26–3.35 merged and required CI green. Covers existing action 17 remainder / R18.
+Effort: Medium, operational. Dependencies: 3.26–3.35 merged and required CI green. Live acceptance also depends on 3.38 merged and deployed to `pml-build`. Covers existing action 17 remainder / R18.
 
 - Deploy the merged corrective commit through the staging process; record commit, Worker version, migrations, target hosts, and time. Verify production behavior remains unchanged.
 - Record a new post-deployment Run, frozen budget/source config, public Evidence, and authenticated DeepInfra gateway success using `zai-org/GLM-5.3-Flash`. Document the actual successful route and status without tokens or credential-bearing headers.
 - Patrick authorized a USD 1 total staging acceptance cap on 2026-10-04 and selected DeepInfra instead of OpenRouter. Before a paid call, enforce that cumulative cap and a valid exact-model cost policy. Planning approval alone is not an instruction to incur unspecified charges.
 - A pre-deploy Run, empty static screen, or fabricated fixture is insufficient. If credentials, provider availability, or budget block execution, record the precise blocker and leave this story/action incomplete.
+- Live acceptance depends on story 3.38 merged and deployed to `pml-build`. Do not start another paid staging Run until that deploy. Story 3.38 does not replace this story or story 3.37.
 
 ### Story 3.37: Prove the live governed loop and reassess Epic 3
 
