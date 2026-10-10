@@ -2,7 +2,7 @@
 title: 'Retry a CourtListener request timeout and narrow the docket window'
 type: 'bugfix'
 created: '2026-10-10'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 baseline_commit: '16b6153b19fbfe91a88c733c55e9ea42d9f8afec'
 review_loop_iteration: 0
@@ -65,6 +65,22 @@ context:
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-10-10 — Review pass (`2f8df45`)
+- verdicts: 11 findings — high 0, medium 4, low 2, false 5, maybe-false 0. Edge-case hunter returned no findings.
+- survivors: 6 patch (event-date cutoff pin, independent URL cutoff, one network call, console `elapsedMs`, prior-429 call order, header sentence and warn restore)
+- findings:
+  - `[false]` `[reject]` Fatal timeout drops earlier `timeouts` and earlier pages (blind-hunter) — the skip is specified to carry the last attempt, and each attempt is logged before the throw. The summary array is the success-path record. A fatal throw has no summary.
+  - `[false]` `[reject]` Same-page 429 then a final timeout stays `timeout` (blind-hunter) — a terminal `TimeoutError` stays `timeout`. `seenRateLimit` selects only the pace-stop reason. The matrix row is a 429 on another request, and that skip stays `timeout`.
+  - `[low]` `[patch]` The prior-429 hang test never shows Illinois was answered before the hang (blind-hunter) — `check()` waits are instant, so 60s is enough for three 20s hangs. The test still did not record the 429. Fixed: Illinois is called twice before docket `72237443` hangs three times.
+  - `[medium]` `[patch]` Credential and pagination URL checks round-trip `date_filed__gte` (blind-hunter) — a missing or shifted cutoff still matched. Fixed: those URLs must equal `entriesUrl` for the known baseline, including Furcolo `2026-09-12` after the published development.
+  - `[false]` `[reject]` A `next` link that omits the filter reopens the window (blind-hunter) — the spec says follow `next`. `pollDocket` still skips `date < baseline`, so a later page cannot draft the day before.
+  - `[false]` `[reject]` A non-ISO baseline omits the filter and widens the pull (blind-hunter) — `occurred_at` and `sources.published_at` are `YYYY-MM-DD` checks, so `pollDocket` cannot read a non-ISO baseline. Omitting an invalid cutoff does not drop entries.
+  - `[false]` `[reject]` Timeout retries are not shown to obey pace, budget, and the deadline (blind-hunter) — `spaces timeout retries` requires two 15s waits and exactly 3 fetches, so a retry that skips `pace` fails. The budget and deadline checks are inside that `pace`, which the existing stop tests cover.
+  - `[low]` `[patch]` The header says 429 retries only, and a failed expect leaves `console.warn` mocked (blind-hunter) — the log and `run.failed {reason:"error"}` claims are already specified and tested. Fixed: the header no longer says "only", and both warn spies restore in `finally`.
+  - `[medium]` `[patch]` `date_filed__gte` is not pinned when the event date differs from `published_at` (verification-gap) — sending `2026-05-21` would still pass. Fixed: the published-development test expects `date_filed__gte=2026-09-12`.
+  - `[medium]` `[patch]` A thrown network error can be retried without failing its test (verification-gap) — the catch throws on the first non-timeout, but the test never counted calls. Fixed: that test expects one call.
+  - `[medium]` `[patch]` The timeout console object is not checked for `elapsedMs` (verification-gap) — deleting the field from `console.warn` would still pass. Fixed: each hung-request warn argument includes `elapsedMs`.
 
 ## Design Notes
 

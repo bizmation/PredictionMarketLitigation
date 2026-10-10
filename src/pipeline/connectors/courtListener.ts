@@ -29,7 +29,7 @@ import {
  * An isolated 4xx or malformed body stays on that docket. When every polled
  * docket errors, the summary is still `source.fetched` and the connector
  * returns `failed: true` (story 3.23).
- * Story 3.38 paces request starts and retries HTTP 429 only. A per-request
+ * Story 3.38 paces request starts and retries HTTP 429. A per-request
  * timeout retries through that same pace clock. Other failures still fail
  * on the first response. An exhausted 429 is still source-level `http_429`.
  * An exhausted timeout that saw no 429 is source-level `timeout` with no

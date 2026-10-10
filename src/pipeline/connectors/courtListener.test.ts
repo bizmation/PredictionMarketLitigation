@@ -318,122 +318,137 @@ describe("CourtListener connector (story 3.21)", () => {
   );
 
   it("maps a thrown fetch to network", async () => {
-    stubFetch(() => ({ throws: new TypeError("fetch failed") }));
+    const calls = stubFetch(() => ({ throws: new TypeError("fetch failed") }));
     const runId = await newRun();
     expect(await runConnector(testEnv.DB, runId, SOURCE, check())).toEqual({
       draftCount: 0,
       failed: true
     });
+    expect(calls).toHaveLength(1);
     expect(await skippedReason(runId)).toMatchObject({ reason: "network" });
   });
 
   it("times out a hung request at the per-request deadline and skips the source as timeout", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    stubFetch((docketId) =>
-      docketId === FURCOLO ? { hang: true } : { status: 200 }
-    );
-    const runId = await newRun();
-    vi.useFakeTimers();
-    const pending = runConnector(testEnv.DB, runId, SOURCE, check());
-    await vi.advanceTimersByTimeAsync(COURTLISTENER_FETCH_TIMEOUT_MS * 3);
-    const result = await pending;
-    expect(vi.getTimerCount()).toBe(0);
-    vi.useRealTimers();
-    expect(result).toEqual({ draftCount: 0, failed: true });
-    const skipped = await skippedReason(runId);
-    expect(skipped).toMatchObject({
-      reason: "timeout",
-      docketId: FURCOLO,
-      requestKind: "docket-entries",
-      timeoutMs: COURTLISTENER_FETCH_TIMEOUT_MS,
-      attempt: COURTLISTENER_MAX_ATTEMPTS,
-      elapsedMs: COURTLISTENER_FETCH_TIMEOUT_MS
-    });
-    expect(skipped).not.toHaveProperty("status");
-    expect(warn).toHaveBeenCalledTimes(COURTLISTENER_MAX_ATTEMPTS);
-    expect(JSON.stringify(warn.mock.calls)).not.toContain(TOKEN);
-    warn.mockRestore();
-    await completeDailyStep(testEnv.DB, runId, {
-      draftCount: result.draftCount,
-      anyFailure: result.failed
-    });
-    expect(
-      (await evidenceRepo.listByRun(testEnv.DB, runId)).some(
-        (event) =>
-          event.event === "run.failed" &&
-          (event.payload as { reason?: string }).reason === "error"
-      )
-    ).toBe(true);
+    try {
+      stubFetch((docketId) =>
+        docketId === FURCOLO ? { hang: true } : { status: 200 }
+      );
+      const runId = await newRun();
+      vi.useFakeTimers();
+      const pending = runConnector(testEnv.DB, runId, SOURCE, check());
+      await vi.advanceTimersByTimeAsync(COURTLISTENER_FETCH_TIMEOUT_MS * 3);
+      const result = await pending;
+      expect(vi.getTimerCount()).toBe(0);
+      vi.useRealTimers();
+      expect(result).toEqual({ draftCount: 0, failed: true });
+      const skipped = await skippedReason(runId);
+      expect(skipped).toMatchObject({
+        reason: "timeout",
+        docketId: FURCOLO,
+        requestKind: "docket-entries",
+        timeoutMs: COURTLISTENER_FETCH_TIMEOUT_MS,
+        attempt: COURTLISTENER_MAX_ATTEMPTS,
+        elapsedMs: COURTLISTENER_FETCH_TIMEOUT_MS
+      });
+      expect(skipped).not.toHaveProperty("status");
+      expect(warn).toHaveBeenCalledTimes(COURTLISTENER_MAX_ATTEMPTS);
+      for (const [fact] of warn.mock.calls) {
+        expect(fact).toMatchObject({
+          elapsedMs: COURTLISTENER_FETCH_TIMEOUT_MS
+        });
+      }
+      expect(JSON.stringify(warn.mock.calls)).not.toContain(TOKEN);
+      await completeDailyStep(testEnv.DB, runId, {
+        draftCount: result.draftCount,
+        anyFailure: result.failed
+      });
+      expect(
+        (await evidenceRepo.listByRun(testEnv.DB, runId)).some(
+          (event) =>
+            event.event === "run.failed" &&
+            (event.payload as { reason?: string }).reason === "error"
+        )
+      ).toBe(true);
+    } finally {
+      vi.useRealTimers();
+      warn.mockRestore();
+    }
   });
 
   it("retries a timeout through pace and keeps a recovered entry", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const waits: number[] = [];
-    let clock = 0;
-    let timeouts = 0;
-    const fetchImpl = vi.fn(async (input: string) => {
-      const docketId = new URL(input).searchParams.get("docket");
-      if (docketId === FURCOLO && timeouts === 0) {
-        timeouts += 1;
-        throw new DOMException("timed out", "TimeoutError");
-      }
-      return {
-        status: 200,
-        ok: true,
-        headers: new Headers(),
-        json: async () => ({
-          results:
-            docketId === FURCOLO
-              ? [
-                  {
-                    id: 88001,
-                    entry_number: 1,
-                    date_filed: "2026-09-18",
-                    description: "Recovered after timeout."
-                  }
-                ]
-              : []
-        }),
-        text: async () => ""
-      };
-    });
-    const runId = await newRun();
-    const result = await runConnector(
-      testEnv.DB,
-      runId,
-      SOURCE,
-      check(TOKEN, {
-        fetchImpl,
-        nowMs: () => clock,
-        wait: async (ms) => {
-          waits.push(ms);
-          clock += ms;
+    try {
+      const waits: number[] = [];
+      let clock = 0;
+      let timeouts = 0;
+      const fetchImpl = vi.fn(async (input: string) => {
+        const docketId = new URL(input).searchParams.get("docket");
+        if (docketId === FURCOLO && timeouts === 0) {
+          timeouts += 1;
+          throw new DOMException("timed out", "TimeoutError");
         }
-      })
-    );
-    expect(result).toEqual({ draftCount: 1, failed: false });
-    expect(waits.at(-1)).toBe(COURTLISTENER_MIN_INTERVAL_MS);
-    expect(timeouts).toBe(1);
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0]?.[0]).toMatchObject({
-      event: "courtlistener_request_timeout",
-      requestKind: "docket-entries",
-      docketId: FURCOLO,
-      timeoutMs: COURTLISTENER_FETCH_TIMEOUT_MS,
-      attempt: 1
-    });
-    expect(JSON.stringify(warn.mock.calls)).not.toContain(TOKEN);
-    warn.mockRestore();
-    expect(docketSummary(await fetchedPayload(runId), FURCOLO)).toMatchObject({
-      timeouts: [
+        return {
+          status: 200,
+          ok: true,
+          headers: new Headers(),
+          json: async () => ({
+            results:
+              docketId === FURCOLO
+                ? [
+                    {
+                      id: 88001,
+                      entry_number: 1,
+                      date_filed: "2026-09-18",
+                      description: "Recovered after timeout."
+                    }
+                  ]
+                : []
+          }),
+          text: async () => ""
+        };
+      });
+      const runId = await newRun();
+      const result = await runConnector(
+        testEnv.DB,
+        runId,
+        SOURCE,
+        check(TOKEN, {
+          fetchImpl,
+          nowMs: () => clock,
+          wait: async (ms) => {
+            waits.push(ms);
+            clock += ms;
+          }
+        })
+      );
+      expect(result).toEqual({ draftCount: 1, failed: false });
+      expect(waits.at(-1)).toBe(COURTLISTENER_MIN_INTERVAL_MS);
+      expect(timeouts).toBe(1);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]?.[0]).toMatchObject({
+        event: "courtlistener_request_timeout",
+        requestKind: "docket-entries",
+        docketId: FURCOLO,
+        timeoutMs: COURTLISTENER_FETCH_TIMEOUT_MS,
+        attempt: 1
+      });
+      expect(JSON.stringify(warn.mock.calls)).not.toContain(TOKEN);
+      expect(docketSummary(await fetchedPayload(runId), FURCOLO)).toMatchObject(
         {
-          requestKind: "docket-entries",
-          docketId: FURCOLO,
-          timeoutMs: COURTLISTENER_FETCH_TIMEOUT_MS,
-          attempt: 1
+          timeouts: [
+            {
+              requestKind: "docket-entries",
+              docketId: FURCOLO,
+              timeoutMs: COURTLISTENER_FETCH_TIMEOUT_MS,
+              attempt: 1
+            }
+          ]
         }
-      ]
-    });
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("spaces timeout retries and does not report them as http_429", async () => {
@@ -475,7 +490,7 @@ describe("CourtListener connector (story 3.21)", () => {
 
   it("keeps a later timeout as timeout after another docket recovered from 429", async () => {
     let illinois = 0;
-    stubFetch((docketId) => {
+    const calls = stubFetch((docketId) => {
       if (docketId === ILLINOIS) {
         illinois += 1;
         if (illinois === 1) {
@@ -504,6 +519,16 @@ describe("CourtListener connector (story 3.21)", () => {
       attempt: 3
     });
     expect(skipped).not.toHaveProperty("status");
+    const docketOf = (url: string) => new URL(url).searchParams.get("docket");
+    const ids = calls.map(({ url }) => docketOf(url));
+    const firstHang = ids.indexOf("72237443");
+    expect(ids.slice(0, firstHang).filter((id) => id === ILLINOIS)).toEqual([
+      ILLINOIS,
+      ILLINOIS
+    ]);
+    expect(ids.filter((id) => id === "72237443")).toHaveLength(
+      COURTLISTENER_MAX_ATTEMPTS
+    );
   });
 
   it("drafts entries on the baseline date and the next day, and not the day before", async () => {
@@ -770,7 +795,7 @@ describe("CourtListener connector (story 3.21)", () => {
   });
 
   it("uses the latest published development as the baseline and skips entries already Drafted (any outcome)", async () => {
-    stubFetch((docketId) =>
+    const calls = stubFetch((docketId) =>
       docketId === FURCOLO
         ? { status: 200, body: { results: ENTRIES } }
         : { status: 200 }
@@ -818,6 +843,12 @@ describe("CourtListener connector (story 3.21)", () => {
       newEntries: 0,
       seen: 2
     });
+    const furcolo = calls.find(
+      ({ url }) => new URL(url).searchParams.get("docket") === FURCOLO
+    );
+    expect(new URL(furcolo!.url).searchParams.get("date_filed__gte")).toBe(
+      "2026-09-12"
+    );
     expect(
       (await evidenceRepo.listByRun(testEnv.DB, runId)).some(
         (e) => e.event === "source.skipped"
@@ -1179,15 +1210,17 @@ describe("CourtListener credential boundary (story 3.27)", () => {
         ({ url }) => new URL(url).searchParams.get("docket") === FURCOLO
       )
     ).toHaveLength(1);
+    const cutoff = new Map([
+      [FURCOLO, "2026-09-12"],
+      [ILLINOIS, "2026-04-02"],
+      ["73242633", "2026-04-24"],
+      ["72237443", "2025-11-28"]
+    ]);
     expect(
-      calls.every(
-        ({ url }) =>
-          url ===
-          entriesUrl(
-            new URL(url).searchParams.get("docket")!,
-            new URL(url).searchParams.get("date_filed__gte")
-          )
-      )
+      calls.every(({ url }) => {
+        const docket = new URL(url).searchParams.get("docket");
+        return docket != null && url === entriesUrl(docket, cutoff.get(docket));
+      })
     ).toBe(true);
     const payload = await fetchedPayload(runId);
     expect(docketSummary(payload, FURCOLO)).toEqual({
@@ -1231,18 +1264,7 @@ describe("CourtListener credential boundary (story 3.27)", () => {
           ({ url }) => new URL(url).searchParams.get("docket") === FURCOLO
         )
         .map(({ url }) => url)
-    ).toEqual([
-      entriesUrl(
-        FURCOLO,
-        new URL(
-          calls.find(
-            ({ url }) => new URL(url).searchParams.get("docket") === FURCOLO
-          )!.url
-        ).searchParams.get("date_filed__gte")
-      ),
-      secondUrl,
-      thirdUrl
-    ]);
+    ).toEqual([entriesUrl(FURCOLO, "2026-09-12"), secondUrl, thirdUrl]);
   });
 
   it("does not report an all-docket unsafe pagination response as an empty success", async () => {
