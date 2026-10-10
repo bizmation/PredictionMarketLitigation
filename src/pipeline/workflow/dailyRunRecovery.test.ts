@@ -19,6 +19,7 @@ import {
   SourceUnavailableError,
   type SourceCheck
 } from "../connectors/connector";
+import { COURTLISTENER_MAX_ATTEMPTS } from "../connectors/courtListener";
 import { DailyRunWorkflow, type DailyRunParams } from "./dailyRun";
 import {
   ensureRun,
@@ -896,25 +897,28 @@ describe("3.32 review regressions", () => {
 
   it("fails a zero-draft Run when CourtListener 429 retries are exhausted", async () => {
     await configureCourtListener();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(
-        async () => new Response("Rate limit exceeded: 5/min.", { status: 429 })
-      )
+    const token = "local-test-token";
+    const fetcher = vi.fn(
+      async () =>
+        new Response(`Rate limit exceeded: 5/min. ${token}`, { status: 429 })
     );
+    vi.stubGlobal("fetch", fetcher);
     const h = harness(undefined);
     await h.run();
     expect((await state()).drafts).toHaveLength(0);
     expect((await state()).run?.status).toBe("failed");
-    expect((await state()).run?.status).not.toBe("empty");
     expect(h.provider.complete).not.toHaveBeenCalled();
-    expect(
-      (await state()).evidence.some(
-        (event) =>
-          event.event === "source.skipped" &&
-          (event.payload as { reason?: string }).reason === "http_429"
-      )
-    ).toBe(true);
+    expect(fetcher).toHaveBeenCalledTimes(COURTLISTENER_MAX_ATTEMPTS);
+    const skipped = (await state()).evidence.find(
+      (event) => event.event === "source.skipped"
+    );
+    expect(skipped?.payload).toMatchObject({
+      reason: "http_429",
+      status: 429,
+      attempts: COURTLISTENER_MAX_ATTEMPTS,
+      detail: "Rate limit exceeded: 5/min. [redacted]"
+    });
+    expect(JSON.stringify((await state()).evidence)).not.toContain(token);
   });
 
   it("rejects duplicate names at shared validation and before configuration history writes", async () => {

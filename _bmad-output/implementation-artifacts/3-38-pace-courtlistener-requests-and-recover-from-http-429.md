@@ -4,7 +4,7 @@ baseline_commit: 85850d2b376bc56b194cffe6a173e87b36378b6b
 
 # Story 3.38: Pace CourtListener requests and recover from HTTP 429
 
-Status: in-progress
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -77,12 +77,12 @@ so that a normal daily Run finishes instead of failing before any Draft exists.
 
 ### Review Findings (re-review of 3cfdc02, 2026-10-10)
 
-- [ ] [Review][Patch] Real `defaultWait` test still doesn't prove spacing: "clears the real wait timer" advances 45 s once and checks 4 calls, which also passes if `defaultWait` resolves immediately. Assert 1 call at 14.9 s and 2 calls at 15 s, then the same for the 60 s 429 backoff (medium) [src/pipeline/connectors/courtListener.test.ts:1622]
-- [ ] [Review][Patch] The `+ SOURCE_FETCH_TIMEOUT_MS` margin in the poll-deadline check isn't pinned: both deadline tests have wait > timeLeft without the margin, so dropping it still passes. Add a moving-clock case with waitMs <= timeLeft < waitMs + 12 s that stops before fetching, and a just-outside case that still fetches (medium) [src/pipeline/connectors/courtListener.ts:772-776]
-- [ ] [Review][Patch] The poll-deadline check is skipped when no wait is needed: `if (waitMs <= 0) return;` runs before the `timeLeft` check, so a request whose spacing already elapsed can start with under 12 s left and end as the generic deadline skip. Move the time-left check ahead of the early return (low) [src/pipeline/connectors/courtListener.ts:771]
-- [ ] [Review][Patch] A spacing-only stop still says "rate limit wait budget exhausted" under `reason: "timeout"`, which tells the public log a rate limit happened when none did. Use neutral detail (e.g. "wait budget exhausted") when no 429 was seen (low) [src/pipeline/connectors/courtListener.ts:779]
-- [ ] [Review][Patch] Five-docket test timing is wrong and its assertions are loose: pacing is measured from request start, so with 11 s fetches the gaps are 4 s and the poll ends at about 71 s, not 115 s. `60 s < elapsed < 480 s` checks total advanced time, not when the poll finished. Fix the comment and assert the finish time within a small tolerance (low) [src/pipeline/connectors/courtListener.test.ts:761]
-- [ ] [Review][Patch] The workflow exhausted-429 test only checks that some `http_429` skip exists. Also assert `status: 429`, `attempts: 3`, the scrubbed `detail`, fetch count = `COURTLISTENER_MAX_ATTEMPTS`, and that the token never appears in evidence (low) [src/pipeline/workflow/dailyRunRecovery.test.ts:897]
+- [x] [Review][Patch] Real `defaultWait` test still doesn't prove spacing: "clears the real wait timer" advances 45 s once and checks 4 calls, which also passes if `defaultWait` resolves immediately. Assert 1 call at 14.9 s and 2 calls at 15 s, then the same for the 60 s 429 backoff (medium) [src/pipeline/connectors/courtListener.test.ts:1622]
+- [x] [Review][Patch] The `+ SOURCE_FETCH_TIMEOUT_MS` margin in the poll-deadline check isn't pinned: both deadline tests have wait > timeLeft without the margin, so dropping it still passes. Add a moving-clock case with waitMs <= timeLeft < waitMs + 12 s that stops before fetching, and a just-outside case that still fetches (medium) [src/pipeline/connectors/courtListener.ts:772-776]
+- [x] [Review][Patch] The poll-deadline check is skipped when no wait is needed: `if (waitMs <= 0) return;` runs before the `timeLeft` check, so a request whose spacing already elapsed can start with under 12 s left and end as the generic deadline skip. Move the time-left check ahead of the early return (low) [src/pipeline/connectors/courtListener.ts:771]
+- [x] [Review][Patch] A spacing-only stop still says "rate limit wait budget exhausted" under `reason: "timeout"`, which tells the public log a rate limit happened when none did. Use neutral detail (e.g. "wait budget exhausted") when no 429 was seen (low) [src/pipeline/connectors/courtListener.ts:779]
+- [x] [Review][Patch] Five-docket test timing is wrong and its assertions are loose: pacing is measured from request start, so with 11 s fetches the gaps are 4 s and the poll ends at about 71 s, not 115 s. `60 s < elapsed < 480 s` checks total advanced time, not when the poll finished. Fix the comment and assert the finish time within a small tolerance (low) [src/pipeline/connectors/courtListener.test.ts:761]
+- [x] [Review][Patch] The workflow exhausted-429 test only checks that some `http_429` skip exists. Also assert `status: 429`, `attempts: 3`, the scrubbed `detail`, fetch count = `COURTLISTENER_MAX_ATTEMPTS`, and that the token never appears in evidence (low) [src/pipeline/workflow/dailyRunRecovery.test.ts:897]
 
 #### Rejected (re-review)
 
@@ -183,7 +183,13 @@ Grok 4.7
 - ✅ Resolved review finding [low]: The run-ownership guard runs after the pace wait and immediately before the request.
 - ✅ Resolved review finding [low]: HTTP-date `Retry-After` uses the injected `nowMs` clock.
 - ✅ Resolved review finding [low]: HTTP-date fixtures use Saturday 10 Oct 2026 and Sunday 11 Oct 2026.
-- ✅ Resolved review finding [low]: The five-docket poll is still running at 60 seconds and finishes inside the 8-minute poll budget. Five 11-second fetches plus four 15-second gaps are 115 seconds.
+- ✅ Resolved review finding [low]: The five-docket poll is still running just before it finishes and completes inside the 8-minute poll budget. Pacing is measured from request start, so 11-second fetches leave 4-second gaps and the poll finishes at 71 seconds, not 115.
+- ✅ Resolved review finding [medium]: Real waits are asserted at 14.9 s (1 call) and 15 s (2 calls), and the same way for a 60-second 429 backoff.
+- ✅ Resolved review finding [medium]: A moving clock with `waitMs <= timeLeft < waitMs + 12 s` stops before the fetch. The equal boundary `timeLeft = waitMs + 12 s` still fetches.
+- ✅ Resolved review finding [low]: The poll-deadline check runs even when no spacing wait is needed, so a request with under 12 seconds left does not start.
+- ✅ Resolved review finding [low]: A spacing-only stop uses detail `wait budget exhausted`. `rate limit wait budget exhausted` stays for a stop after a real 429.
+- ✅ Resolved review finding [low]: The exhausted-429 workflow test asserts status 429, 3 attempts, scrubbed detail, fetch count `COURTLISTENER_MAX_ATTEMPTS`, and that the token is absent from evidence.
+- Re-review verification: `npm run check` exited 0. `npm test` exited 0: 1,498 passed, 6 skipped, 63 files. No deploy, staging, production, or paid-provider call. Rejected re-review items were left unchanged.
 - ✅ Resolved review finding [low]: `timeouts.ts` describes `pollTimeoutMs` as the CourtListener per-check deadline. The constants in that module stay fixed.
 - Review follow-up verification: `npm run check` exited 0. `npm test` exited 0: 1,495 passed, 6 skipped, 63 files. No deploy, staging, production, or paid-provider call. The deferred epics.md item and the rejected findings were left unchanged.
 
@@ -210,3 +216,4 @@ Grok 4.7
 - 2026-10-10: Patrick asked for a 3.36 blocker note. Status value of 3.36 stays `in-progress`. Live acceptance is blocked on 3.38 merge and deploy.
 - 2026-10-10: Implemented pacing and bounded 429 recovery. `npm run check` and `npm test` passed. Status review.
 - 2026-10-10: Addressed code review findings - 12 items resolved (Date: 2026-10-10). Status review.
+- 2026-10-10: Addressed code review findings - 6 items resolved (Date: 2026-10-10). The five-docket poll finishes at 71 seconds. Status review.

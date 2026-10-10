@@ -4,10 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as draftsRepo from "../../shared/db/repos/draftsRepo";
 import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
-import {
-  CONNECTOR_TIMEOUT_MS,
-  SOURCE_FETCH_TIMEOUT_MS
-} from "../../shared/lib/timeouts";
+import { SOURCE_FETCH_TIMEOUT_MS } from "../../shared/lib/timeouts";
 import { completeDailyStep } from "../workflow/dailyRunSteps";
 import { runConnector } from "./connector";
 import {
@@ -757,9 +754,11 @@ describe("CourtListener connector (story 3.21)", () => {
       )
     ]);
     try {
-      // Five 11 s fetches plus four 15 s gaps is 115 s: past the generic
-      // 60 s deadline, inside the 8-minute CourtListener poll.
+      // Pacing is measured from request start. An 11 s fetch leaves a 4 s
+      // gap, so five starts finish at 71 s: past the generic 60 s deadline
+      // and inside the 8-minute CourtListener poll.
       const SLOW_MS = SOURCE_FETCH_TIMEOUT_MS - 1_000;
+      const finishMs = 4 * COURTLISTENER_MIN_INTERVAL_MS + SLOW_MS;
       vi.stubGlobal(
         "fetch",
         vi.fn(
@@ -772,24 +771,22 @@ describe("CourtListener connector (story 3.21)", () => {
       const runId = await newRun();
       vi.useFakeTimers();
       const started = Date.now();
-      let settled = false;
+      let finishedAt: number | null = null;
       const pending = runConnector(
         testEnv.DB,
         runId,
         SOURCE,
         check(TOKEN, { wait: undefined })
       ).finally(() => {
-        settled = true;
+        finishedAt = Date.now();
       });
-      await vi.advanceTimersByTimeAsync(CONNECTOR_TIMEOUT_MS);
-      expect(settled).toBe(false);
-      await vi.advanceTimersByTimeAsync(
-        5 * SLOW_MS + 4 * COURTLISTENER_MIN_INTERVAL_MS
-      );
+      await vi.advanceTimersByTimeAsync(finishMs - 100);
+      expect(finishedAt).toBeNull();
+      await vi.advanceTimersByTimeAsync(200);
       const result = await pending;
-      const elapsed = Date.now() - started;
-      expect(elapsed).toBeGreaterThan(CONNECTOR_TIMEOUT_MS);
-      expect(elapsed).toBeLessThan(COURTLISTENER_POLL_TIMEOUT_MS);
+      expect(finishedAt).not.toBeNull();
+      expect(finishedAt! - started).toBeGreaterThanOrEqual(finishMs - 100);
+      expect(finishedAt! - started).toBeLessThanOrEqual(finishMs + 100);
       expect(vi.getTimerCount()).toBe(0);
       vi.useRealTimers();
       expect(result).toEqual({ draftCount: 0, failed: false });
@@ -1403,7 +1400,7 @@ describe("CourtListener rate limit (story 3.38)", () => {
     const skipped = await skippedReason(runId);
     expect(skipped).toMatchObject({
       reason: "timeout",
-      detail: "rate limit wait budget exhausted",
+      detail: "wait budget exhausted",
       docketId: "72237443"
     });
     expect(skipped).not.toHaveProperty("status");
@@ -1619,7 +1616,7 @@ describe("CourtListener rate limit (story 3.38)", () => {
     vi.useRealTimers();
   });
 
-  it("clears the real wait timer after a completed interval", async () => {
+  it("spaces real waits at 15 s and a 429 backoff at 60 s", async () => {
     const calls = stubFetch(() => ({ status: 200, body: { results: [] } }));
     const runId = await newRun();
     vi.useFakeTimers();
@@ -1629,10 +1626,122 @@ describe("CourtListener rate limit (story 3.38)", () => {
       SOURCE,
       check(TOKEN, { wait: undefined })
     );
-    await vi.advanceTimersByTimeAsync(3 * COURTLISTENER_MIN_INTERVAL_MS + 50);
+    await vi.advanceTimersByTimeAsync(14_900);
+    expect(calls).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(calls).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(3 * COURTLISTENER_MIN_INTERVAL_MS);
     expect(await pending).toEqual({ draftCount: 0, failed: false });
-    expect(calls).toHaveLength(4);
     expect(vi.getTimerCount()).toBe(0);
     vi.useRealTimers();
+
+    let hits = 0;
+    const retries = stubFetch(() => {
+      hits += 1;
+      if (hits === 1) {
+        return { status: 429, text: "Rate limit exceeded: 5/min." };
+      }
+      return { status: 200, body: { results: [] } };
+    });
+    const retryRun = await newRun();
+    vi.useFakeTimers();
+    const retrying = runConnector(
+      testEnv.DB,
+      retryRun,
+      SOURCE,
+      check(TOKEN, { wait: undefined })
+    );
+    await vi.advanceTimersByTimeAsync(59_900);
+    expect(retries).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(retries).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(COURTLISTENER_POLL_TIMEOUT_MS);
+    await retrying;
+    expect(vi.getTimerCount()).toBe(0);
+    vi.useRealTimers();
+  });
+
+  it("stops when only the fetch margin would miss the poll deadline", async () => {
+    const waits: number[] = [];
+    let clock = 0;
+    const timeLeft = COURTLISTENER_MIN_INTERVAL_MS + 5_000;
+    const calls = stubFetch(() => ({ status: 200, body: { results: [] } }));
+    const runId = await newRun();
+    expect(
+      await runConnector(
+        testEnv.DB,
+        runId,
+        SOURCE,
+        check(TOKEN, {
+          nowMs: () => clock,
+          wait: async (ms) => {
+            waits.push(ms);
+            clock = COURTLISTENER_POLL_TIMEOUT_MS - timeLeft;
+          }
+        })
+      )
+    ).toEqual({ draftCount: 0, failed: true });
+    expect(calls).toHaveLength(2);
+    expect(waits).toEqual([COURTLISTENER_MIN_INTERVAL_MS]);
+    const skipped = await skippedReason(runId);
+    expect(skipped).toMatchObject({
+      reason: "timeout",
+      detail: "poll deadline would not fit the next request",
+      docketId: "73242633"
+    });
+    expect(skipped).not.toHaveProperty("status");
+    expect(timeLeft).toBeGreaterThanOrEqual(COURTLISTENER_MIN_INTERVAL_MS);
+    expect(timeLeft).toBeLessThan(
+      COURTLISTENER_MIN_INTERVAL_MS + SOURCE_FETCH_TIMEOUT_MS
+    );
+  });
+
+  it("still fetches when the wait plus one request just fits the poll deadline", async () => {
+    const waits: number[] = [];
+    let clock = 0;
+    const timeLeft = COURTLISTENER_MIN_INTERVAL_MS + SOURCE_FETCH_TIMEOUT_MS;
+    const calls = stubFetch(() => ({ status: 200, body: { results: [] } }));
+    const runId = await newRun();
+    expect(
+      await runConnector(
+        testEnv.DB,
+        runId,
+        SOURCE,
+        check(TOKEN, {
+          nowMs: () => clock,
+          wait: async (ms) => {
+            waits.push(ms);
+            clock = COURTLISTENER_POLL_TIMEOUT_MS - timeLeft;
+          }
+        })
+      )
+    ).toEqual({ draftCount: 0, failed: false });
+    expect(calls.length).toBeGreaterThanOrEqual(3);
+    expect(waits[1]).toBe(COURTLISTENER_MIN_INTERVAL_MS);
+  });
+
+  it("stops a zero-wait request when one fetch would miss the poll deadline", async () => {
+    let clock = 0;
+    const calls = stubFetch(() => {
+      clock = COURTLISTENER_POLL_TIMEOUT_MS - SOURCE_FETCH_TIMEOUT_MS + 1_000;
+      return { status: 200, body: { results: [] } };
+    });
+    const runId = await newRun();
+    expect(
+      await runConnector(
+        testEnv.DB,
+        runId,
+        SOURCE,
+        check(TOKEN, { nowMs: () => clock })
+      )
+    ).toEqual({ draftCount: 0, failed: true });
+    expect(calls).toHaveLength(1);
+    const skipped = await skippedReason(runId);
+    expect(skipped).toMatchObject({
+      reason: "timeout",
+      detail: "poll deadline would not fit the next request",
+      docketId: "72237443"
+    });
+    expect(skipped).not.toHaveProperty("status");
   });
 });

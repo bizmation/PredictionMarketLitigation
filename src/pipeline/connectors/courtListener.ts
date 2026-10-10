@@ -768,19 +768,25 @@ export function createCourtListenerCheck(
           ? 0
           : Math.max(0, COURTLISTENER_MIN_INTERVAL_MS - elapsed);
       const waitMs = Math.max(intervalWait, extraMs);
-      if (waitMs <= 0) return;
       const timeLeft =
         COURTLISTENER_POLL_TIMEOUT_MS - (nowMs() - pollStartedAt);
-      const detail =
-        waitMs + SOURCE_FETCH_TIMEOUT_MS > timeLeft
-          ? "poll deadline would not fit the next request"
-          : waitSpent + waitMs > budget
-            ? "rate limit wait budget exhausted"
-            : null;
-      if (detail != null) {
-        // A real 429 keeps http_429. Spacing alone is a timeout with no status.
+      // A request with no spacing wait can still miss the poll if one fetch
+      // would not fit. Check that before returning.
+      if (waitMs + SOURCE_FETCH_TIMEOUT_MS > timeLeft) {
+        const detail = "poll deadline would not fit the next request";
         if (seenRateLimit) throw new DocketError("http_429", 429, detail);
         throw new DocketError("timeout", undefined, detail);
+      }
+      if (waitMs <= 0) return;
+      if (waitSpent + waitMs > budget) {
+        if (seenRateLimit) {
+          throw new DocketError(
+            "http_429",
+            429,
+            "rate limit wait budget exhausted"
+          );
+        }
+        throw new DocketError("timeout", undefined, "wait budget exhausted");
       }
       waitSpent += waitMs;
       await wait(waitMs, paceSignal);
