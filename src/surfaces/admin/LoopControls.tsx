@@ -33,13 +33,19 @@ type LoopControlsProps = {
   dev?: boolean;
   /** Injected latest row for tests. `null` is "no runs"; omit to fetch. */
   latest?: RunLogItem | null;
+  /** Undecided current-head count for an injected awaiting Run. */
+  pendingHeadCount?: number;
 };
 
 type LoopView =
   | { status: "loading" }
   | { status: "signedOut" }
   | { status: "timedOut" }
-  | { status: "ready"; latest: RunLogItem | null };
+  | {
+      status: "ready";
+      latest: RunLogItem | null;
+      pendingHeadCount: number | null;
+    };
 
 export const LOOP_TIMEOUT_NOTICE =
   "The latest Run status did not load within 15 seconds. Showing the last known state.";
@@ -145,6 +151,17 @@ function isRunLogItem(value: unknown): value is RunLogItem {
   );
 }
 
+function pendingHeadCountOf(body: unknown): number | null {
+  if (
+    body === null ||
+    typeof body !== "object" ||
+    !("pendingHeadCount" in body)
+  )
+    return null;
+  const value = (body as { pendingHeadCount: unknown }).pendingHeadCount;
+  return isNonNegativeInt(value) ? value : null;
+}
+
 function unwrapLatest(body: unknown): RunLogItem | null | undefined {
   if (body === null || typeof body !== "object" || !("latest" in body)) {
     return undefined;
@@ -164,6 +181,7 @@ function errorCode(body: unknown): string | null {
 
 export function LoopControls({
   latest: injectedLatest,
+  pendingHeadCount: injectedHeadCount,
   dev = false
 }: LoopControlsProps) {
   const injected = injectedLatest !== undefined;
@@ -171,6 +189,7 @@ export function LoopControls({
   const [reload, setReload] = useState(0);
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
   const [dispatches, setDispatches] = useState<RunDispatch[]>([]);
   const pendingRequest = useRef<PendingRequest | null>(null);
   const confirmationRequest = useRef<PendingRequest | null>(null);
@@ -234,7 +253,11 @@ export function LoopControls({
           setView({ status: "signedOut" });
           return;
         }
-        setView({ status: "ready", latest });
+        setView({
+          status: "ready",
+          latest,
+          pendingHeadCount: pendingHeadCountOf(body)
+        });
         // A poll that timed out earlier is no longer stale; other notices
         // (run trigger outcomes) stay until the next trigger clears them.
         setNotice((current) =>
@@ -431,6 +454,72 @@ export function LoopControls({
     }
   }
 
+  async function rejectRun(runId: string) {
+    setBusy(true);
+    setNotice(null);
+    try {
+      const res = await fetchWithTimeout(
+        `/api/admin/runs/${runId}/reject`,
+        {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "content-type": "application/json",
+            accept: "application/json"
+          },
+          body: "{}"
+        },
+        ADMIN_POST_TIMEOUT_MS
+      );
+      if (res.status === 403) {
+        setView({ status: "signedOut" });
+        setReload((value) => value + 1);
+        return;
+      }
+      let body: unknown = null;
+      try {
+        body = await res.json();
+      } catch {
+        body = null;
+      }
+      if (res.status === 409) {
+        setRejecting(false);
+        setNotice("This run cannot be rejected.");
+        setReload((value) => value + 1);
+        return;
+      }
+      if (!res.ok) {
+        setNotice(
+          "Reject did not complete. The run is unchanged until you confirm it again."
+        );
+        return;
+      }
+      const rejectedCount =
+        body &&
+        typeof body === "object" &&
+        "rejectedCount" in body &&
+        typeof body.rejectedCount === "number"
+          ? body.rejectedCount
+          : null;
+      setRejecting(false);
+      setNotice(
+        rejectedCount === null
+          ? `Run ${runId} rejected.`
+          : `Run ${runId} rejected. ${rejectedCount} drafts were rejected.`
+      );
+      setReload((value) => value + 1);
+    } catch (err) {
+      setNotice(
+        isTimeoutError(err)
+          ? "No answer within 30 seconds. The run may or may not have been rejected — the status below refreshes."
+          : "Reject outcome is unknown. Check this same Run again."
+      );
+      setReload((value) => value + 1);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (!injected && view.status === "signedOut") {
     return (
       <EmptyState
@@ -475,6 +564,11 @@ export function LoopControls({
     : view.status === "ready"
       ? view.latest
       : null;
+  const pendingHeadCount = injected
+    ? (injectedHeadCount ?? null)
+    : view.status === "ready"
+      ? view.pendingHeadCount
+      : null;
 
   return (
     <div className="loop-workspace">
@@ -503,6 +597,43 @@ export function LoopControls({
               View run evidence →
             </a>
           </p>
+          {latest.status === "awaiting" && pendingHeadCount !== null ? (
+            rejecting ? (
+              <div className="rejectbox">
+                <p>
+                  Reject {pendingHeadCount} undecided drafts in {latest.id}?
+                  Nothing will be published.
+                </p>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={busy}
+                  onClick={() => void rejectRun(latest.id)}
+                >
+                  Reject {pendingHeadCount} drafts
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  disabled={busy}
+                  onClick={() => setRejecting(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <p>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  disabled={busy}
+                  onClick={() => setRejecting(true)}
+                >
+                  Reject this run
+                </button>
+              </p>
+            )
+          ) : null}
           <details className="cost-details">
             <summary>Budget accounting details</summary>
             Budget accounting: {latest.spendCents} cents (includes estimates).

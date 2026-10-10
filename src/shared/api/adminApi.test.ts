@@ -1103,7 +1103,11 @@ describe("admin loop controls (story 3.12)", () => {
     await testEnv.DB.prepare("DELETE FROM runs").run();
     const res = await auth("/api/admin/loop");
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ latest: null, dispatches: [] });
+    expect(await res.json()).toEqual({
+      latest: null,
+      pendingHeadCount: null,
+      dispatches: []
+    });
   });
 
   it("defaults scheduledFor to today's ET date when omitted", async () => {
@@ -3007,5 +3011,290 @@ describe("Access-protected accounting reconciliation (3.31)", () => {
     );
     expect(res.status).toBe(400);
     expect(run).not.toHaveBeenCalled();
+  });
+});
+
+describe("admin run reject", () => {
+  const SENTENCE = "Rejected with the Run.";
+  const AT = "2026-04-17T15:00:00.000Z";
+
+  async function seedAwaiting(
+    runId: string,
+    scheduledFor: string,
+    status:
+      | "awaiting"
+      | "published"
+      | "failed"
+      | "stopped"
+      | "empty"
+      | "running" = "awaiting"
+  ) {
+    await runsRepo.insertRun(testEnv.DB, {
+      id: runId,
+      origin: "manual",
+      mode: "hitl",
+      status,
+      startedAt: AT,
+      completedAt: status === "running" ? null : AT,
+      spendCents: 0,
+      spendCurrency: "USD",
+      budgetCents: 100,
+      scheduledFor
+    });
+  }
+
+  async function seedDraft(
+    id: string,
+    runId: string,
+    options?: {
+      parentId?: string;
+      revision?: number;
+      outcome?: "approved" | "edited" | null;
+    }
+  ) {
+    const outcome = options?.outcome ?? null;
+    await testEnv.DB.prepare(
+      `INSERT INTO drafts (id, run_id, target_entity_type, target_entity_id, diff_json, body,
+        tier2_only, confidence, eval_summary_json, outcome, decided_at, decided_by, edited_body,
+        reject_reason, reject_reason_private, parent_draft_id, revision_index, created_at, updated_at)
+       VALUES (?, ?, 'states', 'st-nv', '{}', ?, 0, NULL, NULL, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?)`
+    )
+      .bind(
+        id,
+        runId,
+        `Body ${id}.`,
+        outcome,
+        outcome ? AT : null,
+        outcome ? "Earlier Operator" : null,
+        options?.parentId ?? null,
+        options?.revision ?? 0,
+        AT,
+        AT
+      )
+      .run();
+  }
+
+  function reject(runId: string, token?: string) {
+    const path = `/api/admin/runs/${runId}/reject`;
+    return token
+      ? jsonPost(token, path, {})
+      : get(path, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}"
+        });
+  }
+
+  it("rejects an anonymous caller and a cookie-only token with 403 and no writes", async () => {
+    const runId = "run-20260417-0a01";
+    await seedAwaiting(runId, "2026-04-17");
+    await seedDraft("d-cookie", runId);
+    const anonRes = await worker.fetch(reject(runId), realEnv());
+    expect(anonRes.status).toBe(403);
+    const token = await sign(EMAIL);
+    const cookieRes = await worker.fetch(
+      new Request(`https://pml.example.com/api/admin/runs/${runId}/reject`, {
+        method: "POST",
+        headers: {
+          cookie: `CF_Authorization=${token}`,
+          "content-type": "application/json"
+        },
+        body: "{}"
+      }),
+      realEnv()
+    );
+    expect(cookieRes.status).toBe(403);
+    expect((await draftRow("d-cookie")).outcome).toBeNull();
+    expect(await runStatus(runId)).toBe("awaiting");
+  });
+
+  it("rejects every undecided head, writes one evidence row, and leaves publication untouched", async () => {
+    const runId = "run-20260417-0a02";
+    await seedAwaiting(runId, "2026-04-17");
+    await seedDraft("d-parent", runId);
+    await seedDraft("d-child", runId, { parentId: "d-parent", revision: 1 });
+    await seedDraft("d-other", runId);
+    const before = await f1Snapshot();
+    const dockets = await testEnv.DB.prepare(
+      "SELECT COUNT(*) AS count FROM docket_events"
+    ).first<{ count: number }>();
+    const token = await sign(EMAIL);
+    const res = await worker.fetch(reject(runId, token), realEnv());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      runId,
+      status: "rejected",
+      rejectedCount: 2
+    });
+    expect(await runStatus(runId)).toBe("rejected");
+    const child = await draftRow("d-child");
+    const other = await draftRow("d-other");
+    const parent = await draftRow("d-parent");
+    expect(parent.outcome).toBeNull();
+    for (const row of [child, other]) {
+      expect(row.outcome).toBe("rejected");
+      expect(row.decided_by).toBe(DISPLAY_NAME);
+      expect(row.reject_reason).toBeNull();
+      expect(row.reject_reason_private).toBe(SENTENCE);
+    }
+    const evidence = await testEnv.DB.prepare(
+      `SELECT run_id, event, payload_json, created_at FROM evidence_events WHERE id = ?`
+    )
+      .bind(`run-completed-${runId}`)
+      .first<{
+        run_id: string;
+        event: string;
+        payload_json: string;
+        created_at: string;
+      }>();
+    expect(evidence).toMatchObject({
+      run_id: runId,
+      event: "run.completed",
+      created_at: child.decided_at
+    });
+    expect(JSON.parse(evidence!.payload_json)).toEqual({
+      status: "rejected",
+      rejectedCount: 2,
+      decidedBy: DISPLAY_NAME
+    });
+    expect(
+      await testEnv.DB.prepare(
+        `SELECT COUNT(*) AS count FROM evidence_events
+          WHERE run_id = ? AND event = 'gate.decided'`
+      )
+        .bind(runId)
+        .first<{ count: number }>()
+    ).toEqual({ count: 0 });
+    expect(await f1Snapshot()).toEqual(before);
+    expect(
+      await testEnv.DB.prepare(
+        "SELECT COUNT(*) AS count FROM docket_events"
+      ).first<{ count: number }>()
+    ).toEqual(dockets);
+    const detail = JSON.stringify(
+      await (await worker.fetch(get(`/api/runs/${runId}`), testEnv)).json()
+    );
+    const feed = await (await worker.fetch(get("/api/drafts"), testEnv)).text();
+    expect(detail).not.toContain(SENTENCE);
+    expect(feed).not.toContain(SENTENCE);
+    expect(detail).not.toContain("reject_reason_private");
+    const again = await worker.fetch(reject(runId, token), realEnv());
+    expect(again.status).toBe(409);
+    expect(await evidenceCount(`run-completed-${runId}`)).toBe(1);
+    expect((await draftRow("d-child")).decided_at).toBe(child.decided_at);
+  });
+
+  it("rolls back when the evidence id is already taken", async () => {
+    const runId = "run-20260417-0a03";
+    await seedAwaiting(runId, "2026-04-17");
+    await seedDraft("d-atomic", runId);
+    await testEnv.DB.prepare(
+      `INSERT INTO evidence_events (id, run_id, seq, event, payload_json, created_at)
+       VALUES (?, ?, 0, 'run.started', '{}', ?)`
+    )
+      .bind(`run-completed-${runId}`, runId, AT)
+      .run();
+    const res = await worker.fetch(reject(runId, await sign(EMAIL)), realEnv());
+    expect(res.status).toBe(409);
+    expect((await draftRow("d-atomic")).outcome).toBeNull();
+    expect(await runStatus(runId)).toBe("awaiting");
+  });
+
+  it("refuses a run that is not awaiting, an unknown id, and an approved head", async () => {
+    const published = "run-20260418-0b01";
+    await seedAwaiting(published, "2026-04-18", "published");
+    await seedDraft("d-published", published);
+    const token = await sign(EMAIL);
+    expect(
+      (await worker.fetch(reject(published, token), realEnv())).status
+    ).toBe(409);
+    expect(await runStatus(published)).toBe("published");
+    expect((await draftRow("d-published")).outcome).toBeNull();
+    expect(
+      (await worker.fetch(reject("run-20260419-0c01", token), realEnv())).status
+    ).toBe(404);
+    const mixed = "run-20260420-0d01";
+    await seedAwaiting(mixed, "2026-04-20");
+    await seedDraft("d-approved", mixed, { outcome: "approved" });
+    await seedDraft("d-open", mixed);
+    expect((await worker.fetch(reject(mixed, token), realEnv())).status).toBe(
+      409
+    );
+    expect(await runStatus(mixed)).toBe("awaiting");
+    expect((await draftRow("d-open")).outcome).toBeNull();
+    expect((await draftRow("d-approved")).outcome).toBe("approved");
+    const getRes = await worker.fetch(
+      signed(token, `/api/admin/runs/${mixed}/reject`, { method: "GET" }),
+      realEnv()
+    );
+    expect(getRes.status).toBe(405);
+    expect(getRes.headers.get("allow")).toBe("POST");
+  });
+
+  it("lets a settled rejected date through dailyRun admission and still blocks reserved cents", async () => {
+    const clearId = "run-20260421-0e01";
+    const heldId = "run-20260422-0f01";
+    await seedAwaiting(clearId, "2026-04-21");
+    await seedAwaiting(heldId, "2026-04-22");
+    await seedDraft("d-clear", clearId);
+    await seedDraft("d-held", heldId);
+    for (const runId of [clearId, heldId]) {
+      await testEnv.DB.prepare(
+        `INSERT INTO run_admissions
+          (run_id, scheduled_for, request_id, instance_id, state, entered, finished, released)
+         VALUES (?, ?, ?, ?, 'confirmed', 1, 1, 0)`
+      )
+        .bind(
+          runId,
+          runId === clearId ? "2026-04-21" : "2026-04-22",
+          `req-${runId}`,
+          `daily-${runId}`
+        )
+        .run();
+    }
+    const token = await sign(EMAIL);
+    expect((await worker.fetch(reject(clearId, token), realEnv())).status).toBe(
+      200
+    );
+    expect((await worker.fetch(reject(heldId, token), realEnv())).status).toBe(
+      200
+    );
+    await testEnv.DB.prepare(
+      `INSERT INTO llm_operations
+        (id, run_id, logical_key, fingerprint, role, state, owner, bound_cents, liability_cents, policy_json, created_at)
+       VALUES ('op-held-0f01', ?, 'hold', 'fp-hold', 'drafter', 'reserved', 'test', 5, 5, '{}', ?)`
+    )
+      .bind(heldId, AT)
+      .run();
+    const workflow = { create: vi.fn(async () => ({})) };
+    const env = {
+      ...realEnv(),
+      DAILY_RUN: workflow
+    } as unknown as Env;
+    const admitted = await worker.fetch(
+      jsonPost(token, "/api/admin/runs", {
+        origin: "manual",
+        scheduledFor: "2026-04-21",
+        requestId: "admit-after-reject"
+      }),
+      env
+    );
+    expect(admitted.status).toBe(200);
+    const created = (await admitted.json()) as { id: string; status: string };
+    expect(created.id).not.toBe(clearId);
+    expect(created.status).toBe("running");
+    expect(workflow.create).toHaveBeenCalled();
+    const blocked = await worker.fetch(
+      jsonPost(token, "/api/admin/runs", {
+        origin: "manual",
+        scheduledFor: "2026-04-22",
+        requestId: "blocked-after-reject"
+      }),
+      env
+    );
+    expect(blocked.status).toBe(409);
+    expect(await runsRepo.listRunIdsForDate(testEnv.DB, "2026-04-22")).toEqual([
+      heldId
+    ]);
   });
 });

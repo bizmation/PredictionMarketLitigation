@@ -668,4 +668,51 @@ describe("tab-local request recovery and confirmation", () => {
       );
     }
   );
+
+  it("confirms the undecided count before rejecting and ignores J, K, A, E, and R", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/reject") && init?.method === "POST") {
+          return scripted({
+            runId: "run-20261111-0000",
+            status: "rejected",
+            rejectedCount: 4
+          });
+        }
+        return scripted({
+          latest: item({
+            status: "awaiting",
+            completedAt: null,
+            approvalOutcome: null
+          }),
+          pendingHeadCount: 4,
+          dispatches: []
+        });
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LoopControls />);
+    await act(async () => {});
+    for (const key of ["j", "k", "a", "e", "r"]) {
+      fireEvent.keyDown(document.body, { key });
+    }
+    expect(
+      fetchMock.mock.calls.some((call) => String(call[0]).includes("/reject"))
+    ).toBe(false);
+    const open = screen.getByRole("button", { name: "Reject this run" });
+    expect(open.getAttribute("accesskey")).toBeNull();
+    fireEvent.click(open);
+    expect(document.body.textContent).toContain(
+      "Reject 4 undecided drafts in run-20261111-0000?"
+    );
+    expect(document.body.textContent).toContain("Nothing will be published.");
+    fireEvent.click(screen.getByRole("button", { name: "Reject 4 drafts" }));
+    await act(async () => {});
+    const post = fetchMock.mock.calls.find((call) =>
+      String(call[0]).includes("/reject")
+    );
+    expect(post?.[0]).toBe("/api/admin/runs/run-20261111-0000/reject");
+    expect(post?.[1]?.method).toBe("POST");
+  });
 });
