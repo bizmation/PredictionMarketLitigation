@@ -248,6 +248,7 @@ describe("DeepInfra chat failure diagnostics", () => {
         errorName: "SyntaxError",
         aigLogId: "aig-bad"
       });
+      expect(entry).not.toHaveProperty("errorMessage");
       expect(String(entry.bodyPrefix)).not.toContain(KEY);
       expect(entry).not.toHaveProperty("finishReason");
       expectRouting(entry, true);
@@ -298,6 +299,263 @@ describe("DeepInfra chat failure diagnostics", () => {
       });
       expect(entry).not.toHaveProperty("bodyPrefix");
       expectRouting(entry, true);
+      expectNoSecrets(warn.mock.calls);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
+describe("DeepInfra chat degraded diagnostics", () => {
+  function okBody(choice: {
+    finish_reason: string;
+    content: unknown;
+  }): unknown {
+    return {
+      id: "req_ok",
+      model: MODEL,
+      choices: [
+        {
+          finish_reason: choice.finish_reason,
+          message: { content: choice.content, reasoning: REASONING }
+        }
+      ],
+      usage: {
+        prompt_tokens: 12,
+        completion_tokens: 2048,
+        completion_tokens_details: { reasoning_tokens: 2000 }
+      }
+    };
+  }
+
+  async function completeOk(body: unknown) {
+    return failChat(async () =>
+      Response.json(body, {
+        status: 200,
+        headers: { "cf-aig-log-id": "aig-ok" }
+      })
+    );
+  }
+
+  it("warns when finish_reason is length and content is empty", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await expect(
+        completeOk(okBody({ finish_reason: "length", content: "" }))
+      ).resolves.toEqual({
+        text: "",
+        inputTokens: 12,
+        outputTokens: 2048,
+        accountingIssue: undefined,
+        providerRequestId: "req_ok"
+      });
+      expect(warn).toHaveBeenCalledTimes(1);
+      const entry = warn.mock.calls[0]![0] as Record<string, unknown>;
+      expect(entry).toMatchObject({
+        event: "provider_call_degraded",
+        provider: "deepinfra",
+        model: MODEL,
+        finishReason: "length",
+        completionTokens: 2048,
+        reasoningTokens: 2000,
+        aigLogId: "aig-ok",
+        headersReceived: true
+      });
+      expect(entry.elapsedMs).toEqual(expect.any(Number));
+      expectRouting({ ...entry, event: "provider_call_failed" }, true);
+      expect(entry).not.toHaveProperty("status");
+      expectNoSecrets(warn.mock.calls);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("warns when content is null even if finish_reason is stop", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await expect(
+        completeOk(okBody({ finish_reason: "stop", content: null }))
+      ).resolves.toEqual({
+        text: "",
+        inputTokens: 12,
+        outputTokens: 2048,
+        accountingIssue: "non_text_output",
+        providerRequestId: "req_ok"
+      });
+      expect(warn).toHaveBeenCalledTimes(1);
+      const entry = warn.mock.calls[0]![0] as Record<string, unknown>;
+      expect(entry).toMatchObject({
+        event: "provider_call_degraded",
+        finishReason: "stop",
+        completionTokens: 2048,
+        reasoningTokens: 2000,
+        aigLogId: "aig-ok"
+      });
+      expectRouting({ ...entry, event: "provider_call_failed" }, true);
+      expectNoSecrets(warn.mock.calls);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("does not warn for finish_reason stop with non-empty content", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await expect(
+        completeOk(okBody({ finish_reason: "stop", content: MESSAGE }))
+      ).resolves.toEqual({
+        text: MESSAGE,
+        inputTokens: 12,
+        outputTokens: 2048,
+        accountingIssue: undefined,
+        providerRequestId: "req_ok"
+      });
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
+describe("DeepInfra chat failure review fixes", () => {
+  it("logs Response.json(null) as unknown with status 200 and TypeError", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await expect(
+        failChat(async () => Response.json(null))
+      ).rejects.toMatchObject({
+        code: "provider_error",
+        message: "DeepInfra gateway request failed."
+      });
+      expect(warn).toHaveBeenCalledTimes(1);
+      const entry = warn.mock.calls[0]![0] as Record<string, unknown>;
+      expect(entry).toMatchObject({
+        stage: "unknown",
+        status: 200,
+        errorName: "TypeError"
+      });
+      expectNoSecrets(warn.mock.calls);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it.each([
+    [
+      "error",
+      {
+        error: {
+          type: "server_error",
+          code: "overloaded",
+          message: `busy ${KEY}`
+        }
+      }
+    ],
+    [
+      "errors[0]",
+      {
+        errors: [{ type: "server_error", code: 503, message: `busy ${KEY}` }]
+      }
+    ]
+  ] as const)(
+    "logs scrubbed API %s fields from a non-OK JSON body and not the message",
+    async (_label, extra) => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        await expect(
+          failChat(async () =>
+            Response.json(
+              {
+                ...extra,
+                choices: [
+                  {
+                    message: { content: MESSAGE, reasoning: REASONING }
+                  }
+                ]
+              },
+              { status: 500, headers: { "cf-aig-log-id": "aig-json" } }
+            )
+          )
+        ).rejects.toMatchObject({
+          code: "provider_error",
+          message: "DeepInfra gateway request failed."
+        });
+        expect(warn).toHaveBeenCalledTimes(1);
+        const entry = warn.mock.calls[0]![0] as Record<string, unknown>;
+        expect(entry).toMatchObject({
+          stage: "http",
+          status: 500,
+          errorType: "server_error",
+          errorCode: _label === "error" ? "overloaded" : "503",
+          errorMessage: "busy [redacted]",
+          aigLogId: "aig-json"
+        });
+        expect(entry).not.toHaveProperty("bodyPrefix");
+        expectNoSecrets(warn.mock.calls);
+      } finally {
+        warn.mockRestore();
+      }
+    }
+  );
+
+  it("scrubs a secret that straddles the 180-character cut", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const message = `${"y".repeat(175)}${KEY}`;
+    try {
+      await expect(
+        failChat(async () => {
+          throw new Error(message);
+        })
+      ).rejects.toMatchObject({
+        code: "provider_error",
+        message: "DeepInfra gateway request failed."
+      });
+      expect(warn).toHaveBeenCalledTimes(1);
+      const entry = warn.mock.calls[0]![0] as Record<string, unknown>;
+      expect(entry).toMatchObject({ stage: "network", errorName: "Error" });
+      expect(String(entry.errorMessage)).toHaveLength(180);
+      expect(String(entry.errorMessage)).not.toContain("PRIVA");
+      expect(String(entry.errorMessage)).not.toContain(KEY);
+      expectNoSecrets(warn.mock.calls);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("logs an abort while reading a non-OK body as timeout", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const error = new Error(`read ${KEY}`);
+      error.name = "AbortError";
+      await expect(
+        failChat(async () => {
+          const response = {
+            ok: false,
+            status: 503,
+            type: "default",
+            headers: {
+              get(_name: string): string | null {
+                return null;
+              }
+            },
+            text: async (): Promise<string> => {
+              throw error;
+            },
+            json: async () => ({})
+          };
+          return response as Response;
+        })
+      ).rejects.toMatchObject({
+        code: "provider_error",
+        message: "DeepInfra gateway request failed."
+      });
+      expect(warn).toHaveBeenCalledTimes(1);
+      const entry = warn.mock.calls[0]![0] as Record<string, unknown>;
+      expect(entry).toMatchObject({
+        stage: "timeout",
+        status: 503,
+        errorName: "AbortError"
+      });
       expectNoSecrets(warn.mock.calls);
     } finally {
       warn.mockRestore();

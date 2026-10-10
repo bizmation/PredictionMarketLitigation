@@ -18,6 +18,8 @@ import {
 } from "../../shared/schemas/vocabulary";
 import {
   DEEPINFRA_CHAT_TIMEOUT_MS,
+  isAbortError,
+  isTimeoutError,
   PROVIDER_TIMEOUT_MS,
   withAbortableDeadline
 } from "../../shared/lib/timeouts";
@@ -1129,17 +1131,74 @@ function parsedUsageFacts(parsed: unknown): {
   };
 }
 
+function apiErrorRecord(
+  value: unknown
+): { type?: unknown; code?: unknown; message?: unknown } | undefined {
+  return value != null && typeof value === "object"
+    ? (value as { type?: unknown; code?: unknown; message?: unknown })
+    : undefined;
+}
+
+function apiErrorScalar(value: unknown): string | undefined {
+  if (typeof value === "string" && value.length > 0) return value;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return undefined;
+}
+
+/** `error.*`, otherwise `errors[0].*`. Chat message content is not read. */
+function jsonApiError(parsed: unknown): {
+  errorType?: string;
+  errorCode?: string;
+  errorMessage?: string;
+} {
+  if (parsed == null || typeof parsed !== "object") return {};
+  const record = parsed as { error?: unknown; errors?: unknown };
+  const primary = apiErrorRecord(record.error);
+  const listed = Array.isArray(record.errors)
+    ? apiErrorRecord(record.errors[0])
+    : undefined;
+  const pick = (key: "type" | "code" | "message") =>
+    apiErrorScalar(primary?.[key]) ?? apiErrorScalar(listed?.[key]);
+  const errorType = pick("type");
+  const errorCode = pick("code");
+  const errorMessage = pick("message");
+  return {
+    ...(errorType ? { errorType } : {}),
+    ...(errorCode ? { errorCode } : {}),
+    ...(errorMessage ? { errorMessage } : {})
+  };
+}
+
 function deepInfraFailureStage(
   error: unknown,
   response: Response | undefined
 ): string {
-  const name = error instanceof Error ? error.name : "";
-  if (name === "AbortError" || name === "TimeoutError") return "timeout";
+  if (isAbortError(error) || isTimeoutError(error)) return "timeout";
   if (response && chatRedirectRefused(response)) return "redirect_refused";
   if (response && !response.ok) return "http";
   if (response && error instanceof SyntaxError) return "invalid_body";
   if (!response) return "network";
   return "unknown";
+}
+
+function chatOutputDegraded(parsed: unknown): boolean {
+  const choice =
+    parsed != null && typeof parsed === "object"
+      ? (
+          parsed as {
+            choices?: Array<{
+              finish_reason?: unknown;
+              message?: { content?: unknown };
+            }>;
+          }
+        ).choices?.[0]
+      : undefined;
+  const content = choice?.message?.content;
+  return (
+    choice?.finish_reason !== "stop" ||
+    typeof content !== "string" ||
+    content.length === 0
+  );
 }
 
 function maskedChatPath(url: string, accountId: string): string {
@@ -1168,6 +1227,13 @@ function logDeepInfraChatFailure(input: {
   const facts = errorFacts(input.error);
   const scrub = (value: string) =>
     scrubLoggedText(value, input.secrets, input.accountId);
+  const rawMessage =
+    input.error instanceof Error ? input.error.message : String(input.error);
+  const apiError = jsonApiError(input.parsed);
+  const errorMessage =
+    input.error instanceof SyntaxError
+      ? ""
+      : scrub(apiError.errorMessage ?? rawMessage);
   const parsedJson = input.parsed != null && typeof input.parsed === "object";
   const usage = parsedJson ? parsedUsageFacts(input.parsed) : {};
   const bodyPrefix =
@@ -1200,7 +1266,9 @@ function logDeepInfraChatFailure(input: {
       : {}),
     ...(bodyPrefix ? { bodyPrefix } : {}),
     ...(facts.errorName ? { errorName: facts.errorName } : {}),
-    ...(facts.errorMessage ? { errorMessage: scrub(facts.errorMessage) } : {}),
+    ...(errorMessage ? { errorMessage } : {}),
+    ...(apiError.errorType ? { errorType: scrub(apiError.errorType) } : {}),
+    ...(apiError.errorCode ? { errorCode: scrub(apiError.errorCode) } : {}),
     ...(aigLogId ? { aigLogId: scrub(aigLogId) } : {}),
     ...(usage.finishReason ? { finishReason: scrub(usage.finishReason) } : {}),
     ...(usage.completionTokens == null
@@ -1209,6 +1277,47 @@ function logDeepInfraChatFailure(input: {
     ...(usage.reasoningTokens == null
       ? {}
       : { reasoningTokens: usage.reasoningTokens })
+  });
+}
+
+function logDeepInfraChatDegraded(input: {
+  parsed: unknown;
+  response: Response;
+  started: number;
+  dispatchedAt: string;
+  model: string;
+  gatewayId: string;
+  accountId: string;
+  url: string;
+  hasAuthorization: boolean;
+  hasGatewayAuth: boolean;
+  secrets: readonly string[];
+}): void {
+  const scrub = (value: string) =>
+    scrubLoggedText(value, input.secrets, input.accountId);
+  const usage = parsedUsageFacts(input.parsed);
+  const aigLogId = headerValue(input.response, "cf-aig-log-id");
+  console.warn({
+    event: "provider_call_degraded",
+    provider: "deepinfra",
+    model: scrub(input.model),
+    elapsedMs: Math.max(0, Date.now() - input.started),
+    gatewayId: scrub(input.gatewayId),
+    accountIdLast4: input.accountId.slice(-4),
+    urlHost: new URL(input.url).host,
+    urlPath: maskedChatPath(input.url, input.accountId),
+    hasAuthorization: input.hasAuthorization,
+    hasGatewayAuth: input.hasGatewayAuth,
+    dispatchedAt: input.dispatchedAt,
+    headersReceived: true,
+    ...(usage.finishReason ? { finishReason: scrub(usage.finishReason) } : {}),
+    ...(usage.completionTokens == null
+      ? {}
+      : { completionTokens: usage.completionTokens }),
+    ...(usage.reasoningTokens == null
+      ? {}
+      : { reasoningTokens: usage.reasoningTokens }),
+    ...(aigLogId ? { aigLogId: scrub(aigLogId) } : {})
   });
 }
 
@@ -1351,7 +1460,9 @@ export function createDeepInfraProvider(env: Env): LlmProvider | null {
             if (!response.ok) {
               try {
                 bodyText = await response.text();
-              } catch {
+              } catch (readError) {
+                if (isAbortError(readError) || isTimeoutError(readError))
+                  throw readError;
                 bodyText = undefined;
               }
               if (bodyText != null) {
@@ -1373,7 +1484,7 @@ export function createDeepInfraProvider(env: Env): LlmProvider | null {
             };
             const content = body.choices?.[0]?.message?.content;
             const mismatch = body.model !== undefined && body.model !== model;
-            return {
+            const completion = {
               text: !mismatch && typeof content === "string" ? content : "",
               inputTokens: body.usage?.prompt_tokens ?? null,
               outputTokens: body.usage?.completion_tokens ?? null,
@@ -1388,6 +1499,28 @@ export function createDeepInfraProvider(env: Env): LlmProvider | null {
                   ? body.id
                   : undefined
             };
+            if (response.status === 200 && chatOutputDegraded(parsed)) {
+              try {
+                logDeepInfraChatDegraded({
+                  parsed,
+                  response,
+                  started,
+                  dispatchedAt,
+                  model,
+                  gatewayId: env.AI_GATEWAY_ID ?? "",
+                  accountId: env.CLOUDFLARE_ACCOUNT_ID ?? "",
+                  url,
+                  hasAuthorization: headers.has("authorization"),
+                  hasGatewayAuth: headers.has("cf-aig-authorization"),
+                  secrets: [key, token].filter(
+                    (secret): secret is string => secret !== undefined
+                  )
+                });
+              } catch {
+                /* A diagnostic failure must not change the completion. */
+              }
+            }
+            return completion;
           } catch (error) {
             try {
               logDeepInfraChatFailure({
