@@ -2,7 +2,7 @@
 title: 'Reject remaining undecided heads when a Run is partly approved'
 type: 'feature'
 created: '2026-10-10'
-status: 'in-progress'
+status: 'in-review'
 route: 'dispatch'
 baseline_commit: 'b842569f4cf64ce64cb61e978869899113b05f6f'
 review_loop_iteration: 0
