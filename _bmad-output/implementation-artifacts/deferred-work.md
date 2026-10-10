@@ -281,3 +281,16 @@ Ledger entries above are not edited; this block records where each Epic 3 entry 
 - The `currentHeadSql` shadowing note needs an issue link and a scale trigger.
 - **(from staging, Oct 10)** One `uncertain` llm operation with an `issue` in a period makes `reserve()`'s `llm_period_admission` CHECK refuse every new reservation in that period, across all Runs, and the refusal marks a new Run `stopped` as budget_stopped. Consider scoping or flagging this, and give the operator a clearer message.
 - **(from staging, Oct 10)** A revise refused by `complete()` with `accounting_uncertain` (an open run accounting issue) comes back as a silent HTTP 400 "Revision did not complete.". It logs nothing and still strands a NULL-eval `:r1` child, so it should be a distinct 409/423 with a reason, without creating the child.
+
+## Deferred from: code review of #71 (2026-10-10)
+
+- Reuse `requestId` on retries of an unchanged reconcile draft. Each submit still mints a new `crypto.randomUUID()`.
+- A Review/Confirm version-change guard. The server's `expectedVersion` check covers safety today; a stale retry now reloads the loop GET so the next submit can send the refreshed version.
+- Keep reconcile form drafts across poll unmounts. A reload that drops the operation row still resets the open form.
+- Derive validation messages and limits from `ReconciliationInputSchema` instead of the local USD regex and length checks.
+- Use the `ADMIN_POST_TIMEOUT_MS` text for the reconcile timeout sentence. The copy is still the fixed "No answer within 30 seconds" string.
+- `aria-describedby` / `aria-invalid` and "(public)" on the evidence reference and note labels. The public warning is a visible paragraph only.
+- Update `docs/llm-accounting.md` for the admin UI path and the `accountingOperations` field on `GET /api/admin/loop`.
+- `Promise.all` the loop GET queries and trim the payload to open operations. The handler still awaits them in sequence and returns every operation for the latest run.
+- Give `version` its own schema instead of reusing `cents`.
+- Spec metadata: `followup_review_recommended`, a fuller triage log, and the CSS note in the spec.

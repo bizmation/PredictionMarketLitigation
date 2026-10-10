@@ -1132,11 +1132,12 @@ describe("tab-local request recovery and confirmation", () => {
     expect(
       screen.queryByRole("button", { name: "Reconcile op-blank" })
     ).toBeNull();
-    expect(
-      screen
-        .getByRole("button", { name: "Reconcile op-open" })
-        .getAttribute("accesskey")
-    ).toBeNull();
+    const button = screen.getByRole("button", { name: "Reconcile op-open" });
+    expect(button.getAttribute("accesskey")).toBeNull();
+    expect(button.closest("details.cost-details")).not.toBeNull();
+    expect(document.body.textContent).toContain(
+      "timeout · uncertain · liability 50 cents · provider request none"
+    );
   });
 
   it("requires a decimal originalUsd for a charge and posts the row version", async () => {
@@ -1392,5 +1393,129 @@ describe("tab-local request recovery and confirmation", () => {
         String(call[0]).includes("/reconcile")
       )
     ).toBe(false);
+  });
+
+  async function openNoChargeConfirm() {
+    fireEvent.click(screen.getByRole("button", { name: "Reconcile op-open" }));
+    await chooseDecision("confirmed_no_charge");
+    fillPublicFields();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review reconciliation" })
+    );
+  }
+
+  it("keeps the form open and reloads after a reconcile timeout", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes("/reconcile") && init?.method === "POST") {
+          throw new DOMException(
+            "Request timed out after 30000 ms",
+            "TimeoutError"
+          );
+        }
+        return loopWithOperations([operation("op-open", "timeout", 3)]);
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LoopControls />);
+    await act(async () => {});
+    const before = loopGets(fetchMock);
+    await openNoChargeConfirm();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Confirm reconciliation" })
+    );
+    await act(async () => {});
+    expect(document.body.textContent).toContain(
+      "may or may not have completed"
+    );
+    expect(document.body.textContent).not.toContain("reconciled as");
+    expect(document.querySelector("output")).toBeNull();
+    expect(screen.getByLabelText("Evidence reference")).toHaveProperty(
+      "value",
+      "invoice:provider-20261002-line-17"
+    );
+    expect(screen.getByLabelText("Note")).toHaveProperty(
+      "value",
+      "Operator checked the invoice."
+    );
+    expect(
+      screen.getByRole("button", { name: "Confirm reconciliation" })
+    ).toBeTruthy();
+    expect(loopGets(fetchMock)).toBeGreaterThan(before);
+  });
+
+  it("shows generic text when a reconcile error has no message", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes("/reconcile") && init?.method === "POST") {
+          return scripted({ code: "internal_error" }, false, 500);
+        }
+        return loopWithOperations([operation("op-open", "timeout", 3)]);
+      })
+    );
+    render(<LoopControls />);
+    await act(async () => {});
+    await openNoChargeConfirm();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Confirm reconciliation" })
+    );
+    await act(async () => {});
+    expect(document.body.textContent).toContain(
+      "Reconciliation did not complete."
+    );
+    expect(document.body.textContent).not.toContain("reconciled as");
+    expect(screen.getByLabelText("Note")).toHaveProperty(
+      "value",
+      "Operator checked the invoice."
+    );
+    expect(
+      screen.getByRole("button", { name: "Confirm reconciliation" })
+    ).toBeTruthy();
+  });
+
+  it("does not reconcile from J, K, A, E, or R in the confirm step or inputs", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes("/reconcile") && init?.method === "POST") {
+          return scripted({ id: "op-open", state: "reconciled" });
+        }
+        return loopWithOperations([operation("op-open", "timeout", 3)]);
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LoopControls />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Reconcile op-open" }));
+    await chooseDecision("confirmed_charge");
+    fireEvent.change(screen.getByLabelText("Original USD"), {
+      target: { value: "0.01234" }
+    });
+    fillPublicFields();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review reconciliation" })
+    );
+    const confirm = screen.getByRole("button", {
+      name: "Confirm reconciliation"
+    });
+    const targets = [
+      document.body,
+      confirm,
+      screen.getByLabelText("Decision"),
+      screen.getByLabelText("Original USD"),
+      screen.getByLabelText("Evidence reference"),
+      screen.getByLabelText("Note")
+    ];
+    for (const key of ["J", "K", "A", "E", "R"]) {
+      for (const target of targets) fireEvent.keyDown(target, { key });
+    }
+    expect(
+      fetchMock.mock.calls.some((call) =>
+        String(call[0]).includes("/reconcile")
+      )
+    ).toBe(false);
+    expect(document.body.textContent).toContain(
+      "Reconcile operation op-open as confirmed_charge for 0.01234 USD?"
+    );
   });
 });

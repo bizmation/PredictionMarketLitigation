@@ -175,6 +175,15 @@ function openIssue(operation: AccountingOperation): boolean {
   return typeof operation.issue === "string" && operation.issue.length > 0;
 }
 
+function reconcileFactText(operation: AccountingOperation): string {
+  return `${operation.issue} · ${operation.state} · liability ${operation.liabilityCents} cents · provider request ${operation.providerRequestId ?? "none"}`;
+}
+
+type ReconcilePostResult =
+  | { ok: true }
+  | { ok: false; signedOut: true }
+  | { ok: false; message: string };
+
 type ReconcileDraft = {
   decision: "" | "confirmed_charge" | "confirmed_no_charge";
   originalUsd: string;
@@ -220,7 +229,7 @@ function ReconcileControl({
       evidenceReference: string;
       note: string;
     }
-  ) => Promise<{ ok: true } | { ok: false; message: string }>;
+  ) => Promise<ReconcilePostResult>;
 }) {
   const baseId = useId();
   const [open, setOpen] = useState(false);
@@ -234,28 +243,32 @@ function ReconcileControl({
   });
 
   if (!openIssue(operation)) return null;
+  const facts = <p>{reconcileFactText(operation)}</p>;
   if (!open) {
     return (
-      <p>
-        <button
-          type="button"
-          className="btn btn-secondary"
-          disabled={busy}
-          onClick={() => {
-            setDraft({
-              decision: "",
-              originalUsd: "",
-              evidenceReference: "",
-              note: ""
-            });
-            setConfirming(false);
-            setError(null);
-            setOpen(true);
-          }}
-        >
-          Reconcile {operation.id}
-        </button>
-      </p>
+      <div>
+        {facts}
+        <p>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={busy}
+            onClick={() => {
+              setDraft({
+                decision: "",
+                originalUsd: "",
+                evidenceReference: "",
+                note: ""
+              });
+              setConfirming(false);
+              setError(null);
+              setOpen(true);
+            }}
+          >
+            Reconcile {operation.id}
+          </button>
+        </p>
+      </div>
     );
   }
 
@@ -267,6 +280,7 @@ function ReconcileControl({
 
   return (
     <div className="rejectbox reconcile-form">
+      {facts}
       <p className="public-warning">
         Evidence reference and note are public. Use a safe ticket or invoice
         identifier, not credentials, prompts, or secret URLs.
@@ -378,6 +392,7 @@ function ReconcileControl({
                   setError(null);
                   return;
                 }
+                if ("signedOut" in result) return;
                 setError(result.message);
                 setConfirming(true);
               });
@@ -746,7 +761,7 @@ export function LoopControls({
       evidenceReference: string;
       note: string;
     }
-  ): Promise<{ ok: true } | { ok: false; message: string }> {
+  ): Promise<ReconcilePostResult> {
     setBusy(true);
     setNotice(null);
     try {
@@ -763,6 +778,11 @@ export function LoopControls({
         },
         ADMIN_POST_TIMEOUT_MS
       );
+      if (res.status === 403) {
+        setView({ status: "signedOut" });
+        setReload((value) => value + 1);
+        return { ok: false, signedOut: true };
+      }
       let payload: unknown = null;
       try {
         payload = await res.json();
@@ -777,12 +797,15 @@ export function LoopControls({
           typeof payload.message === "string"
             ? payload.message
             : "Reconciliation did not complete.";
+        if (res.status === 409 || res.status === 404)
+          setReload((value) => value + 1);
         return { ok: false, message };
       }
       setNotice(`Operation ${operationId} reconciled as ${body.decision}.`);
       setReload((value) => value + 1);
       return { ok: true };
     } catch (err) {
+      setReload((value) => value + 1);
       return {
         ok: false,
         message: isTimeoutError(err)

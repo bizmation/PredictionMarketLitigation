@@ -359,9 +359,37 @@ export async function listAccountingOperations(
   db: Db,
   runId: string
 ): Promise<AccountingOperation[]> {
-  const { results } = await db
-    .prepare(ACCOUNTING_OPERATION_SQL)
-    .bind(runId)
-    .all();
-  return AccountingOperationSchema.array().parse(results ?? []);
+  let results: unknown;
+  try {
+    ({ results } = await db
+      .prepare(ACCOUNTING_OPERATION_SQL)
+      .bind(runId)
+      .all());
+  } catch (error) {
+    console.error(
+      JSON.stringify({
+        event: "admin_loop.accounting_operations_failed",
+        runId,
+        message: error instanceof Error ? error.message : String(error)
+      })
+    );
+    return [];
+  }
+  if (!Array.isArray(results)) return [];
+  const operations: AccountingOperation[] = [];
+  for (const row of results) {
+    const parsed = AccountingOperationSchema.safeParse(row);
+    if (parsed.success) operations.push(parsed.data);
+    else
+      console.error(
+        JSON.stringify({
+          event: "admin_loop.accounting_operation_dropped",
+          runId,
+          message: parsed.error.issues
+            .map((issue) => issue.path.join("."))
+            .join(",")
+        })
+      );
+  }
+  return operations;
 }

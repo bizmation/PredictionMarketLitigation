@@ -76,6 +76,26 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-10-10 — Review pass (#71 at b8a05c4, bmad-code-review, four layers)
+
+- verdicts: 14 findings — high 2, medium 2, low 10, false 0, maybe-false 0
+- resolution: the four `[patch]` findings are applied on this branch. The ten `[low]` items stay in `deferred-work.md`.
+- findings:
+  - `[high]` `[patch]` One bad accounting row makes `listAccountingOperations` throw and the loop GET fail closed to signed-out — parse each row with `safeParse`, drop and log it, and return `[]` if the query throws.
+  - `[high]` `[patch]` A 409, 404, timeout, or unknown throw retries with a stale `expectedVersion` because the loop poll only runs for running or awaiting — call `setReload` and keep the form values.
+  - `[medium]` `[patch]` A reconcile 403 is shown as a form error — treat it as signed out, the same way `rejectRun` does, and reload.
+  - `[medium]` `[patch]` The Reconcile control does not show `issue`, `state`, `liabilityCents`, or `providerRequestId` — render those next to the control. The loop payload already includes them.
+  - `[low]` `[defer]` Reuse `requestId` on retries of an unchanged draft — recorded in `deferred-work.md`.
+  - `[low]` `[defer]` Review/Confirm version-change guard — recorded in `deferred-work.md`. The server version check remains the safety net.
+  - `[low]` `[defer]` Keep form drafts across poll unmounts — recorded in `deferred-work.md`.
+  - `[low]` `[defer]` Derive validation messages and limits from `ReconciliationInputSchema` — recorded in `deferred-work.md`.
+  - `[low]` `[defer]` Use the `ADMIN_POST_TIMEOUT_MS` text — recorded in `deferred-work.md`.
+  - `[low]` `[defer]` `aria-describedby` / `aria-invalid` and "(public)" on the labels — recorded in `deferred-work.md`.
+  - `[low]` `[defer]` Update `docs/llm-accounting.md` for the UI path and the loop GET field — recorded in `deferred-work.md`.
+  - `[low]` `[defer]` `Promise.all` the loop GET queries and trim the payload to open ops — recorded in `deferred-work.md`.
+  - `[low]` `[defer]` Give `version` its own schema instead of `cents` — recorded in `deferred-work.md`.
+  - `[low]` `[defer]` Spec metadata (`followup_review_recommended`, triage log, CSS note) — recorded in `deferred-work.md`. This pass adds the triage log the review asked to record.
+
 ## Design Notes
 
 Open `issue` means a non-empty string. Null and `""` are not open. The select starts empty so neither decision is implied; `originalUsd` stays unmounted until `confirmed_charge`. Confirm is a second explicit button, not Enter and not a shortcut. Each submit generates its own `requestId`. The success path calls the existing reload (`setReload`) so spend, issue count, operations, and run status refresh together. Branch from `7854238` before editing so #66's `LoopControls` reject copy is the base, not `54ef6f3`.
@@ -105,6 +125,6 @@ Review findings breakdown: The implementation subagent and the four review layer
 
 Follow-up review recommendation: false. No patched entries exist. `followup_review_recommended` stays false.
 
-Verification: `npm run check` exit 0. `npm test` exit 0 (1587 passed, 6 skipped). The skipped tests were already skipped before this change.
+Verification: `npm run check` exit 0. `npm test` exit 0 (1590 passed, 6 skipped) after the review-fix commit. The skipped tests were already skipped before this change.
 
 Residual risks: Review layers did not read the diff. The live Access-gated admin page was not clicked in a browser; the jsdom mount tests exercise the form.
