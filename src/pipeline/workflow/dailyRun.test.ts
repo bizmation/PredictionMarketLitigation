@@ -700,26 +700,25 @@ describe("sourceChecksFromEnv (story 3.21)", () => {
     await attachSnapshot(testEnv.DB, id);
     const fetchMock = vi.fn(
       async (input: string | URL | Request, _init?: RequestInit) => {
-        const docket = new URL(String(input)).searchParams.get("docket");
+        const url = new URL(String(input));
+        const docket = url.searchParams.get("docket");
+        const floor = url.searchParams.get("date_filed__gte");
+        const rows = [
+          {
+            id: 9001,
+            entry_number: 3,
+            date_filed: "2026-09-20",
+            description: "MINUTE ENTRY: status conference held."
+          },
+          {
+            id: 9002,
+            entry_number: 2,
+            date_filed: "2026-09-15",
+            description: "Inside seven days and outside a three-day window."
+          }
+        ].filter((row) => floor == null || row.date_filed >= floor);
         return Response.json({
-          results:
-            docket === "73133459"
-              ? [
-                  {
-                    id: 9001,
-                    entry_number: 3,
-                    date_filed: "2026-09-20",
-                    description: "MINUTE ENTRY: status conference held."
-                  },
-                  {
-                    id: 9002,
-                    entry_number: 2,
-                    date_filed: "2026-09-15",
-                    description:
-                      "Inside seven days and outside a three-day window."
-                  }
-                ]
-              : []
+          results: docket === "73133459" ? rows : []
         });
       }
     );
@@ -736,7 +735,7 @@ describe("sourceChecksFromEnv (story 3.21)", () => {
       sourceChecksFromEnv(
         {
           COURTLISTENER_API_TOKEN: "tok",
-          FIRST_FETCH_WINDOW_DAYS: "3",
+          FIRST_FETCH_WINDOW_DAYS: 3,
           courtListenerWait: async () => {},
           now: () => "2026-09-20T16:00:00.000Z"
         },
@@ -770,9 +769,11 @@ describe("sourceChecksFromEnv (story 3.21)", () => {
     ).dockets.find((docket) => docket.docketId === "73133459");
     expect(illinois).toMatchObject({
       effectiveCutoff: "2026-09-17",
-      skippedOlder: 1,
+      olderEntriesNotRequested: true,
+      entries: 1,
       newEntries: 1
     });
+    expect(illinois).not.toHaveProperty("skippedOlder");
     const authHeaders = fetchMock.mock.calls.map((call) =>
       new Headers((call[1] as RequestInit | undefined)?.headers).get(
         "authorization"

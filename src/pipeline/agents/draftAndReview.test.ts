@@ -337,6 +337,9 @@ describe("draftAndReview (story 3.5)", () => {
     expect(evalOf(first).ineligible).toContain("evals_not_run");
     expect(first.body).toBe(DRAFTER_BODY);
     expect(evalOf(second).status).toBe("evals_not_run");
+    expect(evalOf(second).basis).toBe(
+      "Evaluation was skipped after a preceding evaluation stopped the run."
+    );
     expect(second.body).toBe(SHELL_BODY);
 
     const run = await runsRepo.getRunById(testEnv.DB, runId);
@@ -466,6 +469,9 @@ describe("draftAndReview (story 3.5)", () => {
     const drafts = await draftsRepo.listByRun(testEnv.DB, runId);
     expect(evalOf(drafts.find((d) => d.id === failId)!).status).toBe(
       "evals_not_run"
+    );
+    expect(evalOf(drafts.find((d) => d.id === failId)!).basis).toBe(
+      "Evaluation did not complete: provider_error."
     );
     expect(drafts.find((d) => d.id === okId)?.evalSummary).toBeNull();
     expect(provider.count()).toBe(1);

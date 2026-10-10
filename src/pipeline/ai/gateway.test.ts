@@ -1028,6 +1028,62 @@ describe("bounded provider cost", () => {
     });
     expect(fetch).toHaveBeenCalledTimes(1);
   });
+  it.each([
+    {
+      label: "context_length",
+      metadata: { ...endpoint, context_length: 1 },
+      field: "context_length"
+    },
+    {
+      label: "supported_parameters",
+      metadata: { ...endpoint, supported_parameters: ["temperature"] },
+      field: "supported_parameters"
+    },
+    {
+      label: "pricing.prompt",
+      metadata: {
+        ...endpoint,
+        pricing: { ...endpoint.pricing, prompt: undefined }
+      },
+      field: "pricing.prompt"
+    },
+    {
+      label: "pricing.completion",
+      metadata: {
+        ...endpoint,
+        pricing: { ...endpoint.pricing, completion: undefined }
+      },
+      field: "pricing.completion"
+    },
+    {
+      label: "endpoints",
+      metadata: { ...endpoint, tag: "together" },
+      field: "endpoints"
+    }
+  ])(
+    "rejects an OpenRouter endpoint when $label fails",
+    async ({ metadata, field }) => {
+      await setup(500, "openrouter", COST_POLICIES[1]!.model);
+      const fetch = vi.fn(async () =>
+        Response.json({ data: { endpoints: [metadata] } })
+      );
+      vi.stubGlobal("fetch", fetch);
+      await expect(
+        complete(
+          { db: testEnv.DB, provider: router(), now: () => now },
+          input()
+        )
+      ).rejects.toMatchObject({
+        code: "cost_policy_invalid",
+        message: "cost_policy_invalid: openrouter_preflight",
+        detail: expect.objectContaining({
+          stage: "openrouter_preflight",
+          field
+        })
+      });
+      expect(fetch).toHaveBeenCalledTimes(1);
+    }
+  );
   it("names an OpenRouter preflight HTTP failure", async () => {
     await setup(500, "openrouter", COST_POLICIES[1]!.model);
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});

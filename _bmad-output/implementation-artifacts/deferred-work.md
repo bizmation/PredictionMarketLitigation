@@ -225,3 +225,15 @@ Ledger entries above are not edited; this block records where each Epic 3 entry 
 - source_spec: `_bmad-output/implementation-artifacts/spec-deepinfra-preflight-diagnostics-and-first-fetch-window.md`
   summary: Backfill docket history older than the first-fetch window.
   evidence: A docket with no stored events uses the later of `sources.published_at` and `FIRST_FETCH_WINDOW_DAYS` (default 7) before the run date. This story does not fetch the older history later.
+
+## Deferred from: code review of spec-deepinfra-preflight-diagnostics-and-first-fetch-window.md (2026-10-10)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-deepinfra-preflight-diagnostics-and-first-fetch-window.md`
+  summary: Read the first-fetch run date once per Run.
+  evidence: `pollDocket` calls `etCalendarDate` on every docket, so a poll that crosses midnight in America/New_York can apply two calendar dates in one Run.
+- source_spec: `_bmad-output/implementation-artifacts/spec-deepinfra-preflight-diagnostics-and-first-fetch-window.md`
+  summary: Send the catalog User-Agent and `redirect: "error"` on the OpenRouter endpoints fetch.
+  evidence: `createOpenRouterProvider` preflight fetches the endpoints URL with an abort signal only. The DeepInfra catalog request already sends the User-Agent and refuses redirects.
+- source_spec: `_bmad-output/implementation-artifacts/spec-deepinfra-preflight-diagnostics-and-first-fetch-window.md`
+  summary: Count an already-stored entry as seen when it is also before the cutoff.
+  evidence: The cutoff check in `pollDocket` runs before the `seen` check, so a stored row older than the cutoff never increments `seen`.

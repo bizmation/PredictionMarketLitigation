@@ -60,8 +60,9 @@ interface Env {
   /**
    * First CourtListener fetch window, in calendar days. Optional Worker var.
    * Unset uses 7. An integer from 1 through 30 is used, including a leading
-   * zero. Any other set value falls back to 7 and the log includes it.
-   * Not a secret and not a wrangler.jsonc var: this repo has no `vars` block.
+   * zero. A JSON number from a wrangler var is that integer. Any other set
+   * value falls back to 7 and the log includes it. Not a secret. This repo
+   * has no `vars` block, so the default lives in code until one is set.
    */
-  FIRST_FETCH_WINDOW_DAYS?: string;
+  FIRST_FETCH_WINDOW_DAYS?: string | number;
 }

@@ -20,7 +20,7 @@ context:
 
 ## Boundaries & Constraints
 
-**Always:** Stages are `policy_lookup`, `policy_model_mismatch`, `deepinfra_preflight`, `openrouter_preflight`, and `revalidate_before_inference`. Basis and `GatewayError` message are `cost_policy_invalid: <stage>`, plus ` (http <status>)` when a status exists. Example: `cost_policy_invalid: deepinfra_preflight (http 403)`. Siblings stopped by that error use the same basis. Detail and one `console.warn` object also include a caught error's name and message, HTTP status, a whitespace-collapsed body prefix of at most 180 characters, and the failed field. No secrets, keys, or headers. Catalog headers are `User-Agent: PredictionMarketLitigation/0.1.0 (+https://predictionmarketlitigation.com)` and `Accept: application/json`; `redirect: "error"` stays. `FIRST_FETCH_WINDOW_DAYS` is an optional Worker var, default 7. An integer from 1 through 30 is used, including a leading zero. A larger integer, or any other set value, falls back to 7 and the log includes that rejected text. Unset uses 7 with no log. `wrangler.jsonc` has no `vars` block, so the code default is the convention. The run date is the `America/New_York` date of `deps.now()`. The cutoff is the later of `published_at` and that date minus the window, inclusive for the client filter, pagination stop, and `date_filed__gte`. The summary adds `effectiveCutoff` and `skippedOlder` (returned entries filed strictly before the cutoff). The `MAX(occurred_at)` path and a null baseline stay unchanged. A budget ceiling hit during evaluation marks the in-progress and remaining drafts `evals_not_run`, settles completed calls, opens no new reservation, leaves the run `stopped` rather than `failed`, and leaves reserved cents, uncertain cents, and accounting issues at zero.
+**Always:** Stages are `policy_lookup`, `policy_model_mismatch`, `deepinfra_preflight`, `openrouter_preflight`, and `revalidate_before_inference`. Basis and `GatewayError` message are `cost_policy_invalid: <stage>`, plus ` (http <status>)` when a status exists. Example: `cost_policy_invalid: deepinfra_preflight (http 403)`. Siblings stopped by that error use the same basis. Detail and one `console.warn` object also include a caught error's name and message, HTTP status, a whitespace-collapsed body prefix of at most 180 characters, and the failed field. No secrets, keys, or headers. Catalog headers are `User-Agent: PredictionMarketLitigation/0.1.0 (+https://predictionmarketlitigation.com)` and `Accept: application/json`; `redirect: "error"` stays. `FIRST_FETCH_WINDOW_DAYS` is an optional Worker var, default 7. An integer from 1 through 30 is used, including a leading zero. A larger integer, or any other set value, falls back to 7 and the log includes that rejected text. Unset uses 7 with no log. `wrangler.jsonc` has no `vars` block, so the code default is the convention. The run date is the `America/New_York` date of `deps.now()`. The cutoff is the later of `published_at` and that date minus the window, inclusive for the client filter, pagination stop, and `date_filed__gte`. The summary adds `effectiveCutoff` and `olderEntriesNotRequested: true`. `date_filed__gte` is that cutoff, so older rows are not requested. A row that still comes back before the cutoff is not drafted. The `MAX(occurred_at)` path and a null baseline stay unchanged. A budget ceiling hit during evaluation marks the in-progress and remaining drafts `evals_not_run`, settles completed calls, opens no new reservation, leaves the run `stopped` rather than `failed`, and leaves reserved cents, uncertain cents, and accounting issues at zero.
 
 **Never:** Do not deploy, start a Run, or change Cloudflare or staging. Do not change 3.36 (`in-progress`) or 3.37 (`backlog`). Do not change `costPolicy.ts` or the public code. Do not backfill older history (deferred). Do not add a draft-count cap, Queues, or a new checkpoint.
 
@@ -32,7 +32,7 @@ context:
 | Recent first fetch | `published_at` later than the window start | Cutoff stays `published_at` | N/A |
 | No baseline | No event date and no `published_at` | No `date_filed__gte` | N/A |
 | Invalid window | `FIRST_FETCH_WINDOW_DAYS` is `0`, blank, not an integer, or greater than 30 | Window is 7 and one log records the fallback and the rejected text | N/A |
-| Run 0003 dates | Run date 2026-10-11; filings 10-05 (3), 10-02 (3), 10-01 (1), 09-28 (2), 09-25 (1) | Cutoff `2026-10-04`; the 10-05 entries are drafted; 10-02 and older are not; `skippedOlder` is 7 | N/A |
+| Run 0003 dates | Run date 2026-10-11; filings 10-05 (3), 10-02 (3), 10-01 (1), 09-28 (2), 09-25 (1) | Cutoff `2026-10-04`; the 10-05 entries are drafted; 10-02 and older are not requested; `olderEntriesNotRequested` is true | N/A |
 | Budget ceiling | A settled call leaves the next call over the run budget | Remaining drafts are `evals_not_run`; run is `stopped`, not `failed`; reserved, uncertain, and issue counts are 0 | No new reservation |
 
 </frozen-after-approval>
@@ -49,7 +49,7 @@ context:
 - `src/pipeline/agents/draftAndReview.ts` — Budget stop returns at 869–870 after stamping siblings. Do not throw that path.
 - `src/pipeline/workflow/dailyRunSteps.ts` — `afterPackaging` calls `completeDailyStep` only while status is `running` (251). A `stopped` run must not become `failed`.
 - `src/pipeline/ai/gateway.ts` — Ceiling refusal is before `reserve` (335). Successful calls `settle` (520).
-- `src/access-env.d.ts` — Optional `FIRST_FETCH_WINDOW_DAYS?: string`, with the other hand-written Env fields. Do not add a `wrangler.jsonc` `vars` block.
+- `src/access-env.d.ts` — Optional `FIRST_FETCH_WINDOW_DAYS?: string | number`, with the other hand-written Env fields. A JSON number is accepted. Do not add a `wrangler.jsonc` `vars` block.
 - `src/server.ts` — Admin 503 returns `error.message`. Log one object, like `courtlistener_request_timeout`.
 
 ## Tasks & Acceptance
@@ -70,8 +70,8 @@ context:
 - Given a non-OK catalog response, when preflight throws, then the code stays `cost_policy_invalid`, the basis matches the Boundaries example, and the log has the detail fields with no secret or header.
 - Given any other `cost_policy_invalid` site, when it throws, then the basis names only that stage.
 - Given the catalog request, when it is sent, then it carries the User-Agent and `Accept` from Boundaries.
-- Given no stored events, `published_at` older than the window, and the default of 7, when the docket is polled, then `date_filed__gte` is the cutoff, that date is drafted, the day before is not, and the summary has the cutoff and `skippedOlder`.
-- Given run date `2026-10-11` and the 0003 filing counts, when the docket is polled, then `effectiveCutoff` is `2026-10-04`, the three `2026-10-05` entries are drafted, `2026-10-02` and older are not, and `skippedOlder` is 7.
+- Given no stored events, `published_at` older than the window, and the default of 7, when the docket is polled, then `date_filed__gte` is the cutoff, that date is drafted, the day before is not, and the summary has `effectiveCutoff` and `olderEntriesNotRequested: true`.
+- Given run date `2026-10-11` and the 0003 filing counts, when the docket is polled, then `effectiveCutoff` is `2026-10-04`, `date_filed__gte` is that cutoff, the three `2026-10-05` entries are drafted, `2026-10-02` and older are not requested, and `olderEntriesNotRequested` is true.
 - Given `FIRST_FETCH_WINDOW_DAYS` is not an integer from 1 through 30, when it is read, then the window is 7 and one log records the fallback and the rejected text.
 - Given `MAX(occurred_at)` date D, when that docket is polled, then `date_filed__gte` is D and the window fields are absent.
 - Given a settled call and a next call over the run budget, when evaluation stops, then the remaining drafts are `evals_not_run`, the run is `stopped` rather than `failed`, and reserved cents, uncertain cents, and accounting issues are 0.
@@ -82,10 +82,12 @@ context:
 - Review patches: `npm run check` exit 0. `npm test` exit 0 (1519 passed, 6 skipped). The window is 1 through 30, invalid text is logged, and the diagnostic, status, and draft-basis tests cover the patched findings.
 - The budget ceiling already settles the completed call, refuses the next call before `reserve`, stamps remaining drafts `evals_not_run`, returns `{ budgetStopped: true }`, and leaves the run `stopped`. Admission ignores that status. The new assertions lock reserved cents, uncertain cents, and issue count at 0. No production change was required on that path.
 - `sourceChecksFromEnv` accepts an optional `now` so tests can pin the ET run date. Production leaves it unset and uses the wall clock.
+- Code review patches: `npm run check` exit 0. `npm test` exit 0 (1536 passed, 6 skipped). A JSON number is a valid window, and an out-of-range code value logs the same fallback. First-fetch evidence records `effectiveCutoff` and `olderEntriesNotRequested: true`. OpenRouter field refusals and the non-cost-policy draft basis are pinned.
 
 ## Spec Change Log
 
 - 2026-10-10 review: the window is an integer from 1 through 30. 30 covers the 16-day span of run 0003 (2026-09-25 through 2026-10-05) and cannot reach the oldest seeded docket, 2025-11-28. A larger or invalid value falls back to 7, and the log includes the rejected text. A leading zero, such as `08`, is that integer.
+- 2026-10-10 code review: a JSON number is a valid window. An out-of-range value passed in code logs the same fallback. The first-fetch summary drops `skippedOlder` and records `olderEntriesNotRequested: true`, because `date_filed__gte` means those rows are not requested. OpenRouter field refusals and the non-cost-policy draft basis are pinned by tests.
 
 ## Review Triage Log
 

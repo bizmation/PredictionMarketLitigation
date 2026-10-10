@@ -230,18 +230,31 @@ function inWindowRange(days: number): boolean {
 
 /**
  * `FIRST_FETCH_WINDOW_DAYS` when it is an integer from 1 through 30. A
- * leading zero is that integer. Unset uses the default and does not log.
- * Any other set value logs the rejected text once and uses the default.
+ * leading zero is that integer. A Worker var may arrive as a string or as a
+ * JSON number. Unset uses the default and does not log. Any other set value
+ * logs the rejected text once and uses the default.
  */
-export function firstFetchWindowDays(raw: string | undefined): number {
+export function firstFetchWindowDays(raw: string | number | undefined): number {
   if (raw == null) return DEFAULT_FIRST_FETCH_WINDOW_DAYS;
-  const trimmed = raw.trim();
+  const text = String(raw);
+  const trimmed = text.trim();
   const value = /^[0-9]+$/.test(trimmed) ? Number(trimmed) : Number.NaN;
   if (inWindowRange(value)) return value;
   console.warn({
     event: "first_fetch_window_invalid",
     fallback: DEFAULT_FIRST_FETCH_WINDOW_DAYS,
-    value: rejectedWindowText(raw)
+    value: rejectedWindowText(text)
+  });
+  return DEFAULT_FIRST_FETCH_WINDOW_DAYS;
+}
+
+function windowDaysFromDep(days: number | undefined): number {
+  if (days == null) return DEFAULT_FIRST_FETCH_WINDOW_DAYS;
+  if (inWindowRange(days)) return days;
+  console.warn({
+    event: "first_fetch_window_invalid",
+    fallback: DEFAULT_FIRST_FETCH_WINDOW_DAYS,
+    value: rejectedWindowText(String(days))
   });
   return DEFAULT_FIRST_FETCH_WINDOW_DAYS;
 }
@@ -751,9 +764,7 @@ async function pollDocket(
       : trackedSince != null
         ? { kind: "source_published_at", date: trackedSince }
         : null;
-  const windowDays = inWindowRange(deps.firstFetchWindowDays ?? Number.NaN)
-    ? deps.firstFetchWindowDays!
-    : DEFAULT_FIRST_FETCH_WINDOW_DAYS;
+  const windowDays = windowDaysFromDep(deps.firstFetchWindowDays);
   let fetchOnOrAfter = baseline?.date ?? null;
   let effectiveCutoff: string | undefined;
   if (baseline?.kind === "source_published_at") {
@@ -781,7 +792,6 @@ async function pollDocket(
   let latestEntryDate: string | null = null;
   let seenCount = 0;
   let undated = 0;
-  let skippedOlder = 0;
   for (const entry of fetched.entries) {
     const dated = IsoDateSchema.safeParse(entry.dateFiled);
     if (!dated.success || entry.description.length === 0) {
@@ -791,10 +801,7 @@ async function pollDocket(
     if (latestEntryDate == null || dated.data > latestEntryDate) {
       latestEntryDate = dated.data;
     }
-    if (effectiveCutoff != null && dated.data < effectiveCutoff) {
-      skippedOlder += 1;
-      continue;
-    }
+    if (effectiveCutoff != null && dated.data < effectiveCutoff) continue;
     const id = docketEventId(row.case_id, entry.id);
     if (seen.has(id) || (baseline != null && dated.data < baseline.date)) {
       seenCount += 1;
@@ -838,7 +845,9 @@ async function pollDocket(
       newEntries: entities.length,
       seen: seenCount,
       skippedIncomplete: undated,
-      ...(effectiveCutoff == null ? {} : { effectiveCutoff, skippedOlder }),
+      ...(effectiveCutoff == null
+        ? {}
+        : { effectiveCutoff, olderEntriesNotRequested: true }),
       ...(fetched.timeouts.length > 0 ? { timeouts: fetched.timeouts } : {})
     }
   };

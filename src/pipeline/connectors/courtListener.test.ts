@@ -212,6 +212,8 @@ describe("CourtListener helpers", () => {
     try {
       expect(firstFetchWindowDays(undefined)).toBe(7);
       expect(firstFetchWindowDays("14")).toBe(14);
+      expect(firstFetchWindowDays(14)).toBe(14);
+      expect(firstFetchWindowDays(8)).toBe(8);
       expect(firstFetchWindowDays(" 3 ")).toBe(3);
       expect(firstFetchWindowDays("08")).toBe(8);
       expect(firstFetchWindowDays("30")).toBe(30);
@@ -220,7 +222,8 @@ describe("CourtListener helpers", () => {
         expect(firstFetchWindowDays(raw)).toBe(7);
       }
       expect(firstFetchWindowDays(String(Number.MAX_SAFE_INTEGER))).toBe(7);
-      expect(warn).toHaveBeenCalledTimes(9);
+      expect(firstFetchWindowDays(400)).toBe(7);
+      expect(warn).toHaveBeenCalledTimes(10);
       expect(warn.mock.calls.map((call) => call[0])).toEqual([
         { event: "first_fetch_window_invalid", fallback: 7, value: "0" },
         { event: "first_fetch_window_invalid", fallback: 7, value: "" },
@@ -234,7 +237,8 @@ describe("CourtListener helpers", () => {
           event: "first_fetch_window_invalid",
           fallback: 7,
           value: String(Number.MAX_SAFE_INTEGER)
-        }
+        },
+        { event: "first_fetch_window_invalid", fallback: 7, value: "400" }
       ]);
     } finally {
       warn.mockRestore();
@@ -616,9 +620,12 @@ describe("CourtListener connector (story 3.21)", () => {
     expect(docketSummary(await fetchedPayload(runId), FURCOLO)).toMatchObject({
       baseline: { kind: "source_published_at", date: FURCOLO_TRACKED_SINCE },
       effectiveCutoff: cutoff,
-      skippedOlder: 1,
+      olderEntriesNotRequested: true,
       newEntries: 2
     });
+    expect(
+      docketSummary(await fetchedPayload(runId), FURCOLO)
+    ).not.toHaveProperty("skippedOlder");
   });
 
   it("omits date_filed__gte when the docket has no baseline", async () => {
@@ -806,7 +813,7 @@ describe("CourtListener connector (story 3.21)", () => {
       drafts.some((d) => d.targetEntityId === `de-${FURCOLO_CASE}-500`)
     ).toBe(false);
     // Undated / text-less rows never become records. Entries filed before
-    // the effective cutoff are counted as skippedOlder, not drafted.
+    // the effective cutoff are not drafted.
     expect(
       drafts.some((d) =>
         ["499", "498", "400"].some(
@@ -828,7 +835,7 @@ describe("CourtListener connector (story 3.21)", () => {
       seen: 0,
       skippedIncomplete: 2,
       effectiveCutoff: "2026-09-11",
-      skippedOlder: 2
+      olderEntriesNotRequested: true
     });
     expect(
       (await evidenceRepo.listByRun(testEnv.DB, runId)).filter(
@@ -890,6 +897,9 @@ describe("CourtListener connector (story 3.21)", () => {
       "effectiveCutoff"
     );
     expect(docketSummary(payload, FURCOLO)).not.toHaveProperty("skippedOlder");
+    expect(docketSummary(payload, FURCOLO)).not.toHaveProperty(
+      "olderEntriesNotRequested"
+    );
     const furcolo = calls.find(
       ({ url }) => new URL(url).searchParams.get("docket") === FURCOLO
     );
@@ -1184,11 +1194,17 @@ describe("CourtListener connector (story 3.21)", () => {
         };
       })
     );
-    const calls = stubFetch((docketId) =>
-      docketId === ILLINOIS
-        ? { status: 200, body: { results } }
-        : { status: 200, body: { results: [] } }
-    );
+    const calls = stubFetch((docketId, url) => {
+      const floor = new URL(url).searchParams.get("date_filed__gte");
+      const visible = floor
+        ? results.filter(
+            (row) => row.date_filed != null && row.date_filed >= floor
+          )
+        : results;
+      return docketId === ILLINOIS
+        ? { status: 200, body: { results: visible } }
+        : { status: 200, body: { results: [] } };
+    });
     const runId = await newRun();
     const result = await runConnector(
       testEnv.DB,
@@ -1213,9 +1229,13 @@ describe("CourtListener connector (story 3.21)", () => {
     expect(docketSummary(await fetchedPayload(runId), ILLINOIS)).toMatchObject({
       baseline: { kind: "source_published_at", date: "2026-04-02" },
       effectiveCutoff: "2026-10-04",
-      skippedOlder: 7,
+      olderEntriesNotRequested: true,
+      entries: 3,
       newEntries: 3
     });
+    expect(
+      docketSummary(await fetchedPayload(runId), ILLINOIS)
+    ).not.toHaveProperty("skippedOlder");
   });
 
   it("keeps a recent published_at when it is later than the window start", async () => {
@@ -1267,8 +1287,11 @@ describe("CourtListener connector (story 3.21)", () => {
       ).toMatchObject({
         baseline: { kind: "source_published_at", date: "2026-09-16" },
         effectiveCutoff: "2026-09-16",
-        skippedOlder: 1
+        olderEntriesNotRequested: true
       });
+      expect(
+        docketSummary(await fetchedPayload(runId), ILLINOIS)
+      ).not.toHaveProperty("skippedOlder");
     } finally {
       await testEnv.DB.prepare(
         "UPDATE sources SET published_at = ? WHERE id = 'src-case-il-docket'"
@@ -1328,9 +1351,19 @@ describe("CourtListener connector (story 3.21)", () => {
     expect(bounded.cutoff).toBe("2026-05-25");
     expect(bounded.dates).toContain("2026-05-25");
     expect(bounded.dates).not.toContain("2026-05-24");
-    const huge = await poll(Number.MAX_SAFE_INTEGER);
-    expect(huge.result.failed).toBe(false);
-    expect(huge.cutoff).toBe("2026-05-25");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const huge = await poll(Number.MAX_SAFE_INTEGER);
+      expect(huge.result.failed).toBe(false);
+      expect(huge.cutoff).toBe("2026-05-25");
+      expect(warn).toHaveBeenCalledWith({
+        event: "first_fetch_window_invalid",
+        fallback: 7,
+        value: String(Number.MAX_SAFE_INTEGER)
+      });
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 
