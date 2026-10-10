@@ -551,7 +551,7 @@ describe("steering cost policy refusal", () => {
     expect(response.status).toBe(503);
     expect(await response.json()).toMatchObject({
       code: "cost_policy_invalid",
-      message: expect.stringContaining("cost policy")
+      message: "cost_policy_invalid: policy_lookup"
     });
     expect(run).not.toHaveBeenCalled();
   });

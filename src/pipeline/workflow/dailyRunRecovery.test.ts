@@ -168,7 +168,8 @@ function harness(
       ...env,
       DB: database,
       COURTLISTENER_API_TOKEN: "local-test-token",
-      courtListenerWait: async () => {}
+      courtListenerWait: async () => {},
+      now: () => "2026-10-08T16:00:00.000Z"
     }
   });
   const checkpoints = new Checkpoints();
