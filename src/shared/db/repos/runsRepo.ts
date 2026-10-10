@@ -1,8 +1,10 @@
 import { mapLlmCall, type LlmCallRow } from "./llmCallsRepo";
 import { currentHeadSql } from "./draftsRepo";
 import {
+  AccountingOperationSchema,
   RunLogItemSchema,
   RunSummarySchema,
+  type AccountingOperation,
   type RunLogItem,
   type RunMode,
   type RunOrigin,
@@ -347,4 +349,19 @@ export async function accountingSnapshot(db: Db, id: string) {
         reconciliationReceipts: receipts!.results
       }
     : null;
+}
+
+const ACCOUNTING_OPERATION_SQL =
+  "SELECT id,logical_key AS logicalKey,state,version,bound_cents AS boundCents,liability_cents AS liabilityCents,created_at AS createdAt,provider_request_id AS providerRequestId,issue FROM llm_operations WHERE run_id=? ORDER BY created_at,id";
+
+/** Same operation columns Run Evidence already exposes, for one Run. */
+export async function listAccountingOperations(
+  db: Db,
+  runId: string
+): Promise<AccountingOperation[]> {
+  const { results } = await db
+    .prepare(ACCOUNTING_OPERATION_SQL)
+    .bind(runId)
+    .all();
+  return AccountingOperationSchema.array().parse(results ?? []);
 }

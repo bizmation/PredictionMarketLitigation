@@ -3497,3 +3497,69 @@ describe("admin run reject", () => {
     ]);
   });
 });
+
+describe("admin loop accounting operations", () => {
+  it("returns operation id, version, and issue for the latest run", async () => {
+    const accounting = await import("../db/repos/llmAccountingRepo");
+    const { fixtureCostPolicy } = await import("../../test/costPolicyFixture");
+    const { AccountingOperationSchema } = await import("../schemas/run");
+    const runId = "run-20991231-0b31";
+    await runsRepo.insertRun(testEnv.DB, {
+      id: runId,
+      origin: "scheduled",
+      mode: "hitl",
+      status: "awaiting",
+      startedAt: "2099-12-31T00:00:00.000Z",
+      completedAt: null,
+      spendCents: 0,
+      spendCurrency: "USD",
+      budgetCents: 500,
+      scheduledFor: "2099-12-31"
+    });
+    const now = "2099-12-31T00:00:00.000Z";
+    const operation = await accounting.reserve(testEnv.DB, {
+      id: "loop-op-2099",
+      runId,
+      role: "reviewer",
+      key: "draft:2099:reviewer",
+      fingerprint: "fp-loop-2099",
+      owner: "owner",
+      bound: 50,
+      budget: 500,
+      policy: fixtureCostPolicy("fake", "m", now),
+      now,
+      awaiting: true
+    });
+    await accounting.claimDispatch(testEnv.DB, operation, operation.owner, now);
+    await accounting.markUncertain(
+      testEnv.DB,
+      operation.id,
+      operation.owner,
+      "timeout"
+    );
+    const stored = await testEnv.DB.prepare(
+      "SELECT version, issue FROM llm_operations WHERE id=?"
+    )
+      .bind(operation.id)
+      .first<{ version: number; issue: string }>();
+    const res = await auth("/api/admin/loop");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      latest: { id: string } | null;
+      accountingOperations?: unknown;
+    };
+    expect(body.latest?.id).toBe(runId);
+    const operations = AccountingOperationSchema.array().parse(
+      body.accountingOperations
+    );
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: operation.id,
+          version: stored?.version,
+          issue: "timeout"
+        })
+      ])
+    );
+  });
+});

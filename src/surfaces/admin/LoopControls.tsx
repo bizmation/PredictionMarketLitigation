@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 import { surfaceHref } from "../../shared/lib/surface";
 import { etCalendarDate } from "../../shared/lib/schedule";
@@ -10,9 +10,12 @@ import {
   isAbortError,
   isTimeoutError
 } from "../../shared/lib/timeouts";
+import { ReconciliationInputSchema } from "../../shared/schemas/gateway";
 import {
+  AccountingOperationSchema,
   RunDispatchSchema,
   RunSummarySchema,
+  type AccountingOperation,
   type RunDispatch,
   type RunLogItem
 } from "../../shared/schemas/run";
@@ -151,6 +154,283 @@ function isRunLogItem(value: unknown): value is RunLogItem {
   );
 }
 
+const USD_AMOUNT = /^\d+(?:\.\d+)?$/;
+
+function accountingOperationsOf(body: unknown): AccountingOperation[] {
+  if (
+    body === null ||
+    typeof body !== "object" ||
+    !("accountingOperations" in body)
+  )
+    return [];
+  const raw = (body as { accountingOperations: unknown }).accountingOperations;
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((row) => {
+    const parsed = AccountingOperationSchema.safeParse(row);
+    return parsed.success ? [parsed.data] : [];
+  });
+}
+
+function openIssue(operation: AccountingOperation): boolean {
+  return typeof operation.issue === "string" && operation.issue.length > 0;
+}
+
+type ReconcileDraft = {
+  decision: "" | "confirmed_charge" | "confirmed_no_charge";
+  originalUsd: string;
+  evidenceReference: string;
+  note: string;
+};
+
+function reconcileFieldError(draft: ReconcileDraft): string | null {
+  if (
+    draft.decision !== "confirmed_charge" &&
+    draft.decision !== "confirmed_no_charge"
+  )
+    return "Select a decision.";
+  if (
+    draft.decision === "confirmed_charge" &&
+    !USD_AMOUNT.test(draft.originalUsd.trim())
+  )
+    return "Enter a decimal USD amount.";
+  if (!draft.evidenceReference.trim() || !draft.note.trim())
+    return "Evidence reference and note are required.";
+  if (
+    draft.evidenceReference.trim().length > 1000 ||
+    draft.note.trim().length > 2000
+  )
+    return "Evidence reference or note is too long.";
+  return null;
+}
+
+function ReconcileControl({
+  operation,
+  busy,
+  onSubmit
+}: {
+  operation: AccountingOperation;
+  busy: boolean;
+  onSubmit: (
+    operationId: string,
+    body: {
+      requestId: string;
+      expectedVersion: number;
+      decision: "confirmed_charge" | "confirmed_no_charge";
+      originalUsd?: string;
+      evidenceReference: string;
+      note: string;
+    }
+  ) => Promise<{ ok: true } | { ok: false; message: string }>;
+}) {
+  const baseId = useId();
+  const [open, setOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [draft, setDraft] = useState<ReconcileDraft>({
+    decision: "",
+    originalUsd: "",
+    evidenceReference: "",
+    note: ""
+  });
+
+  if (!openIssue(operation)) return null;
+  if (!open) {
+    return (
+      <p>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          disabled={busy}
+          onClick={() => {
+            setDraft({
+              decision: "",
+              originalUsd: "",
+              evidenceReference: "",
+              note: ""
+            });
+            setConfirming(false);
+            setError(null);
+            setOpen(true);
+          }}
+        >
+          Reconcile {operation.id}
+        </button>
+      </p>
+    );
+  }
+
+  const problem = reconcileFieldError(draft);
+  const confirmText =
+    draft.decision === "confirmed_charge"
+      ? `Reconcile operation ${operation.id} as confirmed_charge for ${draft.originalUsd.trim()} USD?`
+      : `Reconcile operation ${operation.id} as confirmed_no_charge with no USD amount?`;
+
+  return (
+    <div className="rejectbox reconcile-form">
+      <p className="public-warning">
+        Evidence reference and note are public. Use a safe ticket or invoice
+        identifier, not credentials, prompts, or secret URLs.
+      </p>
+      <label htmlFor={`${baseId}-decision`}>
+        Decision
+        <select
+          id={`${baseId}-decision`}
+          value={draft.decision}
+          onChange={(event) => {
+            const decision = event.target.value as ReconcileDraft["decision"];
+            setDraft((current) => ({
+              ...current,
+              decision,
+              originalUsd:
+                decision === "confirmed_charge" ? current.originalUsd : ""
+            }));
+            setConfirming(false);
+            setError(null);
+          }}
+        >
+          <option value="">Select a decision</option>
+          <option value="confirmed_charge">confirmed_charge</option>
+          <option value="confirmed_no_charge">confirmed_no_charge</option>
+        </select>
+      </label>
+      {draft.decision === "confirmed_charge" ? (
+        <label htmlFor={`${baseId}-usd`}>
+          Original USD
+          <input
+            id={`${baseId}-usd`}
+            inputMode="decimal"
+            autoComplete="off"
+            value={draft.originalUsd}
+            onChange={(event) => {
+              setDraft((current) => ({
+                ...current,
+                originalUsd: event.target.value
+              }));
+              setConfirming(false);
+              setError(null);
+            }}
+          />
+        </label>
+      ) : null}
+      <label htmlFor={`${baseId}-evidence`}>
+        Evidence reference
+        <input
+          id={`${baseId}-evidence`}
+          autoComplete="off"
+          value={draft.evidenceReference}
+          onChange={(event) => {
+            setDraft((current) => ({
+              ...current,
+              evidenceReference: event.target.value
+            }));
+            setConfirming(false);
+            setError(null);
+          }}
+        />
+      </label>
+      <label htmlFor={`${baseId}-note`}>
+        Note
+        <textarea
+          id={`${baseId}-note`}
+          value={draft.note}
+          onChange={(event) => {
+            setDraft((current) => ({ ...current, note: event.target.value }));
+            setConfirming(false);
+            setError(null);
+          }}
+        />
+      </label>
+      {error ? <p role="alert">{error}</p> : null}
+      {confirming && problem === null ? (
+        <>
+          <p>{confirmText}</p>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={busy}
+            onClick={() => {
+              const fields = reconcileFieldError(draft);
+              if (fields || draft.decision === "") {
+                setError(fields ?? "Select a decision.");
+                setConfirming(false);
+                return;
+              }
+              const body = {
+                requestId: crypto.randomUUID(),
+                expectedVersion: operation.version,
+                decision: draft.decision,
+                evidenceReference: draft.evidenceReference.trim(),
+                note: draft.note.trim(),
+                ...(draft.decision === "confirmed_charge"
+                  ? { originalUsd: draft.originalUsd.trim() }
+                  : {})
+              };
+              const parsed = ReconciliationInputSchema.safeParse(body);
+              if (!parsed.success) {
+                setError("Reconciliation details are not valid.");
+                setConfirming(false);
+                return;
+              }
+              void onSubmit(operation.id, parsed.data).then((result) => {
+                if (result.ok) {
+                  setOpen(false);
+                  setConfirming(false);
+                  setError(null);
+                  return;
+                }
+                setError(result.message);
+                setConfirming(true);
+              });
+            }}
+          >
+            Confirm reconciliation
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            disabled={busy}
+            onClick={() => setConfirming(false)}
+          >
+            Back
+          </button>
+        </>
+      ) : (
+        <>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={busy}
+            onClick={() => {
+              const fields = reconcileFieldError(draft);
+              if (fields) {
+                setError(fields);
+                setConfirming(false);
+                return;
+              }
+              setError(null);
+              setConfirming(true);
+            }}
+          >
+            Review reconciliation
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            disabled={busy}
+            onClick={() => {
+              setOpen(false);
+              setConfirming(false);
+              setError(null);
+            }}
+          >
+            Cancel
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
 function pendingHeadCountOf(body: unknown): number | null {
   if (
     body === null ||
@@ -191,6 +471,7 @@ export function LoopControls({
   const [confirming, setConfirming] = useState(false);
   const [rejectRunId, setRejectRunId] = useState<string | null>(null);
   const [dispatches, setDispatches] = useState<RunDispatch[]>([]);
+  const [operations, setOperations] = useState<AccountingOperation[]>([]);
   const pendingRequest = useRef<PendingRequest | null>(null);
   const confirmationRequest = useRef<PendingRequest | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -253,6 +534,7 @@ export function LoopControls({
           setView({ status: "signedOut" });
           return;
         }
+        setOperations(accountingOperationsOf(body));
         setView({
           status: "ready",
           latest,
@@ -449,6 +731,64 @@ export function LoopControls({
       setReload((v) => v + 1);
     } catch {
       setNotice("Recovery outcome is unknown. Check this same Run again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function postReconcile(
+    operationId: string,
+    body: {
+      requestId: string;
+      expectedVersion: number;
+      decision: "confirmed_charge" | "confirmed_no_charge";
+      originalUsd?: string;
+      evidenceReference: string;
+      note: string;
+    }
+  ): Promise<{ ok: true } | { ok: false; message: string }> {
+    setBusy(true);
+    setNotice(null);
+    try {
+      const res = await fetchWithTimeout(
+        `/api/admin/llm-calls/${encodeURIComponent(operationId)}/reconcile`,
+        {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {
+            "content-type": "application/json",
+            accept: "application/json"
+          },
+          body: JSON.stringify(body)
+        },
+        ADMIN_POST_TIMEOUT_MS
+      );
+      let payload: unknown = null;
+      try {
+        payload = await res.json();
+      } catch {
+        payload = null;
+      }
+      if (!res.ok) {
+        const message =
+          payload !== null &&
+          typeof payload === "object" &&
+          "message" in payload &&
+          typeof payload.message === "string"
+            ? payload.message
+            : "Reconciliation did not complete.";
+        return { ok: false, message };
+      }
+      setNotice(`Operation ${operationId} reconciled as ${body.decision}.`);
+      setReload((value) => value + 1);
+      return { ok: true };
+    } catch (err) {
+      return {
+        ok: false,
+        message: isTimeoutError(err)
+          ? "No answer within 30 seconds. The reconciliation may or may not have completed."
+          : "Reconciliation outcome is unknown."
+      };
     } finally {
       setBusy(false);
     }
@@ -670,6 +1010,14 @@ export function LoopControls({
               ? `unknown${latest.unmeasuredCallCount == null ? "" : ` (${latest.unmeasuredCallCount} calls without reported charges)`}`
               : `${latest.reportedCostCents} cents`}
             .
+            {operations.filter(openIssue).map((operation) => (
+              <ReconcileControl
+                key={operation.id}
+                operation={operation}
+                busy={busy}
+                onSubmit={postReconcile}
+              />
+            ))}
           </details>
         </div>
       ) : (

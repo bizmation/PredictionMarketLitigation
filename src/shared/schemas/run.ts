@@ -230,6 +230,23 @@ export const EvidenceEventSchema = z
 
 export type EvidenceEvent = z.infer<typeof EvidenceEventSchema>;
 
+/** Public operation row shared by Run Evidence and the admin loop card. */
+export const AccountingOperationSchema = z
+  .object({
+    id: z.string(),
+    logicalKey: z.string(),
+    state: z.string(),
+    version: cents,
+    boundCents: cents,
+    liabilityCents: cents,
+    createdAt: z.string(),
+    providerRequestId: z.string().nullable(),
+    issue: z.string().nullable()
+  })
+  .strict();
+
+export type AccountingOperation = z.infer<typeof AccountingOperationSchema>;
+
 /**
  * Run detail = the run plus everything the loop recorded under it. Arrays
  * may be empty — an empty Run's Evidence states zero drafts, and an unused
@@ -242,23 +259,7 @@ export const RunDetailSchema = z
     drafts: z.array(DraftRecordSchema),
     evidence: z.array(EvidenceEventSchema),
     llmCalls: z.array(LlmCallRecordSchema),
-    accountingOperations: z
-      .array(
-        z
-          .object({
-            id: z.string(),
-            logicalKey: z.string(),
-            state: z.string(),
-            version: cents,
-            boundCents: cents,
-            liabilityCents: cents,
-            createdAt: z.string(),
-            providerRequestId: z.string().nullable(),
-            issue: z.string().nullable()
-          })
-          .strict()
-      )
-      .optional(),
+    accountingOperations: z.array(AccountingOperationSchema).optional(),
     reconciliationReceipts: z
       .array(
         z

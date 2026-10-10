@@ -3077,6 +3077,22 @@ button:focus-visible {
   display: block;
   margin-top: 7px;
 }
+.reconcile-form label {
+  display: block;
+  margin-top: 8px;
+}
+.reconcile-form input,
+.reconcile-form select,
+.reconcile-form textarea {
+  display: block;
+  width: 100%;
+  max-width: 36rem;
+  margin-top: 4px;
+  font: inherit;
+}
+.reconcile-form .public-warning {
+  font-weight: 600;
+}
 .accounting-alert {
   display: block;
   color: var(--ui-red);
