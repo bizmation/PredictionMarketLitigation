@@ -4,7 +4,7 @@ baseline_commit: 85850d2b376bc56b194cffe6a173e87b36378b6b
 
 # Story 3.38: Pace CourtListener requests and recover from HTTP 429
 
-Status: review
+Status: in-progress
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -74,6 +74,29 @@ so that a normal daily Run finishes instead of failing before any Draft exists.
 - low — Test-only `courtListenerWait` widens the `Env` type: production never sets it; the fix adds a deps parameter.
 - false — Admission `sibling_failure` test lost its sibling: serial polling means no sibling request is ever in flight; abort-during-wait coverage is tracked under the `defaultWait` patch.
 - spec — Dev Agent Record has generic filler and no CI link: the fix edits the spec under review.
+
+### Review Findings (re-review of 3cfdc02, 2026-10-10)
+
+- [ ] [Review][Patch] Real `defaultWait` test still doesn't prove spacing: "clears the real wait timer" advances 45 s once and checks 4 calls, which also passes if `defaultWait` resolves immediately. Assert 1 call at 14.9 s and 2 calls at 15 s, then the same for the 60 s 429 backoff (medium) [src/pipeline/connectors/courtListener.test.ts:1622]
+- [ ] [Review][Patch] The `+ SOURCE_FETCH_TIMEOUT_MS` margin in the poll-deadline check isn't pinned: both deadline tests have wait > timeLeft without the margin, so dropping it still passes. Add a moving-clock case with waitMs <= timeLeft < waitMs + 12 s that stops before fetching, and a just-outside case that still fetches (medium) [src/pipeline/connectors/courtListener.ts:772-776]
+- [ ] [Review][Patch] The poll-deadline check is skipped when no wait is needed: `if (waitMs <= 0) return;` runs before the `timeLeft` check, so a request whose spacing already elapsed can start with under 12 s left and end as the generic deadline skip. Move the time-left check ahead of the early return (low) [src/pipeline/connectors/courtListener.ts:771]
+- [ ] [Review][Patch] A spacing-only stop still says "rate limit wait budget exhausted" under `reason: "timeout"`, which tells the public log a rate limit happened when none did. Use neutral detail (e.g. "wait budget exhausted") when no 429 was seen (low) [src/pipeline/connectors/courtListener.ts:779]
+- [ ] [Review][Patch] Five-docket test timing is wrong and its assertions are loose: pacing is measured from request start, so with 11 s fetches the gaps are 4 s and the poll ends at about 71 s, not 115 s. `60 s < elapsed < 480 s` checks total advanced time, not when the poll finished. Fix the comment and assert the finish time within a small tolerance (low) [src/pipeline/connectors/courtListener.test.ts:761]
+- [ ] [Review][Patch] The workflow exhausted-429 test only checks that some `http_429` skip exists. Also assert `status: 429`, `attempts: 3`, the scrubbed `detail`, fetch count = `COURTLISTENER_MAX_ATTEMPTS`, and that the token never appears in evidence (low) [src/pipeline/workflow/dailyRunRecovery.test.ts:897]
+
+#### Rejected (re-review)
+
+- low: `pollStartedAt` starts a few ms after `observe`'s deadline (one D1 read); the fix needs new context plumbing.
+- false: the pace check uses the constant rather than the check's `pollTimeoutMs`; the check's value is that same constant.
+- per decision: `seenRateLimit` is poll-wide, so a later stop after any recovered 429 stays `http_429`; this matches Patrick's "a real 429 preceded the exhaustion".
+- carried: `pace`'s `http_429` lacks attempts and the server detail (rejected in the first pass).
+- low: connector-level `timeout` skips lack `timeoutMs` while deadline skips have it; nothing reads the field.
+- per decision: about 25+ dockets can exhaust the spacing budget as `timeout`; that is decision 1's outcome.
+- false: the workflow 429 test hits real timers; the harness injects an instant `courtListenerWait`.
+- low: the run-ownership test checks only part of the order.
+- low: there's no test where both stop conditions fire at once.
+- low: the deadline test has no negative 60 s case.
+- spec: the File List, the Change Log date, and the 115 s Dev Agent Record note are spec edits; please correct the 115 s note anyway while you fix the test.
 
 ## Dev Notes
 
