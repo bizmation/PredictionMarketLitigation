@@ -3027,15 +3027,16 @@ describe("admin run reject", () => {
       | "failed"
       | "stopped"
       | "empty"
-      | "running" = "awaiting"
+      | "running" = "awaiting",
+    startedAt = AT
   ) {
     await runsRepo.insertRun(testEnv.DB, {
       id: runId,
       origin: "manual",
       mode: "hitl",
       status,
-      startedAt: AT,
-      completedAt: status === "running" ? null : AT,
+      startedAt,
+      completedAt: status === "running" ? null : startedAt,
       spendCents: 0,
       spendCurrency: "USD",
       budgetCents: 100,
@@ -3057,7 +3058,7 @@ describe("admin run reject", () => {
       `INSERT INTO drafts (id, run_id, target_entity_type, target_entity_id, diff_json, body,
         tier2_only, confidence, eval_summary_json, outcome, decided_at, decided_by, edited_body,
         reject_reason, reject_reason_private, parent_draft_id, revision_index, created_at, updated_at)
-       VALUES (?, ?, 'states', 'st-nv', '{}', ?, 0, NULL, NULL, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?)`
+       VALUES (?, ?, 'states', 'st-nv', '{}', ?, 0, NULL, NULL, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?)`
     )
       .bind(
         id,
@@ -3066,6 +3067,7 @@ describe("admin run reject", () => {
         outcome,
         outcome ? AT : null,
         outcome ? "Earlier Operator" : null,
+        outcome === "edited" ? "Edited body." : null,
         options?.parentId ?? null,
         options?.revision ?? 0,
         AT,
@@ -3231,6 +3233,62 @@ describe("admin run reject", () => {
     expect(getRes.headers.get("allow")).toBe("POST");
   });
 
+  it("refuses an edited current head and writes nothing", async () => {
+    const runId = "run-20260423-0d02";
+    await seedAwaiting(runId, "2026-04-23");
+    await seedDraft("d-edited-head", runId, { outcome: "edited" });
+    await seedDraft("d-still-open", runId);
+    const token = await sign(EMAIL);
+    expect((await worker.fetch(reject(runId, token), realEnv())).status).toBe(
+      409
+    );
+    expect(await runStatus(runId)).toBe("awaiting");
+    expect((await draftRow("d-still-open")).outcome).toBeNull();
+    expect((await draftRow("d-edited-head")).outcome).toBe("edited");
+    expect(await evidenceCount(`run-completed-${runId}`)).toBe(0);
+  });
+
+  it("reports the undecided current-head count for an awaiting latest run", async () => {
+    const runId = "run-20990101-0aa1";
+    await seedAwaiting(
+      runId,
+      "2099-01-01",
+      "awaiting",
+      "2099-01-01T00:00:00.000Z"
+    );
+    await seedDraft("d-loop-parent", runId);
+    await seedDraft("d-loop-child", runId, {
+      parentId: "d-loop-parent",
+      revision: 1
+    });
+    const token = await sign(EMAIL);
+    const res = await worker.fetch(signed(token, "/api/admin/loop"), realEnv());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      latest: { id: string } | null;
+      pendingHeadCount: number | null;
+    };
+    expect(body.latest?.id).toBe(runId);
+    expect(body.pendingHeadCount).toBe(1);
+    const publishedId = "run-20990102-0aa2";
+    await seedAwaiting(
+      publishedId,
+      "2099-01-02",
+      "published",
+      "2099-01-02T00:00:00.000Z"
+    );
+    const again = await worker.fetch(
+      signed(token, "/api/admin/loop"),
+      realEnv()
+    );
+    const next = (await again.json()) as {
+      latest: { id: string } | null;
+      pendingHeadCount: number | null;
+    };
+    expect(next.latest?.id).toBe(publishedId);
+    expect(next.pendingHeadCount).toBeNull();
+  });
+
   it("lets a settled rejected date through dailyRun admission and still blocks reserved cents", async () => {
     const clearId = "run-20260421-0e01";
     const heldId = "run-20260422-0f01";
@@ -3252,13 +3310,6 @@ describe("admin run reject", () => {
         )
         .run();
     }
-    const token = await sign(EMAIL);
-    expect((await worker.fetch(reject(clearId, token), realEnv())).status).toBe(
-      200
-    );
-    expect((await worker.fetch(reject(heldId, token), realEnv())).status).toBe(
-      200
-    );
     await testEnv.DB.prepare(
       `INSERT INTO llm_operations
         (id, run_id, logical_key, fingerprint, role, state, owner, bound_cents, liability_cents, policy_json, created_at)
@@ -3266,6 +3317,21 @@ describe("admin run reject", () => {
     )
       .bind(heldId, AT)
       .run();
+    const holdBefore = await testEnv.DB.prepare(
+      `SELECT id, run_id, state, liability_cents FROM llm_operations WHERE id = 'op-held-0f01'`
+    ).first();
+    const token = await sign(EMAIL);
+    expect((await worker.fetch(reject(clearId, token), realEnv())).status).toBe(
+      200
+    );
+    expect((await worker.fetch(reject(heldId, token), realEnv())).status).toBe(
+      200
+    );
+    expect(
+      await testEnv.DB.prepare(
+        `SELECT id, run_id, state, liability_cents FROM llm_operations WHERE id = 'op-held-0f01'`
+      ).first()
+    ).toEqual(holdBefore);
     const workflow = { create: vi.fn(async () => ({})) };
     const env = {
       ...realEnv(),

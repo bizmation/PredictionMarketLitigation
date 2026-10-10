@@ -65,5 +65,12 @@ describe("LoopControls (story 3.12)", () => {
       />
     );
     expect(published).not.toContain("Reject this run");
+    const zero = renderToStaticMarkup(
+      <LoopControls
+        latest={item({ status: "awaiting" })}
+        pendingHeadCount={0}
+      />
+    );
+    expect(zero).not.toContain("Reject this run");
   });
 });

@@ -2,7 +2,7 @@
 title: 'Reject every undecided draft in an awaiting Run'
 type: 'feature'
 created: '2026-10-10'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 baseline_commit: '01906011bf40785f0003dd6f00f9e8a0c8875b9c'
 review_loop_iteration: 0
@@ -77,11 +77,31 @@ context:
 - One D1 batch (Cloudflare D1 `batch()` transaction): awaiting / unpublished-head / undecided-head assertions, one head UPDATE, `finalizeDecidedRunStmt`, then `run.completed` guarded by `changes() = 1`. A failed assertion or a taken evidence id rolls the batch back.
 - `GET /api/admin/loop` adds `pendingHeadCount` for an awaiting latest Run. The latest-run card uses a `<button type="button">` confirm step (React docs: pass `onClick`, do not add an access key). J/K/A/E/R are not handled.
 - Reserved cents still block same-date admission after reject (`dailyRun.ts:274-279` and `date_admission`). The reject path does not clear them.
-- Verification: `npm run check` passed. `npm test` passed 1511 tests, 6 skipped.
+- Verification: `npm run check` passed. `npm test` passed 1516 tests, 6 skipped.
+- Confirm is stored as the run id. Timeout and 403 clear it. Success marks that card `rejected` before the reload. A zero `pendingHeadCount` hides the control.
 
 ## Spec Change Log
 
 ## Review Triage Log
+
+- `false` — `approval.ts` approved/edited non-head. `decide` asserts `READY_HEAD_SQL` (current head) and `insertRevision` refuses a parent whose outcome is already set, so that row shape is not produced. `finalizeDecidedRunStmt` does not publish on this path.
+- `false` — claim that the handler returns `rejected` for a published run. The same invariant keeps the CASE on `rejected`, and the route returns that status only after the batch commits.
+- `high` — timeout leaves the confirm flag set, and the confirm box renders whatever `latest` the next poll returns, so the next click can reject a different awaiting run. Patch: bind confirm to the run id and clear it on timeout.
+- `low` — Design Notes still say three statements. Rejected: the fix is an edit to this spec.
+- `false` — one 409 for every refusal. Malformed JSON is already 400. The matrix maps not-awaiting, a blocking head, a repeat, and a rolled-back receipt to the same conflict.
+- `false` — post-commit read returns 409 or 500. A successful batch leaves the `json_object` receipt in place, and only this statement writes the private sentence at this `now`.
+- `low` — the confirm count can differ from the number of heads rejected at execution time. Rejected: pinning that count would add a request field the approved contract ignores.
+- `low` — `pendingHeadCount === 0` still offers reject and then 409. Patch: hide the control unless the count is greater than zero.
+- `false` — the client sends no assertion header. Every admin POST relies on Access injecting `cf-access-jwt-assertion`; the cookie-only 403 is the existing rule.
+- `medium` — after 200 the card stays `awaiting` until reload, so a second confirm returns 409 and replaces the success notice. A 403 left the confirm flag set, so the next successful loop GET reopened it. Patch: mark the card rejected locally, and clear the confirm id on 403.
+- `low` — focus drops when the confirm buttons mount. Rejected: restoring focus adds focus machinery, and mouse use does not hit it.
+- `false` — no public-view test for `run.completed`. Readers were left unchanged on purpose; the run row status is `rejected` and the payload carries `status`.
+- `medium` — the refusal test never seeds an `edited` head, so dropping `'edited'` from the guard would still pass and then publish. Patch: add that case. Other terminal statuses share the `!== "awaiting"` branch already locked by the published case.
+- `medium` — the reserved-cent hold is inserted after reject, so a reject that deleted it would still 409. Patch: insert it first and assert the row is unchanged.
+- `false` — shortcut keys while the confirm buttons are mounted. `LoopControls` has no keydown listener.
+- `medium` — verification gap: `GET /api/admin/loop` never asserts `pendingHeadCount` for an awaiting run. Patch: expect the current-head count, excluding a non-head, and `null` when the latest run is not awaiting.
+- `high` — verification gap: edited-head refusal is untested. Same patch as the edited-head finding above.
+- `medium` — verification gap: accounting hold is inserted after reject. Same patch as the admission finding above.
 
 ## Design Notes
 

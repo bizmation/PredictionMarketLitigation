@@ -189,7 +189,7 @@ export function LoopControls({
   const [reload, setReload] = useState(0);
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [rejecting, setRejecting] = useState(false);
+  const [rejectRunId, setRejectRunId] = useState<string | null>(null);
   const [dispatches, setDispatches] = useState<RunDispatch[]>([]);
   const pendingRequest = useRef<PendingRequest | null>(null);
   const confirmationRequest = useRef<PendingRequest | null>(null);
@@ -472,6 +472,7 @@ export function LoopControls({
         ADMIN_POST_TIMEOUT_MS
       );
       if (res.status === 403) {
+        setRejectRunId(null);
         setView({ status: "signedOut" });
         setReload((value) => value + 1);
         return;
@@ -483,7 +484,7 @@ export function LoopControls({
         body = null;
       }
       if (res.status === 409) {
-        setRejecting(false);
+        setRejectRunId(null);
         setNotice("This run cannot be rejected.");
         setReload((value) => value + 1);
         return;
@@ -501,14 +502,24 @@ export function LoopControls({
         typeof body.rejectedCount === "number"
           ? body.rejectedCount
           : null;
-      setRejecting(false);
+      setRejectRunId(null);
       setNotice(
         rejectedCount === null
           ? `Run ${runId} rejected.`
           : `Run ${runId} rejected. ${rejectedCount} drafts were rejected.`
       );
+      setView((current) =>
+        current.status === "ready" && current.latest?.id === runId
+          ? {
+              ...current,
+              latest: { ...current.latest, status: "rejected" },
+              pendingHeadCount: null
+            }
+          : current
+      );
       setReload((value) => value + 1);
     } catch (err) {
+      setRejectRunId(null);
       setNotice(
         isTimeoutError(err)
           ? "No answer within 30 seconds. The run may or may not have been rejected — the status below refreshes."
@@ -597,8 +608,10 @@ export function LoopControls({
               View run evidence →
             </a>
           </p>
-          {latest.status === "awaiting" && pendingHeadCount !== null ? (
-            rejecting ? (
+          {latest.status === "awaiting" &&
+          pendingHeadCount !== null &&
+          pendingHeadCount > 0 ? (
+            rejectRunId === latest.id ? (
               <div className="rejectbox">
                 <p>
                   Reject {pendingHeadCount} undecided drafts in {latest.id}?
@@ -616,7 +629,7 @@ export function LoopControls({
                   type="button"
                   className="btn btn-ghost"
                   disabled={busy}
-                  onClick={() => setRejecting(false)}
+                  onClick={() => setRejectRunId(null)}
                 >
                   Cancel
                 </button>
@@ -627,7 +640,7 @@ export function LoopControls({
                   type="button"
                   className="btn btn-secondary"
                   disabled={busy}
-                  onClick={() => setRejecting(true)}
+                  onClick={() => setRejectRunId(latest.id)}
                 >
                   Reject this run
                 </button>

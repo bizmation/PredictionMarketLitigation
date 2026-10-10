@@ -715,4 +715,137 @@ describe("tab-local request recovery and confirmation", () => {
     expect(post?.[0]).toBe("/api/admin/runs/run-20261111-0000/reject");
     expect(post?.[1]?.method).toBe("POST");
   });
+
+  it("closes the confirm step after a timeout when a different awaiting run loads", async () => {
+    let posted = false;
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/reject") && init?.method === "POST") {
+          posted = true;
+          throw new DOMException(
+            "Request timed out after 30000 ms",
+            "TimeoutError"
+          );
+        }
+        return scripted({
+          latest: item({
+            id: posted ? "run-20261112-0001" : "run-20261111-0000",
+            status: "awaiting",
+            completedAt: null,
+            approvalOutcome: null
+          }),
+          pendingHeadCount: posted ? 2 : 4,
+          dispatches: []
+        });
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LoopControls />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Reject this run" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reject 4 drafts" }));
+    await act(async () => {});
+    expect(document.body.textContent).toContain("No answer within 30 seconds");
+    expect(document.body.textContent).toContain("run-20261112-0001");
+    expect(document.body.textContent).not.toContain(
+      "Reject 2 undecided drafts"
+    );
+    expect(
+      screen.getByRole("button", { name: "Reject this run" })
+    ).toBeTruthy();
+  });
+
+  it("does not reopen the confirm step after the session returns from a 403", async () => {
+    let posted = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/reject") && init?.method === "POST") {
+          posted = true;
+          return scripted({ code: "forbidden" }, false, 403);
+        }
+        if (!posted) {
+          return scripted({
+            latest: item({
+              status: "awaiting",
+              completedAt: null,
+              approvalOutcome: null
+            }),
+            pendingHeadCount: 4,
+            dispatches: []
+          });
+        }
+        return scripted({
+          latest: item({
+            status: "awaiting",
+            completedAt: null,
+            approvalOutcome: null
+          }),
+          pendingHeadCount: 4,
+          dispatches: []
+        });
+      })
+    );
+    render(<LoopControls />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Reject this run" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reject 4 drafts" }));
+    await act(async () => {});
+    expect(document.body.textContent).not.toContain(
+      "Reject 4 undecided drafts"
+    );
+    expect(
+      screen.getByRole("button", { name: "Reject this run" })
+    ).toBeTruthy();
+  });
+
+  it("hides reject after success while the next loop read still says awaiting", async () => {
+    const gate: { release: (() => void) | null } = { release: null };
+    let posted = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/reject") && init?.method === "POST") {
+          posted = true;
+          return scripted({
+            runId: "run-20261111-0000",
+            status: "rejected",
+            rejectedCount: 4
+          });
+        }
+        if (posted) {
+          await new Promise<void>((resolve) => {
+            gate.release = resolve;
+          });
+        }
+        return scripted({
+          latest: item({
+            status: "awaiting",
+            completedAt: null,
+            approvalOutcome: null
+          }),
+          pendingHeadCount: 4,
+          dispatches: []
+        });
+      })
+    );
+    render(<LoopControls />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Reject this run" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reject 4 drafts" }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(document.body.textContent).toContain(
+      "Run run-20261111-0000 rejected. 4 drafts were rejected."
+    );
+    expect(
+      screen.queryByRole("button", { name: "Reject this run" })
+    ).toBeNull();
+    gate.release?.();
+    await act(async () => {});
+  });
 });
