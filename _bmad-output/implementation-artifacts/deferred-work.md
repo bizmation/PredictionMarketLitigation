@@ -219,3 +219,9 @@ Ledger entries above are not edited; this block records where each Epic 3 entry 
 - When pace stops during a timeout retry (deadline or budget), the `timeoutFact` is dropped, so the skip loses `requestKind`, `elapsedMs`, `timeoutMs` and `attempt`. The summary `timeouts` is also lost when a later page fails.
 - The `courtlistener_request_timeout` console log has no `runId`, so Observability lines can't be matched to a Run.
 - A body that stalls after the headers arrive has no per-request limit: `response.json()` is bounded only by the 8-minute poll deadline. This predates the PR.
+
+## Deferred from: spec-deepinfra-preflight-diagnostics-and-first-fetch-window.md (2026-10-10)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-deepinfra-preflight-diagnostics-and-first-fetch-window.md`
+  summary: Backfill docket history older than the first-fetch window.
+  evidence: A docket with no stored events uses the later of `sources.published_at` and 2 ET days before the run date, so a USD 1 acceptance run stays a handful of drafts. This story does not fetch the older history later.
