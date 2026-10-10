@@ -1,5 +1,5 @@
 # generated: 2026-08-09
-# last_updated: 2026-09-25
+# last_updated: 2026-10-10
 # project: PML
 # project_key: NOKEY
 # tracking_system: file-system
@@ -36,7 +36,7 @@
 # - Source epics: _bmad-output/planning-artifacts/epics.md; 3.14–3.21 backfill tracked in 3.26.
 
 generated: 2026-08-09
-last_updated: 2026-09-25
+last_updated: 2026-10-10
 project: PML
 project_key: NOKEY
 tracking_system: file-system
@@ -108,7 +108,9 @@ development_status:
   3-33-make-run-admission-and-dispatch-failures-explicit: done
   3-34-test-the-executing-dailyrunworkflow: done
   3-35-drive-apex-pending-copy-from-public-draft-data: done
-  3-36-verify-the-corrected-staging-run-and-gateway: in-progress # USD 1 total authorized; DeepInfra/GLM Secrets Store implementation in review; live acceptance pending
+  3-36-verify-the-corrected-staging-run-and-gateway: in-progress # USD 1 total authorized; DeepInfra/GLM Secrets Store implementation in review; live acceptance pending; blocked on 3.38 (CourtListener 429 pacing) merge and deploy
+  # Added 2026-10-10 by create-story. Not part of 3.36 (operational verification) and not 3.37 (next backlog acceptance story).
+  3-38-pace-courtlistener-requests-and-recover-from-http-429: in-progress
   3-37-prove-the-live-governed-loop-and-reassess-epic-3: backlog
   # Retrospective completed; verdict remains rejected until 3.37 reassessment.
   epic-3-retrospective: done

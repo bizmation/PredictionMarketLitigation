@@ -24,7 +24,9 @@
  * (`provider_error`, `source.skipped { reason: "timeout" }`).
  *
  * No retries, no backoff, no per-site overrides — the values are constants
- * here and nowhere else.
+ * here and nowhere else. CourtListener pacing and 429 waits (story 3.38)
+ * live in that connector and use their own poll budget; these deadlines
+ * stay fixed.
  */
 
 /** Public/ops GETs, apex hooks, and best-effort admin GETs. */

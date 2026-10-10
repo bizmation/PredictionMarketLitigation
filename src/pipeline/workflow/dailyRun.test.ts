@@ -726,7 +726,10 @@ describe("sourceChecksFromEnv (story 3.21)", () => {
         provider: provider(),
         now: () => NOW
       },
-      sourceChecksFromEnv({ COURTLISTENER_API_TOKEN: "tok" }, testEnv.DB)
+      sourceChecksFromEnv(
+        { COURTLISTENER_API_TOKEN: "tok", courtListenerWait: async () => {} },
+        testEnv.DB
+      )
     );
     expect(packaged).toMatchObject({
       skip: false,

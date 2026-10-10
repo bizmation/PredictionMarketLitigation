@@ -989,7 +989,8 @@ So that “empty” means the connector looked and found nothing new.
 **And** Evidence records each docket’s status and a scrubbed response reason, and never the API token
 **And** `itemCount` is the number of new entries, not the number of summary objects
 **And** one docket error beside a docket that returned entries stays non-fatal for the source
-**And** 401, 403, 429, 5xx, network, and timeout still fail the source on the first such response
+**And** 401, 403, 5xx, network, and timeout still fail the source on the first such response
+**And** HTTP 429 is no longer fail-on-first: story 3.38 paces requests and retries a bounded 429; an exhausted 429 still fails the source with scrubbed `http_429` evidence
 
 ### Story 3.24: Retire “pipeline is not live” copy
 
@@ -1163,6 +1164,15 @@ Effort: Medium, operational. Dependencies: 3.36. Covers live acceptance action /
 - Reuse the same Run for 3.36 and 3.37 when it satisfies both sets of criteria; do not duplicate paid work for reporting. An empty Run cannot satisfy this material acceptance story.
 - Run a fresh/resumed Epic 3 retrospective against the final merged and deployed state. Close the nine actions only with linked evidence. Mark Epic 3 done and release Epic 4's entry gate only if acceptance succeeds; retain any new blockers visibly otherwise.
 
+### Story 3.38: Pace CourtListener requests and recover from HTTP 429
+
+As an operator, a normal daily CourtListener poll stays inside the published request limit and a transient HTTP 429 does not fail the Run.
+
+Effort: Medium, implementation. Dependencies: 3.23, 3.27, 3.32, 3.33, 3.34. Blocks the remaining live portion of 3.36. Does not replace 3.36 or 3.37.
+
+- The connector currently starts every case docket at once and treats the first HTTP 429 as a source-level failure. CourtListener's published limit is about 5 requests per minute. Seed data polls four case dockets, so one burst plus any pagination or earlier account use trips that limit. Staging Run `run-20261004-0002` failed this way.
+- Space CourtListener HTTP requests so a sliding minute stays under 5 requests. On 429, honor a delta-seconds or HTTP-date `Retry-After` capped to the limit window; without that header, wait one limit window. Retry a finite number of times. Stop when the wait budget is exhausted and fail the source with scrubbed `http_429` evidence.
+- Keep 401, 403, 5xx, network, timeout, unsafe URLs, and redirects fail-on-first. Keep every-docket failure as a failed Run. Do not split `run-daily-step`. Do not call the drafter or reviewer again because a fetch was retried. Do not deploy or call staging, production, or a paid provider.
 
 ## Epic 4: Governance Narrative & Invited Check
 

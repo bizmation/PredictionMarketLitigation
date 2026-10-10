@@ -12,7 +12,8 @@ import type { RunOrigin, RunSummary } from "../../shared/schemas/run";
 import { type SourceCheck } from "../connectors/connector";
 import {
   COURTLISTENER_SOURCE_NAME,
-  createCourtListenerCheck
+  createCourtListenerCheck,
+  type CourtListenerWait
 } from "../connectors/courtListener";
 import { llmProvidersFromEnv, type GatewayDeps } from "../ai/gateway";
 import {
@@ -91,13 +92,17 @@ export function gatewayDepsFromEnv(
  * optional on `Env`; absent → `source.skipped { reason: "unconfigured" }`.
  */
 export function sourceChecksFromEnv(
-  env: Pick<Env, "COURTLISTENER_API_TOKEN">,
+  env: Pick<Env, "COURTLISTENER_API_TOKEN"> & {
+    /** Tests inject an instant wait. Production leaves this unset. */
+    courtListenerWait?: CourtListenerWait;
+  },
   db: Db
 ): Record<string, SourceCheck> {
   return {
     [COURTLISTENER_SOURCE_NAME]: createCourtListenerCheck({
       db,
-      token: env.COURTLISTENER_API_TOKEN
+      token: env.COURTLISTENER_API_TOKEN,
+      ...(env.courtListenerWait ? { wait: env.courtListenerWait } : {})
     })
   };
 }

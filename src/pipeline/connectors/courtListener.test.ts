@@ -11,14 +11,21 @@ import {
 import { completeDailyStep } from "../workflow/dailyRunSteps";
 import { runConnector } from "./connector";
 import {
+  COURTLISTENER_DEFAULT_BACKOFF_MS,
+  COURTLISTENER_MAX_ATTEMPTS,
+  COURTLISTENER_MAX_BACKOFF_MS,
   COURTLISTENER_MAX_PAGES,
+  COURTLISTENER_MIN_INTERVAL_MS,
+  COURTLISTENER_POLL_TIMEOUT_MS,
   COURTLISTENER_SOURCE_NAME,
   createCourtListenerCheck,
   docketIdFromUrl,
   entriesUrl,
   entryUrl,
   parseEntries,
-  reasonForStatus
+  reasonForStatus,
+  retryAfterMs,
+  type CourtListenerCheckDeps
 } from "./courtListener";
 import { POLL_SOURCES } from "./sources";
 
@@ -82,8 +89,8 @@ const ENTRIES = [
 ];
 
 type Answer =
-  | { status: number; body?: unknown }
-  | { text: string }
+  | { status: number; body?: unknown; headers?: HeadersInit }
+  | { text: string; status?: number; headers?: HeadersInit }
   | { throws: unknown }
   | { hang: true };
 
@@ -100,12 +107,16 @@ function stubFetch(answer: (docketId: string | null, url: string) => Answer) {
       if ("hang" in reply) return new Promise<Response>(() => {});
       if ("text" in reply) {
         return new Response(reply.text, {
-          status: 200,
-          headers: { "content-type": "application/json" }
+          status: reply.status ?? 200,
+          headers: { "content-type": "text/plain", ...reply.headers }
         });
       }
-      return Response.json(reply.body ?? { results: [] }, {
-        status: reply.status
+      return new Response(JSON.stringify(reply.body ?? { results: [] }), {
+        status: reply.status,
+        headers: {
+          "content-type": "application/json",
+          ...reply.headers
+        }
       });
     })
   );
@@ -125,11 +136,16 @@ async function fetchedPayload(runId: string) {
     | undefined;
 }
 
-function check(token: string | undefined = TOKEN) {
+function check(
+  token: string | undefined = TOKEN,
+  overrides: Partial<CourtListenerCheckDeps> = {}
+) {
   return createCourtListenerCheck({
     db: testEnv.DB,
     token,
-    now: () => NOW
+    now: () => NOW,
+    wait: async () => {},
+    ...overrides
   });
 }
 
@@ -174,6 +190,34 @@ describe("CourtListener helpers", () => {
     expect(reasonForStatus(500)).toBe("http_5xx");
     expect(reasonForStatus(503)).toBe("http_5xx");
     expect(reasonForStatus(404)).toBe("http_error");
+  });
+
+  it("parses Retry-After seconds and HTTP dates and caps them", () => {
+    const now = Date.parse("2026-10-10T12:00:00.000Z");
+    expect(retryAfterMs(new Headers({ "retry-after": "45" }), now)).toBe(
+      45_000
+    );
+    expect(retryAfterMs(new Headers({ "Retry-After": "0" }), now)).toBe(0);
+    expect(retryAfterMs(new Headers({ "retry-after": "120" }), now)).toBe(
+      COURTLISTENER_MAX_BACKOFF_MS
+    );
+    expect(
+      retryAfterMs(
+        new Headers({ "retry-after": "Fri, 10 Oct 2026 12:00:30 GMT" }),
+        now
+      )
+    ).toBe(30_000);
+    expect(
+      retryAfterMs(
+        new Headers({ "retry-after": "Sat, 11 Oct 2026 12:00:00 GMT" }),
+        now
+      )
+    ).toBe(COURTLISTENER_MAX_BACKOFF_MS);
+    expect(retryAfterMs(new Headers(), now)).toBeNull();
+    expect(
+      retryAfterMs(new Headers({ "retry-after": "soon" }), now)
+    ).toBeNull();
+    expect(retryAfterMs(undefined, now)).toBeNull();
   });
 
   it("parses the v4 envelope tolerantly", () => {
@@ -699,7 +743,7 @@ describe("CourtListener connector (story 3.21)", () => {
     ).toHaveLength(2);
   });
 
-  it("polls five dockets concurrently inside the connector deadline and reports an unmatched docket URL", async () => {
+  it("polls five dockets serially inside the CourtListener poll budget and reports an unmatched docket URL", async () => {
     await testEnv.DB.batch([
       testEnv.DB.prepare(
         `INSERT INTO sources (id, owning_table, owning_id, url, title, tier, published_at)
@@ -713,8 +757,8 @@ describe("CourtListener connector (story 3.21)", () => {
       )
     ]);
     try {
-      // Each docket takes 11 s: serial polling would need 55 s of the 60 s
-      // deadline; concurrent polling needs 11 s.
+      // Each docket takes 11 s. Serial polling of five dockets fits the
+      // CourtListener poll budget and does not fit the generic 60 s deadline.
       const SLOW_MS = SOURCE_FETCH_TIMEOUT_MS - 1_000;
       vi.stubGlobal(
         "fetch",
@@ -728,7 +772,9 @@ describe("CourtListener connector (story 3.21)", () => {
       const runId = await newRun();
       vi.useFakeTimers();
       const pending = runConnector(testEnv.DB, runId, SOURCE, check());
-      await vi.advanceTimersByTimeAsync(SLOW_MS + 100);
+      for (let n = 0; n < 5; n++) {
+        await vi.advanceTimersByTimeAsync(SLOW_MS + 100);
+      }
       const result = await pending;
       expect(vi.getTimerCount()).toBe(0);
       vi.useRealTimers();
@@ -741,6 +787,7 @@ describe("CourtListener connector (story 3.21)", () => {
         "https://www.courtlistener.com/docket/not-a-number/"
       ]);
       expect(SLOW_MS * 5).toBeGreaterThan(CONNECTOR_TIMEOUT_MS - 10_000);
+      expect(SLOW_MS * 5).toBeLessThan(COURTLISTENER_POLL_TIMEOUT_MS);
     } finally {
       vi.useRealTimers();
       await testEnv.DB.prepare(
@@ -1146,4 +1193,187 @@ describe("CourtListener credential boundary (story 3.27)", () => {
       expect(evidence).not.toContain("attacker.invalid");
     }
   );
+});
+
+describe("CourtListener rate limit (story 3.38)", () => {
+  const RECOVERY = {
+    id: 88001,
+    entry_number: 40,
+    date_filed: "2026-09-16",
+    description: "ORDER: the rate limit cleared and this entry is new."
+  };
+
+  function pacedCheck(waits: number[], waitBudgetMs?: number) {
+    return check(TOKEN, {
+      nowMs: () => 0,
+      waitBudgetMs,
+      wait: async (ms) => {
+        waits.push(ms);
+      }
+    });
+  }
+
+  it("spaces docket requests by the minimum interval", async () => {
+    const waits: number[] = [];
+    const calls = stubFetch(() => ({ status: 200, body: { results: [] } }));
+    const runId = await newRun();
+    expect(
+      await runConnector(testEnv.DB, runId, SOURCE, pacedCheck(waits))
+    ).toEqual({ draftCount: 0, failed: false });
+    expect(calls).toHaveLength(4);
+    expect(waits).toEqual([
+      COURTLISTENER_MIN_INTERVAL_MS,
+      COURTLISTENER_MIN_INTERVAL_MS,
+      COURTLISTENER_MIN_INTERVAL_MS
+    ]);
+    expect((pacedCheck([]) as { pollTimeoutMs?: number }).pollTimeoutMs).toBe(
+      COURTLISTENER_POLL_TIMEOUT_MS
+    );
+  });
+
+  it("retries HTTP 429 that carries Retry-After and writes one Draft", async () => {
+    const waits: number[] = [];
+    let calls = 0;
+    stubFetch((docketId) => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          status: 429,
+          body: { detail: `slow down ${TOKEN}` },
+          headers: { "retry-after": "45" }
+        };
+      }
+      return {
+        status: 200,
+        body: {
+          results: docketId === ILLINOIS ? [RECOVERY] : []
+        }
+      };
+    });
+    const runId = await newRun();
+    const result = await runConnector(
+      testEnv.DB,
+      runId,
+      SOURCE,
+      pacedCheck(waits)
+    );
+    expect(result).toEqual({ draftCount: 1, failed: false });
+    expect(waits[0]).toBe(45_000);
+    expect(calls).toBe(5);
+    const drafts = await draftsRepo.listByRun(testEnv.DB, runId);
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0]?.targetEntityId).toBe(`de-${ILLINOIS_CASE}-88001`);
+    const again = await runConnector(
+      testEnv.DB,
+      runId,
+      SOURCE,
+      pacedCheck(waits)
+    );
+    expect(again.failed).toBe(false);
+    expect(await draftsRepo.listByRun(testEnv.DB, runId)).toHaveLength(1);
+    const evidence = JSON.stringify(
+      await evidenceRepo.listByRun(testEnv.DB, runId)
+    );
+    expect(evidence).not.toContain(TOKEN);
+  });
+
+  it("retries HTTP 429 without Retry-After after one limit window", async () => {
+    const waits: number[] = [];
+    let calls = 0;
+    const entry = { ...RECOVERY, id: 88002 };
+    stubFetch((docketId) => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          status: 429,
+          text: "Rate limit exceeded: 5/min. Expected available in 59 seconds."
+        };
+      }
+      return {
+        status: 200,
+        body: { results: docketId === ILLINOIS ? [entry] : [] }
+      };
+    });
+    const runId = await newRun();
+    expect(
+      await runConnector(testEnv.DB, runId, SOURCE, pacedCheck(waits))
+    ).toEqual({ draftCount: 1, failed: false });
+    expect(waits[0]).toBe(COURTLISTENER_DEFAULT_BACKOFF_MS);
+    expect(calls).toBe(5);
+    const drafts = await draftsRepo.listByRun(testEnv.DB, runId);
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0]?.targetEntityId).toBe(`de-${ILLINOIS_CASE}-88002`);
+  });
+
+  it("fails the source when HTTP 429 retries are exhausted", async () => {
+    const waits: number[] = [];
+    const calls = stubFetch(() => ({
+      status: 429,
+      body: { detail: `Rate limit exceeded ${TOKEN}` }
+    }));
+    const runId = await newRun();
+    expect(
+      await runConnector(testEnv.DB, runId, SOURCE, pacedCheck(waits))
+    ).toEqual({ draftCount: 0, failed: true });
+    expect(calls).toHaveLength(COURTLISTENER_MAX_ATTEMPTS);
+    expect(waits).toEqual([
+      COURTLISTENER_DEFAULT_BACKOFF_MS,
+      COURTLISTENER_DEFAULT_BACKOFF_MS
+    ]);
+    expect(await skippedReason(runId)).toMatchObject({
+      reason: "http_429",
+      status: 429,
+      attempts: COURTLISTENER_MAX_ATTEMPTS,
+      docketId: ILLINOIS
+    });
+    expect(String((await skippedReason(runId))?.detail)).toContain(
+      "Rate limit exceeded"
+    );
+    const evidence = JSON.stringify(
+      await evidenceRepo.listByRun(testEnv.DB, runId)
+    );
+    expect(evidence).not.toContain(TOKEN);
+    expect(await draftsRepo.listByRun(testEnv.DB, runId)).toHaveLength(0);
+    expect(
+      (await evidenceRepo.listByRun(testEnv.DB, runId)).some(
+        (event) => event.event === "run.failed"
+      )
+    ).toBe(false);
+  });
+
+  it("fails explicitly when the next 429 wait exceeds the budget", async () => {
+    const waits: number[] = [];
+    const calls = stubFetch(() => ({
+      status: 429,
+      body: { detail: "Rate limit exceeded: 5/min." }
+    }));
+    const runId = await newRun();
+    expect(
+      await runConnector(testEnv.DB, runId, SOURCE, pacedCheck(waits, 1_000))
+    ).toEqual({ draftCount: 0, failed: true });
+    expect(calls).toHaveLength(1);
+    expect(waits).toEqual([]);
+    expect(await skippedReason(runId)).toMatchObject({
+      reason: "http_429",
+      status: 429,
+      detail: "rate limit wait budget exhausted",
+      docketId: ILLINOIS
+    });
+    expect(await draftsRepo.listByRun(testEnv.DB, runId)).toHaveLength(0);
+  });
+
+  it("does not retry HTTP 401", async () => {
+    const waits: number[] = [];
+    const calls = stubFetch(() => ({ status: 401, body: { detail: "nope" } }));
+    const runId = await newRun();
+    expect(
+      await runConnector(testEnv.DB, runId, SOURCE, pacedCheck(waits))
+    ).toEqual({ draftCount: 0, failed: true });
+    expect(calls).toHaveLength(1);
+    expect(waits).toEqual([]);
+    expect(await skippedReason(runId)).toMatchObject({
+      reason: "http_401",
+      status: 401
+    });
+  });
 });
