@@ -126,3 +126,13 @@ Patrick signed in successfully. The verified operator used Run now once after PR
 Live acceptance is blocked on 3.38 (CourtListener 429 pacing) merge and deploy. Do not start another paid staging Run until that code is on `pml-build`.
 
 Patrick also requested an admin usability correction. The admin now presents separate draft-review, Run, and automation views, retaining the existing serif heading text/style and unsaved forms. Hidden queue shortcuts are disabled so keys on other views cannot approve a Draft. The latest Run links directly to its public evidence; the empty queue does not imply source success.
+
+### Scope rulings (2026-10-10)
+
+Patrick ruled on 2026-10-10, relayed by PML Eng Manager, so the Epic 3 retro has the scope.
+
+**3.36.** A successful operator revise of an existing `run-20261010-0003` draft, made after the #63 deploy (DeepInfra preflight diagnostics and first-fetch window) to staging `pml-build`, counts as 3.36's live acceptance: a post-deployment Run with authenticated DeepInfra gateway success on `zai-org/GLM-5.3-Flash`. `run-20261010-0003` started after the 3.38 deploy (`5ee23f6`). Its original evaluation failed preflight with `cost_policy_invalid`. The 12:07 AM ET Oct 11 run is expected to draft nothing new, because 0003's drafts already mark those docket entries as seen.
+
+**3.37.** That same revised `run-20261010-0003` draft may close 3.37 with the same Run. `epics.md` Story 3.37 already allows one Run to satisfy both 3.36 and 3.37 when it meets both sets of criteria. Patrick will read the draft text himself before it is approved, and the approval still needs his named go-ahead on that specific draft.
+
+**Known gap.** Once the revised draft is approved, #64's batch reject refuses the Run (`reject_run_unpublished`), so closing 0003 needs a follow-up that rejects the remaining undecided heads. That follow-up is being built separately.
