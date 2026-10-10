@@ -8,7 +8,7 @@ Preserve existing per-Worker secrets until explicitly migrated; do not copy a cr
 
 ## Cursor Cloud specific instructions
 
-Cloud agent builds run `bash .cursor/install.sh` from `.cursor/environment.json`. The script runs `npm install`, installs `uv` and `uvx` into `/usr/local/bin`, and installs a uv-managed Python 3.12. The binaries go on the default PATH because install and start are non-interactive login shells, where Ubuntu's `~/.bashrc` returns before a home-directory PATH edit would apply.
+Cloud agent builds run `bash .cursor/install.sh` from `.cursor/environment.json`. The script runs `npm ci`, installs `uv` 0.13.0 and `uvx` into `/usr/local/bin`, and installs a uv-managed Python 3.12. The binaries go on the default PATH because install and start are non-interactive login shells, where Ubuntu's `~/.bashrc` returns before a home-directory PATH edit would apply.
 
 `bmad-create-story` and `bmad-dev-story` resolve customization with this command. `{project-root}` is the repository root. `{skill-root}` is `.agents/skills/bmad-create-story` or `.agents/skills/bmad-dev-story`:
 
@@ -18,7 +18,7 @@ uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root
 
 The same command with `--key workflow.on_complete` runs when each workflow finishes. The script requires Python >= 3.11 (`tomllib`).
 
-`.cursor/mcp.json` registers the Context7 stdio server the same way root `.mcp.json` does (`npx -y @upstash/context7-mcp`). Cursor reads the API key from the environment as `${env:CONTEXT7_API_KEY}`. Set `CONTEXT7_API_KEY` in Cursor Secrets when authenticated quota is required. The key stays out of the repository.
+`.cursor/mcp.json` registers the Context7 stdio server the same way root `.mcp.json` does, with the package pinned (`npx -y @upstash/context7-mcp@4.3.0`). Cursor reads the API key from the environment as `${env:CONTEXT7_API_KEY}`. Set `CONTEXT7_API_KEY` in Cursor Secrets when authenticated quota is required. The key stays out of the repository.
 
 Cloud Agents load MCP servers from the Cloud Agents UI. A committed `.cursor/mcp.json` configures the Cursor IDE. To give cloud agents Context7 (`resolve-library-id`, `query-docs`), add an HTTP server in the MCP menu at [cursor.com/agents](https://cursor.com/agents), or team-wide under Dashboard → Plugins & MCPs:
 
