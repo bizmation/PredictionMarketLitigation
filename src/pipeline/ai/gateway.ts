@@ -1014,6 +1014,19 @@ function deepInfraCatalogField(
   return null;
 }
 
+/**
+ * Workerd rejects redirect mode "error" before send. "manual" returns a 3xx
+ * as-is, and an opaque redirect is status 0. Both are non-OK.
+ */
+function deepInfraRedirectRefused(response: Response): boolean {
+  return (
+    !response.ok ||
+    response.type === "opaqueredirect" ||
+    response.status === 0 ||
+    (response.status >= 300 && response.status < 400)
+  );
+}
+
 /** Fixed custom provider route. Credentials are captured only in a per-call closure. */
 export function createDeepInfraProvider(env: Env): LlmProvider | null {
   const configured = (value: unknown): boolean =>
@@ -1044,14 +1057,14 @@ export function createDeepInfraProvider(env: Env): LlmProvider | null {
               "https://api.deepinfra.com/models/list",
               {
                 signal,
-                redirect: "error",
+                redirect: "manual",
                 headers: {
                   Accept: "application/json",
                   "User-Agent": DEEPINFRA_CATALOG_USER_AGENT
                 }
               }
             );
-            if (!response.ok) {
+            if (deepInfraRedirectRefused(response)) {
               let bodyPrefix = "";
               try {
                 bodyPrefix = diagnosticText(await response.text());
@@ -1137,7 +1150,7 @@ export function createDeepInfraProvider(env: Env): LlmProvider | null {
           try {
             const response = await fetch(url, {
               method: "POST",
-              redirect: "error",
+              redirect: "manual",
               signal,
               headers,
               body: JSON.stringify({
@@ -1149,7 +1162,7 @@ export function createDeepInfraProvider(env: Env): LlmProvider | null {
                 reasoning_effort: "none"
               })
             });
-            if (!response.ok) throw new Error();
+            if (deepInfraRedirectRefused(response)) throw new Error();
             const body = (await response.json()) as {
               id?: unknown;
               model?: unknown;

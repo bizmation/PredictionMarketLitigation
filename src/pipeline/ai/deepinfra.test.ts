@@ -14,6 +14,8 @@ import { PROVIDER_TIMEOUT_MS } from "../../shared/lib/timeouts";
 const db = (env as Env).DB;
 const NOW = "2026-10-04T19:12:00.000Z";
 const MODEL = "zai-org/GLM-5.3-Flash";
+const WORKERS_REDIRECT_ERROR =
+  'Invalid redirect value, must be one of "follow" or "manual" ("error" won\'t be implemented since it does not make sense at the edge; use "manual" and check the response status code)';
 const policy = resolveCostPolicy("deepinfra", MODEL, NOW);
 const configured = {
   ...env,
@@ -101,13 +103,16 @@ function http(body: unknown = responseBody(), metadata: unknown = catalog()) {
     Response.json(body)
   );
   const fetcher = vi.fn(async (url: unknown, init?: RequestInit) => {
+    if (init?.redirect === "error") {
+      throw new TypeError(WORKERS_REDIRECT_ERROR);
+    }
     if (url === "https://api.deepinfra.com/models/list") {
       const headers = new Headers(init?.headers);
       expect([...headers.keys()].sort()).toEqual(["accept", "user-agent"]);
       expect(headers.get("accept")).toBe("application/json");
       expect(headers.get("user-agent")).toBe(DEEPINFRA_CATALOG_USER_AGENT);
       expect(headers.get("authorization")).toBeNull();
-      expect(init?.redirect).toBe("error");
+      expect(init?.redirect).toBe("manual");
       expect(init?.signal).toBeInstanceOf(AbortSignal);
       return Response.json(metadata);
     }
@@ -248,7 +253,7 @@ describe("DeepInfra central gateway", () => {
       );
       expect(init).toMatchObject({
         method: "POST",
-        redirect: "error"
+        redirect: "manual"
       });
       expect(init!.headers).toBeInstanceOf(Headers);
       const headers = new Headers(init!.headers);
@@ -418,6 +423,104 @@ describe("DeepInfra central gateway", () => {
           bodyPrefix
         })
       );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+  it("rejects redirect error before a catalog or chat response", async () => {
+    const { fetcher } = http();
+    for (const url of [
+      "https://api.deepinfra.com/models/list",
+      "https://gateway.ai.cloudflare.com/v1/account/default/custom-deepinfra/v1/openai/chat/completions"
+    ]) {
+      await expect(fetcher(url, { redirect: "error" })).rejects.toThrow(
+        new TypeError(WORKERS_REDIRECT_ERROR)
+      );
+    }
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it.each([
+    ["302", 302, () => new Response("moved", { status: 302 })],
+    [
+      "opaque redirect",
+      0,
+      (): Response =>
+        ({
+          ok: true,
+          status: 0,
+          type: "opaqueredirect",
+          json: async () => catalog(),
+          text: async (): Promise<string> => ""
+        }) as Response
+    ]
+  ] as const)(
+    "rejects a catalog %s before reservation",
+    async (_label, status, respond) => {
+      const input = await setup();
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const inference = vi.fn();
+      try {
+        vi.stubGlobal(
+          "fetch",
+          vi.fn(async (url: unknown, init?: RequestInit) => {
+            expect(init?.redirect).toBe("manual");
+            if (url === "https://api.deepinfra.com/models/list")
+              return respond();
+            return inference(url, init);
+          })
+        );
+        await expect(complete(deps(), input)).rejects.toMatchObject({
+          code: "cost_policy_invalid",
+          message: `cost_policy_invalid: deepinfra_preflight (http ${status})`,
+          detail: expect.objectContaining({
+            stage: "deepinfra_preflight",
+            status
+          })
+        });
+        expect(inference).not.toHaveBeenCalled();
+        expect(warn).toHaveBeenCalledWith(
+          expect.objectContaining({
+            event: "cost_policy_invalid",
+            stage: "deepinfra_preflight",
+            status
+          })
+        );
+        await expectFree(input.runId);
+      } finally {
+        warn.mockRestore();
+      }
+    }
+  );
+  it("records a Workers redirect TypeError from the catalog with no status", async () => {
+    const input = await setup();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          throw new TypeError(WORKERS_REDIRECT_ERROR);
+        })
+      );
+      await expect(complete(deps(), input)).rejects.toMatchObject({
+        code: "cost_policy_invalid",
+        message: "cost_policy_invalid: deepinfra_preflight",
+        detail: expect.objectContaining({
+          stage: "deepinfra_preflight",
+          errorName: "TypeError",
+          errorMessage: WORKERS_REDIRECT_ERROR
+        })
+      });
+      expect(warn).toHaveBeenCalledWith(
+        expect.not.objectContaining({ status: expect.anything() })
+      );
+      expect(warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: "cost_policy_invalid",
+          stage: "deepinfra_preflight",
+          errorName: "TypeError"
+        })
+      );
+      await expectFree(input.runId);
     } finally {
       warn.mockRestore();
     }
@@ -923,9 +1026,103 @@ describe("DeepInfra pre-dispatch validation and HTTP failures", () => {
         code: "accounting_uncertain"
       });
       expect(inference).toHaveBeenCalledTimes(1);
-      expect(inference.mock.calls[0]![1]!.redirect).toBe("error");
+      expect(inference.mock.calls[0]![1]!.redirect).toBe("manual");
     }
   );
+  it.each([
+    [
+      "302",
+      (): Response =>
+        ({
+          ok: false,
+          status: 302,
+          type: "default",
+          json: async () => responseBody()
+        }) as Response
+    ],
+    [
+      "opaque redirect",
+      (): Response =>
+        ({
+          ok: true,
+          status: 0,
+          type: "opaqueredirect",
+          json: async () => responseBody()
+        }) as Response
+    ]
+  ] as const)(
+    "keeps an uncertain reservation when the chat fetch is a %s",
+    async (_label, respond) => {
+      const input = await setup();
+      const { inference } = http();
+      let read = false;
+      inference.mockImplementation(async () => {
+        const response = respond();
+        const json = response.json.bind(response);
+        return {
+          ...response,
+          json: async () => {
+            read = true;
+            return json();
+          }
+        } as Response;
+      });
+      await expect(complete(deps(), input)).rejects.toMatchObject({
+        code: "provider_error",
+        message: "DeepInfra gateway request failed."
+      });
+      expect(read).toBe(false);
+      expect(await accountingForRun(db, input.runId)).toMatchObject({
+        totalCents: 16,
+        issueCount: 1
+      });
+      expect(
+        await db
+          .prepare(
+            "SELECT state, issue, liability_cents FROM llm_operations WHERE run_id=?"
+          )
+          .bind(input.runId)
+          .first()
+      ).toEqual({
+        state: "uncertain",
+        issue: "provider_outcome_unknown",
+        liability_cents: 16
+      });
+      expect(
+        await db
+          .prepare("SELECT id FROM llm_calls WHERE run_id=?")
+          .bind(input.runId)
+          .first()
+      ).toBeNull();
+    }
+  );
+  it("keeps an uncertain reservation when the chat fetch throws the Workers redirect TypeError", async () => {
+    const input = await setup();
+    const { inference } = http();
+    inference.mockImplementation(async () => {
+      throw new TypeError(WORKERS_REDIRECT_ERROR);
+    });
+    await expect(complete(deps(), input)).rejects.toMatchObject({
+      code: "provider_error",
+      message: "DeepInfra gateway request failed."
+    });
+    expect(await accountingForRun(db, input.runId)).toMatchObject({
+      totalCents: 16,
+      issueCount: 1
+    });
+    expect(
+      await db
+        .prepare(
+          "SELECT state, issue, liability_cents FROM llm_operations WHERE run_id=?"
+        )
+        .bind(input.runId)
+        .first()
+    ).toEqual({
+      state: "uncertain",
+      issue: "provider_outcome_unknown",
+      liability_cents: 16
+    });
+  });
   it("releases real D1 liability when policy expires after claim and before inference", async () => {
     const input = await setup();
     const { inference } = http();
