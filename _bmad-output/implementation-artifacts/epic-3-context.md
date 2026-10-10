@@ -4,7 +4,7 @@
 
 ## Goal
 
-Close the daily source → Draft → Approval Gate → canonical tracker → public Evidence loop. Patrick operates it with HITL by default and bounded optional autonomy; anyone can inspect its work. Stories 3.1–3.33 are complete, including canonical planning reconciliation, connector credential boundaries, evaluation readiness/sealing, atomic publication, bounded provider cost, atomic paid-call accounting and durable package/config recovery, but operational acceptance remains rejected. The corrective backlog reopens the epic until safety regressions and a real governed staging publication demonstrate acceptance.
+Close the daily source → Draft → Approval Gate → canonical tracker → public Evidence loop. Patrick operates it with HITL by default and bounded optional autonomy; anyone can inspect its work. Stories 3.1–3.35 are complete. Operational acceptance remains rejected until a real governed staging publication. Story 3.36 stays in progress, and its live Run waits until story 3.38 is merged and deployed to staging. Story 3.37 stays in the backlog and still depends on 3.36. Story 3.38 paces CourtListener so a transient HTTP 429 does not fail a normal poll. A 401, 403, 5xx, network error, or timeout still fails that request on the first response.
 
 ## Stories
 
@@ -69,6 +69,7 @@ Close the daily source → Draft → Approval Gate → canonical tracker → pub
 - Timeout policy: GET 15 seconds, general admin POST 30 seconds, connector/provider 60 seconds. Patrick’s approved 3.19 exception gives the steering composer `2 × provider + 10s` (130 seconds).
 - Authoritative tokens are `awaiting`, `stopped`, and `run.stopped`; the stopped chip reads budget-stopped. Use integer cents and explicit missing/not-run states.
 - Staging uses `pml-build` with its D1 on `build.predictionmarketlitigation.com` and `ops-build.predictionmarketlitigation.com`. Production apex/ops stay on `pml` with brochure behavior preserved. Only the staging deployment process applies; do not run `npm run deploy`.
+- CourtListener HTTP 429 is in-connector serial pacing: space starts, honor a bounded `Retry-After`, and fail the source with scrubbed `http_429` evidence only after the retry budget is exhausted. Cloudflare Queues stay deferred. One account and a handful of serial reads are not the fan-out or dead-letter threshold, and `run-daily-step` stays a single packaging checkpoint.
 
 ## UX & Interaction Patterns
 
@@ -80,7 +81,7 @@ Close the daily source → Draft → Approval Gate → canonical tracker → pub
 
 - Epic 2 supplies canonical F1 entities. Foundation, gateway, orchestration, evaluation, and gate underpin public/operator surfaces. Approved steering and hardening stories 3.14–3.21 now have canonical entries in epics.md; F9/FR46–50 and UX B8/C4 are reconciled by 3.26.
 - Historical staging sequence was 3.23–3.25 before the 3.22 deployment; all are complete. The September 24 corrective plan controls the next staging deployment. R13 delayed-arrival policy and R14 failed-revision recovery remain deferred.
-- Corrective order: 3.26 planning is complete; 3.27 connector boundary is complete; 3.28 readiness and 3.29 atomic publication are complete; 3.30 bounded cost is complete (PR #46); 3.31 reservation/accounting is complete (PR #47); 3.32 replay/config and 3.33 admission/dispatch are complete; 3.34 native executing-Workflow coverage and 3.35 live pending count are complete (PR #54 and PR #53). Story 3.38 must land before the remaining live 3.36 Run. Then 3.36 staging gateway verification, followed by 3.37 live acceptance.
+- Corrective order: 3.26 planning is complete; 3.27 connector boundary is complete; 3.28 readiness and 3.29 atomic publication are complete; 3.30 bounded cost is complete (PR #46); 3.31 reservation/accounting is complete (PR #47); 3.32 replay/config and 3.33 admission/dispatch are complete; 3.34 native executing-Workflow coverage and 3.35 live pending count are complete (PR #54 and PR #53). Story 3.38 must be merged and deployed to `pml-build` before another paid 3.36 Run. Then 3.36 staging gateway verification, followed by 3.37 live acceptance. Story 3.38 does not replace 3.36 or 3.37.
 - All 3.26–3.35 must merge with required CI before 3.36 staging gateway verification. Then 3.37 proves material publication and reruns the retrospective. Reuse one qualifying Run rather than duplicate paid work. Epic 4 waits for 3.37 and accepted Epic 3 evidence; planning completion closes no runtime acceptance gap.
 
 
