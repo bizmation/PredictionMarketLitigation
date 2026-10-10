@@ -23,6 +23,7 @@ import {
   docketIdFromUrl,
   entriesUrl,
   entryUrl,
+  firstFetchWindowDays,
   parseEntries,
   reasonForStatus,
   retryAfterMs,
@@ -204,6 +205,28 @@ describe("CourtListener helpers", () => {
     expect(reasonForStatus(500)).toBe("http_5xx");
     expect(reasonForStatus(503)).toBe("http_5xx");
     expect(reasonForStatus(404)).toBe("http_error");
+  });
+
+  it("uses 7 days unless FIRST_FETCH_WINDOW_DAYS is a positive integer", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(firstFetchWindowDays(undefined)).toBe(7);
+      expect(firstFetchWindowDays("14")).toBe(14);
+      expect(firstFetchWindowDays(" 3 ")).toBe(3);
+      expect(warn).not.toHaveBeenCalled();
+      for (const raw of ["0", "", "  ", "1.5", "-2", "08", "nope"]) {
+        expect(firstFetchWindowDays(raw)).toBe(7);
+      }
+      expect(warn).toHaveBeenCalledTimes(7);
+      for (const call of warn.mock.calls) {
+        expect(call[0]).toEqual({
+          event: "first_fetch_window_invalid",
+          fallback: 7
+        });
+      }
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("parses Retry-After seconds and HTTP dates and caps them", () => {
@@ -531,10 +554,10 @@ describe("CourtListener connector (story 3.21)", () => {
     );
   });
 
-  it("drafts entries on the baseline date and the next day, and not the day before", async () => {
-    const baseline = FURCOLO_TRACKED_SINCE;
-    const dayBefore = "2026-05-20";
-    const nextDay = "2026-05-22";
+  it("drafts entries on the effective cutoff and the next day, and not the day before", async () => {
+    const cutoff = "2026-09-11";
+    const dayBefore = "2026-09-10";
+    const nextDay = "2026-09-12";
     const calls = stubFetch((docketId) =>
       docketId === FURCOLO
         ? {
@@ -545,13 +568,13 @@ describe("CourtListener connector (story 3.21)", () => {
                   id: 88101,
                   entry_number: 1,
                   date_filed: dayBefore,
-                  description: "Day before the baseline."
+                  description: "Day before the cutoff."
                 },
                 {
                   id: 88102,
                   entry_number: 2,
-                  date_filed: baseline,
-                  description: "Filed on the baseline."
+                  date_filed: cutoff,
+                  description: "Filed on the cutoff."
                 },
                 {
                   id: 88103,
@@ -571,13 +594,19 @@ describe("CourtListener connector (story 3.21)", () => {
       ({ url }) => new URL(url).searchParams.get("docket") === FURCOLO
     );
     expect(new URL(furcolo!.url).searchParams.get("date_filed__gte")).toBe(
-      baseline
+      cutoff
     );
     const dates = (await draftsRepo.listByRun(testEnv.DB, runId)).map(
       (draft) => (draft.diff as { occurredAt?: string }).occurredAt
     );
-    expect(dates).toEqual(expect.arrayContaining([baseline, nextDay]));
+    expect(dates).toEqual(expect.arrayContaining([cutoff, nextDay]));
     expect(dates).not.toContain(dayBefore);
+    expect(docketSummary(await fetchedPayload(runId), FURCOLO)).toMatchObject({
+      baseline: { kind: "source_published_at", date: FURCOLO_TRACKED_SINCE },
+      effectiveCutoff: cutoff,
+      skippedOlder: 1,
+      newEntries: 2
+    });
   });
 
   it("omits date_filed__gte when the docket has no baseline", async () => {
@@ -626,7 +655,7 @@ describe("CourtListener connector (story 3.21)", () => {
     });
     const runId = await newRun();
     const result = await runConnector(testEnv.DB, runId, SOURCE, check());
-    expect(result).toEqual({ draftCount: 2, failed: false });
+    expect(result).toEqual({ draftCount: 1, failed: false });
 
     for (const call of calls) {
       const headers = new Headers(call.init?.headers);
@@ -730,7 +759,7 @@ describe("CourtListener connector (story 3.21)", () => {
     );
     const runId = await newRun();
     const result = await runConnector(testEnv.DB, runId, SOURCE, check());
-    expect(result).toEqual({ draftCount: 2, failed: false });
+    expect(result).toEqual({ draftCount: 1, failed: false });
 
     const drafts = await draftsRepo.listByRun(testEnv.DB, runId);
     const pi = drafts.find(
@@ -763,9 +792,9 @@ describe("CourtListener connector (story 3.21)", () => {
     expect(pi?.body).toContain(ENTRIES[0]!.description);
     expect(
       drafts.some((d) => d.targetEntityId === `de-${FURCOLO_CASE}-500`)
-    ).toBe(true);
-    // Undated / text-less rows never become records; the pre-tracking
-    // complaint is history the tracker never claimed to follow.
+    ).toBe(false);
+    // Undated / text-less rows never become records. Entries filed before
+    // the effective cutoff are counted as skippedOlder, not drafted.
     expect(
       drafts.some((d) =>
         ["499", "498", "400"].some(
@@ -783,15 +812,17 @@ describe("CourtListener connector (story 3.21)", () => {
       entries: 5,
       pages: 1,
       truncated: false,
-      newEntries: 2,
-      seen: 1,
-      skippedIncomplete: 2
+      newEntries: 1,
+      seen: 0,
+      skippedIncomplete: 2,
+      effectiveCutoff: "2026-09-11",
+      skippedOlder: 2
     });
     expect(
       (await evidenceRepo.listByRun(testEnv.DB, runId)).filter(
         (e) => e.event === "draft.created"
       )
-    ).toHaveLength(2);
+    ).toHaveLength(1);
   });
 
   it("uses the latest published development as the baseline and skips entries already Drafted (any outcome)", async () => {
@@ -843,6 +874,10 @@ describe("CourtListener connector (story 3.21)", () => {
       newEntries: 0,
       seen: 2
     });
+    expect(docketSummary(payload, FURCOLO)).not.toHaveProperty(
+      "effectiveCutoff"
+    );
+    expect(docketSummary(payload, FURCOLO)).not.toHaveProperty("skippedOlder");
     const furcolo = calls.find(
       ({ url }) => new URL(url).searchParams.get("docket") === FURCOLO
     );
@@ -1115,6 +1150,121 @@ describe("CourtListener connector (story 3.21)", () => {
       ).run();
     }
   });
+
+  it("keeps a 2026-10-11 run to the three 2026-10-05 filings from run 0003", async () => {
+    const runAt = "2026-10-11T15:00:00.000Z";
+    const filings = [
+      ["2026-10-05", 3],
+      ["2026-10-02", 3],
+      ["2026-10-01", 1],
+      ["2026-09-28", 2],
+      ["2026-09-25", 1]
+    ] as const;
+    let id = 91_000;
+    const results = filings.flatMap(([date, count]) =>
+      Array.from({ length: count }, () => {
+        id += 1;
+        return {
+          id,
+          entry_number: id,
+          date_filed: date,
+          description: `Entry filed ${date}.`
+        };
+      })
+    );
+    const calls = stubFetch((docketId) =>
+      docketId === ILLINOIS
+        ? { status: 200, body: { results } }
+        : { status: 200, body: { results: [] } }
+    );
+    const runId = await newRun();
+    const result = await runConnector(
+      testEnv.DB,
+      runId,
+      SOURCE,
+      check(TOKEN, { now: () => runAt })
+    );
+    expect(result).toEqual({ draftCount: 3, failed: false });
+    const dates = (await draftsRepo.listByRun(testEnv.DB, runId)).map(
+      (draft) => (draft.diff as { occurredAt?: string }).occurredAt
+    );
+    expect(dates.filter((date) => date === "2026-10-05")).toHaveLength(3);
+    expect(
+      dates.filter((date) => date != null && date <= "2026-10-02")
+    ).toEqual([]);
+    const illinois = calls.find(
+      ({ url }) => new URL(url).searchParams.get("docket") === ILLINOIS
+    );
+    expect(new URL(illinois!.url).searchParams.get("date_filed__gte")).toBe(
+      "2026-10-04"
+    );
+    expect(docketSummary(await fetchedPayload(runId), ILLINOIS)).toMatchObject({
+      baseline: { kind: "source_published_at", date: "2026-04-02" },
+      effectiveCutoff: "2026-10-04",
+      skippedOlder: 7,
+      newEntries: 3
+    });
+  });
+
+  it("keeps a recent published_at when it is later than the window start", async () => {
+    await testEnv.DB.prepare(
+      "UPDATE sources SET published_at = ? WHERE id = 'src-case-il-docket'"
+    )
+      .bind("2026-09-16")
+      .run();
+    try {
+      const calls = stubFetch((docketId) =>
+        docketId === ILLINOIS
+          ? {
+              status: 200,
+              body: {
+                results: [
+                  {
+                    id: 92001,
+                    entry_number: 1,
+                    date_filed: "2026-09-15",
+                    description: "Day before the published date."
+                  },
+                  {
+                    id: 92002,
+                    entry_number: 2,
+                    date_filed: "2026-09-16",
+                    description: "Filed on the published date."
+                  }
+                ]
+              }
+            }
+          : { status: 200, body: { results: [] } }
+      );
+      const runId = await newRun();
+      const result = await runConnector(testEnv.DB, runId, SOURCE, check());
+      expect(result).toEqual({ draftCount: 1, failed: false });
+      const illinois = calls.find(
+        ({ url }) => new URL(url).searchParams.get("docket") === ILLINOIS
+      );
+      expect(new URL(illinois!.url).searchParams.get("date_filed__gte")).toBe(
+        "2026-09-16"
+      );
+      const dates = (await draftsRepo.listByRun(testEnv.DB, runId)).map(
+        (draft) => (draft.diff as { occurredAt?: string }).occurredAt
+      );
+      expect(dates).toContain("2026-09-16");
+      expect(dates).not.toContain("2026-09-15");
+      expect(
+        docketSummary(await fetchedPayload(runId), ILLINOIS)
+      ).toMatchObject({
+        baseline: { kind: "source_published_at", date: "2026-09-16" },
+        effectiveCutoff: "2026-09-16",
+        skippedOlder: 1
+      });
+    } finally {
+      await testEnv.DB.prepare(
+        "UPDATE sources SET published_at = ? WHERE id = 'src-case-il-docket'"
+      )
+        .bind("2026-04-02")
+        .run();
+    }
+  });
 });
 
 // Story 3.27: exercise the real connector, timeout wrapper, and D1 Evidence
@@ -1212,9 +1362,9 @@ describe("CourtListener credential boundary (story 3.27)", () => {
     ).toHaveLength(1);
     const cutoff = new Map([
       [FURCOLO, "2026-09-12"],
-      [ILLINOIS, "2026-04-02"],
-      ["73242633", "2026-04-24"],
-      ["72237443", "2025-11-28"]
+      [ILLINOIS, "2026-09-11"],
+      ["73242633", "2026-09-11"],
+      ["72237443", "2026-09-11"]
     ]);
     expect(
       calls.every(({ url }) => {

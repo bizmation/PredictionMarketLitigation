@@ -804,8 +804,53 @@ describe("bounded provider cost", () => {
     const w = workers();
     await expect(
       complete({ ...w.deps, now: () => COST_POLICIES[0]!.validUntil }, input())
-    ).rejects.toMatchObject({ code: "cost_policy_invalid" });
+    ).rejects.toMatchObject({
+      code: "cost_policy_invalid",
+      message: "cost_policy_invalid: policy_lookup"
+    });
     expect(w.run).not.toHaveBeenCalled();
+  });
+  it("names a policy lookup failure and a model mismatch", async () => {
+    await setup();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const w = workers();
+      await expect(
+        complete(
+          {
+            ...w.deps,
+            costPolicy: () => {
+              throw new Error("missing policy");
+            }
+          },
+          input()
+        )
+      ).rejects.toMatchObject({
+        code: "cost_policy_invalid",
+        message: "cost_policy_invalid: policy_lookup",
+        detail: expect.objectContaining({
+          stage: "policy_lookup",
+          errorName: "Error",
+          errorMessage: "missing policy"
+        })
+      });
+      await expect(
+        complete(
+          {
+            ...w.deps,
+            costPolicy: () => fixtureCostPolicy("other", "other-model", now)
+          },
+          input()
+        )
+      ).rejects.toMatchObject({
+        code: "cost_policy_invalid",
+        message: "cost_policy_invalid: policy_model_mismatch",
+        detail: expect.objectContaining({ stage: "policy_model_mismatch" })
+      });
+      expect(w.run).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
   it.each([
     undefined,
@@ -931,7 +976,10 @@ describe("bounded provider cost", () => {
     vi.stubGlobal("fetch", fetch);
     await expect(
       complete({ db: testEnv.DB, provider: router(), now: () => time }, input())
-    ).rejects.toMatchObject({ code: "cost_policy_invalid" });
+    ).rejects.toMatchObject({
+      code: "cost_policy_invalid",
+      message: "cost_policy_invalid: revalidate_before_inference"
+    });
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(String(fetch.mock.calls[0]?.[0] ?? "")).not.toContain(
       "chat/completions"
@@ -956,8 +1004,44 @@ describe("bounded provider cost", () => {
     vi.stubGlobal("fetch", fetch);
     await expect(
       complete({ db: testEnv.DB, provider: router(), now: () => now }, input())
-    ).rejects.toMatchObject({ code: "cost_policy_invalid" });
+    ).rejects.toMatchObject({
+      code: "cost_policy_invalid",
+      message: "cost_policy_invalid: openrouter_preflight",
+      detail: expect.objectContaining({
+        stage: "openrouter_preflight",
+        field: "pricing.completion"
+      })
+    });
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it("names an OpenRouter preflight HTTP failure", async () => {
+    await setup(500, "openrouter", COST_POLICIES[1]!.model);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () => new Response("Bearer SECRET-KEY blocked", { status: 403 })
+        )
+      );
+      await expect(
+        complete(
+          { db: testEnv.DB, provider: router(), now: () => now },
+          input()
+        )
+      ).rejects.toMatchObject({
+        code: "cost_policy_invalid",
+        message: "cost_policy_invalid: openrouter_preflight (http 403)",
+        detail: expect.objectContaining({
+          stage: "openrouter_preflight",
+          status: 403,
+          bodyPrefix: expect.stringContaining("bearer [redacted]")
+        })
+      });
+      expect(JSON.stringify(warn.mock.calls)).not.toContain("SECRET-KEY");
+    } finally {
+      warn.mockRestore();
+    }
   });
   it("Sonnet refuses 123 cents before even endpoint lookup", async () => {
     await setup(123, "openrouter", COST_POLICIES[1]!.model);

@@ -224,4 +224,4 @@ Ledger entries above are not edited; this block records where each Epic 3 entry 
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-deepinfra-preflight-diagnostics-and-first-fetch-window.md`
   summary: Backfill docket history older than the first-fetch window.
-  evidence: A docket with no stored events uses the later of `sources.published_at` and 2 ET days before the run date, so a USD 1 acceptance run stays a handful of drafts. This story does not fetch the older history later.
+  evidence: A docket with no stored events uses the later of `sources.published_at` and `FIRST_FETCH_WINDOW_DAYS` (default 7) before the run date. This story does not fetch the older history later.

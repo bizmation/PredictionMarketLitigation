@@ -57,4 +57,10 @@ interface Env {
   /** Account Secrets Store, workers scope; local strings are fixture/dev only. */
   DEEPINFRA_API_KEY?: string | { get(): Promise<string> };
   AI_GATEWAY_TOKEN?: string | { get(): Promise<string> };
+  /**
+   * First CourtListener fetch window, in calendar days. Optional Worker var.
+   * Unset uses 7. A value that is not a positive integer falls back to 7.
+   * Not a secret and not a wrangler.jsonc var: this repo has no `vars` block.
+   */
+  FIRST_FETCH_WINDOW_DAYS?: string;
 }

@@ -3,6 +3,7 @@ import { fixtureCostPolicy } from "../../test/costPolicyFixture";
 import { env } from "cloudflare:workers";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { accountingForRun } from "../../shared/db/repos/llmAccountingRepo";
 import * as draftsRepo from "../../shared/db/repos/draftsRepo";
 import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
 import * as modeRepo from "../../shared/db/repos/modeRepo";
@@ -345,11 +346,61 @@ describe("draftAndReview (story 3.5)", () => {
       false
     );
     expect(evidence.filter((e) => e.event === "run.stopped")).toHaveLength(1);
+    expect(run?.status).toBe("stopped");
+    expect(await accountingForRun(testEnv.DB, runId)).toMatchObject({
+      reservedCents: 0,
+      uncertainCents: 0,
+      issueCount: 0
+    });
+    const operations = await testEnv.DB.prepare(
+      "SELECT state, liability_cents AS liabilityCents FROM llm_operations WHERE run_id = ?"
+    )
+      .bind(runId)
+      .all<{ state: string; liabilityCents: number }>();
+    expect(operations.results).toEqual([
+      { state: "settled", liabilityCents: 0 }
+    ]);
+    expect(run?.reservedCents ?? 0).toBe(0);
+    expect(run?.uncertainCents ?? 0).toBe(0);
+    expect(run?.accountingIssueCount ?? 0).toBe(0);
     const evaluated = evidence.filter((e) => e.event === "draft.evaluated");
     expect(evaluated).toHaveLength(2);
     expect(
       evaluated.map((e) => (e.payload as { draftId: string }).draftId).sort()
     ).toEqual([firstId, secondId].sort());
+  });
+
+  it("names cost_policy_invalid on the failed draft and the drafts it stops", async () => {
+    const runId = await insertRun();
+    const firstId = await insertShellDraft(runId, { id: `d:${runId}:01` });
+    const secondId = await insertShellDraft(runId, {
+      id: `d:${runId}:02`,
+      targetEntityId: "st-ny"
+    });
+    await seedConfig(DRAFTER_REVIEWER_ROLES);
+    const provider = fakeProvider();
+    await expect(
+      draftAndReview(testEnv.DB, runId, {
+        ...deps(provider),
+        costPolicy: () => {
+          throw new Error("missing policy");
+        }
+      })
+    ).rejects.toMatchObject({
+      code: "cost_policy_invalid",
+      message: "cost_policy_invalid: policy_lookup"
+    });
+    const drafts = await draftsRepo.listByRun(testEnv.DB, runId);
+    const basis = "cost_policy_invalid: policy_lookup";
+    expect(evalOf(drafts.find((d) => d.id === firstId)!).basis).toBe(basis);
+    expect(evalOf(drafts.find((d) => d.id === secondId)!).basis).toBe(basis);
+    expect(evalOf(drafts.find((d) => d.id === firstId)!).status).toBe(
+      "evals_not_run"
+    );
+    expect(evalOf(drafts.find((d) => d.id === secondId)!).status).toBe(
+      "evals_not_run"
+    );
+    expect(provider.count()).toBe(0);
   });
 
   it("retains failed-call liability and refuses later sibling dispatch", async () => {

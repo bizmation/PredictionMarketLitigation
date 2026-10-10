@@ -727,7 +727,11 @@ describe("sourceChecksFromEnv (story 3.21)", () => {
         now: () => NOW
       },
       sourceChecksFromEnv(
-        { COURTLISTENER_API_TOKEN: "tok", courtListenerWait: async () => {} },
+        {
+          COURTLISTENER_API_TOKEN: "tok",
+          courtListenerWait: async () => {},
+          now: () => "2026-09-20T16:00:00.000Z"
+        },
         testEnv.DB
       )
     );

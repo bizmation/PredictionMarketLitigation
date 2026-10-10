@@ -13,6 +13,7 @@ import { type SourceCheck } from "../connectors/connector";
 import {
   COURTLISTENER_SOURCE_NAME,
   createCourtListenerCheck,
+  firstFetchWindowDays,
   type CourtListenerWait
 } from "../connectors/courtListener";
 import { llmProvidersFromEnv, type GatewayDeps } from "../ai/gateway";
@@ -92,9 +93,11 @@ export function gatewayDepsFromEnv(
  * optional on `Env`; absent → `source.skipped { reason: "unconfigured" }`.
  */
 export function sourceChecksFromEnv(
-  env: Pick<Env, "COURTLISTENER_API_TOKEN"> & {
+  env: Pick<Env, "COURTLISTENER_API_TOKEN" | "FIRST_FETCH_WINDOW_DAYS"> & {
     /** Tests inject an instant wait. Production leaves this unset. */
     courtListenerWait?: CourtListenerWait;
+    /** Tests pin the ET run date. Production uses the wall clock. */
+    now?: () => string;
   },
   db: Db
 ): Record<string, SourceCheck> {
@@ -102,7 +105,9 @@ export function sourceChecksFromEnv(
     [COURTLISTENER_SOURCE_NAME]: createCourtListenerCheck({
       db,
       token: env.COURTLISTENER_API_TOKEN,
-      ...(env.courtListenerWait ? { wait: env.courtListenerWait } : {})
+      firstFetchWindowDays: firstFetchWindowDays(env.FIRST_FETCH_WINDOW_DAYS),
+      ...(env.courtListenerWait ? { wait: env.courtListenerWait } : {}),
+      ...(env.now ? { now: env.now } : {})
     })
   };
 }

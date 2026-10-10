@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   complete,
   createDeepInfraProvider,
+  DEEPINFRA_CATALOG_USER_AGENT,
   llmProvidersFromEnv
 } from "./gateway";
 import { resolveCostPolicy } from "./costPolicy";
@@ -101,7 +102,10 @@ function http(body: unknown = responseBody(), metadata: unknown = catalog()) {
   );
   const fetcher = vi.fn(async (url: unknown, init?: RequestInit) => {
     if (url === "https://api.deepinfra.com/models/list") {
-      expect(init?.headers).toBeUndefined();
+      const headers = new Headers(init?.headers);
+      expect(headers.get("accept")).toBe("application/json");
+      expect(headers.get("user-agent")).toBe(DEEPINFRA_CATALOG_USER_AGENT);
+      expect(init?.redirect).toBe("error");
       expect(init?.signal).toBeInstanceOf(AbortSignal);
       return Response.json(metadata);
     }
@@ -254,6 +258,7 @@ describe("DeepInfra central gateway", () => {
       expect(headers.get("cf-aig-authorization")).toBe(
         token ? `Bearer ${token}` : null
       );
+      expect(headers.get("user-agent")).toBeNull();
       expect(JSON.parse(init!.body as string)).toEqual({
         model: MODEL,
         messages: [{ role: "user", content: "PRIVATE prompt" }],
@@ -369,6 +374,105 @@ describe("DeepInfra central gateway", () => {
       expect(fetcher).not.toHaveBeenCalled();
     }
   );
+  it("names an HTTP 403 catalog refusal without secrets", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () =>
+            new Response("bot check Bearer SECRET-KEY", { status: 403 })
+        )
+      );
+      await expect(
+        createDeepInfraProvider(configured)!.preflight!({
+          model: MODEL,
+          policy,
+          now: () => NOW
+        })
+      ).rejects.toMatchObject({
+        code: "cost_policy_invalid",
+        message: "cost_policy_invalid: deepinfra_preflight (http 403)",
+        detail: expect.objectContaining({
+          stage: "deepinfra_preflight",
+          status: 403,
+          bodyPrefix: expect.stringContaining("bearer [redacted]")
+        })
+      });
+      const logged = JSON.stringify(warn.mock.calls);
+      expect(logged).not.toContain("SECRET-KEY");
+      expect(logged).toContain("cost_policy_invalid");
+      expect(warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: "cost_policy_invalid",
+          stage: "deepinfra_preflight",
+          status: 403
+        })
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+  it("names the catalog field that failed", async () => {
+    const input = await setup();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      http(responseBody(), [{ ...catalog()[0], deprecated: true }]);
+      await expect(complete(deps(), input)).rejects.toMatchObject({
+        code: "cost_policy_invalid",
+        message: "cost_policy_invalid: deepinfra_preflight",
+        detail: expect.objectContaining({
+          stage: "deepinfra_preflight",
+          field: "deprecated"
+        })
+      });
+      expect(JSON.stringify(warn.mock.calls)).not.toContain("PRIVATE");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+  it("records a thrown catalog fetch without secrets", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          throw new TypeError("Bearer SECRET-KEY network down");
+        })
+      );
+      await expect(
+        createDeepInfraProvider(configured)!.preflight!({
+          model: MODEL,
+          policy,
+          now: () => NOW
+        })
+      ).rejects.toMatchObject({
+        code: "cost_policy_invalid",
+        message: "cost_policy_invalid: deepinfra_preflight",
+        detail: expect.objectContaining({
+          stage: "deepinfra_preflight",
+          errorName: "TypeError",
+          errorMessage: expect.stringContaining("bearer [redacted]")
+        })
+      });
+      expect(JSON.stringify(warn.mock.calls)).not.toContain("SECRET-KEY");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+  it("does not relabel revalidation as a catalog failure", async () => {
+    http();
+    await expect(
+      createDeepInfraProvider(configured)!.preflight!({
+        model: MODEL,
+        policy,
+        now: () => policy.validUntil
+      })
+    ).rejects.toMatchObject({
+      code: "cost_policy_invalid",
+      message: "cost_policy_invalid: revalidate_before_inference"
+    });
+  });
   it("bounds the entire metadata body deadline", async () => {
     vi.useFakeTimers();
     const fetcher = vi.fn(async () => ({
