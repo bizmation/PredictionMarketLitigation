@@ -208,3 +208,7 @@ Ledger entries above are not edited; this block records where each Epic 3 entry 
 - source_spec: `_bmad-output/implementation-artifacts/spec-3-28-enforce-evaluation-readiness-and-sealed-drafts.md`
   summary: Benchmark readiness projection queries at representative historical volume.
   evidence: Unverified medium performance concern: new correlated receipt lookups use run_id index but no volume timing establishes an actual slowdown.
+
+## Deferred from: code review of 3-38-pace-courtlistener-requests-and-recover-from-http-429.md (2026-10-10)
+
+- epics.md Story 3.38 entry lacks the "As a / I want / So that" form and Given/When/Then acceptance criteria used by other stories, and omits the concrete limits (15 s spacing, 3 attempts, 6-minute wait budget, 8-minute poll). Fix belongs in a planning-artifact update, not this code change.

@@ -42,6 +42,39 @@ so that a normal daily Run finishes instead of failing before any Draft exists.
 - [x] **Task 3: Verification** (AC: all)
   - [x] `npm run check` and `npm test` exit 0. No deploy, no staging or production call, no paid provider call.
 
+### Review Findings
+
+- [ ] [Review][Patch] Wait-budget exhaustion with no 429 is reported as HTTP 429 — resolved by Patrick (2026-10-10): when no 429 was received, record `reason: "timeout"` with no status; keep `http_429` only when a real 429 preceded the exhaustion (medium) [src/pipeline/connectors/courtListener.ts:750]
+- [ ] [Review][Patch] Fetch time is not bounded inside the 8-minute poll — resolved by Patrick (2026-10-10): before each wait, check the time left in `COURTLISTENER_POLL_TIMEOUT_MS`; if the wait plus one `SOURCE_FETCH_TIMEOUT_MS` request would not fit, stop cleanly with scrubbed evidence (`http_429` if a real 429 was seen, otherwise `timeout`) (medium) [src/pipeline/connectors/courtListener.ts:732-760]
+- [ ] [Review][Patch] Timeout evidence records `CONNECTOR_TIMEOUT_MS` (60000) instead of the enforced `pollTimeoutMs(check)` (480000) (medium) [src/pipeline/connectors/connector.ts:166]
+- [ ] [Review][Patch] Real `defaultWait` is never exercised by a test, including abort during a wait and timer cleanup (medium) [src/pipeline/connectors/courtListener.ts:234]
+- [ ] [Review][Patch] Pacing is tested only with a frozen clock (`nowMs: () => 0`); remaining-interval math and pagination spacing are unverified (medium) [src/pipeline/connectors/courtListener.test.ts:1206]
+- [ ] [Review][Patch] "No retry" is asserted only for 401; 403 and 5xx tests do not check call count or waits (medium) [src/pipeline/connectors/courtListener.test.ts:1365]
+- [ ] [Review][Patch] No workflow-level test shows an exhausted 429 ends a zero-draft Run `failed`, not `empty` (AC5) (medium) [src/pipeline/connectors/courtListener.test.ts]
+- [ ] [Review][Patch] Run-ownership guard runs before the pace/429 wait instead of immediately before the request (low) [src/pipeline/connectors/courtListener.ts:430-433]
+- [ ] [Review][Patch] HTTP-date `Retry-After` uses real `Date.now` instead of injected `deps.nowMs` (low) [src/pipeline/connectors/courtListener.ts:458]
+- [ ] [Review][Patch] HTTP-date test fixtures use wrong weekdays ("Fri, 10 Oct 2026" is a Saturday; "Sat, 11 Oct 2026" is a Sunday) (low) [src/pipeline/connectors/courtListener.test.ts:206,212]
+- [ ] [Review][Patch] Five-docket test comment says serial polling exceeds 60 s, but 5 × 11 s = 55 s, and its assertions would pass under the old deadline (low) [src/pipeline/connectors/courtListener.test.ts:761-790]
+- [ ] [Review][Patch] `timeouts.ts` header still says "no per-site overrides" although `pollTimeoutMs` is now a per-check override (low) [src/shared/lib/timeouts.ts:26]
+- [x] [Review][Defer] epics.md Story 3.38 entry lacks the "As a / I want / So that" and Given/When/Then format used by other stories [_bmad-output/planning-artifacts/epics.md:1167] — deferred: fix edits a planning artifact, not code
+
+#### Rejected
+
+- low — Replay starts a fresh pace window: a step replay's first request may 429, which the bounded retry absorbs; the fix needs persisted cross-invocation state.
+- false — 15 s spacing allows 5 starts in a closed 60 s window: 5 starts per 60 s does not exceed CourtListener's 5/min limit.
+- spec — Cap of `Retry-After` at 60 s makes the next 429 certain: AC2 mandates the cap; the fix is a spec change.
+- low — Budget-exhausted evidence drops the server's detail and attempts: needs about 6 minutes of waits after a real 429; the fix adds parameters to `pace`.
+- low — `retryAfterMs` accepts fractional seconds and lenient `Date.parse` strings: CourtListener sends integer seconds; the fix adds a format guard.
+- false — 10-minute step timeout has no arithmetic: the other three sources are instant `stubCheck`s run serially, so the step is the 8-minute poll plus D1 writes.
+- false — `pollTimeoutMs` can overflow `setTimeout` or be Infinity: it is only ever set to the constant 480000.
+- low — `pollTimeoutMs` attached loosely with `Object.assign`: developer-only; the fix adds type surface.
+- false — AbortError escapes unmapped when the signal is not aborted (and the deleted abort mapping): `fetchWithTimeout` rejects with `TimeoutError` on its own deadline, and an AbortError only comes from the caller signal, which is rethrown by design.
+- false — `Date.now` stepping backwards inflates waits: the Workers clock does not step backwards within an invocation.
+- false — `stubFetch` content-type default changed: the connector never reads `content-type`.
+- low — Test-only `courtListenerWait` widens the `Env` type: production never sets it; the fix adds a deps parameter.
+- false — Admission `sibling_failure` test lost its sibling: serial polling means no sibling request is ever in flight; abort-during-wait coverage is tracked under the `defaultWait` patch.
+- spec — Dev Agent Record has generic filler and no CI link: the fix edits the spec under review.
+
 ## Dev Notes
 
 ### Story selection
