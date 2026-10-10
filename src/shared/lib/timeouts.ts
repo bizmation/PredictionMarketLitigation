@@ -40,6 +40,8 @@ export const CONNECTOR_TIMEOUT_MS = 60_000;
  * enough that a connector polling several dockets in series still finishes
  * inside `CONNECTOR_TIMEOUT_MS`; a hung request surfaces as the connector's
  * own typed skip rather than the whole-source deadline.
+ * CourtListener does not use this cap. Its request timeout is
+ * `COURTLISTENER_FETCH_TIMEOUT_MS`, and this shared value stays 12 seconds.
  */
 export const SOURCE_FETCH_TIMEOUT_MS = 12_000;
 /** One `provider.complete` call inside `gateway.complete`. */
