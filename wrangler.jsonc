@@ -194,9 +194,9 @@
   // concept and `run_worker_first` carries over unchanged.
   //
   // Keys overridden at env level (name, workers_dev, preview_urls, routes,
-  // d1_databases, vars) are exactly the non-inheritable or production-binding ones;
+  // d1_databases, vars, observability) are exactly the non-inheritable or production-binding ones;
   // everything else (main, assets, ai, durable_objects, migrations,
-  // observability, compatibility) inherits from the top level. Access on
+  // compatibility) inherits from the top level. Access on
   // `/admin` is Worker-gated only here — same deliberate asymmetry as `ops.`
   // (runbook §6); adding an edge gate is a Zero Trust dashboard step Patrick
   // can take later.
@@ -216,6 +216,14 @@
       // `deploy:build` records the staging first-fetch window instead of wiping it.
       "vars": {
         "FIRST_FETCH_WINDOW_DAYS": "3"
+      },
+      // Replaces the inherited top-level `{ enabled: true }` for pml-build only.
+      // Production deploys without `-e build` and keeps the top-level object.
+      "observability": {
+        "enabled": true,
+        "head_sampling_rate": 1,
+        "logs": { "enabled": true, "invocation_logs": true },
+        "traces": { "enabled": true, "head_sampling_rate": 1 }
       },
       // `durable_objects` and `ai` are NOT inherited by environments — without
       // these the staging Worker would deploy with no AI binding and no DO
