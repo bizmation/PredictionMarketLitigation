@@ -6,6 +6,7 @@ import {
   isAbortError,
   isTimeoutError
 } from "../../shared/lib/timeouts";
+import { etCalendarDate } from "../../shared/lib/schedule";
 import { IsoDateSchema } from "../../shared/schemas/common";
 import {
   SourceUnavailableError,
@@ -77,7 +78,8 @@ export function entriesUrl(
     order_by: "-date_filed",
     fields: COURTLISTENER_FIELDS
   });
-  // Same inclusive baseline `fetchEntries` already stops on. Never shift it.
+  // Inclusive floor. On a first fetch this is the effective cutoff, which
+  // may be later than `sources.published_at`.
   if (
     filedOnOrAfter != null &&
     IsoDateSchema.safeParse(filedOnOrAfter).success
@@ -205,6 +207,65 @@ export const COURTLISTENER_WAIT_BUDGET_MS = 6 * 60 * 1000;
  * Workflow step timeout and above the generic 60-second connector deadline.
  */
 export const COURTLISTENER_POLL_TIMEOUT_MS = 8 * 60 * 1000;
+/** Calendar days before the ET run date on a first fetch with no stored events. */
+export const DEFAULT_FIRST_FETCH_WINDOW_DAYS = 7;
+/**
+ * Largest accepted window. Thirty days still covers the 16-day span of run
+ * 0003 and cannot reach the oldest seeded docket (2025-11-28).
+ */
+export const MAX_FIRST_FETCH_WINDOW_DAYS = 30;
+
+function rejectedWindowText(raw: string): string {
+  const collapsed = raw.replace(/\s+/g, " ").trim();
+  return collapsed.length > 180 ? collapsed.slice(0, 180) : collapsed;
+}
+
+function inWindowRange(days: number): boolean {
+  return (
+    Number.isSafeInteger(days) &&
+    days >= 1 &&
+    days <= MAX_FIRST_FETCH_WINDOW_DAYS
+  );
+}
+
+/**
+ * `FIRST_FETCH_WINDOW_DAYS` when it is an integer from 1 through 30. A
+ * leading zero is that integer. A Worker var may arrive as a string or as a
+ * JSON number. Unset uses the default and does not log. Any other set value
+ * logs the rejected text once and uses the default.
+ */
+export function firstFetchWindowDays(raw: string | number | undefined): number {
+  if (raw == null) return DEFAULT_FIRST_FETCH_WINDOW_DAYS;
+  const text = String(raw);
+  const trimmed = text.trim();
+  const value = /^[0-9]+$/.test(trimmed) ? Number(trimmed) : Number.NaN;
+  if (inWindowRange(value)) return value;
+  console.warn({
+    event: "first_fetch_window_invalid",
+    fallback: DEFAULT_FIRST_FETCH_WINDOW_DAYS,
+    value: rejectedWindowText(text)
+  });
+  return DEFAULT_FIRST_FETCH_WINDOW_DAYS;
+}
+
+function windowDaysFromDep(days: number | undefined): number {
+  if (days == null) return DEFAULT_FIRST_FETCH_WINDOW_DAYS;
+  if (inWindowRange(days)) return days;
+  console.warn({
+    event: "first_fetch_window_invalid",
+    fallback: DEFAULT_FIRST_FETCH_WINDOW_DAYS,
+    value: rejectedWindowText(String(days))
+  });
+  return DEFAULT_FIRST_FETCH_WINDOW_DAYS;
+}
+
+/** Subtract calendar days from `YYYY-MM-DD`. UTC date arithmetic, not 24h*N. */
+function calendarDaysBefore(isoDate: string, days: number): string {
+  const [year, month, day] = isoDate.split("-").map(Number);
+  const date = new Date(Date.UTC(year!, month! - 1, day!));
+  date.setUTCDate(date.getUTCDate() - days);
+  return date.toISOString().slice(0, 10);
+}
 
 export type CourtListenerWait = (
   ms: number,
@@ -224,6 +285,11 @@ export interface CourtListenerCheckDeps {
   wait?: CourtListenerWait;
   /** Defaults to `COURTLISTENER_WAIT_BUDGET_MS`. */
   waitBudgetMs?: number;
+  /**
+   * First-fetch window in calendar days. `sourceChecksFromEnv` passes the
+   * parsed `FIRST_FETCH_WINDOW_DAYS`. Omission uses the default of 7.
+   */
+  firstFetchWindowDays?: number;
 }
 
 /**
@@ -689,20 +755,32 @@ async function pollDocket(
     ])
   );
   // Baseline floor: the latest published development, or — before any
-  // exists — the day the docket source was recorded, so the first live Run
-  // never backfills history the tracker never claimed to follow.
+  // exists — the day the docket source was recorded. A first fetch also
+  // stops at the later of that date and the window before the ET run date,
+  // so the tracker does not backfill months of history.
   const baseline: Baseline =
     latest != null
       ? { kind: "docket_events", date: latest }
       : trackedSince != null
         ? { kind: "source_published_at", date: trackedSince }
         : null;
+  const windowDays = windowDaysFromDep(deps.firstFetchWindowDays);
+  let fetchOnOrAfter = baseline?.date ?? null;
+  let effectiveCutoff: string | undefined;
+  if (baseline?.kind === "source_published_at") {
+    const runDate = etCalendarDate(
+      new Date(deps.now?.() ?? new Date().toISOString())
+    );
+    const windowStart = calendarDaysBefore(runDate, windowDays);
+    effectiveCutoff = baseline.date > windowStart ? baseline.date : windowStart;
+    fetchOnOrAfter = effectiveCutoff;
+  }
 
   const fetched = await fetchEntries(
     fetchImpl,
     token,
     docketId,
-    baseline?.date ?? null,
+    fetchOnOrAfter,
     pace,
     noteStart,
     nowMs,
@@ -723,6 +801,7 @@ async function pollDocket(
     if (latestEntryDate == null || dated.data > latestEntryDate) {
       latestEntryDate = dated.data;
     }
+    if (effectiveCutoff != null && dated.data < effectiveCutoff) continue;
     const id = docketEventId(row.case_id, entry.id);
     if (seen.has(id) || (baseline != null && dated.data < baseline.date)) {
       seenCount += 1;
@@ -766,6 +845,9 @@ async function pollDocket(
       newEntries: entities.length,
       seen: seenCount,
       skippedIncomplete: undated,
+      ...(effectiveCutoff == null
+        ? {}
+        : { effectiveCutoff, olderEntriesNotRequested: true }),
       ...(fetched.timeouts.length > 0 ? { timeouts: fetched.timeouts } : {})
     }
   };

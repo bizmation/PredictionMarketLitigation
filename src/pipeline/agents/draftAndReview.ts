@@ -444,6 +444,14 @@ function isBudgetStopped(err: unknown): boolean {
   return err instanceof GatewayError && err.code === "budget_stopped";
 }
 
+function gatewayBasis(err: unknown): string {
+  if (err instanceof GatewayError && err.code === "cost_policy_invalid")
+    return err.message;
+  if (err instanceof GatewayError)
+    return `Evaluation did not complete: ${err.code}.`;
+  return "Evaluation stopped after an unexpected error.";
+}
+
 function isPerDraftGatewayError(err: unknown): boolean {
   return err instanceof GatewayError && PER_DRAFT_GATEWAY_CODES.has(err.code);
 }
@@ -838,15 +846,17 @@ export async function draftAndReview(
           timestamp,
           threshold,
           guidanceRefs,
-          err instanceof GatewayError
-            ? `Evaluation did not complete: ${err.code}.`
-            : "Evaluation stopped after an unexpected error."
+          gatewayBasis(err)
         );
       } catch {
         persistFailed = true;
       }
       const stopFurther =
         persistFailed || isBudgetStopped(err) || !isPerDraftGatewayError(err);
+      const siblingBasis =
+        err instanceof GatewayError && err.code === "cost_policy_invalid"
+          ? err.message
+          : "Evaluation was skipped after a preceding evaluation stopped the run.";
       if (stopFurther) {
         for (let j = i + 1; j < drafts.length; j++) {
           const remaining = drafts[j]!;
@@ -859,7 +869,7 @@ export async function draftAndReview(
               timestamp,
               threshold,
               NO_GUIDANCE,
-              "Evaluation was skipped after a preceding evaluation stopped the run."
+              siblingBasis
             );
           } catch {
             // Keep attempting siblings, but never checkpoint incomplete readiness.

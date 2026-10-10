@@ -51,14 +51,88 @@ import { GUARDRAIL_RULE_ID, isToolAllowed } from "./actionPolicy";
  *   7. record the call + bump spend; return the result
  */
 
+export const DEEPINFRA_CATALOG_USER_AGENT =
+  "PredictionMarketLitigation/0.1.0 (+https://predictionmarketlitigation.com)";
+
+const DIAGNOSTIC_TEXT_MAX = 180;
+
+export type CostPolicyDetail = {
+  stage: string;
+  errorName?: string;
+  errorMessage?: string;
+  status?: number;
+  bodyPrefix?: string;
+  field?: string;
+};
+
 export class GatewayError extends Error {
   readonly code: GatewayErrorCode;
+  readonly detail?: CostPolicyDetail;
 
-  constructor(code: GatewayErrorCode, message: string) {
+  constructor(
+    code: GatewayErrorCode,
+    message: string,
+    detail?: CostPolicyDetail
+  ) {
     super(message);
     this.name = "GatewayError";
     this.code = code;
+    this.detail = detail;
   }
+}
+
+function diagnosticText(value: string): string {
+  const collapsed = value
+    .replace(/bearer\s+\S+/gi, "bearer [redacted]")
+    .replace(/\s+/g, " ")
+    .trim();
+  return collapsed.length > DIAGNOSTIC_TEXT_MAX
+    ? collapsed.slice(0, DIAGNOSTIC_TEXT_MAX)
+    : collapsed;
+}
+
+function errorFacts(
+  error: unknown
+): Pick<CostPolicyDetail, "errorName" | "errorMessage"> {
+  if (error instanceof Error) {
+    return {
+      errorName: error.name || "Error",
+      errorMessage: diagnosticText(error.message)
+    };
+  }
+  return { errorName: "Error", errorMessage: diagnosticText(String(error)) };
+}
+
+function costPolicyMessage(stage: string, status?: number): string {
+  return status == null
+    ? `cost_policy_invalid: ${stage}`
+    : `cost_policy_invalid: ${stage} (http ${status})`;
+}
+
+function logCostPolicy(detail: CostPolicyDetail): void {
+  console.warn({
+    event: "cost_policy_invalid",
+    stage: detail.stage,
+    ...(detail.errorName ? { errorName: detail.errorName } : {}),
+    ...(detail.errorMessage ? { errorMessage: detail.errorMessage } : {}),
+    ...(detail.status == null ? {} : { status: detail.status }),
+    ...(detail.bodyPrefix ? { bodyPrefix: detail.bodyPrefix } : {}),
+    ...(detail.field ? { field: detail.field } : {})
+  });
+}
+
+function throwCostPolicy(
+  stage: string,
+  extra: Omit<CostPolicyDetail, "stage"> = {},
+  ctor: typeof GatewayError = GatewayError
+): never {
+  const detail: CostPolicyDetail = { stage, ...extra };
+  logCostPolicy(detail);
+  throw new ctor(
+    "cost_policy_invalid",
+    costPolicyMessage(stage, extra.status),
+    detail
+  );
 }
 
 class ProvenPreDispatchRefusal extends GatewayError {}
@@ -305,17 +379,11 @@ export async function complete(
       ),
       now()
     );
-  } catch {
-    throw new GatewayError(
-      "cost_policy_invalid",
-      "Missing, expired, unsupported, or invalid provider cost policy."
-    );
+  } catch (error) {
+    throwCostPolicy("policy_lookup", errorFacts(error));
   }
   if (policy.provider !== mapping.provider || policy.model !== mapping.model)
-    throw new GatewayError(
-      "cost_policy_invalid",
-      "Cost policy does not match the configured model."
-    );
+    throwCostPolicy("policy_model_mismatch");
   const admissionBoundCents = tokenCostCents(
     policy,
     policy.inputTokens,
@@ -650,10 +718,11 @@ export function createWorkersAiProvider(env: Env): LlmProvider | null {
 function revalidateBeforeInference(policy: CostPolicy, now: string): void {
   try {
     validatePolicy(policy, now);
-  } catch {
-    throw new ProvenPreDispatchRefusal(
-      "cost_policy_invalid",
-      "Cost policy expired or became invalid before inference."
+  } catch (error) {
+    throwCostPolicy(
+      "revalidate_before_inference",
+      errorFacts(error),
+      ProvenPreDispatchRefusal
     );
   }
 }
@@ -680,6 +749,43 @@ export function llmProvidersFromEnv(env: Env): LlmProvider[] {
  * only when `OPENROUTER_API_KEY`, `AI_GATEWAY_ID`, and `CLOUDFLARE_ACCOUNT_ID`
  * are all non-empty. Does not call `env.AI.run`.
  */
+function openRouterEndpointField(
+  endpoint: {
+    context_length?: number;
+    supported_parameters?: string[];
+    pricing?: Record<string, unknown>;
+  },
+  inputTokens: number
+): string | null {
+  if (endpoint.context_length !== inputTokens) return "context_length";
+  if (!endpoint.supported_parameters?.includes("max_tokens"))
+    return "supported_parameters";
+  const pricing = endpoint.pricing;
+  if (!pricing || pricing.prompt == null) return "pricing.prompt";
+  if (pricing.completion == null) return "pricing.completion";
+  const limits: Record<string, string> = {
+    prompt: "0.000003",
+    completion: "0.000015",
+    input_cache_read: "0.000006",
+    input_cache_write: "0.000006",
+    input_cache_write_1h: "0.000006",
+    request: "0",
+    image: "0",
+    discount: "0"
+  };
+  for (const [key, value] of Object.entries(pricing)) {
+    if (key === "web_search") continue;
+    if (key === "overrides") {
+      if (!(Array.isArray(value) && value.length === 0))
+        return "pricing.overrides";
+      continue;
+    }
+    if (!(key in limits) || !decimalAtMost(value, limits[key]!))
+      return `pricing.${key}`;
+  }
+  return null;
+}
+
 export function createOpenRouterProvider(env: Env): LlmProvider | null {
   const apiKey = env.OPENROUTER_API_KEY;
   const gatewayId = env.AI_GATEWAY_ID;
@@ -701,11 +807,19 @@ export function createOpenRouterProvider(env: Env): LlmProvider | null {
           `https://openrouter.ai/api/v1/models/${model}/endpoints`,
           { signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS) }
         );
-        if (!metadata.ok)
-          throw new GatewayError(
-            "cost_policy_invalid",
-            "Endpoint pricing unavailable."
-          );
+        if (!metadata.ok) {
+          let bodyPrefix = "";
+          try {
+            bodyPrefix = diagnosticText(await metadata.text());
+          } catch {
+            bodyPrefix = "";
+          }
+          throwCostPolicy("openrouter_preflight", {
+            ...errorFacts(new Error(`HTTP ${metadata.status}`)),
+            status: metadata.status,
+            ...(bodyPrefix ? { bodyPrefix } : {})
+          });
+        }
         const endpoints = (await metadata.json()) as {
           data?: {
             endpoints?: Array<{
@@ -722,48 +836,22 @@ export function createOpenRouterProvider(env: Env): LlmProvider | null {
             (e) =>
               e.tag === "amazon-bedrock" || e.tag?.startsWith("amazon-bedrock/")
           ) ?? [];
-        const limits: Record<string, string> = {
-          prompt: "0.000003",
-          completion: "0.000015",
-          input_cache_read: "0.000006",
-          input_cache_write: "0.000006",
-          input_cache_write_1h: "0.000006",
-          request: "0",
-          image: "0",
-          discount: "0"
-        };
-        const supported =
-          eligible.length > 0 &&
-          eligible.every((endpoint) => {
-            const pricing = endpoint.pricing;
-            // Search is not requested; cache replacement rates are covered by the input ceiling.
-            const validPrices =
-              pricing &&
-              Object.entries(pricing).every(([key, value]) => {
-                if (key === "web_search") return true;
-                if (key === "overrides")
-                  return Array.isArray(value) && value.length === 0;
-                return key in limits && decimalAtMost(value, limits[key]!);
-              });
-            return (
-              endpoint.context_length === policy.inputTokens &&
-              endpoint.supported_parameters?.includes("max_tokens") &&
-              validPrices &&
-              pricing?.prompt != null &&
-              pricing.completion != null
-            );
+        const field =
+          eligible.length === 0
+            ? "endpoints"
+            : (eligible
+                .map((endpoint) =>
+                  openRouterEndpointField(endpoint, policy.inputTokens)
+                )
+                .find((issue) => issue != null) ?? null);
+        if (field)
+          throwCostPolicy("openrouter_preflight", {
+            field,
+            ...errorFacts(new Error(field))
           });
-        if (!supported)
-          throw new GatewayError(
-            "cost_policy_invalid",
-            "Endpoint pricing, context, or billing tiers cannot enforce the reviewed bound."
-          );
       } catch (error) {
         if (error instanceof GatewayError) throw error;
-        throw new GatewayError(
-          "cost_policy_invalid",
-          "Endpoint pricing could not be validated."
-        );
+        throwCostPolicy("openrouter_preflight", errorFacts(error));
       }
       revalidateBeforeInference(policy, now());
     },
@@ -845,6 +933,87 @@ function catalogDecimal(value: unknown): string | undefined {
   return expanded.replace(/^0+(?=\d)/, "");
 }
 
+function deepInfraCatalogField(
+  catalog: unknown,
+  model: string,
+  policy: CostPolicy
+): string | null {
+  if (!Array.isArray(catalog)) return "catalog";
+  const matches = catalog.filter(
+    (entry) =>
+      entry != null &&
+      typeof entry === "object" &&
+      (entry as { model_name?: unknown }).model_name === model
+  );
+  if (matches.length !== 1 || model !== "zai-org/GLM-5.3-Flash")
+    return "model_name";
+  const row = matches[0] as Record<string, unknown>;
+  if (row.type !== "text-generation") return "type";
+  if (row.reported_type !== "text-generation") return "reported_type";
+  if (row.private !== 0) return "private";
+  if (row.deprecated !== null) return "deprecated";
+  if (row.replaced_by !== null) return "replaced_by";
+  if (row.max_tokens !== policy.inputTokens) return "max_tokens";
+  if (!Array.isArray(row.tags)) return "tags";
+  for (const tag of ["openai", "reasoning", "json"]) {
+    if (!row.tags.includes(tag)) return `tags.${tag}`;
+  }
+  const pricing = row.pricing;
+  if (
+    pricing == null ||
+    typeof pricing !== "object" ||
+    (pricing as { type?: unknown }).type !== "tokens"
+  )
+    return "pricing.type";
+  const prices = pricing as Record<string, unknown>;
+  const limits: Record<string, string> = {
+    cents_per_input_token: "0.000015",
+    cents_per_output_token: "0.00005",
+    rate_per_input_token_cached: "1",
+    discount: "1"
+  };
+  const nullFields = [
+    "discount_ends_at",
+    "short",
+    "full",
+    "table",
+    "rate_per_input_token_cache_write",
+    "rate_per_service_tier_priority",
+    "rate_per_service_tier_flex",
+    "rate_per_explicit_cache_write_token",
+    "explicit_cache_granularity_tokens"
+  ];
+  for (const key of Object.keys(limits)) {
+    if (!(key in prices)) return `pricing.${key}`;
+  }
+  for (const key of nullFields) {
+    if (!(key in prices)) return `pricing.${key}`;
+  }
+  for (const [key, value] of Object.entries(prices)) {
+    if (key === "type") {
+      if (value !== "tokens") return "pricing.type";
+      continue;
+    }
+    if (key === "discount_ends_at") {
+      if (
+        !(
+          value === null ||
+          (typeof value === "string" && Number.isFinite(Date.parse(value)))
+        )
+      )
+        return "pricing.discount_ends_at";
+      continue;
+    }
+    if (key in limits) {
+      if (!decimalAtMost(catalogDecimal(value), limits[key]!))
+        return `pricing.${key}`;
+      continue;
+    }
+    if (!(nullFields.includes(key) && value === null)) return `pricing.${key}`;
+  }
+  return null;
+}
+
 /** Fixed custom provider route. Credentials are captured only in a per-call closure. */
 export function createDeepInfraProvider(env: Env): LlmProvider | null {
   const configured = (value: unknown): boolean =>
@@ -873,75 +1042,60 @@ export function createDeepInfraProvider(env: Env): LlmProvider | null {
           async (signal) => {
             const response = await fetch(
               "https://api.deepinfra.com/models/list",
-              { signal, redirect: "error" }
+              {
+                signal,
+                redirect: "error",
+                headers: {
+                  Accept: "application/json",
+                  "User-Agent": DEEPINFRA_CATALOG_USER_AGENT
+                }
+              }
             );
-            if (!response.ok) throw new Error();
+            if (!response.ok) {
+              let bodyPrefix = "";
+              try {
+                bodyPrefix = diagnosticText(await response.text());
+              } catch {
+                bodyPrefix = "";
+              }
+              const error = new Error(`HTTP ${response.status}`);
+              throw Object.assign(error, {
+                status: response.status,
+                ...(bodyPrefix ? { bodyPrefix } : {})
+              });
+            }
             const catalog: unknown = await response.json();
-            if (!Array.isArray(catalog)) throw new Error();
-            const matches = catalog.filter((m) => m?.model_name === model);
-            if (matches.length !== 1 || model !== "zai-org/GLM-5.3-Flash")
-              throw new Error();
-            const m = matches[0];
-            if (
-              m.type !== "text-generation" ||
-              m.reported_type !== "text-generation" ||
-              m.private !== 0 ||
-              m.deprecated !== null ||
-              m.replaced_by !== null ||
-              m.max_tokens !== policy.inputTokens ||
-              !Array.isArray(m.tags) ||
-              !["openai", "reasoning", "json"].every((tag) =>
-                m.tags.includes(tag)
-              )
-            )
-              throw new Error();
-            const p = m.pricing;
-            if (!p || p.type !== "tokens") throw new Error();
-            const limits: Record<string, string> = {
-              cents_per_input_token: "0.000015",
-              cents_per_output_token: "0.00005",
-              rate_per_input_token_cached: "1",
-              discount: "1"
-            };
-            const nullFields = [
-              "discount_ends_at",
-              "short",
-              "full",
-              "table",
-              "rate_per_input_token_cache_write",
-              "rate_per_service_tier_priority",
-              "rate_per_service_tier_flex",
-              "rate_per_explicit_cache_write_token",
-              "explicit_cache_granularity_tokens"
-            ];
-            if (
-              !Object.keys(limits).every((key) => key in p) ||
-              !nullFields.every((key) => key in p) ||
-              !Object.entries(p).every(([key, value]) => {
-                if (key === "type") return value === "tokens";
-                if (key === "discount_ends_at")
-                  return (
-                    value === null ||
-                    (typeof value === "string" &&
-                      Number.isFinite(Date.parse(value)))
-                  );
-                if (key in limits)
-                  return decimalAtMost(catalogDecimal(value), limits[key]!);
-                return nullFields.includes(key) && value === null;
-              })
-            )
-              throw new Error();
+            const field = deepInfraCatalogField(catalog, model, policy);
+            if (field) {
+              const error = new Error(field);
+              throw Object.assign(error, { field });
+            }
           },
           PROVIDER_TIMEOUT_MS,
           "DeepInfra catalog"
         );
-        revalidateBeforeInference(policy, now());
-      } catch {
-        throw new GatewayError(
-          "cost_policy_invalid",
-          "DeepInfra catalog could not validate the reviewed bound."
-        );
+      } catch (error) {
+        if (error instanceof GatewayError) throw error;
+        const status =
+          typeof (error as { status?: unknown }).status === "number"
+            ? (error as { status: number }).status
+            : undefined;
+        const bodyPrefix =
+          typeof (error as { bodyPrefix?: unknown }).bodyPrefix === "string"
+            ? (error as { bodyPrefix: string }).bodyPrefix
+            : undefined;
+        const field =
+          typeof (error as { field?: unknown }).field === "string"
+            ? (error as { field: string }).field
+            : undefined;
+        throwCostPolicy("deepinfra_preflight", {
+          ...errorFacts(error),
+          ...(status == null ? {} : { status }),
+          ...(bodyPrefix ? { bodyPrefix } : {}),
+          ...(field ? { field } : {})
+        });
       }
+      revalidateBeforeInference(policy, now());
     },
     async prepare(signal) {
       try {
