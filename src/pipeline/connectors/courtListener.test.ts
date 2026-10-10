@@ -12,6 +12,7 @@ import { completeDailyStep } from "../workflow/dailyRunSteps";
 import { runConnector } from "./connector";
 import {
   COURTLISTENER_DEFAULT_BACKOFF_MS,
+  COURTLISTENER_FETCH_TIMEOUT_MS,
   COURTLISTENER_MAX_ATTEMPTS,
   COURTLISTENER_MAX_BACKOFF_MS,
   COURTLISTENER_MAX_PAGES,
@@ -184,6 +185,19 @@ describe("CourtListener helpers", () => {
       order_by: "-date_filed",
       fields: "id,entry_number,date_filed,description"
     });
+    expect(
+      Object.fromEntries(
+        new URL(entriesUrl("73375343", "2026-05-21")).searchParams
+      )
+    ).toEqual({
+      docket: "73375343",
+      order_by: "-date_filed",
+      fields: "id,entry_number,date_filed,description",
+      date_filed__gte: "2026-05-21"
+    });
+    expect(entriesUrl("73375343", "not-a-date")).toBe(entriesUrl("73375343"));
+    expect(SOURCE_FETCH_TIMEOUT_MS).toBe(12_000);
+    expect(COURTLISTENER_FETCH_TIMEOUT_MS).toBe(20_000);
     expect(reasonForStatus(401)).toBe("http_401");
     expect(reasonForStatus(403)).toBe("http_403");
     expect(reasonForStatus(429)).toBe("http_429");
@@ -304,31 +318,296 @@ describe("CourtListener connector (story 3.21)", () => {
   );
 
   it("maps a thrown fetch to network", async () => {
-    stubFetch(() => ({ throws: new TypeError("fetch failed") }));
+    const calls = stubFetch(() => ({ throws: new TypeError("fetch failed") }));
     const runId = await newRun();
     expect(await runConnector(testEnv.DB, runId, SOURCE, check())).toEqual({
       draftCount: 0,
       failed: true
     });
+    expect(calls).toHaveLength(1);
     expect(await skippedReason(runId)).toMatchObject({ reason: "network" });
   });
 
   it("times out a hung request at the per-request deadline and skips the source as timeout", async () => {
-    stubFetch((docketId) =>
-      docketId === FURCOLO ? { hang: true } : { status: 200 }
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      stubFetch((docketId) =>
+        docketId === FURCOLO ? { hang: true } : { status: 200 }
+      );
+      const runId = await newRun();
+      vi.useFakeTimers();
+      const pending = runConnector(testEnv.DB, runId, SOURCE, check());
+      await vi.advanceTimersByTimeAsync(COURTLISTENER_FETCH_TIMEOUT_MS * 3);
+      const result = await pending;
+      expect(vi.getTimerCount()).toBe(0);
+      vi.useRealTimers();
+      expect(result).toEqual({ draftCount: 0, failed: true });
+      const skipped = await skippedReason(runId);
+      expect(skipped).toMatchObject({
+        reason: "timeout",
+        docketId: FURCOLO,
+        requestKind: "docket-entries",
+        timeoutMs: COURTLISTENER_FETCH_TIMEOUT_MS,
+        attempt: COURTLISTENER_MAX_ATTEMPTS,
+        elapsedMs: COURTLISTENER_FETCH_TIMEOUT_MS
+      });
+      expect(skipped).not.toHaveProperty("status");
+      expect(warn).toHaveBeenCalledTimes(COURTLISTENER_MAX_ATTEMPTS);
+      for (const [fact] of warn.mock.calls) {
+        expect(fact).toMatchObject({
+          elapsedMs: COURTLISTENER_FETCH_TIMEOUT_MS
+        });
+      }
+      expect(JSON.stringify(warn.mock.calls)).not.toContain(TOKEN);
+      await completeDailyStep(testEnv.DB, runId, {
+        draftCount: result.draftCount,
+        anyFailure: result.failed
+      });
+      expect(
+        (await evidenceRepo.listByRun(testEnv.DB, runId)).some(
+          (event) =>
+            event.event === "run.failed" &&
+            (event.payload as { reason?: string }).reason === "error"
+        )
+      ).toBe(true);
+    } finally {
+      vi.useRealTimers();
+      warn.mockRestore();
+    }
+  });
+
+  it("retries a timeout through pace and keeps a recovered entry", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const waits: number[] = [];
+      let clock = 0;
+      let timeouts = 0;
+      const fetchImpl = vi.fn(async (input: string) => {
+        const docketId = new URL(input).searchParams.get("docket");
+        if (docketId === FURCOLO && timeouts === 0) {
+          timeouts += 1;
+          throw new DOMException("timed out", "TimeoutError");
+        }
+        return {
+          status: 200,
+          ok: true,
+          headers: new Headers(),
+          json: async () => ({
+            results:
+              docketId === FURCOLO
+                ? [
+                    {
+                      id: 88001,
+                      entry_number: 1,
+                      date_filed: "2026-09-18",
+                      description: "Recovered after timeout."
+                    }
+                  ]
+                : []
+          }),
+          text: async () => ""
+        };
+      });
+      const runId = await newRun();
+      const result = await runConnector(
+        testEnv.DB,
+        runId,
+        SOURCE,
+        check(TOKEN, {
+          fetchImpl,
+          nowMs: () => clock,
+          wait: async (ms) => {
+            waits.push(ms);
+            clock += ms;
+          }
+        })
+      );
+      expect(result).toEqual({ draftCount: 1, failed: false });
+      expect(waits.at(-1)).toBe(COURTLISTENER_MIN_INTERVAL_MS);
+      expect(timeouts).toBe(1);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0]?.[0]).toMatchObject({
+        event: "courtlistener_request_timeout",
+        requestKind: "docket-entries",
+        docketId: FURCOLO,
+        timeoutMs: COURTLISTENER_FETCH_TIMEOUT_MS,
+        attempt: 1
+      });
+      expect(JSON.stringify(warn.mock.calls)).not.toContain(TOKEN);
+      expect(docketSummary(await fetchedPayload(runId), FURCOLO)).toMatchObject(
+        {
+          timeouts: [
+            {
+              requestKind: "docket-entries",
+              docketId: FURCOLO,
+              timeoutMs: COURTLISTENER_FETCH_TIMEOUT_MS,
+              attempt: 1
+            }
+          ]
+        }
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("spaces timeout retries and does not report them as http_429", async () => {
+    const waits: number[] = [];
+    let clock = 0;
+    let fetches = 0;
+    const runId = await newRun();
+    const result = await runConnector(
+      testEnv.DB,
+      runId,
+      SOURCE,
+      check(TOKEN, {
+        fetchImpl: async () => {
+          fetches += 1;
+          throw new DOMException("timed out", "TimeoutError");
+        },
+        nowMs: () => clock,
+        wait: async (ms) => {
+          waits.push(ms);
+          clock += ms;
+        }
+      })
     );
+    expect(result).toEqual({ draftCount: 0, failed: true });
+    expect(fetches).toBe(COURTLISTENER_MAX_ATTEMPTS);
+    expect(waits).toEqual([
+      COURTLISTENER_MIN_INTERVAL_MS,
+      COURTLISTENER_MIN_INTERVAL_MS
+    ]);
+    const skipped = await skippedReason(runId);
+    expect(skipped).toMatchObject({
+      reason: "timeout",
+      attempt: 3,
+      timeoutMs: COURTLISTENER_FETCH_TIMEOUT_MS
+    });
+    expect(skipped).not.toHaveProperty("status");
+    expect(skipped?.reason).not.toBe("http_429");
+  });
+
+  it("keeps a later timeout as timeout after another docket recovered from 429", async () => {
+    let illinois = 0;
+    const calls = stubFetch((docketId) => {
+      if (docketId === ILLINOIS) {
+        illinois += 1;
+        if (illinois === 1) {
+          return {
+            status: 429,
+            headers: { "retry-after": "1" },
+            body: { detail: "Rate limit exceeded: 5/min." }
+          };
+        }
+        return { status: 200, body: { results: [] } };
+      }
+      if (docketId === "72237443") return { hang: true };
+      return { status: 200, body: { results: [] } };
+    });
     const runId = await newRun();
     vi.useFakeTimers();
     const pending = runConnector(testEnv.DB, runId, SOURCE, check());
-    await vi.advanceTimersByTimeAsync(SOURCE_FETCH_TIMEOUT_MS);
+    await vi.advanceTimersByTimeAsync(COURTLISTENER_FETCH_TIMEOUT_MS * 3);
     const result = await pending;
-    expect(vi.getTimerCount()).toBe(0);
     vi.useRealTimers();
     expect(result).toEqual({ draftCount: 0, failed: true });
-    expect(await skippedReason(runId)).toMatchObject({
+    const skipped = await skippedReason(runId);
+    expect(skipped).toMatchObject({
       reason: "timeout",
-      docketId: FURCOLO
+      docketId: "72237443",
+      attempt: 3
     });
+    expect(skipped).not.toHaveProperty("status");
+    const docketOf = (url: string) => new URL(url).searchParams.get("docket");
+    const ids = calls.map(({ url }) => docketOf(url));
+    const firstHang = ids.indexOf("72237443");
+    expect(ids.slice(0, firstHang).filter((id) => id === ILLINOIS)).toEqual([
+      ILLINOIS,
+      ILLINOIS
+    ]);
+    expect(ids.filter((id) => id === "72237443")).toHaveLength(
+      COURTLISTENER_MAX_ATTEMPTS
+    );
+  });
+
+  it("drafts entries on the baseline date and the next day, and not the day before", async () => {
+    const baseline = FURCOLO_TRACKED_SINCE;
+    const dayBefore = "2026-05-20";
+    const nextDay = "2026-05-22";
+    const calls = stubFetch((docketId) =>
+      docketId === FURCOLO
+        ? {
+            status: 200,
+            body: {
+              results: [
+                {
+                  id: 88101,
+                  entry_number: 1,
+                  date_filed: dayBefore,
+                  description: "Day before the baseline."
+                },
+                {
+                  id: 88102,
+                  entry_number: 2,
+                  date_filed: baseline,
+                  description: "Filed on the baseline."
+                },
+                {
+                  id: 88103,
+                  entry_number: 3,
+                  date_filed: nextDay,
+                  description: "Filed the next day."
+                }
+              ]
+            }
+          }
+        : { status: 200, body: { results: [] } }
+    );
+    const runId = await newRun();
+    const result = await runConnector(testEnv.DB, runId, SOURCE, check());
+    expect(result.failed).toBe(false);
+    const furcolo = calls.find(
+      ({ url }) => new URL(url).searchParams.get("docket") === FURCOLO
+    );
+    expect(new URL(furcolo!.url).searchParams.get("date_filed__gte")).toBe(
+      baseline
+    );
+    const dates = (await draftsRepo.listByRun(testEnv.DB, runId)).map(
+      (draft) => (draft.diff as { occurredAt?: string }).occurredAt
+    );
+    expect(dates).toEqual(expect.arrayContaining([baseline, nextDay]));
+    expect(dates).not.toContain(dayBefore);
+  });
+
+  it("omits date_filed__gte when the docket has no baseline", async () => {
+    await testEnv.DB.prepare(
+      "UPDATE sources SET published_at = NULL WHERE id = 'src-case-ri-docket'"
+    ).run();
+    try {
+      const calls = stubFetch(() => ({
+        status: 200,
+        body: { results: [] }
+      }));
+      const runId = await newRun();
+      expect(await runConnector(testEnv.DB, runId, SOURCE, check())).toEqual({
+        draftCount: 0,
+        failed: false
+      });
+      const furcolo = calls.find(
+        ({ url }) => new URL(url).searchParams.get("docket") === FURCOLO
+      );
+      expect(furcolo).toBeDefined();
+      expect(new URL(furcolo!.url).searchParams.has("date_filed__gte")).toBe(
+        false
+      );
+    } finally {
+      await testEnv.DB.prepare(
+        "UPDATE sources SET published_at = ? WHERE id = 'src-case-ri-docket'"
+      )
+        .bind(FURCOLO_TRACKED_SINCE)
+        .run();
+    }
   });
 
   it("isolates a dead docket (404 / malformed JSON / missing results) and still drafts the healthy ones", async () => {
@@ -516,7 +795,7 @@ describe("CourtListener connector (story 3.21)", () => {
   });
 
   it("uses the latest published development as the baseline and skips entries already Drafted (any outcome)", async () => {
-    stubFetch((docketId) =>
+    const calls = stubFetch((docketId) =>
       docketId === FURCOLO
         ? { status: 200, body: { results: ENTRIES } }
         : { status: 200 }
@@ -564,6 +843,12 @@ describe("CourtListener connector (story 3.21)", () => {
       newEntries: 0,
       seen: 2
     });
+    const furcolo = calls.find(
+      ({ url }) => new URL(url).searchParams.get("docket") === FURCOLO
+    );
+    expect(new URL(furcolo!.url).searchParams.get("date_filed__gte")).toBe(
+      "2026-09-12"
+    );
     expect(
       (await evidenceRepo.listByRun(testEnv.DB, runId)).some(
         (e) => e.event === "source.skipped"
@@ -757,11 +1042,11 @@ describe("CourtListener connector (story 3.21)", () => {
       )
     ]);
     try {
-      // Pacing is measured from request start. An 11 s fetch leaves a 4 s
-      // gap, so five starts finish at 71 s: past the generic 60 s deadline
-      // and inside the 8-minute CourtListener poll.
-      const SLOW_MS = SOURCE_FETCH_TIMEOUT_MS - 1_000;
-      const finishMs = 4 * COURTLISTENER_MIN_INTERVAL_MS + SLOW_MS;
+      // Pacing is measured from request start. A 19 s fetch is longer than
+      // the 15 s gap, so five serial fetches finish at 95 s: past the
+      // generic 60 s deadline and inside the 8-minute CourtListener poll.
+      const SLOW_MS = COURTLISTENER_FETCH_TIMEOUT_MS - 1_000;
+      const finishMs = 5 * SLOW_MS;
       expect(finishMs).toBeGreaterThan(CONNECTOR_TIMEOUT_MS);
       expect(finishMs).toBeLessThan(COURTLISTENER_POLL_TIMEOUT_MS);
       vi.stubGlobal(
@@ -925,11 +1210,17 @@ describe("CourtListener credential boundary (story 3.27)", () => {
         ({ url }) => new URL(url).searchParams.get("docket") === FURCOLO
       )
     ).toHaveLength(1);
+    const cutoff = new Map([
+      [FURCOLO, "2026-09-12"],
+      [ILLINOIS, "2026-04-02"],
+      ["73242633", "2026-04-24"],
+      ["72237443", "2025-11-28"]
+    ]);
     expect(
-      calls.every(
-        ({ url }) =>
-          url === entriesUrl(new URL(url).searchParams.get("docket")!)
-      )
+      calls.every(({ url }) => {
+        const docket = new URL(url).searchParams.get("docket");
+        return docket != null && url === entriesUrl(docket, cutoff.get(docket));
+      })
     ).toBe(true);
     const payload = await fetchedPayload(runId);
     expect(docketSummary(payload, FURCOLO)).toEqual({
@@ -973,7 +1264,7 @@ describe("CourtListener credential boundary (story 3.27)", () => {
           ({ url }) => new URL(url).searchParams.get("docket") === FURCOLO
         )
         .map(({ url }) => url)
-    ).toEqual([entriesUrl(FURCOLO), secondUrl, thirdUrl]);
+    ).toEqual([entriesUrl(FURCOLO, "2026-09-12"), secondUrl, thirdUrl]);
   });
 
   it("does not report an all-docket unsafe pagination response as an empty success", async () => {
@@ -1697,14 +1988,15 @@ describe("CourtListener rate limit (story 3.38)", () => {
     expect(skipped).not.toHaveProperty("status");
     expect(timeLeft).toBeGreaterThanOrEqual(COURTLISTENER_MIN_INTERVAL_MS);
     expect(timeLeft).toBeLessThan(
-      COURTLISTENER_MIN_INTERVAL_MS + SOURCE_FETCH_TIMEOUT_MS
+      COURTLISTENER_MIN_INTERVAL_MS + COURTLISTENER_FETCH_TIMEOUT_MS
     );
   });
 
   it("still fetches when the wait plus one request just fits the poll deadline", async () => {
     const waits: number[] = [];
     let clock = 0;
-    const timeLeft = COURTLISTENER_MIN_INTERVAL_MS + SOURCE_FETCH_TIMEOUT_MS;
+    const timeLeft =
+      COURTLISTENER_MIN_INTERVAL_MS + COURTLISTENER_FETCH_TIMEOUT_MS;
     const calls = stubFetch(() => ({ status: 200, body: { results: [] } }));
     const runId = await newRun();
     expect(
@@ -1732,7 +2024,8 @@ describe("CourtListener rate limit (story 3.38)", () => {
   it("stops a zero-wait request when one fetch would miss the poll deadline", async () => {
     let clock = 0;
     const calls = stubFetch(() => {
-      clock = COURTLISTENER_POLL_TIMEOUT_MS - SOURCE_FETCH_TIMEOUT_MS + 1_000;
+      clock =
+        COURTLISTENER_POLL_TIMEOUT_MS - COURTLISTENER_FETCH_TIMEOUT_MS + 1_000;
       return { status: 200, body: { results: [] } };
     });
     const runId = await newRun();
@@ -1767,7 +2060,8 @@ describe("CourtListener rate limit (story 3.38)", () => {
           body: { detail: "Rate limit exceeded: 5/min." }
         };
       }
-      clock = COURTLISTENER_POLL_TIMEOUT_MS - SOURCE_FETCH_TIMEOUT_MS + 1_000;
+      clock =
+        COURTLISTENER_POLL_TIMEOUT_MS - COURTLISTENER_FETCH_TIMEOUT_MS + 1_000;
       return { status: 200, body: { results: [] } };
     });
     const runId = await newRun();
