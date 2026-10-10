@@ -48,4 +48,29 @@ describe("LoopControls (story 3.12)", () => {
     expect(html).toContain("awaiting approval");
     expect(html).toContain('class="run awaiting"');
   });
+
+  it("shows run reject only while the latest run is awaiting and a count is known", () => {
+    const awaiting = renderToStaticMarkup(
+      <LoopControls
+        latest={item({ status: "awaiting" })}
+        pendingHeadCount={4}
+      />
+    );
+    expect(awaiting).toContain("Reject this run");
+    expect(awaiting).not.toContain("accesskey");
+    const published = renderToStaticMarkup(
+      <LoopControls
+        latest={item({ status: "published" })}
+        pendingHeadCount={4}
+      />
+    );
+    expect(published).not.toContain("Reject this run");
+    const zero = renderToStaticMarkup(
+      <LoopControls
+        latest={item({ status: "awaiting" })}
+        pendingHeadCount={0}
+      />
+    );
+    expect(zero).not.toContain("Reject this run");
+  });
 });

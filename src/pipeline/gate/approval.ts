@@ -265,3 +265,133 @@ export async function decide(
   if (!record) return { status: "not_found" };
   return { status: "decided", record };
 }
+
+/** Private only. Public `reject_reason` stays null, so the archive gains no new text. */
+export const RUN_REJECT_PRIVATE_REASON = "Rejected with the Run.";
+
+export type RejectRunResult =
+  | { status: "not_found" }
+  | { status: "conflict" }
+  | { status: "rejected"; runId: string; rejectedCount: number };
+
+/**
+ * Reject every undecided current head of an awaiting Run in one D1 batch.
+ * One `run.completed` receipt. No F1, docket, or per-draft `gate.decided`.
+ */
+export async function rejectAwaitingRun(
+  db: Db,
+  input: { runId: string; operator: { displayName: string }; now: string }
+): Promise<RejectRunResult> {
+  const parsed = z
+    .object({
+      runId: z.string().regex(/^run-[0-9]{8}-[0-9a-f]{4}$/),
+      operator: OperatorSchema,
+      now: IsoUtcSchema
+    })
+    .strict()
+    .safeParse(input);
+  if (!parsed.success) return { status: "conflict" };
+
+  const { runId, operator, now } = parsed.data;
+  const run = await runsRepo.getRunById(db, runId);
+  if (!run) return { status: "not_found" };
+  if (run.status !== "awaiting") return { status: "conflict" };
+
+  const blocking = await db
+    .prepare(
+      `SELECT 1 AS present FROM drafts d
+        WHERE d.run_id = ? AND d.outcome IN ('approved','edited')
+          AND ${draftsRepo.currentHeadSql("d")} LIMIT 1`
+    )
+    .bind(runId)
+    .first<{ present: number }>();
+  if (blocking) return { status: "conflict" };
+  if ((await draftsRepo.countUndecidedCurrentHeads(db, runId)) === 0) {
+    return { status: "conflict" };
+  }
+
+  const reason = RUN_REJECT_PRIVATE_REASON;
+  const evidenceId = `run-completed-${runId}`;
+  try {
+    await db.batch([
+      assertStmt(
+        db,
+        "reject_run_awaiting",
+        "EXISTS (SELECT 1 FROM runs WHERE id = ? AND status = 'awaiting')",
+        [runId]
+      ),
+      assertStmt(
+        db,
+        "reject_run_unpublished",
+        `NOT EXISTS (SELECT 1 FROM drafts d WHERE d.run_id = ? AND d.outcome IN ('approved','edited') AND ${draftsRepo.currentHeadSql("d")})`,
+        [runId]
+      ),
+      assertStmt(
+        db,
+        "reject_run_heads",
+        `EXISTS (SELECT 1 FROM drafts d WHERE d.run_id = ? AND d.outcome IS NULL AND ${draftsRepo.currentHeadSql("d")})`,
+        [runId]
+      ),
+      db
+        .prepare(
+          `UPDATE drafts
+              SET outcome = 'rejected', decided_at = ?, decided_by = ?,
+                  reject_reason = NULL, reject_reason_private = ?, updated_at = ?
+            WHERE run_id = ? AND outcome IS NULL
+              AND ${draftsRepo.currentHeadSql("drafts")}
+              AND EXISTS (
+                SELECT 1 FROM runs WHERE id = drafts.run_id AND status = 'awaiting'
+              )`
+        )
+        .bind(now, operator.displayName, reason, now, runId),
+      runsRepo.finalizeDecidedRunStmt(db, runId, now),
+      db
+        .prepare(
+          `INSERT INTO evidence_events (id, run_id, seq, event, payload_json, created_at)
+           SELECT ?, runs.id, (
+             SELECT COALESCE(MAX(seq), -1) + 1 FROM evidence_events WHERE run_id = runs.id
+           ), 'run.completed', json_object(
+             'status', runs.status,
+             'rejectedCount', (
+               SELECT COUNT(*) FROM drafts d
+                WHERE d.run_id = runs.id AND d.outcome = 'rejected'
+                  AND d.decided_at = ? AND d.decided_by = ?
+                  AND d.reject_reason IS NULL AND d.reject_reason_private = ?
+             ),
+             'decidedBy', ?
+           ), ?
+           FROM runs WHERE runs.id = ? AND changes() = 1`
+        )
+        .bind(
+          evidenceId,
+          now,
+          operator.displayName,
+          reason,
+          operator.displayName,
+          now,
+          runId
+        ),
+      assertStmt(db, "reject_run_receipt", "changes() = 1")
+    ]);
+  } catch (error) {
+    const message = String(error);
+    if (
+      message.includes("gate_assertion_failed") ||
+      message.includes("UNIQUE") ||
+      message.includes("constraint")
+    ) {
+      return { status: "conflict" };
+    }
+    throw error;
+  }
+
+  const written = await db
+    .prepare(`SELECT payload_json FROM evidence_events WHERE id = ?`)
+    .bind(evidenceId)
+    .first<{ payload_json: string }>();
+  const payload = written
+    ? (JSON.parse(written.payload_json) as { rejectedCount?: unknown })
+    : null;
+  if (typeof payload?.rejectedCount !== "number") return { status: "conflict" };
+  return { status: "rejected", runId, rejectedCount: payload.rejectedCount };
+}

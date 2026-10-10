@@ -510,6 +510,21 @@ export async function applyDecisionStmt(
     );
 }
 
+/** Undecided chain heads for one Run. Same predicate the batch reject updates. */
+export async function countUndecidedCurrentHeads(
+  db: Db,
+  runId: string
+): Promise<number> {
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS count FROM drafts d
+        WHERE d.run_id = ? AND d.outcome IS NULL AND ${currentHeadSql("d")}`
+    )
+    .bind(runId)
+    .first<{ count: number }>();
+  return Number(row?.count ?? 0);
+}
+
 /** Mirrors pendingTips: highest revision, breaking ties by listByRun order. */
 export function currentHeadSql(alias: string): string {
   return `NOT EXISTS (
