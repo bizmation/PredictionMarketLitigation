@@ -2,7 +2,7 @@
 title: 'Reject every undecided draft in an awaiting Run'
 type: 'feature'
 created: '2026-10-10'
-status: 'in-progress'
+status: 'in-review'
 route: 'dispatch'
 baseline_commit: '01906011bf40785f0003dd6f00f9e8a0c8875b9c'
 review_loop_iteration: 0
