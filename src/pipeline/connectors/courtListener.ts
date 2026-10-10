@@ -32,8 +32,10 @@ import {
  * returns `failed: true` (story 3.23).
  * Story 3.38 paces request starts and retries HTTP 429 only. Other failures
  * still fail on the first response. An exhausted 429 is still source-level
- * `http_429`. Newness is decided against `docket_events` and prior Drafts,
- * and the Draft id embeds the CourtListener entry id so a re-Run is idempotent.
+ * `http_429`. A wait that will not fit, when no 429 was received, is
+ * source-level `timeout` with no status. Newness is decided against
+ * `docket_events` and prior Drafts, and the Draft id embeds the
+ * CourtListener entry id so a re-Run is idempotent.
  *
  * RECAP data is crowd-sourced and may lag PACER; the `source.fetched`
  * summary says so and records only what was seen.
@@ -421,15 +423,19 @@ async function fetchPage(
   input: string,
   pace: Pace,
   noteStart: () => void,
+  nowMs: () => number,
+  noteRateLimit: () => void,
   context?: SourceCheckContext
 ): Promise<{ entries: DocketEntry[]; next: string | null }> {
   const url = validatedPageUrl(input, COURTLISTENER_API_BASE);
   const signal = context?.signal ?? new AbortController().signal;
   let backoff = 0;
   for (let attempt = 1; attempt <= COURTLISTENER_MAX_ATTEMPTS; attempt++) {
-    await context?.beforeRequest();
     signal.throwIfAborted();
     await pace(backoff, signal);
+    signal.throwIfAborted();
+    // Ownership is checked after the wait so a lost Run does not send.
+    await context?.beforeRequest();
     signal.throwIfAborted();
     noteStart();
     let response: Awaited<ReturnType<FetchImpl>>;
@@ -453,9 +459,11 @@ async function fetchPage(
       throw new DocketError("redirect", response.status);
     }
     if (response.status === 429) {
+      noteRateLimit();
       const detail = await responseDetail(response, token);
       backoff =
-        retryAfterMs(response.headers) ?? COURTLISTENER_DEFAULT_BACKOFF_MS;
+        retryAfterMs(response.headers, nowMs()) ??
+        COURTLISTENER_DEFAULT_BACKOFF_MS;
       if (attempt === COURTLISTENER_MAX_ATTEMPTS) {
         throw new DocketError("http_429", 429, detail, attempt);
       }
@@ -504,6 +512,8 @@ async function fetchEntries(
   baseline: string | null,
   pace: Pace,
   noteStart: () => void,
+  nowMs: () => number,
+  noteRateLimit: () => void,
   context?: SourceCheckContext
 ): Promise<{ entries: DocketEntry[]; pages: number; truncated: boolean }> {
   const entries: DocketEntry[] = [];
@@ -521,6 +531,8 @@ async function fetchEntries(
       url,
       pace,
       noteStart,
+      nowMs,
+      noteRateLimit,
       context
     );
     pages += 1;
@@ -595,6 +607,8 @@ async function pollDocket(
   row: DocketRow,
   pace: Pace,
   noteStart: () => void,
+  nowMs: () => number,
+  noteRateLimit: () => void,
   context?: SourceCheckContext
 ): Promise<DocketOutcome> {
   const [latest, seen, parties, trackedSince] = await readSourceState(() =>
@@ -622,6 +636,8 @@ async function pollDocket(
     baseline?.date ?? null,
     pace,
     noteStart,
+    nowMs,
+    noteRateLimit,
     context
   );
 
@@ -731,11 +747,16 @@ export function createCourtListenerCheck(
     // rate limit, outage, network, and timeout fail the source.
     let lastRequestAt: number | null = null;
     let waitSpent = 0;
+    let seenRateLimit = false;
     const nowMs = deps.nowMs ?? Date.now;
     const wait = deps.wait ?? defaultWait;
     const budget = deps.waitBudgetMs ?? COURTLISTENER_WAIT_BUDGET_MS;
+    const pollStartedAt = nowMs();
     const noteStart = () => {
       lastRequestAt = nowMs();
+    };
+    const noteRateLimit = () => {
+      seenRateLimit = true;
     };
     const pace: Pace = async (extraMs, paceSignal) => {
       const elapsed =
@@ -748,12 +769,18 @@ export function createCourtListenerCheck(
           : Math.max(0, COURTLISTENER_MIN_INTERVAL_MS - elapsed);
       const waitMs = Math.max(intervalWait, extraMs);
       if (waitMs <= 0) return;
-      if (waitSpent + waitMs > budget) {
-        throw new DocketError(
-          "http_429",
-          429,
-          "rate limit wait budget exhausted"
-        );
+      const timeLeft =
+        COURTLISTENER_POLL_TIMEOUT_MS - (nowMs() - pollStartedAt);
+      const detail =
+        waitMs + SOURCE_FETCH_TIMEOUT_MS > timeLeft
+          ? "poll deadline would not fit the next request"
+          : waitSpent + waitMs > budget
+            ? "rate limit wait budget exhausted"
+            : null;
+      if (detail != null) {
+        // A real 429 keeps http_429. Spacing alone is a timeout with no status.
+        if (seenRateLimit) throw new DocketError("http_429", 429, detail);
+        throw new DocketError("timeout", undefined, detail);
       }
       waitSpent += waitMs;
       await wait(waitMs, paceSignal);
@@ -771,6 +798,8 @@ export function createCourtListenerCheck(
             row,
             pace,
             noteStart,
+            nowMs,
+            noteRateLimit,
             guarded
           )
         );

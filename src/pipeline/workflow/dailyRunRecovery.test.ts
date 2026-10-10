@@ -894,6 +894,29 @@ describe("3.32 review regressions", () => {
     expect(h.provider.complete).toHaveBeenCalledTimes(2);
   });
 
+  it("fails a zero-draft Run when CourtListener 429 retries are exhausted", async () => {
+    await configureCourtListener();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response("Rate limit exceeded: 5/min.", { status: 429 })
+      )
+    );
+    const h = harness(undefined);
+    await h.run();
+    expect((await state()).drafts).toHaveLength(0);
+    expect((await state()).run?.status).toBe("failed");
+    expect((await state()).run?.status).not.toBe("empty");
+    expect(h.provider.complete).not.toHaveBeenCalled();
+    expect(
+      (await state()).evidence.some(
+        (event) =>
+          event.event === "source.skipped" &&
+          (event.payload as { reason?: string }).reason === "http_429"
+      )
+    ).toBe(true);
+  });
+
   it("rejects duplicate names at shared validation and before configuration history writes", async () => {
     const duplicated = [
       source,

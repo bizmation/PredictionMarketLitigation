@@ -163,7 +163,7 @@ async function observe(
         event: "source.skipped",
         payload:
           err instanceof DeadlineError
-            ? { reason: "timeout", timeoutMs: CONNECTOR_TIMEOUT_MS }
+            ? { reason: "timeout", timeoutMs: err.ms }
             : { ...err.detail, reason: err.reason }
       };
     }

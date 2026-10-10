@@ -203,13 +203,13 @@ describe("CourtListener helpers", () => {
     );
     expect(
       retryAfterMs(
-        new Headers({ "retry-after": "Fri, 10 Oct 2026 12:00:30 GMT" }),
+        new Headers({ "retry-after": "Sat, 10 Oct 2026 12:00:30 GMT" }),
         now
       )
     ).toBe(30_000);
     expect(
       retryAfterMs(
-        new Headers({ "retry-after": "Sat, 11 Oct 2026 12:00:00 GMT" }),
+        new Headers({ "retry-after": "Sun, 11 Oct 2026 12:00:00 GMT" }),
         now
       )
     ).toBe(COURTLISTENER_MAX_BACKOFF_MS);
@@ -757,8 +757,8 @@ describe("CourtListener connector (story 3.21)", () => {
       )
     ]);
     try {
-      // Each docket takes 11 s. Serial polling of five dockets fits the
-      // CourtListener poll budget and does not fit the generic 60 s deadline.
+      // Five 11 s fetches plus four 15 s gaps is 115 s: past the generic
+      // 60 s deadline, inside the 8-minute CourtListener poll.
       const SLOW_MS = SOURCE_FETCH_TIMEOUT_MS - 1_000;
       vi.stubGlobal(
         "fetch",
@@ -771,11 +771,25 @@ describe("CourtListener connector (story 3.21)", () => {
       );
       const runId = await newRun();
       vi.useFakeTimers();
-      const pending = runConnector(testEnv.DB, runId, SOURCE, check());
-      for (let n = 0; n < 5; n++) {
-        await vi.advanceTimersByTimeAsync(SLOW_MS + 100);
-      }
+      const started = Date.now();
+      let settled = false;
+      const pending = runConnector(
+        testEnv.DB,
+        runId,
+        SOURCE,
+        check(TOKEN, { wait: undefined })
+      ).finally(() => {
+        settled = true;
+      });
+      await vi.advanceTimersByTimeAsync(CONNECTOR_TIMEOUT_MS);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(
+        5 * SLOW_MS + 4 * COURTLISTENER_MIN_INTERVAL_MS
+      );
       const result = await pending;
+      const elapsed = Date.now() - started;
+      expect(elapsed).toBeGreaterThan(CONNECTOR_TIMEOUT_MS);
+      expect(elapsed).toBeLessThan(COURTLISTENER_POLL_TIMEOUT_MS);
       expect(vi.getTimerCount()).toBe(0);
       vi.useRealTimers();
       expect(result).toEqual({ draftCount: 0, failed: false });
@@ -786,8 +800,6 @@ describe("CourtListener connector (story 3.21)", () => {
       expect(payload?.unmatched).toEqual([
         "https://www.courtlistener.com/docket/not-a-number/"
       ]);
-      expect(SLOW_MS * 5).toBeGreaterThan(CONNECTOR_TIMEOUT_MS - 10_000);
-      expect(SLOW_MS * 5).toBeLessThan(COURTLISTENER_POLL_TIMEOUT_MS);
     } finally {
       vi.useRealTimers();
       await testEnv.DB.prepare(
@@ -1362,18 +1374,265 @@ describe("CourtListener rate limit (story 3.38)", () => {
     expect(await draftsRepo.listByRun(testEnv.DB, runId)).toHaveLength(0);
   });
 
-  it("does not retry HTTP 401", async () => {
+  it.each([
+    [401, "http_401"],
+    [403, "http_403"],
+    [500, "http_5xx"],
+    [502, "http_5xx"]
+  ])("does not retry HTTP %s", async (status, reason) => {
     const waits: number[] = [];
-    const calls = stubFetch(() => ({ status: 401, body: { detail: "nope" } }));
+    const calls = stubFetch(() => ({ status, body: { detail: "nope" } }));
     const runId = await newRun();
     expect(
       await runConnector(testEnv.DB, runId, SOURCE, pacedCheck(waits))
     ).toEqual({ draftCount: 0, failed: true });
     expect(calls).toHaveLength(1);
     expect(waits).toEqual([]);
-    expect(await skippedReason(runId)).toMatchObject({
-      reason: "http_401",
-      status: 401
+    expect(await skippedReason(runId)).toMatchObject({ reason, status });
+  });
+
+  it("records a spacing-budget miss as timeout with no status", async () => {
+    const waits: number[] = [];
+    const calls = stubFetch(() => ({ status: 200, body: { results: [] } }));
+    const runId = await newRun();
+    expect(
+      await runConnector(testEnv.DB, runId, SOURCE, pacedCheck(waits, 1_000))
+    ).toEqual({ draftCount: 0, failed: true });
+    expect(calls).toHaveLength(1);
+    expect(waits).toEqual([]);
+    const skipped = await skippedReason(runId);
+    expect(skipped).toMatchObject({
+      reason: "timeout",
+      detail: "rate limit wait budget exhausted",
+      docketId: "72237443"
     });
+    expect(skipped).not.toHaveProperty("status");
+    expect(await draftsRepo.listByRun(testEnv.DB, runId)).toHaveLength(0);
+  });
+
+  it("stops before a wait that would miss the poll deadline", async () => {
+    const waits: number[] = [];
+    let clock = 0;
+    const calls = stubFetch(() => ({ status: 200, body: { results: [] } }));
+    const runId = await newRun();
+    expect(
+      await runConnector(
+        testEnv.DB,
+        runId,
+        SOURCE,
+        check(TOKEN, {
+          nowMs: () => clock,
+          wait: async (ms) => {
+            waits.push(ms);
+            // The allowed spacing wait consumes almost the whole poll window.
+            clock = COURTLISTENER_POLL_TIMEOUT_MS - 10_000;
+          }
+        })
+      )
+    ).toEqual({ draftCount: 0, failed: true });
+    expect(calls).toHaveLength(2);
+    expect(waits).toEqual([COURTLISTENER_MIN_INTERVAL_MS]);
+    const skipped = await skippedReason(runId);
+    expect(skipped).toMatchObject({
+      reason: "timeout",
+      detail: "poll deadline would not fit the next request",
+      docketId: "73242633"
+    });
+    expect(skipped).not.toHaveProperty("status");
+  });
+
+  it("keeps http_429 when a real 429 precedes a poll-deadline miss", async () => {
+    const waits: number[] = [];
+    let clock = 0;
+    const calls = stubFetch(() => {
+      clock = COURTLISTENER_POLL_TIMEOUT_MS - 30_000;
+      return {
+        status: 429,
+        body: { detail: "Rate limit exceeded: 5/min." },
+        headers: { "retry-after": "45" }
+      };
+    });
+    const runId = await newRun();
+    expect(
+      await runConnector(
+        testEnv.DB,
+        runId,
+        SOURCE,
+        check(TOKEN, {
+          nowMs: () => clock,
+          wait: async (ms) => {
+            waits.push(ms);
+            clock += ms;
+          }
+        })
+      )
+    ).toEqual({ draftCount: 0, failed: true });
+    expect(calls).toHaveLength(1);
+    expect(waits).toEqual([]);
+    expect(await skippedReason(runId)).toMatchObject({
+      reason: "http_429",
+      status: 429,
+      detail: "poll deadline would not fit the next request",
+      docketId: ILLINOIS
+    });
+  });
+
+  it("waits only the remaining interval, including between pagination pages", async () => {
+    let clock = Date.parse("2026-10-10T12:00:00.000Z");
+    const waits: number[] = [];
+    const fetchMs = 10_000;
+    stubFetch((docketId, url) => {
+      clock += fetchMs;
+      if (docketId === ILLINOIS && !url.includes("cursor=2")) {
+        return {
+          status: 200,
+          body: {
+            results: [
+              {
+                id: 88010,
+                entry_number: 1,
+                date_filed: "2026-10-01",
+                description: "A new entry that keeps pagination going."
+              }
+            ],
+            next: `${entriesUrl(ILLINOIS)}&cursor=2`
+          }
+        };
+      }
+      return { status: 200, body: { results: [] } };
+    });
+    const runId = await newRun();
+    expect(
+      await runConnector(
+        testEnv.DB,
+        runId,
+        SOURCE,
+        check(TOKEN, {
+          nowMs: () => clock,
+          wait: async (ms) => {
+            waits.push(ms);
+            clock += ms;
+          }
+        })
+      )
+    ).toEqual({ draftCount: 1, failed: false });
+    expect(waits).toEqual([
+      COURTLISTENER_MIN_INTERVAL_MS - fetchMs,
+      COURTLISTENER_MIN_INTERVAL_MS - fetchMs,
+      COURTLISTENER_MIN_INTERVAL_MS - fetchMs,
+      COURTLISTENER_MIN_INTERVAL_MS - fetchMs
+    ]);
+  });
+
+  it("uses Retry-After HTTP dates against the injected clock", async () => {
+    const now = Date.parse("2020-01-01T00:00:00.000Z");
+    let clock = now;
+    const waits: number[] = [];
+    let calls = 0;
+    stubFetch(() => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          status: 429,
+          headers: { "retry-after": "Wed, 01 Jan 2020 00:00:30 GMT" }
+        };
+      }
+      return { status: 200, body: { results: [] } };
+    });
+    const runId = await newRun();
+    expect(
+      await runConnector(
+        testEnv.DB,
+        runId,
+        SOURCE,
+        check(TOKEN, {
+          nowMs: () => clock,
+          wait: async (ms) => {
+            waits.push(ms);
+            clock += ms;
+          }
+        })
+      )
+    ).toEqual({ draftCount: 0, failed: false });
+    expect(waits[0]).toBe(30_000);
+  });
+
+  it("checks run ownership after the pace wait and before the request", async () => {
+    const order: string[] = [];
+    let fetches = 0;
+    stubFetch(() => {
+      fetches += 1;
+      order.push(`fetch:${fetches}`);
+      if (fetches === 1) {
+        return {
+          status: 429,
+          headers: { "retry-after": "45" }
+        };
+      }
+      return { status: 200, body: { results: [] } };
+    });
+    let guards = 0;
+    const sourceCheck = check(TOKEN, {
+      wait: async (ms) => {
+        order.push(`wait:${ms}`);
+      }
+    });
+    const controller = new AbortController();
+    await expect(
+      sourceCheck(SOURCE, {
+        signal: controller.signal,
+        beforeRequest: async () => {
+          guards += 1;
+          order.push(`guard:${guards}`);
+          if (guards === 2) throw new Error("run no longer owned");
+        }
+      })
+    ).rejects.toThrow("run no longer owned");
+    expect(order.indexOf("wait:45000")).toBeGreaterThan(-1);
+    expect(order.indexOf("wait:45000")).toBeLessThan(order.indexOf("guard:2"));
+    expect(fetches).toBe(1);
+  });
+
+  it("aborts the real wait and clears its timer", async () => {
+    let fetches = 0;
+    stubFetch(() => {
+      fetches += 1;
+      return {
+        status: 429,
+        headers: { "retry-after": "45" }
+      };
+    });
+    const sourceCheck = check(TOKEN, { wait: undefined });
+    const controller = new AbortController();
+    vi.useFakeTimers();
+    const pending = sourceCheck(SOURCE, {
+      signal: controller.signal,
+      beforeRequest: async () => {}
+    });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetches).toBe(1);
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(fetches).toBe(1);
+    expect(vi.getTimerCount()).toBe(0);
+    vi.useRealTimers();
+  });
+
+  it("clears the real wait timer after a completed interval", async () => {
+    const calls = stubFetch(() => ({ status: 200, body: { results: [] } }));
+    const runId = await newRun();
+    vi.useFakeTimers();
+    const pending = runConnector(
+      testEnv.DB,
+      runId,
+      SOURCE,
+      check(TOKEN, { wait: undefined })
+    );
+    await vi.advanceTimersByTimeAsync(3 * COURTLISTENER_MIN_INTERVAL_MS + 50);
+    expect(await pending).toEqual({ draftCount: 0, failed: false });
+    expect(calls).toHaveLength(4);
+    expect(vi.getTimerCount()).toBe(0);
+    vi.useRealTimers();
   });
 });

@@ -23,10 +23,10 @@
  * handle. Callers map the rejection to their own typed outcome
  * (`provider_error`, `source.skipped { reason: "timeout" }`).
  *
- * No retries, no backoff, no per-site overrides — the values are constants
- * here and nowhere else. CourtListener pacing and 429 waits (story 3.38)
- * live in that connector and use their own poll budget; these deadlines
- * stay fixed.
+ * No retries and no backoff live in this module. These constants stay
+ * fixed. CourtListener is the per-check exception: `observe` uses that
+ * check's `pollTimeoutMs` instead of `CONNECTOR_TIMEOUT_MS` (story 3.38).
+ * Pacing and 429 waits live in the CourtListener connector.
  */
 
 /** Public/ops GETs, apex hooks, and best-effort admin GETs. */

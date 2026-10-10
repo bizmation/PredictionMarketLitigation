@@ -44,18 +44,18 @@ so that a normal daily Run finishes instead of failing before any Draft exists.
 
 ### Review Findings
 
-- [ ] [Review][Patch] Wait-budget exhaustion with no 429 is reported as HTTP 429 — resolved by Patrick (2026-10-10): when no 429 was received, record `reason: "timeout"` with no status; keep `http_429` only when a real 429 preceded the exhaustion (medium) [src/pipeline/connectors/courtListener.ts:750]
-- [ ] [Review][Patch] Fetch time is not bounded inside the 8-minute poll — resolved by Patrick (2026-10-10): before each wait, check the time left in `COURTLISTENER_POLL_TIMEOUT_MS`; if the wait plus one `SOURCE_FETCH_TIMEOUT_MS` request would not fit, stop cleanly with scrubbed evidence (`http_429` if a real 429 was seen, otherwise `timeout`) (medium) [src/pipeline/connectors/courtListener.ts:732-760]
-- [ ] [Review][Patch] Timeout evidence records `CONNECTOR_TIMEOUT_MS` (60000) instead of the enforced `pollTimeoutMs(check)` (480000) (medium) [src/pipeline/connectors/connector.ts:166]
-- [ ] [Review][Patch] Real `defaultWait` is never exercised by a test, including abort during a wait and timer cleanup (medium) [src/pipeline/connectors/courtListener.ts:234]
-- [ ] [Review][Patch] Pacing is tested only with a frozen clock (`nowMs: () => 0`); remaining-interval math and pagination spacing are unverified (medium) [src/pipeline/connectors/courtListener.test.ts:1206]
-- [ ] [Review][Patch] "No retry" is asserted only for 401; 403 and 5xx tests do not check call count or waits (medium) [src/pipeline/connectors/courtListener.test.ts:1365]
-- [ ] [Review][Patch] No workflow-level test shows an exhausted 429 ends a zero-draft Run `failed`, not `empty` (AC5) (medium) [src/pipeline/connectors/courtListener.test.ts]
-- [ ] [Review][Patch] Run-ownership guard runs before the pace/429 wait instead of immediately before the request (low) [src/pipeline/connectors/courtListener.ts:430-433]
-- [ ] [Review][Patch] HTTP-date `Retry-After` uses real `Date.now` instead of injected `deps.nowMs` (low) [src/pipeline/connectors/courtListener.ts:458]
-- [ ] [Review][Patch] HTTP-date test fixtures use wrong weekdays ("Fri, 10 Oct 2026" is a Saturday; "Sat, 11 Oct 2026" is a Sunday) (low) [src/pipeline/connectors/courtListener.test.ts:206,212]
-- [ ] [Review][Patch] Five-docket test comment says serial polling exceeds 60 s, but 5 × 11 s = 55 s, and its assertions would pass under the old deadline (low) [src/pipeline/connectors/courtListener.test.ts:761-790]
-- [ ] [Review][Patch] `timeouts.ts` header still says "no per-site overrides" although `pollTimeoutMs` is now a per-check override (low) [src/shared/lib/timeouts.ts:26]
+- [x] [Review][Patch] Wait-budget exhaustion with no 429 is reported as HTTP 429 — resolved by Patrick (2026-10-10): when no 429 was received, record `reason: "timeout"` with no status; keep `http_429` only when a real 429 preceded the exhaustion (medium) [src/pipeline/connectors/courtListener.ts:750]
+- [x] [Review][Patch] Fetch time is not bounded inside the 8-minute poll — resolved by Patrick (2026-10-10): before each wait, check the time left in `COURTLISTENER_POLL_TIMEOUT_MS`; if the wait plus one `SOURCE_FETCH_TIMEOUT_MS` request would not fit, stop cleanly with scrubbed evidence (`http_429` if a real 429 was seen, otherwise `timeout`) (medium) [src/pipeline/connectors/courtListener.ts:732-760]
+- [x] [Review][Patch] Timeout evidence records `CONNECTOR_TIMEOUT_MS` (60000) instead of the enforced `pollTimeoutMs(check)` (480000) (medium) [src/pipeline/connectors/connector.ts:166]
+- [x] [Review][Patch] Real `defaultWait` is never exercised by a test, including abort during a wait and timer cleanup (medium) [src/pipeline/connectors/courtListener.ts:234]
+- [x] [Review][Patch] Pacing is tested only with a frozen clock (`nowMs: () => 0`); remaining-interval math and pagination spacing are unverified (medium) [src/pipeline/connectors/courtListener.test.ts:1206]
+- [x] [Review][Patch] "No retry" is asserted only for 401; 403 and 5xx tests do not check call count or waits (medium) [src/pipeline/connectors/courtListener.test.ts:1365]
+- [x] [Review][Patch] No workflow-level test shows an exhausted 429 ends a zero-draft Run `failed`, not `empty` (AC5) (medium) [src/pipeline/connectors/courtListener.test.ts]
+- [x] [Review][Patch] Run-ownership guard runs before the pace/429 wait instead of immediately before the request (low) [src/pipeline/connectors/courtListener.ts:430-433]
+- [x] [Review][Patch] HTTP-date `Retry-After` uses real `Date.now` instead of injected `deps.nowMs` (low) [src/pipeline/connectors/courtListener.ts:458]
+- [x] [Review][Patch] HTTP-date test fixtures use wrong weekdays ("Fri, 10 Oct 2026" is a Saturday; "Sat, 11 Oct 2026" is a Sunday) (low) [src/pipeline/connectors/courtListener.test.ts:206,212]
+- [x] [Review][Patch] Five-docket test comment says serial polling exceeds 60 s, but 5 × 11 s = 55 s, and its assertions would pass under the old deadline (low) [src/pipeline/connectors/courtListener.test.ts:761-790]
+- [x] [Review][Patch] `timeouts.ts` header still says "no per-site overrides" although `pollTimeoutMs` is now a per-check override (low) [src/shared/lib/timeouts.ts:26]
 - [x] [Review][Defer] epics.md Story 3.38 entry lacks the "As a / I want / So that" and Given/When/Then format used by other stories [_bmad-output/planning-artifacts/epics.md:1167] — deferred: fix edits a planning artifact, not code
 
 #### Rejected
@@ -148,8 +148,21 @@ Grok 4.7
 
 - Ultimate context engine analysis completed - comprehensive developer guide created
 - CourtListener polls are serial. Request starts are at least 15 seconds apart. HTTP 429 retries up to 3 times, honoring a capped `Retry-After` or waiting 60 seconds when the header is missing. The wait budget is 6 minutes. The poll deadline is 8 minutes. Other failures still fail on the first response.
-- Exhausted 429 and an over-budget wait both skip the source as `http_429` with scrubbed detail and no Draft. A recovered 429 writes one Draft. The workflow test calls the provider twice for that Draft, not once per attempt.
+- Exhausted 429 and an over-budget wait after a real 429 both skip the source as `http_429` with scrubbed detail and no Draft. A recovered 429 writes one Draft. The workflow test calls the provider twice for that Draft, not once per attempt.
 - `run-daily-step` was not split. `CONNECTOR_TIMEOUT_MS` remains 60 seconds. `npm run check` exited 0. `npm test` exited 0: 1,482 passed, 6 skipped, 63 files. No deploy, staging, production, or paid-provider call.
+- ✅ Resolved review finding [medium]: Wait-budget exhaustion with no 429 is `reason: "timeout"` and has no status. `http_429` remains only when a real 429 preceded the exhaustion.
+- ✅ Resolved review finding [medium]: Before each wait, if that wait plus one `SOURCE_FETCH_TIMEOUT_MS` request would not fit in `COURTLISTENER_POLL_TIMEOUT_MS`, the poll stops. The reason is `http_429` after a real 429, otherwise `timeout`, with scrubbed detail.
+- ✅ Resolved review finding [medium]: A deadline skip records `timeoutMs` from the enforced `DeadlineError` (`pollTimeoutMs` when the check sets it, otherwise 60 seconds).
+- ✅ Resolved review finding [medium]: Tests exercise real `defaultWait`, including abort during a wait and timer cleanup after a completed interval.
+- ✅ Resolved review finding [medium]: A moving clock covers remaining-interval waits, including the gap between pagination pages.
+- ✅ Resolved review finding [medium]: 401, 403, 500, and 502 each assert one fetch and no waits.
+- ✅ Resolved review finding [medium]: A workflow Run that exhausts HTTP 429 finishes `failed` with zero Drafts and no provider call.
+- ✅ Resolved review finding [low]: The run-ownership guard runs after the pace wait and immediately before the request.
+- ✅ Resolved review finding [low]: HTTP-date `Retry-After` uses the injected `nowMs` clock.
+- ✅ Resolved review finding [low]: HTTP-date fixtures use Saturday 10 Oct 2026 and Sunday 11 Oct 2026.
+- ✅ Resolved review finding [low]: The five-docket poll is still running at 60 seconds and finishes inside the 8-minute poll budget. Five 11-second fetches plus four 15-second gaps are 115 seconds.
+- ✅ Resolved review finding [low]: `timeouts.ts` describes `pollTimeoutMs` as the CourtListener per-check deadline. The constants in that module stay fixed.
+- Review follow-up verification: `npm run check` exited 0. `npm test` exited 0: 1,495 passed, 6 skipped, 63 files. No deploy, staging, production, or paid-provider call. The deferred epics.md item and the rejected findings were left unchanged.
 
 ### File List
 
@@ -159,6 +172,7 @@ Grok 4.7
 - `_bmad-output/implementation-artifacts/spec-3-36-verify-the-corrected-staging-run-and-gateway.md`
 - `_bmad-output/planning-artifacts/epics.md`
 - `src/pipeline/connectors/connector.ts`
+- `src/pipeline/connectors/connector.test.ts`
 - `src/pipeline/connectors/courtListener.ts`
 - `src/pipeline/connectors/courtListener.test.ts`
 - `src/pipeline/workflow/dailyRun.ts`
@@ -172,3 +186,4 @@ Grok 4.7
 - 2026-10-10: Created story 3.38. Create-story did not take backlog story 3.37. Status ready-for-dev.
 - 2026-10-10: Patrick asked for a 3.36 blocker note. Status value of 3.36 stays `in-progress`. Live acceptance is blocked on 3.38 merge and deploy.
 - 2026-10-10: Implemented pacing and bounded 429 recovery. `npm run check` and `npm test` passed. Status review.
+- 2026-10-10: Addressed code review findings - 12 items resolved (Date: 2026-10-10). Status review.
