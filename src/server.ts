@@ -333,18 +333,26 @@ export default {
         try {
           const items = await runsRepo.listRuns(getDb(env));
           const latest = items[0] ?? null;
+          const pendingHeadCount =
+            latest?.status === "awaiting"
+              ? await draftsRepo.countUndecidedCurrentHeads(
+                  getDb(env),
+                  latest.id
+                )
+              : null;
+          const dispatches = await runAdmissionRepo.listActive(getDb(env));
           return Response.json(
-            {
-              latest,
-              pendingHeadCount:
-                latest?.status === "awaiting"
-                  ? await draftsRepo.countUndecidedCurrentHeads(
-                      getDb(env),
-                      latest.id
-                    )
-                  : null,
-              dispatches: await runAdmissionRepo.listActive(getDb(env))
-            },
+            latest
+              ? {
+                  latest,
+                  pendingHeadCount,
+                  dispatches,
+                  accountingOperations: await runsRepo.listAccountingOperations(
+                    getDb(env),
+                    latest.id
+                  )
+                }
+              : { latest, pendingHeadCount, dispatches },
             { headers: ADMIN_CACHE_HEADERS }
           );
         } catch (error) {

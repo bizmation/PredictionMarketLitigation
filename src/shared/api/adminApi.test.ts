@@ -3497,3 +3497,83 @@ describe("admin run reject", () => {
     ]);
   });
 });
+
+describe("admin loop accounting operations", () => {
+  it("returns only the latest run's operations, exactly", async () => {
+    const accounting = await import("../db/repos/llmAccountingRepo");
+    const { fixtureCostPolicy } = await import("../../test/costPolicyFixture");
+    async function seedOpenIssue(input: {
+      runId: string;
+      operationId: string;
+      startedAt: string;
+      scheduledFor: string;
+    }) {
+      await runsRepo.insertRun(testEnv.DB, {
+        id: input.runId,
+        origin: "scheduled",
+        mode: "hitl",
+        status: "awaiting",
+        startedAt: input.startedAt,
+        completedAt: null,
+        spendCents: 0,
+        spendCurrency: "USD",
+        budgetCents: 500,
+        scheduledFor: input.scheduledFor
+      });
+      const operation = await accounting.reserve(testEnv.DB, {
+        id: input.operationId,
+        runId: input.runId,
+        role: "reviewer",
+        key: `draft:${input.operationId}:reviewer`,
+        fingerprint: `fp-${input.operationId}`,
+        owner: "owner",
+        bound: 50,
+        budget: 500,
+        policy: fixtureCostPolicy("fake", "m", input.startedAt),
+        now: input.startedAt,
+        awaiting: true
+      });
+      await accounting.claimDispatch(
+        testEnv.DB,
+        operation,
+        operation.owner,
+        input.startedAt
+      );
+      await accounting.markUncertain(
+        testEnv.DB,
+        operation.id,
+        operation.owner,
+        "timeout"
+      );
+    }
+    await seedOpenIssue({
+      runId: "run-20990601-0b30",
+      operationId: "loop-op-older",
+      startedAt: "2099-06-01T00:00:00.000Z",
+      scheduledFor: "2099-06-01"
+    });
+    const runId = "run-20991231-0b31";
+    await seedOpenIssue({
+      runId,
+      operationId: "loop-op-2099",
+      startedAt: "2099-12-31T00:00:00.000Z",
+      scheduledFor: "2099-12-31"
+    });
+    const stored = await testEnv.DB.prepare(
+      "SELECT id,logical_key AS logicalKey,state,version,bound_cents AS boundCents,liability_cents AS liabilityCents,created_at AS createdAt,provider_request_id AS providerRequestId,issue FROM llm_operations WHERE run_id=? ORDER BY created_at,id"
+    )
+      .bind(runId)
+      .all();
+    const res = await auth("/api/admin/loop");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      latest: { id: string } | null;
+      accountingOperations?: unknown;
+    };
+    expect(body.latest?.id).toBe(runId);
+    expect(body.accountingOperations).toEqual(stored.results);
+    expect(JSON.stringify(body.accountingOperations)).not.toContain(
+      "loop-op-older"
+    );
+  });
+});

@@ -1057,4 +1057,465 @@ describe("tab-local request recovery and confirmation", () => {
     );
     expect(document.body.textContent).not.toContain("drafts were rejected");
   });
+
+  function operation(
+    id: string,
+    issue: string | null,
+    version = 3
+  ): {
+    id: string;
+    logicalKey: string;
+    state: string;
+    version: number;
+    boundCents: number;
+    liabilityCents: number;
+    createdAt: string;
+    providerRequestId: null;
+    issue: string | null;
+  } {
+    return {
+      id,
+      logicalKey: `key-${id}`,
+      state: issue ? "uncertain" : "settled",
+      version,
+      boundCents: 50,
+      liabilityCents: issue ? 50 : 0,
+      createdAt: "2026-11-11T16:00:00.000Z",
+      providerRequestId: null,
+      issue
+    };
+  }
+
+  function loopWithOperations(operations: unknown[]) {
+    return scripted({
+      latest: item(),
+      pendingHeadCount: null,
+      dispatches: [],
+      accountingOperations: operations
+    });
+  }
+
+  async function chooseDecision(decision: string) {
+    fireEvent.change(screen.getByLabelText("Decision"), {
+      target: { value: decision }
+    });
+  }
+
+  function fillPublicFields() {
+    fireEvent.change(screen.getByLabelText("Evidence reference"), {
+      target: { value: "invoice:provider-20261002-line-17" }
+    });
+    fireEvent.change(screen.getByLabelText("Note"), {
+      target: { value: "Operator checked the invoice." }
+    });
+  }
+
+  it("shows Reconcile only for an operation with an open issue", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        loopWithOperations([
+          operation("op-open", "timeout"),
+          operation("op-clear", null),
+          operation("op-blank", "")
+        ])
+      )
+    );
+    render(<LoopControls />);
+    await act(async () => {});
+    expect(
+      screen.getByRole("button", { name: "Reconcile op-open" })
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Reconcile op-clear" })
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Reconcile op-blank" })
+    ).toBeNull();
+    const button = screen.getByRole("button", { name: "Reconcile op-open" });
+    expect(button.getAttribute("accesskey")).toBeNull();
+    expect(button.closest("details.cost-details")).not.toBeNull();
+    expect(document.body.textContent).toContain(
+      "timeout · uncertain · liability 50 cents · provider request none"
+    );
+  });
+
+  it("requires a decimal originalUsd for a charge and posts the row version", async () => {
+    const requestIds = [
+      "11111111-1111-4111-8111-111111111111",
+      "22222222-2222-4222-8222-222222222222"
+    ];
+    let issued = 0;
+    vi.spyOn(crypto, "randomUUID").mockImplementation(
+      () => requestIds[issued++] as ReturnType<typeof crypto.randomUUID>
+    );
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes("/reconcile") && init?.method === "POST") {
+          return scripted({ id: "op-open", state: "reconciled" });
+        }
+        return loopWithOperations([
+          operation("op-open", "timeout", 3),
+          operation("op-next", "missing_or_invalid_reported_cost", 7)
+        ]);
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LoopControls />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Reconcile op-open" }));
+    await chooseDecision("confirmed_charge");
+    fillPublicFields();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review reconciliation" })
+    );
+    expect(document.body.textContent).toContain("Enter a decimal USD amount.");
+    expect(
+      fetchMock.mock.calls.some((call) =>
+        String(call[0]).includes("/reconcile")
+      )
+    ).toBe(false);
+    fireEvent.change(screen.getByLabelText("Original USD"), {
+      target: { value: "1." }
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review reconciliation" })
+    );
+    expect(
+      fetchMock.mock.calls.some((call) =>
+        String(call[0]).includes("/reconcile")
+      )
+    ).toBe(false);
+    fireEvent.change(screen.getByLabelText("Original USD"), {
+      target: { value: "0.01234" }
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review reconciliation" })
+    );
+    expect(document.body.textContent).toContain(
+      "Reconcile operation op-open as confirmed_charge for 0.01234 USD?"
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Confirm reconciliation" })
+    );
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Reconcile op-next" }));
+    await chooseDecision("confirmed_charge");
+    fireEvent.change(screen.getByLabelText("Original USD"), {
+      target: { value: "2" }
+    });
+    fillPublicFields();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review reconciliation" })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Confirm reconciliation" })
+    );
+    await act(async () => {});
+    const posts = fetchMock.mock.calls.filter((call) =>
+      String(call[0]).includes("/reconcile")
+    );
+    expect(posts).toHaveLength(2);
+    expect(posts[0]?.[0]).toBe("/api/admin/llm-calls/op-open/reconcile");
+    expect(posts[0]?.[1]).toMatchObject({
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json"
+      }
+    });
+    expect(JSON.parse(String(posts[0]?.[1]?.body))).toEqual({
+      requestId: requestIds[0],
+      expectedVersion: 3,
+      decision: "confirmed_charge",
+      originalUsd: "0.01234",
+      evidenceReference: "invoice:provider-20261002-line-17",
+      note: "Operator checked the invoice."
+    });
+    expect(JSON.parse(String(posts[1]?.[1]?.body)).requestId).toBe(
+      requestIds[1]
+    );
+    expect(JSON.parse(String(posts[1]?.[1]?.body)).expectedVersion).toBe(7);
+    expect(requestIds[0]).not.toBe(requestIds[1]);
+  });
+
+  it("omits originalUsd when the decision is confirmed_no_charge", async () => {
+    vi.spyOn(crypto, "randomUUID").mockImplementation(
+      () =>
+        "33333333-3333-4333-8333-333333333333" as ReturnType<
+          typeof crypto.randomUUID
+        >
+    );
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes("/reconcile") && init?.method === "POST") {
+          return scripted({ id: "op-open", state: "reconciled" });
+        }
+        return loopWithOperations([operation("op-open", "timeout", 3)]);
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LoopControls />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Reconcile op-open" }));
+    await chooseDecision("confirmed_no_charge");
+    expect(screen.queryByLabelText("Original USD")).toBeNull();
+    fillPublicFields();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review reconciliation" })
+    );
+    expect(document.body.textContent).toContain(
+      "Reconcile operation op-open as confirmed_no_charge with no USD amount?"
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Confirm reconciliation" })
+    );
+    await act(async () => {});
+    const post = fetchMock.mock.calls.find((call) =>
+      String(call[0]).includes("/reconcile")
+    );
+    const body = JSON.parse(String(post?.[1]?.body)) as Record<string, unknown>;
+    expect(body).toEqual({
+      requestId: "33333333-3333-4333-8333-333333333333",
+      expectedVersion: 3,
+      decision: "confirmed_no_charge",
+      evidenceReference: "invoice:provider-20261002-line-17",
+      note: "Operator checked the invoice."
+    });
+    expect(body).not.toHaveProperty("originalUsd");
+  });
+
+  it("shows the server error and keeps the reconcile form open", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes("/reconcile") && init?.method === "POST") {
+          return scripted(
+            {
+              code: "accounting_conflict",
+              message: "Stale or conflicting reconciliation."
+            },
+            false,
+            409
+          );
+        }
+        return loopWithOperations([operation("op-open", "timeout", 3)]);
+      })
+    );
+    render(<LoopControls />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Reconcile op-open" }));
+    await chooseDecision("confirmed_no_charge");
+    fillPublicFields();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review reconciliation" })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Confirm reconciliation" })
+    );
+    await act(async () => {});
+    expect(document.body.textContent).toContain(
+      "Stale or conflicting reconciliation."
+    );
+    expect(document.body.textContent).not.toContain("reconciled as");
+    expect(screen.getByLabelText("Evidence reference")).toHaveProperty(
+      "value",
+      "invoice:provider-20261002-line-17"
+    );
+    expect(screen.getByLabelText("Note")).toHaveProperty(
+      "value",
+      "Operator checked the invoice."
+    );
+    expect(
+      screen.getByRole("button", { name: "Confirm reconciliation" })
+    ).toBeTruthy();
+  });
+
+  it("confirms a successful reconciliation and reloads loop status", async () => {
+    let posted = false;
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes("/reconcile") && init?.method === "POST") {
+          posted = true;
+          return scripted({
+            id: "op-open",
+            state: "reconciled",
+            version: 4
+          });
+        }
+        return loopWithOperations(
+          posted
+            ? [operation("op-open", null, 4)]
+            : [operation("op-open", "timeout", 3)]
+        );
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LoopControls />);
+    await act(async () => {});
+    const before = loopGets(fetchMock);
+    fireEvent.click(screen.getByRole("button", { name: "Reconcile op-open" }));
+    await chooseDecision("confirmed_no_charge");
+    fillPublicFields();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review reconciliation" })
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Confirm reconciliation" })
+    );
+    await act(async () => {});
+    expect(document.querySelector("output")?.textContent).toBe(
+      "Operation op-open reconciled as confirmed_no_charge."
+    );
+    expect(
+      screen.queryByRole("button", { name: "Reconcile op-open" })
+    ).toBeNull();
+    expect(loopGets(fetchMock)).toBeGreaterThan(before);
+  });
+
+  it("does not reconcile from J, K, A, E, or R", async () => {
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        loopWithOperations([operation("op-open", "timeout")])
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LoopControls />);
+    await act(async () => {});
+    const button = screen.getByRole("button", { name: "Reconcile op-open" });
+    expect(button.getAttribute("accesskey")).toBeNull();
+    for (const key of ["j", "k", "a", "e", "r"]) {
+      fireEvent.keyDown(document.body, { key });
+      fireEvent.keyDown(button, { key });
+    }
+    expect(
+      fetchMock.mock.calls.some((call) =>
+        String(call[0]).includes("/reconcile")
+      )
+    ).toBe(false);
+  });
+
+  async function openNoChargeConfirm() {
+    fireEvent.click(screen.getByRole("button", { name: "Reconcile op-open" }));
+    await chooseDecision("confirmed_no_charge");
+    fillPublicFields();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review reconciliation" })
+    );
+  }
+
+  it("keeps the form open and reloads after a reconcile timeout", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes("/reconcile") && init?.method === "POST") {
+          throw new DOMException(
+            "Request timed out after 30000 ms",
+            "TimeoutError"
+          );
+        }
+        return loopWithOperations([operation("op-open", "timeout", 3)]);
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LoopControls />);
+    await act(async () => {});
+    const before = loopGets(fetchMock);
+    await openNoChargeConfirm();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Confirm reconciliation" })
+    );
+    await act(async () => {});
+    expect(document.body.textContent).toContain(
+      "may or may not have completed"
+    );
+    expect(document.body.textContent).not.toContain("reconciled as");
+    expect(document.querySelector("output")).toBeNull();
+    expect(screen.getByLabelText("Evidence reference")).toHaveProperty(
+      "value",
+      "invoice:provider-20261002-line-17"
+    );
+    expect(screen.getByLabelText("Note")).toHaveProperty(
+      "value",
+      "Operator checked the invoice."
+    );
+    expect(
+      screen.getByRole("button", { name: "Confirm reconciliation" })
+    ).toBeTruthy();
+    expect(loopGets(fetchMock)).toBeGreaterThan(before);
+  });
+
+  it("shows generic text when a reconcile error has no message", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes("/reconcile") && init?.method === "POST") {
+          return scripted({ code: "internal_error" }, false, 500);
+        }
+        return loopWithOperations([operation("op-open", "timeout", 3)]);
+      })
+    );
+    render(<LoopControls />);
+    await act(async () => {});
+    await openNoChargeConfirm();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Confirm reconciliation" })
+    );
+    await act(async () => {});
+    expect(document.body.textContent).toContain(
+      "Reconciliation did not complete."
+    );
+    expect(document.body.textContent).not.toContain("reconciled as");
+    expect(screen.getByLabelText("Note")).toHaveProperty(
+      "value",
+      "Operator checked the invoice."
+    );
+    expect(
+      screen.getByRole("button", { name: "Confirm reconciliation" })
+    ).toBeTruthy();
+  });
+
+  it("does not reconcile from J, K, A, E, or R in the confirm step or inputs", async () => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes("/reconcile") && init?.method === "POST") {
+          return scripted({ id: "op-open", state: "reconciled" });
+        }
+        return loopWithOperations([operation("op-open", "timeout", 3)]);
+      }
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<LoopControls />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Reconcile op-open" }));
+    await chooseDecision("confirmed_charge");
+    fireEvent.change(screen.getByLabelText("Original USD"), {
+      target: { value: "0.01234" }
+    });
+    fillPublicFields();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Review reconciliation" })
+    );
+    const confirm = screen.getByRole("button", {
+      name: "Confirm reconciliation"
+    });
+    const targets = [
+      document.body,
+      confirm,
+      screen.getByLabelText("Decision"),
+      screen.getByLabelText("Original USD"),
+      screen.getByLabelText("Evidence reference"),
+      screen.getByLabelText("Note")
+    ];
+    for (const key of ["J", "K", "A", "E", "R"]) {
+      for (const target of targets) fireEvent.keyDown(target, { key });
+    }
+    expect(
+      fetchMock.mock.calls.some((call) =>
+        String(call[0]).includes("/reconcile")
+      )
+    ).toBe(false);
+    expect(document.body.textContent).toContain(
+      "Reconcile operation op-open as confirmed_charge for 0.01234 USD?"
+    );
+  });
 });
