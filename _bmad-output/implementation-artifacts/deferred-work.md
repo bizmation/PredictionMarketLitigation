@@ -212,3 +212,10 @@ Ledger entries above are not edited; this block records where each Epic 3 entry 
 ## Deferred from: code review of 3-38-pace-courtlistener-requests-and-recover-from-http-429.md (2026-10-10)
 
 - epics.md Story 3.38 entry lacks the "As a / I want / So that" form and Given/When/Then acceptance criteria used by other stories, and omits the concrete limits (15 s spacing, 3 attempts, 6-minute wait budget, 8-minute poll). Fix belongs in a planning-artifact update, not this code change.
+
+## Deferred from: code review of PR #62 (2026-10-10)
+
+- `epic-3-context.md:10` still says "network error, or timeout still fails that request on the first response", but timeouts now retry. Agent-context wording, deferred.
+- When pace stops during a timeout retry (deadline or budget), the `timeoutFact` is dropped, so the skip loses `requestKind`, `elapsedMs`, `timeoutMs` and `attempt`. The summary `timeouts` is also lost when a later page fails.
+- The `courtlistener_request_timeout` console log has no `runId`, so Observability lines can't be matched to a Run.
+- A body that stalls after the headers arrive has no per-request limit: `response.json()` is bounded only by the 8-minute poll deadline. This predates the PR.
