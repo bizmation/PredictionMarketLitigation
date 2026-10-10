@@ -267,3 +267,17 @@ Ledger entries above are not edited; this block records where each Epic 3 entry 
 - source_spec: `_bmad-output/implementation-artifacts/spec-gh-68-deepinfra-provider-call-failed-diagnostics.md`
   summary: Set `followup_review_recommended` and cite symbols instead of line numbers.
   evidence: The spec leaves `followup_review_recommended` false, and the Code Map still points at line numbers rather than symbols.
+
+## Deferred from: code review of spec-gh-64-apply-approved-review-patches.md (2026-10-10)
+
+- Using `currentHeadSql("drafts")` inside `UPDATE drafts` lets the CTE's `FROM drafts` shadow the outer name. `run_id = drafts.run_id` is then always true, so the chain collects roots from every run. The result is still correct, because `current.id` binds to the outer row, but it's slow at scale. The same pattern exists in `READY_HEAD_SQL`. The fix is an alias, e.g. `UPDATE drafts AS t … currentHeadSql('t')`. [`src/pipeline/gate/approval.ts`, `src/shared/db/repos/draftsRepo.ts`]
+
+## Deferred from: code review of #66 (2026-10-10)
+
+- A 2xx with a missing or bad body currently shows `Run X rejected.`. It should say the outcome is unknown and reload.
+- Validate `rejectedCount` as a positive integer.
+- There is no test that unauthenticated callers get 401/403 before the reject body is parsed.
+- Rethrown 500s from `rejectAwaitingRun` should log the original error text if the route doesn't already. The reject route catch already `console.error`s `error.message` as `admin_api.error`, so this was left unchanged.
+- The `currentHeadSql` shadowing note needs an issue link and a scale trigger.
+- **(from staging, Oct 10)** One `uncertain` llm operation with an `issue` in a period makes `reserve()`'s `llm_period_admission` CHECK refuse every new reservation in that period, across all Runs, and the refusal marks a new Run `stopped` as budget_stopped. Consider scoping or flagging this, and give the operator a clearer message.
+- **(from staging, Oct 10)** A revise refused by `complete()` with `accounting_uncertain` (an open run accounting issue) comes back as a silent HTTP 400 "Revision did not complete.". It logs nothing and still strands a NULL-eval `:r1` child, so it should be a distinct 409/423 with a reason, without creating the child.

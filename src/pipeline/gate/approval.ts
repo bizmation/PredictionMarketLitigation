@@ -377,8 +377,7 @@ export async function rejectAwaitingRun(
     const message = String(error);
     if (
       message.includes("gate_assertion_failed") ||
-      message.includes("UNIQUE") ||
-      message.includes("constraint")
+      message.includes("UNIQUE constraint failed: evidence_events.id")
     ) {
       return { status: "conflict" };
     }
