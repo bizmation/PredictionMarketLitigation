@@ -11,7 +11,11 @@ import * as runsRepo from "../../shared/db/repos/runsRepo";
 import * as standingGuidanceRepo from "../../shared/db/repos/standingGuidanceRepo";
 import type { EvalSummary } from "../../shared/schemas/run";
 import { PROVIDER_TIMEOUT_MS } from "../../shared/lib/timeouts";
-import type { GatewayDeps, LlmProvider } from "../ai/gateway";
+import {
+  GatewayError,
+  type GatewayDeps,
+  type LlmProvider
+} from "../ai/gateway";
 import { completeDailyStep } from "../workflow/dailyRunSteps";
 import {
   AUTO_APPROVE_CONFIDENCE_THRESHOLD,
@@ -401,6 +405,44 @@ describe("draftAndReview (story 3.5)", () => {
       "evals_not_run"
     );
     expect(provider.count()).toBe(0);
+  });
+
+  it("names a DeepInfra preflight HTTP refusal on the failed draft and the drafts it stops", async () => {
+    const runId = await insertRun();
+    const firstId = await insertShellDraft(runId, { id: `d:${runId}:01` });
+    const secondId = await insertShellDraft(runId, {
+      id: `d:${runId}:02`,
+      targetEntityId: "st-ny"
+    });
+    await seedConfig(DRAFTER_REVIEWER_ROLES);
+    const message = "cost_policy_invalid: deepinfra_preflight (http 403)";
+    const provider = fakeProvider();
+    provider.preflight = async () => {
+      throw new GatewayError("cost_policy_invalid", message);
+    };
+    await expect(
+      draftAndReview(testEnv.DB, runId, deps(provider))
+    ).rejects.toMatchObject({
+      code: "cost_policy_invalid",
+      message
+    });
+    const drafts = await draftsRepo.listByRun(testEnv.DB, runId);
+    expect(evalOf(drafts.find((d) => d.id === firstId)!).basis).toBe(message);
+    expect(evalOf(drafts.find((d) => d.id === secondId)!).basis).toBe(message);
+    expect(evalOf(drafts.find((d) => d.id === firstId)!).status).toBe(
+      "evals_not_run"
+    );
+    expect(evalOf(drafts.find((d) => d.id === secondId)!).status).toBe(
+      "evals_not_run"
+    );
+    expect(provider.count()).toBe(0);
+    const run = await runsRepo.getRunById(testEnv.DB, runId);
+    expect(run?.status).toBe("running");
+    expect(await accountingForRun(testEnv.DB, runId)).toMatchObject({
+      reservedCents: 0,
+      uncertainCents: 0,
+      issueCount: 0
+    });
   });
 
   it("retains failed-call liability and refuses later sibling dispatch", async () => {

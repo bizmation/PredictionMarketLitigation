@@ -710,6 +710,13 @@ describe("sourceChecksFromEnv (story 3.21)", () => {
                     entry_number: 3,
                     date_filed: "2026-09-20",
                     description: "MINUTE ENTRY: status conference held."
+                  },
+                  {
+                    id: 9002,
+                    entry_number: 2,
+                    date_filed: "2026-09-15",
+                    description:
+                      "Inside seven days and outside a three-day window."
                   }
                 ]
               : []
@@ -729,6 +736,7 @@ describe("sourceChecksFromEnv (story 3.21)", () => {
       sourceChecksFromEnv(
         {
           COURTLISTENER_API_TOKEN: "tok",
+          FIRST_FETCH_WINDOW_DAYS: "3",
           courtListenerWait: async () => {},
           now: () => "2026-09-20T16:00:00.000Z"
         },
@@ -741,9 +749,29 @@ describe("sourceChecksFromEnv (story 3.21)", () => {
       anyFailure: false
     });
     const drafts = await draftsRepo.listByRun(testEnv.DB, id);
+    expect(drafts).toHaveLength(1);
     expect(drafts[0]).toMatchObject({
       targetEntityType: "docket_events",
       targetEntityId: "de-case-il-cftc-9001"
+    });
+    const illinoisCall = fetchMock.mock.calls.find(
+      (call) =>
+        new URL(String(call[0])).searchParams.get("docket") === "73133459"
+    );
+    expect(
+      new URL(String(illinoisCall?.[0])).searchParams.get("date_filed__gte")
+    ).toBe("2026-09-17");
+    const fetched = (await evidenceRepo.listByRun(testEnv.DB, id)).find(
+      (event) => event.event === "source.fetched"
+    );
+    if (!fetched) throw new Error("source.fetched missing");
+    const illinois = (
+      fetched.payload as { dockets: Array<Record<string, unknown>> }
+    ).dockets.find((docket) => docket.docketId === "73133459");
+    expect(illinois).toMatchObject({
+      effectiveCutoff: "2026-09-17",
+      skippedOlder: 1,
+      newEntries: 1
     });
     const authHeaders = fetchMock.mock.calls.map((call) =>
       new Headers((call[1] as RequestInit | undefined)?.headers).get(

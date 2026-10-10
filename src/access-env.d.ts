@@ -59,7 +59,8 @@ interface Env {
   AI_GATEWAY_TOKEN?: string | { get(): Promise<string> };
   /**
    * First CourtListener fetch window, in calendar days. Optional Worker var.
-   * Unset uses 7. A value that is not a positive integer falls back to 7.
+   * Unset uses 7. An integer from 1 through 30 is used, including a leading
+   * zero. Any other set value falls back to 7 and the log includes it.
    * Not a secret and not a wrangler.jsonc var: this repo has no `vars` block.
    */
   FIRST_FETCH_WINDOW_DAYS?: string;

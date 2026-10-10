@@ -103,8 +103,10 @@ function http(body: unknown = responseBody(), metadata: unknown = catalog()) {
   const fetcher = vi.fn(async (url: unknown, init?: RequestInit) => {
     if (url === "https://api.deepinfra.com/models/list") {
       const headers = new Headers(init?.headers);
+      expect([...headers.keys()].sort()).toEqual(["accept", "user-agent"]);
       expect(headers.get("accept")).toBe("application/json");
       expect(headers.get("user-agent")).toBe(DEEPINFRA_CATALOG_USER_AGENT);
+      expect(headers.get("authorization")).toBeNull();
       expect(init?.redirect).toBe("error");
       expect(init?.signal).toBeInstanceOf(AbortSignal);
       return Response.json(metadata);
@@ -376,13 +378,12 @@ describe("DeepInfra central gateway", () => {
   );
   it("names an HTTP 403 catalog refusal without secrets", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const body = `line1\nBearer SECRET-KEY\n${"x".repeat(200)}\n\n  more   spaces`;
+    const bodyPrefix = "line1 bearer [redacted] " + "x".repeat(156);
     try {
       vi.stubGlobal(
         "fetch",
-        vi.fn(
-          async () =>
-            new Response("bot check Bearer SECRET-KEY", { status: 403 })
-        )
+        vi.fn(async () => new Response(body, { status: 403 }))
       );
       await expect(
         createDeepInfraProvider(configured)!.preflight!({
@@ -396,9 +397,14 @@ describe("DeepInfra central gateway", () => {
         detail: expect.objectContaining({
           stage: "deepinfra_preflight",
           status: 403,
-          bodyPrefix: expect.stringContaining("bearer [redacted]")
+          errorName: "Error",
+          errorMessage: "HTTP 403",
+          bodyPrefix
         })
       });
+      expect(bodyPrefix).toHaveLength(180);
+      expect(bodyPrefix).not.toContain("\n");
+      expect(bodyPrefix).not.toContain("SECRET-KEY");
       const logged = JSON.stringify(warn.mock.calls);
       expect(logged).not.toContain("SECRET-KEY");
       expect(logged).toContain("cost_policy_invalid");
@@ -406,12 +412,41 @@ describe("DeepInfra central gateway", () => {
         expect.objectContaining({
           event: "cost_policy_invalid",
           stage: "deepinfra_preflight",
-          status: 403
+          status: 403,
+          errorName: "Error",
+          errorMessage: "HTTP 403",
+          bodyPrefix
         })
       );
     } finally {
       warn.mockRestore();
     }
+  });
+  it("keeps the catalog HTTP status when the error body cannot be read", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 403,
+        text: async () => {
+          throw new Error("unreadable");
+        }
+      }))
+    );
+    await expect(
+      createDeepInfraProvider(configured)!.preflight!({
+        model: MODEL,
+        policy,
+        now: () => NOW
+      })
+    ).rejects.toMatchObject({
+      code: "cost_policy_invalid",
+      message: "cost_policy_invalid: deepinfra_preflight (http 403)",
+      detail: expect.objectContaining({
+        stage: "deepinfra_preflight",
+        status: 403
+      })
+    });
   });
   it("names the catalog field that failed", async () => {
     const input = await setup();
@@ -427,6 +462,13 @@ describe("DeepInfra central gateway", () => {
         })
       });
       expect(JSON.stringify(warn.mock.calls)).not.toContain("PRIVATE");
+      expect(warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: "cost_policy_invalid",
+          stage: "deepinfra_preflight",
+          field: "deprecated"
+        })
+      );
     } finally {
       warn.mockRestore();
     }
@@ -456,6 +498,14 @@ describe("DeepInfra central gateway", () => {
         })
       });
       expect(JSON.stringify(warn.mock.calls)).not.toContain("SECRET-KEY");
+      expect(warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: "cost_policy_invalid",
+          stage: "deepinfra_preflight",
+          errorName: "TypeError",
+          errorMessage: expect.stringContaining("bearer [redacted]")
+        })
+      );
     } finally {
       warn.mockRestore();
     }

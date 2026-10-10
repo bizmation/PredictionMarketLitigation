@@ -209,22 +209,41 @@ export const COURTLISTENER_WAIT_BUDGET_MS = 6 * 60 * 1000;
 export const COURTLISTENER_POLL_TIMEOUT_MS = 8 * 60 * 1000;
 /** Calendar days before the ET run date on a first fetch with no stored events. */
 export const DEFAULT_FIRST_FETCH_WINDOW_DAYS = 7;
+/**
+ * Largest accepted window. Thirty days still covers the 16-day span of run
+ * 0003 and cannot reach the oldest seeded docket (2025-11-28).
+ */
+export const MAX_FIRST_FETCH_WINDOW_DAYS = 30;
+
+function rejectedWindowText(raw: string): string {
+  const collapsed = raw.replace(/\s+/g, " ").trim();
+  return collapsed.length > 180 ? collapsed.slice(0, 180) : collapsed;
+}
+
+function inWindowRange(days: number): boolean {
+  return (
+    Number.isSafeInteger(days) &&
+    days >= 1 &&
+    days <= MAX_FIRST_FETCH_WINDOW_DAYS
+  );
+}
 
 /**
- * `FIRST_FETCH_WINDOW_DAYS` when it is a positive integer. Unset uses the
- * default and does not log. Any other set value logs once and uses the default.
+ * `FIRST_FETCH_WINDOW_DAYS` when it is an integer from 1 through 30. A
+ * leading zero is that integer. Unset uses the default and does not log.
+ * Any other set value logs the rejected text once and uses the default.
  */
 export function firstFetchWindowDays(raw: string | undefined): number {
   if (raw == null) return DEFAULT_FIRST_FETCH_WINDOW_DAYS;
   const trimmed = raw.trim();
-  if (!/^[1-9]\d*$/.test(trimmed) || !Number.isSafeInteger(Number(trimmed))) {
-    console.warn({
-      event: "first_fetch_window_invalid",
-      fallback: DEFAULT_FIRST_FETCH_WINDOW_DAYS
-    });
-    return DEFAULT_FIRST_FETCH_WINDOW_DAYS;
-  }
-  return Number(trimmed);
+  const value = /^[0-9]+$/.test(trimmed) ? Number(trimmed) : Number.NaN;
+  if (inWindowRange(value)) return value;
+  console.warn({
+    event: "first_fetch_window_invalid",
+    fallback: DEFAULT_FIRST_FETCH_WINDOW_DAYS,
+    value: rejectedWindowText(raw)
+  });
+  return DEFAULT_FIRST_FETCH_WINDOW_DAYS;
 }
 
 /** Subtract calendar days from `YYYY-MM-DD`. UTC date arithmetic, not 24h*N. */
@@ -732,8 +751,9 @@ async function pollDocket(
       : trackedSince != null
         ? { kind: "source_published_at", date: trackedSince }
         : null;
-  const windowDays =
-    deps.firstFetchWindowDays ?? DEFAULT_FIRST_FETCH_WINDOW_DAYS;
+  const windowDays = inWindowRange(deps.firstFetchWindowDays ?? Number.NaN)
+    ? deps.firstFetchWindowDays!
+    : DEFAULT_FIRST_FETCH_WINDOW_DAYS;
   let fetchOnOrAfter = baseline?.date ?? null;
   let effectiveCutoff: string | undefined;
   if (baseline?.kind === "source_published_at") {

@@ -207,23 +207,35 @@ describe("CourtListener helpers", () => {
     expect(reasonForStatus(404)).toBe("http_error");
   });
 
-  it("uses 7 days unless FIRST_FETCH_WINDOW_DAYS is a positive integer", () => {
+  it("uses 7 days unless FIRST_FETCH_WINDOW_DAYS is an integer from 1 through 30", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       expect(firstFetchWindowDays(undefined)).toBe(7);
       expect(firstFetchWindowDays("14")).toBe(14);
       expect(firstFetchWindowDays(" 3 ")).toBe(3);
+      expect(firstFetchWindowDays("08")).toBe(8);
+      expect(firstFetchWindowDays("30")).toBe(30);
       expect(warn).not.toHaveBeenCalled();
-      for (const raw of ["0", "", "  ", "1.5", "-2", "08", "nope"]) {
+      for (const raw of ["0", "", "  ", "1.5", "-2", "31", "400", "nope"]) {
         expect(firstFetchWindowDays(raw)).toBe(7);
       }
-      expect(warn).toHaveBeenCalledTimes(7);
-      for (const call of warn.mock.calls) {
-        expect(call[0]).toEqual({
+      expect(firstFetchWindowDays(String(Number.MAX_SAFE_INTEGER))).toBe(7);
+      expect(warn).toHaveBeenCalledTimes(9);
+      expect(warn.mock.calls.map((call) => call[0])).toEqual([
+        { event: "first_fetch_window_invalid", fallback: 7, value: "0" },
+        { event: "first_fetch_window_invalid", fallback: 7, value: "" },
+        { event: "first_fetch_window_invalid", fallback: 7, value: "" },
+        { event: "first_fetch_window_invalid", fallback: 7, value: "1.5" },
+        { event: "first_fetch_window_invalid", fallback: 7, value: "-2" },
+        { event: "first_fetch_window_invalid", fallback: 7, value: "31" },
+        { event: "first_fetch_window_invalid", fallback: 7, value: "400" },
+        { event: "first_fetch_window_invalid", fallback: 7, value: "nope" },
+        {
           event: "first_fetch_window_invalid",
-          fallback: 7
-        });
-      }
+          fallback: 7,
+          value: String(Number.MAX_SAFE_INTEGER)
+        }
+      ]);
     } finally {
       warn.mockRestore();
     }
@@ -1264,6 +1276,61 @@ describe("CourtListener connector (story 3.21)", () => {
         .bind("2026-04-02")
         .run();
     }
+  });
+
+  it("subtracts seven days across May and treats a huge window as the default", async () => {
+    const filings = {
+      status: 200,
+      body: {
+        results: [
+          {
+            id: 93001,
+            entry_number: 1,
+            date_filed: "2026-05-24",
+            description: "Day before the June cutoff."
+          },
+          {
+            id: 93002,
+            entry_number: 2,
+            date_filed: "2026-05-25",
+            description: "Filed on the June cutoff."
+          }
+        ]
+      }
+    };
+    const poll = async (windowDays?: number) => {
+      const calls = stubFetch((docketId) =>
+        docketId === ILLINOIS ? filings : { status: 200, body: { results: [] } }
+      );
+      const runId = await newRun();
+      const result = await runConnector(
+        testEnv.DB,
+        runId,
+        SOURCE,
+        check(TOKEN, {
+          now: () => "2026-06-01T16:00:00.000Z",
+          ...(windowDays == null ? {} : { firstFetchWindowDays: windowDays })
+        })
+      );
+      const illinois = calls.find(
+        ({ url }) => new URL(url).searchParams.get("docket") === ILLINOIS
+      );
+      return {
+        result,
+        cutoff: new URL(illinois!.url).searchParams.get("date_filed__gte"),
+        dates: (await draftsRepo.listByRun(testEnv.DB, runId)).map(
+          (draft) => (draft.diff as { occurredAt?: string }).occurredAt
+        )
+      };
+    };
+    const bounded = await poll();
+    expect(bounded.result).toEqual({ draftCount: 1, failed: false });
+    expect(bounded.cutoff).toBe("2026-05-25");
+    expect(bounded.dates).toContain("2026-05-25");
+    expect(bounded.dates).not.toContain("2026-05-24");
+    const huge = await poll(Number.MAX_SAFE_INTEGER);
+    expect(huge.result.failed).toBe(false);
+    expect(huge.cutoff).toBe("2026-05-25");
   });
 });
 

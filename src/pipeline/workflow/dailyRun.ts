@@ -96,7 +96,11 @@ export function sourceChecksFromEnv(
   env: Pick<Env, "COURTLISTENER_API_TOKEN" | "FIRST_FETCH_WINDOW_DAYS"> & {
     /** Tests inject an instant wait. Production leaves this unset. */
     courtListenerWait?: CourtListenerWait;
-    /** Tests pin the ET run date. Production uses the wall clock. */
+    /**
+     * Tests pin the run instant. A date-only string is UTC midnight, which
+     * is still the previous calendar date in America/New_York. Production
+     * leaves this unset and uses the wall clock.
+     */
     now?: () => string;
   },
   db: Db
