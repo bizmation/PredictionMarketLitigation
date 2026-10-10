@@ -687,6 +687,7 @@ describe("tab-local request recovery and confirmation", () => {
             approvalOutcome: null
           }),
           pendingHeadCount: 4,
+          publishedHeadCount: 1,
           dispatches: []
         });
       }
@@ -706,7 +707,9 @@ describe("tab-local request recovery and confirmation", () => {
     expect(document.body.textContent).toContain(
       "Reject 4 undecided drafts in run-20261111-0000?"
     );
-    expect(document.body.textContent).toContain("Nothing will be published.");
+    expect(document.body.textContent).toContain(
+      "1 approved or edited drafts stay published."
+    );
     fireEvent.click(screen.getByRole("button", { name: "Reject 4 drafts" }));
     await act(async () => {});
     const post = fetchMock.mock.calls.find((call) =>
@@ -842,6 +845,62 @@ describe("tab-local request recovery and confirmation", () => {
     expect(document.body.textContent).toContain(
       "Run run-20261111-0000 rejected. 4 drafts were rejected."
     );
+    expect(
+      screen.queryByRole("button", { name: "Reject this run" })
+    ).toBeNull();
+    gate.release?.();
+    await act(async () => {});
+  });
+
+  it("shows a published run after rejecting the remaining undecided drafts", async () => {
+    const gate: { release: (() => void) | null } = { release: null };
+    let posted = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/reject") && init?.method === "POST") {
+          posted = true;
+          return scripted({
+            runId: "run-20261111-0000",
+            status: "published",
+            rejectedCount: 3
+          });
+        }
+        if (posted) {
+          await new Promise<void>((resolve) => {
+            gate.release = resolve;
+          });
+        }
+        return scripted({
+          latest: item({
+            status: "awaiting",
+            completedAt: null,
+            approvalOutcome: null
+          }),
+          pendingHeadCount: 3,
+          publishedHeadCount: 1,
+          dispatches: []
+        });
+      })
+    );
+    render(<LoopControls />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Reject this run" }));
+    expect(document.body.textContent).toContain(
+      "Reject 3 undecided drafts in run-20261111-0000?"
+    );
+    expect(document.body.textContent).toContain(
+      "1 approved or edited drafts stay published."
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Reject 3 drafts" }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(document.body.textContent).toContain(
+      "Run run-20261111-0000 published. 3 drafts were rejected."
+    );
+    expect(document.body.textContent).toContain("published");
     expect(
       screen.queryByRole("button", { name: "Reject this run" })
     ).toBeNull();

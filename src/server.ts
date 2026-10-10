@@ -343,6 +343,13 @@ export default {
                       latest.id
                     )
                   : null,
+              publishedHeadCount:
+                latest?.status === "awaiting"
+                  ? await draftsRepo.countPublishedCurrentHeads(
+                      getDb(env),
+                      latest.id
+                    )
+                  : null,
               dispatches: await runAdmissionRepo.listActive(getDb(env))
             },
             { headers: ADMIN_CACHE_HEADERS }
@@ -481,7 +488,7 @@ export default {
           return Response.json(
             {
               runId: result.runId,
-              status: "rejected",
+              status: result.terminalStatus,
               rejectedCount: result.rejectedCount
             },
             { headers: ADMIN_CACHE_HEADERS }

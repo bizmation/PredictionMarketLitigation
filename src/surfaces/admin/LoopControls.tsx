@@ -35,6 +35,8 @@ type LoopControlsProps = {
   latest?: RunLogItem | null;
   /** Undecided current-head count for an injected awaiting Run. */
   pendingHeadCount?: number;
+  /** Approved or edited current-head count for an injected awaiting Run. */
+  publishedHeadCount?: number;
 };
 
 type LoopView =
@@ -45,6 +47,7 @@ type LoopView =
       status: "ready";
       latest: RunLogItem | null;
       pendingHeadCount: number | null;
+      publishedHeadCount: number | null;
     };
 
 export const LOOP_TIMEOUT_NOTICE =
@@ -151,14 +154,12 @@ function isRunLogItem(value: unknown): value is RunLogItem {
   );
 }
 
-function pendingHeadCountOf(body: unknown): number | null {
-  if (
-    body === null ||
-    typeof body !== "object" ||
-    !("pendingHeadCount" in body)
-  )
-    return null;
-  const value = (body as { pendingHeadCount: unknown }).pendingHeadCount;
+function headCountOf(
+  body: unknown,
+  key: "pendingHeadCount" | "publishedHeadCount"
+): number | null {
+  if (body === null || typeof body !== "object" || !(key in body)) return null;
+  const value = (body as Record<string, unknown>)[key];
   return isNonNegativeInt(value) ? value : null;
 }
 
@@ -182,6 +183,7 @@ function errorCode(body: unknown): string | null {
 export function LoopControls({
   latest: injectedLatest,
   pendingHeadCount: injectedHeadCount,
+  publishedHeadCount: injectedPublishedCount,
   dev = false
 }: LoopControlsProps) {
   const injected = injectedLatest !== undefined;
@@ -256,7 +258,8 @@ export function LoopControls({
         setView({
           status: "ready",
           latest,
-          pendingHeadCount: pendingHeadCountOf(body)
+          pendingHeadCount: headCountOf(body, "pendingHeadCount"),
+          publishedHeadCount: headCountOf(body, "publishedHeadCount")
         });
         // A poll that timed out earlier is no longer stale; other notices
         // (run trigger outcomes) stay until the next trigger clears them.
@@ -503,17 +506,27 @@ export function LoopControls({
           ? body.rejectedCount
           : null;
       setRejectRunId(null);
+      const terminalStatus =
+        body &&
+        typeof body === "object" &&
+        "status" in body &&
+        (body.status === "published" || body.status === "rejected")
+          ? body.status
+          : "rejected";
       setNotice(
         rejectedCount === null
           ? `Run ${runId} rejected.`
-          : `Run ${runId} rejected. ${rejectedCount} drafts were rejected.`
+          : terminalStatus === "published"
+            ? `Run ${runId} published. ${rejectedCount} drafts were rejected.`
+            : `Run ${runId} rejected. ${rejectedCount} drafts were rejected.`
       );
       setView((current) =>
         current.status === "ready" && current.latest?.id === runId
           ? {
               ...current,
-              latest: { ...current.latest, status: "rejected" },
-              pendingHeadCount: null
+              latest: { ...current.latest, status: terminalStatus },
+              pendingHeadCount: null,
+              publishedHeadCount: null
             }
           : current
       );
@@ -580,6 +593,11 @@ export function LoopControls({
     : view.status === "ready"
       ? view.pendingHeadCount
       : null;
+  const publishedHeadCount = injected
+    ? (injectedPublishedCount ?? null)
+    : view.status === "ready"
+      ? view.publishedHeadCount
+      : null;
 
   return (
     <div className="loop-workspace">
@@ -614,8 +632,9 @@ export function LoopControls({
             rejectRunId === latest.id ? (
               <div className="rejectbox">
                 <p>
-                  Reject {pendingHeadCount} undecided drafts in {latest.id}?
-                  Nothing will be published.
+                  Reject {pendingHeadCount} undecided drafts in {latest.id}?{" "}
+                  {publishedHeadCount ?? 0} approved or edited drafts stay
+                  published.
                 </p>
                 <button
                   type="button"
