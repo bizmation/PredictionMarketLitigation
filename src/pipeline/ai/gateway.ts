@@ -54,6 +54,33 @@ import { GUARDRAIL_RULE_ID, isToolAllowed } from "./actionPolicy";
 export const DEEPINFRA_CATALOG_USER_AGENT =
   "PredictionMarketLitigation/0.1.0 (+https://predictionmarketlitigation.com)";
 
+/** Catalog GET init. Workerd accepts only `follow` or `manual`. */
+export function deepInfraCatalogRequestInit(signal: AbortSignal): RequestInit {
+  return {
+    signal,
+    redirect: "manual",
+    headers: {
+      Accept: "application/json",
+      "User-Agent": DEEPINFRA_CATALOG_USER_AGENT
+    }
+  };
+}
+
+/** Chat POST init, including the JSON body. Same redirect mode as the catalog. */
+export function deepInfraChatRequestInit(
+  headers: Headers,
+  signal: AbortSignal | undefined,
+  body: string
+): RequestInit {
+  return {
+    method: "POST",
+    redirect: "manual",
+    signal,
+    headers,
+    body
+  };
+}
+
 const DIAGNOSTIC_TEXT_MAX = 180;
 
 export type CostPolicyDetail = {
@@ -1014,6 +1041,19 @@ function deepInfraCatalogField(
   return null;
 }
 
+/**
+ * Workerd rejects redirect mode "error" before send. "manual" returns a 3xx
+ * as-is, and an opaque redirect is status 0. Both are non-OK.
+ */
+function deepInfraRedirectRefused(response: Response): boolean {
+  return (
+    !response.ok ||
+    response.type === "opaqueredirect" ||
+    response.status === 0 ||
+    (response.status >= 300 && response.status < 400)
+  );
+}
+
 /** Fixed custom provider route. Credentials are captured only in a per-call closure. */
 export function createDeepInfraProvider(env: Env): LlmProvider | null {
   const configured = (value: unknown): boolean =>
@@ -1042,16 +1082,9 @@ export function createDeepInfraProvider(env: Env): LlmProvider | null {
           async (signal) => {
             const response = await fetch(
               "https://api.deepinfra.com/models/list",
-              {
-                signal,
-                redirect: "error",
-                headers: {
-                  Accept: "application/json",
-                  "User-Agent": DEEPINFRA_CATALOG_USER_AGENT
-                }
-              }
+              deepInfraCatalogRequestInit(signal)
             );
-            if (!response.ok) {
+            if (deepInfraRedirectRefused(response)) {
               let bodyPrefix = "";
               try {
                 bodyPrefix = diagnosticText(await response.text());
@@ -1135,21 +1168,22 @@ export function createDeepInfraProvider(env: Env): LlmProvider | null {
               "Inference cancelled before dispatch."
             );
           try {
-            const response = await fetch(url, {
-              method: "POST",
-              redirect: "error",
-              signal,
-              headers,
-              body: JSON.stringify({
-                model,
-                messages: [{ role: "user", content: prompt }],
-                max_tokens: policy.outputTokens,
-                stream: false,
-                n: 1,
-                reasoning_effort: "none"
-              })
-            });
-            if (!response.ok) throw new Error();
+            const response = await fetch(
+              url,
+              deepInfraChatRequestInit(
+                headers,
+                signal,
+                JSON.stringify({
+                  model,
+                  messages: [{ role: "user", content: prompt }],
+                  max_tokens: policy.outputTokens,
+                  stream: false,
+                  n: 1,
+                  reasoning_effort: "none"
+                })
+              )
+            );
+            if (deepInfraRedirectRefused(response)) throw new Error();
             const body = (await response.json()) as {
               id?: unknown;
               model?: unknown;
