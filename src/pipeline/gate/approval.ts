@@ -272,11 +272,17 @@ export const RUN_REJECT_PRIVATE_REASON = "Rejected with the Run.";
 export type RejectRunResult =
   | { status: "not_found" }
   | { status: "conflict" }
-  | { status: "rejected"; runId: string; rejectedCount: number };
+  | {
+      status: "rejected";
+      runId: string;
+      rejectedCount: number;
+      terminalStatus: "published" | "rejected";
+    };
 
 /**
  * Reject every undecided current head of an awaiting Run in one D1 batch.
- * One `run.completed` receipt. No F1, docket, or per-draft `gate.decided`.
+ * Approved and edited heads stay. One `run.completed` receipt. No F1,
+ * docket, or per-draft `gate.decided`.
  */
 export async function rejectAwaitingRun(
   db: Db,
@@ -297,15 +303,6 @@ export async function rejectAwaitingRun(
   if (!run) return { status: "not_found" };
   if (run.status !== "awaiting") return { status: "conflict" };
 
-  const blocking = await db
-    .prepare(
-      `SELECT 1 AS present FROM drafts d
-        WHERE d.run_id = ? AND d.outcome IN ('approved','edited')
-          AND ${draftsRepo.currentHeadSql("d")} LIMIT 1`
-    )
-    .bind(runId)
-    .first<{ present: number }>();
-  if (blocking) return { status: "conflict" };
   if ((await draftsRepo.countUndecidedCurrentHeads(db, runId)) === 0) {
     return { status: "conflict" };
   }
@@ -318,12 +315,6 @@ export async function rejectAwaitingRun(
         db,
         "reject_run_awaiting",
         "EXISTS (SELECT 1 FROM runs WHERE id = ? AND status = 'awaiting')",
-        [runId]
-      ),
-      assertStmt(
-        db,
-        "reject_run_unpublished",
-        `NOT EXISTS (SELECT 1 FROM drafts d WHERE d.run_id = ? AND d.outcome IN ('approved','edited') AND ${draftsRepo.currentHeadSql("d")})`,
         [runId]
       ),
       assertStmt(
@@ -390,8 +381,20 @@ export async function rejectAwaitingRun(
     .bind(evidenceId)
     .first<{ payload_json: string }>();
   const payload = written
-    ? (JSON.parse(written.payload_json) as { rejectedCount?: unknown })
+    ? (JSON.parse(written.payload_json) as {
+        rejectedCount?: unknown;
+        status?: unknown;
+      })
     : null;
-  if (typeof payload?.rejectedCount !== "number") return { status: "conflict" };
-  return { status: "rejected", runId, rejectedCount: payload.rejectedCount };
+  if (
+    typeof payload?.rejectedCount !== "number" ||
+    (payload.status !== "published" && payload.status !== "rejected")
+  )
+    return { status: "conflict" };
+  return {
+    status: "rejected",
+    runId,
+    rejectedCount: payload.rejectedCount,
+    terminalStatus: payload.status
+  };
 }

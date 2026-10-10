@@ -1106,6 +1106,7 @@ describe("admin loop controls (story 3.12)", () => {
     expect(await res.json()).toEqual({
       latest: null,
       pendingHeadCount: null,
+      publishedHeadCount: null,
       dispatches: []
     });
   });
@@ -3202,7 +3203,7 @@ describe("admin run reject", () => {
     expect(await runStatus(runId)).toBe("awaiting");
   });
 
-  it("refuses a run that is not awaiting, an unknown id, and an approved head", async () => {
+  it("refuses a run that is not awaiting and an unknown id", async () => {
     const published = "run-20260418-0b01";
     await seedAwaiting(published, "2026-04-18", "published");
     await seedDraft("d-published", published);
@@ -3215,37 +3216,138 @@ describe("admin run reject", () => {
     expect(
       (await worker.fetch(reject("run-20260419-0c01", token), realEnv())).status
     ).toBe(404);
-    const mixed = "run-20260420-0d01";
-    await seedAwaiting(mixed, "2026-04-20");
-    await seedDraft("d-approved", mixed, { outcome: "approved" });
-    await seedDraft("d-open", mixed);
-    expect((await worker.fetch(reject(mixed, token), realEnv())).status).toBe(
-      409
-    );
-    expect(await runStatus(mixed)).toBe("awaiting");
-    expect((await draftRow("d-open")).outcome).toBeNull();
-    expect((await draftRow("d-approved")).outcome).toBe("approved");
     const getRes = await worker.fetch(
-      signed(token, `/api/admin/runs/${mixed}/reject`, { method: "GET" }),
+      signed(token, `/api/admin/runs/${published}/reject`, { method: "GET" }),
       realEnv()
     );
     expect(getRes.status).toBe(405);
     expect(getRes.headers.get("allow")).toBe("POST");
   });
 
-  it("refuses an edited current head and writes nothing", async () => {
+  it("publishes a mixed run and records the undecided head count on the receipt", async () => {
+    const runId = "run-20260420-0d01";
+    const undecided = ["d-open-a", "d-open-b", "d-open-c"];
+    await seedAwaiting(runId, "2026-04-20");
+    await seedDraft("d-mix-parent", runId);
+    await seedDraft("d-mix-approved", runId, {
+      parentId: "d-mix-parent",
+      revision: 1,
+      outcome: "approved"
+    });
+    for (const id of undecided) await seedDraft(id, runId);
+    const approvedBefore = await draftRow("d-mix-approved");
+    const before = await f1Snapshot();
+    const dockets = await testEnv.DB.prepare(
+      "SELECT COUNT(*) AS count FROM docket_events"
+    ).first<{ count: number }>();
+    const token = await sign(EMAIL);
+    const res = await worker.fetch(reject(runId, token), realEnv());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      runId,
+      status: "published",
+      rejectedCount: undecided.length
+    });
+    expect(await runStatus(runId)).toBe("published");
+    expect(await draftRow("d-mix-approved")).toEqual(approvedBefore);
+    expect((await draftRow("d-mix-parent")).outcome).toBeNull();
+    for (const id of undecided) {
+      const row = await draftRow(id);
+      expect(row.outcome).toBe("rejected");
+      expect(row.reject_reason).toBeNull();
+      expect(row.reject_reason_private).toBe(SENTENCE);
+    }
+    const evidence = await testEnv.DB.prepare(
+      `SELECT event, payload_json FROM evidence_events WHERE id = ?`
+    )
+      .bind(`run-completed-${runId}`)
+      .first<{ event: string; payload_json: string }>();
+    expect(evidence?.event).toBe("run.completed");
+    expect(JSON.parse(evidence!.payload_json)).toEqual({
+      status: "published",
+      rejectedCount: undecided.length,
+      decidedBy: DISPLAY_NAME
+    });
+    expect(
+      await testEnv.DB.prepare(
+        `SELECT COUNT(*) AS count FROM evidence_events
+          WHERE run_id = ? AND event = 'gate.decided'`
+      )
+        .bind(runId)
+        .first<{ count: number }>()
+    ).toEqual({ count: 0 });
+    expect(await f1Snapshot()).toEqual(before);
+    expect(
+      await testEnv.DB.prepare(
+        "SELECT COUNT(*) AS count FROM docket_events"
+      ).first<{ count: number }>()
+    ).toEqual(dockets);
+    const again = await worker.fetch(reject(runId, token), realEnv());
+    expect(again.status).toBe(409);
+    expect(await evidenceCount(`run-completed-${runId}`)).toBe(1);
+    expect(await draftRow("d-mix-approved")).toEqual(approvedBefore);
+  });
+
+  it("leaves an edited head unchanged and publishes the run", async () => {
     const runId = "run-20260423-0d02";
     await seedAwaiting(runId, "2026-04-23");
     await seedDraft("d-edited-head", runId, { outcome: "edited" });
     await seedDraft("d-still-open", runId);
+    const editedBefore = await draftRow("d-edited-head");
+    const token = await sign(EMAIL);
+    const res = await worker.fetch(reject(runId, token), realEnv());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      runId,
+      status: "published",
+      rejectedCount: 1
+    });
+    expect(await runStatus(runId)).toBe("published");
+    expect(await draftRow("d-edited-head")).toEqual(editedBefore);
+    expect((await draftRow("d-still-open")).outcome).toBe("rejected");
+    expect(await evidenceCount(`run-completed-${runId}`)).toBe(1);
+  });
+
+  it("refuses an awaiting run that has no undecided current head", async () => {
+    const runId = "run-20260426-0d05";
+    await seedAwaiting(runId, "2026-04-26");
+    await seedDraft("d-only-approved", runId, { outcome: "approved" });
+    const before = await draftRow("d-only-approved");
+    const res = await worker.fetch(reject(runId, await sign(EMAIL)), realEnv());
+    expect(res.status).toBe(409);
+    expect(await runStatus(runId)).toBe("awaiting");
+    expect(await draftRow("d-only-approved")).toEqual(before);
+    expect(await evidenceCount(`run-completed-${runId}`)).toBe(0);
+  });
+
+  it("requires supersede after a partly approved reject publishes the run", async () => {
+    const runId = "run-20260425-0d04";
+    await seedAwaiting(runId, "2026-04-25");
+    await seedDraft("d-kept", runId, { outcome: "approved" });
+    await seedDraft("d-rest", runId);
     const token = await sign(EMAIL);
     expect((await worker.fetch(reject(runId, token), realEnv())).status).toBe(
-      409
+      200
     );
-    expect(await runStatus(runId)).toBe("awaiting");
-    expect((await draftRow("d-still-open")).outcome).toBeNull();
-    expect((await draftRow("d-edited-head")).outcome).toBe("edited");
-    expect(await evidenceCount(`run-completed-${runId}`)).toBe(0);
+    const workflow = { create: vi.fn(async () => ({})) };
+    const blocked = await worker.fetch(
+      jsonPost(token, "/api/admin/runs", {
+        origin: "manual",
+        scheduledFor: "2026-04-25",
+        requestId: "supersede-after-partial-reject"
+      }),
+      { ...realEnv(), DAILY_RUN: workflow } as unknown as Env
+    );
+    expect(blocked.status).toBe(409);
+    expect(await blocked.json()).toEqual({
+      code: "supersede_required",
+      message: expect.any(String),
+      details: { priorRunId: runId }
+    });
+    expect(workflow.create).not.toHaveBeenCalled();
+    expect(await runsRepo.listRunIdsForDate(testEnv.DB, "2026-04-25")).toEqual([
+      runId
+    ]);
   });
 
   it("reports the undecided current-head count for an awaiting latest run", async () => {
@@ -3267,9 +3369,22 @@ describe("admin run reject", () => {
     const body = (await res.json()) as {
       latest: { id: string } | null;
       pendingHeadCount: number | null;
+      publishedHeadCount: number | null;
     };
     expect(body.latest?.id).toBe(runId);
     expect(body.pendingHeadCount).toBe(1);
+    expect(body.publishedHeadCount).toBe(0);
+    await seedDraft("d-loop-approved", runId, { outcome: "approved" });
+    const mixed = await worker.fetch(
+      signed(token, "/api/admin/loop"),
+      realEnv()
+    );
+    const mixedBody = (await mixed.json()) as {
+      pendingHeadCount: number | null;
+      publishedHeadCount: number | null;
+    };
+    expect(mixedBody.pendingHeadCount).toBe(1);
+    expect(mixedBody.publishedHeadCount).toBe(1);
     const publishedId = "run-20990102-0aa2";
     await seedAwaiting(
       publishedId,
@@ -3284,9 +3399,11 @@ describe("admin run reject", () => {
     const next = (await again.json()) as {
       latest: { id: string } | null;
       pendingHeadCount: number | null;
+      publishedHeadCount: number | null;
     };
     expect(next.latest?.id).toBe(publishedId);
     expect(next.pendingHeadCount).toBeNull();
+    expect(next.publishedHeadCount).toBeNull();
   });
 
   it("lets a settled rejected date through dailyRun admission and still blocks reserved cents", async () => {

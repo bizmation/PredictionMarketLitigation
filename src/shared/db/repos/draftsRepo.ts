@@ -510,6 +510,22 @@ export async function applyDecisionStmt(
     );
 }
 
+/** Current heads already approved or edited. Batch reject does not update them. */
+export async function countPublishedCurrentHeads(
+  db: Db,
+  runId: string
+): Promise<number> {
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS count FROM drafts d
+        WHERE d.run_id = ? AND d.outcome IN ('approved','edited')
+          AND ${currentHeadSql("d")}`
+    )
+    .bind(runId)
+    .first<{ count: number }>();
+  return Number(row?.count ?? 0);
+}
+
 /** Undecided chain heads for one Run. Same predicate the batch reject updates. */
 export async function countUndecidedCurrentHeads(
   db: Db,
