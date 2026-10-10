@@ -2,7 +2,7 @@
 title: 'Enable full Workers Observability on the build environment'
 type: 'chore'
 created: '2026-10-10'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '54ef6f3a8f3b621604ff072eed53194a57a329c3'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -75,6 +75,34 @@ Context7 has no Wrangler CLI entry (resolve returned wrangler-action only). Clou
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-10-10 — Review pass
+- verdicts: 0 findings — high 0, medium 0, low 0, false 0, maybe-false 0
+- findings:
+  - Review layers were not launched. `blind-hunter`, `edge-case-hunter`, `verification-gap`, and `intent-alignment` each require a context-free subagent, and this session has no subagent tool. The invocation said to report that and still push. `bmad-code-review` was not run.
+
+## Auto Run Result
+
+Status: done
+
+Summary: `env.build` now sets Workers Observability with logs, invocation logs, and traces at `head_sampling_rate` 1. Top-level `observability` is still exactly `{ enabled: true }`. `env.build.vars` is still `{ FIRST_FETCH_WINDOW_DAYS: "3" }`. Installed Wrangler 4.120.0 `definitions.Observability` already had every requested key, so none were renamed.
+
+Files changed:
+- `wrangler.jsonc` — build-environment observability object, and the inherits comment no longer lists observability as inherited.
+- `src/shared/lib/wranglerConfig.test.tsx` — pins top-level observability, build traces and invocation logs, the full build object, the staging var, and the installed schema keys.
+- `_bmad-output/implementation-artifacts/spec-wrangler-build-observability.md` — this spec.
+
+Review findings breakdown: no patches, no deferred items, no rejected findings. The four review layers did not run (no subagent launcher). Step 3's implementation subagent also could not be launched; the change was applied in-process from this spec. `bmad-code-review` was not run.
+
+Follow-up review recommendation: false. Patched counts this pass: high 0, medium 0, low 0. Residual risk: the review layers did not read the diff.
+
+Verification:
+- `npm test -- src/shared/lib/wranglerConfig.test.tsx` — exit 0, 21 passed after `dist/client` existed (15 passed and 6 skipped before the build; the skips were the pre-existing bundle scans).
+- `npm run check` — exit 0 (`oxfmt --check`, `oxlint`, `tsc`).
+- `npm test` — exit 0, 66 files, 1565 passed, 6 skipped.
+- `npx wrangler deploy --dry-run --config wrangler.jsonc --env build` — first exit 1 because `dist/client` was absent. After `npm run build` (exit 0), the same dry run exited 0 with `--dry-run: exiting now` and `env.FIRST_FETCH_WINDOW_DAYS ("3")`. No deploy.
+
+Context7 has no Wrangler CLI entry. Keys were confirmed from `node_modules/wrangler/config-schema.json` and Cloudflare Workers observability docs.
 
 ## Design Notes
 
