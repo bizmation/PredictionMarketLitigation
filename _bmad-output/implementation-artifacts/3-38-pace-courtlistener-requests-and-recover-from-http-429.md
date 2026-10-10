@@ -4,7 +4,7 @@ baseline_commit: 85850d2b376bc56b194cffe6a173e87b36378b6b
 
 # Story 3.38: Pace CourtListener requests and recover from HTTP 429
 
-Status: review
+Status: in-progress
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -97,6 +97,25 @@ so that a normal daily Run finishes instead of failing before any Draft exists.
 - low: there's no test where both stop conditions fire at once.
 - low: the deadline test has no negative 60 s case.
 - spec: the File List, the Change Log date, and the 115 s Dev Agent Record note are spec edits; please correct the 115 s note anyway while you fix the test.
+
+### Review Findings (second fix re-review of 59b7430..e19d92b, 2026-10-10)
+
+- [ ] [Review][Patch] The real-wait test never checks how the 429 recovery run ended: change `await retrying;` to `expect(await retrying).toEqual({ draftCount: 0, failed: false });` (low) [src/pipeline/connectors/courtListener.test.ts:~1665]
+- [ ] [Review][Patch] The "just fits" boundary test is loose: `calls.length >= 3` and `waits[1]` would still pass if the poll stopped one docket early. With the frozen clock every later pace sits exactly at the boundary, so all dockets fetch; assert the exact `calls` length (all dockets) and the exact `waits` array (low) [src/pipeline/connectors/courtListener.test.ts]
+- [ ] [Review][Patch] The five-docket test no longer ties the finish time to the deadlines: restore the `CONNECTOR_TIMEOUT_MS` import and add `expect(finishMs).toBeGreaterThan(CONNECTOR_TIMEOUT_MS)` and `expect(finishMs).toBeLessThan(COURTLISTENER_POLL_TIMEOUT_MS)` (low) [src/pipeline/connectors/courtListener.test.ts]
+- [ ] [Review][Patch] The zero-wait deadline stop after an earlier 429 (the `seenRateLimit` branch moved ahead of the early return) has no test: add a case with a 429, a recovered request, then a zero-wait stop with too little time left; assert `reason: "http_429"`, `status: 429` and the deadline detail (low) [src/pipeline/connectors/courtListener.test.ts]
+- [ ] [Review][Patch] Dev Agent Record is out of order: the round-2 "✅ Resolved" lines and "Re-review verification … 1,498" sit above the round-1 `timeouts.ts` entry and "Review follow-up verification … 1,495"; move the new block after the round-1 lines (low) [3-38 story file, Dev Agent Record]
+
+#### Rejected (second fix re-review)
+
+- Spacing or deadline stops after any earlier 429 in the poll are reported as `http_429`: consistent with the decision; per-request tracking adds complexity for low impact.
+- The `pace` 429 has no attempts or server detail: rejected in both earlier passes.
+- No time re-check after `beforeRequest`: needs a new guard for a negligible case.
+- The deleted comment: the new comment covers it.
+- The redaction token link: matches the harness env and would fail loudly.
+- `find` on the skip event and the full-state token scan: both fail loudly or go beyond the AC.
+- Constants-only sanity checks and vague story wording or File List: cosmetic or unverified.
+- Spacing after the retry: already pinned by the other spacing tests.
 
 ## Dev Notes
 
