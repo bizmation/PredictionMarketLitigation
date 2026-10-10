@@ -227,4 +227,56 @@ describe("staging domain ownership", () => {
     expect(build.ai).toEqual(config.ai);
     expect(build.workflows).toEqual(config.workflows);
   });
+
+  it("pins production observability and enables build traces and invocation logs", () => {
+    const parsed = ts.parseConfigFileTextToJson(
+      "wrangler.jsonc",
+      readFileSync("wrangler.jsonc", "utf8")
+    );
+    expect(parsed.error).toBeUndefined();
+    const config = parsed.config;
+    expect(config.observability).toEqual({ enabled: true });
+    const observability = config.env.build.observability;
+    expect(observability.traces.enabled).toBe(true);
+    expect(observability.logs.invocation_logs).toBe(true);
+    expect(observability).toEqual({
+      enabled: true,
+      head_sampling_rate: 1,
+      logs: { enabled: true, invocation_logs: true },
+      traces: { enabled: true, head_sampling_rate: 1 }
+    });
+    expect(config.env.build.vars).toEqual({ FIRST_FETCH_WINDOW_DAYS: "3" });
+  });
+});
+
+describe("installed Wrangler observability schema", () => {
+  it("accepts the build observability keys and has no issues property", () => {
+    const schema = JSON.parse(
+      readFileSync("node_modules/wrangler/config-schema.json", "utf8")
+    ) as {
+      definitions: {
+        Observability: {
+          properties: {
+            enabled?: unknown;
+            head_sampling_rate?: unknown;
+            logs?: {
+              properties?: { enabled?: unknown; invocation_logs?: unknown };
+            };
+            traces?: {
+              properties?: { enabled?: unknown; head_sampling_rate?: unknown };
+            };
+            issues?: unknown;
+          };
+        };
+      };
+    };
+    const properties = schema.definitions.Observability.properties;
+    expect(properties.enabled).toBeDefined();
+    expect(properties.head_sampling_rate).toBeDefined();
+    expect(properties.logs?.properties?.enabled).toBeDefined();
+    expect(properties.logs?.properties?.invocation_logs).toBeDefined();
+    expect(properties.traces?.properties?.enabled).toBeDefined();
+    expect(properties.traces?.properties?.head_sampling_rate).toBeDefined();
+    expect(properties.issues).toBeUndefined();
+  });
 });
