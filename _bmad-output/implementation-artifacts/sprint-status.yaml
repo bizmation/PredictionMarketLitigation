@@ -67,8 +67,8 @@ development_status:
   epic-2-retrospective: done
 
   # Epic 3: Governed Daily Loop (Pipeline → Gate → Live)
-  # Original 25 stories complete; approved corrective stories 3.26–3.37 remain.
-  # Story 3.38 recorded by sprint-change-proposal-2026-10-10. Live 3.36 acceptance depends on it.
+  # Original 25 stories complete; approved corrective stories 3.26–3.38 remain.
+  # Story 3.38 ratified by sprint-change-proposal-2026-10-10. Live 3.36 acceptance depends on it.
   epic-3: in-progress
   3-1-run-draft-evidence-data-model: done
   3-2-ai-gateway-budget-envelope-role-model-config: done
