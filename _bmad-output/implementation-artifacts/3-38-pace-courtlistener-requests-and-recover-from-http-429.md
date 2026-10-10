@@ -4,7 +4,7 @@ baseline_commit: 85850d2b376bc56b194cffe6a173e87b36378b6b
 
 # Story 3.38: Pace CourtListener requests and recover from HTTP 429
 
-Status: in-progress
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -100,11 +100,11 @@ so that a normal daily Run finishes instead of failing before any Draft exists.
 
 ### Review Findings (second fix re-review of 59b7430..e19d92b, 2026-10-10)
 
-- [ ] [Review][Patch] The real-wait test never checks how the 429 recovery run ended: change `await retrying;` to `expect(await retrying).toEqual({ draftCount: 0, failed: false });` (low) [src/pipeline/connectors/courtListener.test.ts:~1665]
-- [ ] [Review][Patch] The "just fits" boundary test is loose: `calls.length >= 3` and `waits[1]` would still pass if the poll stopped one docket early. With the frozen clock every later pace sits exactly at the boundary, so all dockets fetch; assert the exact `calls` length (all dockets) and the exact `waits` array (low) [src/pipeline/connectors/courtListener.test.ts]
-- [ ] [Review][Patch] The five-docket test no longer ties the finish time to the deadlines: restore the `CONNECTOR_TIMEOUT_MS` import and add `expect(finishMs).toBeGreaterThan(CONNECTOR_TIMEOUT_MS)` and `expect(finishMs).toBeLessThan(COURTLISTENER_POLL_TIMEOUT_MS)` (low) [src/pipeline/connectors/courtListener.test.ts]
-- [ ] [Review][Patch] The zero-wait deadline stop after an earlier 429 (the `seenRateLimit` branch moved ahead of the early return) has no test: add a case with a 429, a recovered request, then a zero-wait stop with too little time left; assert `reason: "http_429"`, `status: 429` and the deadline detail (low) [src/pipeline/connectors/courtListener.test.ts]
-- [ ] [Review][Patch] Dev Agent Record is out of order: the round-2 "✅ Resolved" lines and "Re-review verification … 1,498" sit above the round-1 `timeouts.ts` entry and "Review follow-up verification … 1,495"; move the new block after the round-1 lines (low) [3-38 story file, Dev Agent Record]
+- [x] [Review][Patch] The real-wait test never checks how the 429 recovery run ended: change `await retrying;` to `expect(await retrying).toEqual({ draftCount: 0, failed: false });` (low) [src/pipeline/connectors/courtListener.test.ts:~1665]
+- [x] [Review][Patch] The "just fits" boundary test is loose: `calls.length >= 3` and `waits[1]` would still pass if the poll stopped one docket early. With the frozen clock every later pace sits exactly at the boundary, so all dockets fetch; assert the exact `calls` length (all dockets) and the exact `waits` array (low) [src/pipeline/connectors/courtListener.test.ts]
+- [x] [Review][Patch] The five-docket test no longer ties the finish time to the deadlines: restore the `CONNECTOR_TIMEOUT_MS` import and add `expect(finishMs).toBeGreaterThan(CONNECTOR_TIMEOUT_MS)` and `expect(finishMs).toBeLessThan(COURTLISTENER_POLL_TIMEOUT_MS)` (low) [src/pipeline/connectors/courtListener.test.ts]
+- [x] [Review][Patch] The zero-wait deadline stop after an earlier 429 (the `seenRateLimit` branch moved ahead of the early return) has no test: add a case with a 429, a recovered request, then a zero-wait stop with too little time left; assert `reason: "http_429"`, `status: 429` and the deadline detail (low) [src/pipeline/connectors/courtListener.test.ts]
+- [x] [Review][Patch] Dev Agent Record is out of order: the round-2 "✅ Resolved" lines and "Re-review verification … 1,498" sit above the round-1 `timeouts.ts` entry and "Review follow-up verification … 1,495"; move the new block after the round-1 lines (low) [3-38 story file, Dev Agent Record]
 
 #### Rejected (second fix re-review)
 
@@ -203,14 +203,20 @@ Grok 4.7
 - ✅ Resolved review finding [low]: HTTP-date `Retry-After` uses the injected `nowMs` clock.
 - ✅ Resolved review finding [low]: HTTP-date fixtures use Saturday 10 Oct 2026 and Sunday 11 Oct 2026.
 - ✅ Resolved review finding [low]: The five-docket poll is still running just before it finishes and completes inside the 8-minute poll budget. Pacing is measured from request start, so 11-second fetches leave 4-second gaps and the poll finishes at 71 seconds, not 115.
+- ✅ Resolved review finding [low]: `timeouts.ts` describes `pollTimeoutMs` as the CourtListener per-check deadline. The constants in that module stay fixed.
+- Review follow-up verification: `npm run check` exited 0. `npm test` exited 0: 1,495 passed, 6 skipped, 63 files. No deploy, staging, production, or paid-provider call. The deferred epics.md item and the rejected findings were left unchanged.
 - ✅ Resolved review finding [medium]: Real waits are asserted at 14.9 s (1 call) and 15 s (2 calls), and the same way for a 60-second 429 backoff.
 - ✅ Resolved review finding [medium]: A moving clock with `waitMs <= timeLeft < waitMs + 12 s` stops before the fetch. The equal boundary `timeLeft = waitMs + 12 s` still fetches.
 - ✅ Resolved review finding [low]: The poll-deadline check runs even when no spacing wait is needed, so a request with under 12 seconds left does not start.
 - ✅ Resolved review finding [low]: A spacing-only stop uses detail `wait budget exhausted`. `rate limit wait budget exhausted` stays for a stop after a real 429.
 - ✅ Resolved review finding [low]: The exhausted-429 workflow test asserts status 429, 3 attempts, scrubbed detail, fetch count `COURTLISTENER_MAX_ATTEMPTS`, and that the token is absent from evidence.
 - Re-review verification: `npm run check` exited 0. `npm test` exited 0: 1,498 passed, 6 skipped, 63 files. No deploy, staging, production, or paid-provider call. Rejected re-review items were left unchanged.
-- ✅ Resolved review finding [low]: `timeouts.ts` describes `pollTimeoutMs` as the CourtListener per-check deadline. The constants in that module stay fixed.
-- Review follow-up verification: `npm run check` exited 0. `npm test` exited 0: 1,495 passed, 6 skipped, 63 files. No deploy, staging, production, or paid-provider call. The deferred epics.md item and the rejected findings were left unchanged.
+- ✅ Resolved review finding [low]: The 60-second 429 recovery run is asserted `{ draftCount: 0, failed: false }`.
+- ✅ Resolved review finding [low]: The just-fits poll boundary asserts all 4 docket fetches and three 15-second waits.
+- ✅ Resolved review finding [low]: `finishMs` is greater than `CONNECTOR_TIMEOUT_MS` and less than `COURTLISTENER_POLL_TIMEOUT_MS`.
+- ✅ Resolved review finding [low]: After a recovered 429, a zero-wait request with too little time left skips as `http_429` with status 429 and the deadline detail.
+- ✅ Resolved review finding [low]: Dev Agent Record rounds are in chronological order: round 1, then the re-review, then this pass.
+- Second fix re-review verification: `npm run check` exited 0. `npm test` exited 0: 1,499 passed, 6 skipped, 63 files. No deploy, staging, production, or paid-provider call. `courtListener.ts` logic was not changed. Rejected items were left unchanged.
 
 ### File List
 
@@ -236,3 +242,4 @@ Grok 4.7
 - 2026-10-10: Implemented pacing and bounded 429 recovery. `npm run check` and `npm test` passed. Status review.
 - 2026-10-10: Addressed code review findings - 12 items resolved (Date: 2026-10-10). Status review.
 - 2026-10-10: Addressed code review findings - 6 items resolved (Date: 2026-10-10). The five-docket poll finishes at 71 seconds. Status review.
+- 2026-10-10: Addressed code review findings - 5 items resolved (Date: 2026-10-10). Test and record fixes only. Status review.

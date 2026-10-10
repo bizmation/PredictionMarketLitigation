@@ -4,7 +4,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as draftsRepo from "../../shared/db/repos/draftsRepo";
 import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
-import { SOURCE_FETCH_TIMEOUT_MS } from "../../shared/lib/timeouts";
+import {
+  CONNECTOR_TIMEOUT_MS,
+  SOURCE_FETCH_TIMEOUT_MS
+} from "../../shared/lib/timeouts";
 import { completeDailyStep } from "../workflow/dailyRunSteps";
 import { runConnector } from "./connector";
 import {
@@ -759,6 +762,8 @@ describe("CourtListener connector (story 3.21)", () => {
       // and inside the 8-minute CourtListener poll.
       const SLOW_MS = SOURCE_FETCH_TIMEOUT_MS - 1_000;
       const finishMs = 4 * COURTLISTENER_MIN_INTERVAL_MS + SLOW_MS;
+      expect(finishMs).toBeGreaterThan(CONNECTOR_TIMEOUT_MS);
+      expect(finishMs).toBeLessThan(COURTLISTENER_POLL_TIMEOUT_MS);
       vi.stubGlobal(
         "fetch",
         vi.fn(
@@ -1656,7 +1661,7 @@ describe("CourtListener rate limit (story 3.38)", () => {
     await vi.advanceTimersByTimeAsync(100);
     expect(retries).toHaveLength(2);
     await vi.advanceTimersByTimeAsync(COURTLISTENER_POLL_TIMEOUT_MS);
-    await retrying;
+    expect(await retrying).toEqual({ draftCount: 0, failed: false });
     expect(vi.getTimerCount()).toBe(0);
     vi.useRealTimers();
   });
@@ -1716,8 +1721,12 @@ describe("CourtListener rate limit (story 3.38)", () => {
         })
       )
     ).toEqual({ draftCount: 0, failed: false });
-    expect(calls.length).toBeGreaterThanOrEqual(3);
-    expect(waits[1]).toBe(COURTLISTENER_MIN_INTERVAL_MS);
+    expect(calls).toHaveLength(4);
+    expect(waits).toEqual([
+      COURTLISTENER_MIN_INTERVAL_MS,
+      COURTLISTENER_MIN_INTERVAL_MS,
+      COURTLISTENER_MIN_INTERVAL_MS
+    ]);
   });
 
   it("stops a zero-wait request when one fetch would miss the poll deadline", async () => {
@@ -1743,5 +1752,46 @@ describe("CourtListener rate limit (story 3.38)", () => {
       docketId: "72237443"
     });
     expect(skipped).not.toHaveProperty("status");
+  });
+
+  it("reports http_429 when a recovered 429 is followed by a zero-wait deadline miss", async () => {
+    let clock = 0;
+    const waits: number[] = [];
+    let calls = 0;
+    const fetches = stubFetch(() => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          status: 429,
+          headers: { "retry-after": "1" },
+          body: { detail: "Rate limit exceeded: 5/min." }
+        };
+      }
+      clock = COURTLISTENER_POLL_TIMEOUT_MS - SOURCE_FETCH_TIMEOUT_MS + 1_000;
+      return { status: 200, body: { results: [] } };
+    });
+    const runId = await newRun();
+    expect(
+      await runConnector(
+        testEnv.DB,
+        runId,
+        SOURCE,
+        check(TOKEN, {
+          nowMs: () => clock,
+          wait: async (ms) => {
+            waits.push(ms);
+            clock += ms;
+          }
+        })
+      )
+    ).toEqual({ draftCount: 0, failed: true });
+    expect(fetches).toHaveLength(2);
+    expect(waits).toEqual([COURTLISTENER_MIN_INTERVAL_MS]);
+    expect(await skippedReason(runId)).toMatchObject({
+      reason: "http_429",
+      status: 429,
+      detail: "poll deadline would not fit the next request",
+      docketId: "72237443"
+    });
   });
 });
