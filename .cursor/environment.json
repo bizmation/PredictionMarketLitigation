@@ -1,0 +1,4 @@
+{
+  "name": "PML",
+  "install": "bash .cursor/install.sh"
+}
