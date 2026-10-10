@@ -34,7 +34,7 @@ import { IsoDateSchema } from "./shared/schemas/common";
 import { ModePostBodySchema } from "./shared/schemas/mode";
 import { etCalendarDate } from "./shared/lib/schedule";
 import { llmProvidersFromEnv } from "./pipeline/ai/gateway";
-import { decide } from "./pipeline/gate/approval";
+import { decide, rejectAwaitingRun } from "./pipeline/gate/approval";
 import { submitTurn } from "./pipeline/steering/submitTurn";
 import { SteeringPostBodySchema } from "./shared/schemas/steering";
 import {
@@ -332,9 +332,17 @@ export default {
         }
         try {
           const items = await runsRepo.listRuns(getDb(env));
+          const latest = items[0] ?? null;
           return Response.json(
             {
-              latest: items[0] ?? null,
+              latest,
+              pendingHeadCount:
+                latest?.status === "awaiting"
+                  ? await draftsRepo.countUndecidedCurrentHeads(
+                      getDb(env),
+                      latest.id
+                    )
+                  : null,
               dispatches: await runAdmissionRepo.listActive(getDb(env))
             },
             { headers: ADMIN_CACHE_HEADERS }
@@ -411,6 +419,82 @@ export default {
             ),
             { headers: ADMIN_CACHE_HEADERS }
           );
+        }
+      }
+
+      const rejectRunMatch =
+        /^\/api\/admin\/runs\/(run-[0-9]{8}-[0-9a-f]{4})\/reject$/.exec(
+          adminPath
+        );
+      if (rejectRunMatch) {
+        if (request.method !== "POST") {
+          return new Response("Method not allowed", {
+            status: 405,
+            headers: { ...ADMIN_CACHE_HEADERS, allow: "POST" }
+          });
+        }
+        let bodyText = "";
+        try {
+          bodyText = await request.text();
+        } catch {
+          return jsonError(badRequest("Malformed JSON body."), {
+            headers: ADMIN_CACHE_HEADERS
+          });
+        }
+        if (bodyText.trim() !== "") {
+          try {
+            const parsed: unknown = JSON.parse(bodyText);
+            if (
+              parsed === null ||
+              typeof parsed !== "object" ||
+              Array.isArray(parsed)
+            ) {
+              return jsonError(badRequest("Invalid reject body."), {
+                headers: ADMIN_CACHE_HEADERS
+              });
+            }
+          } catch {
+            return jsonError(badRequest("Malformed JSON body."), {
+              headers: ADMIN_CACHE_HEADERS
+            });
+          }
+        }
+        try {
+          const result = await rejectAwaitingRun(getDb(env), {
+            runId: rejectRunMatch[1]!,
+            operator: { displayName: gate.operator.displayName },
+            now: new Date().toISOString()
+          });
+          if (result.status === "not_found") {
+            return jsonError(
+              notFound(`Run '${rejectRunMatch[1]}' not found.`),
+              {
+                headers: ADMIN_CACHE_HEADERS
+              }
+            );
+          }
+          if (result.status === "conflict") {
+            return jsonError(conflict("Run cannot be rejected."), {
+              headers: ADMIN_CACHE_HEADERS
+            });
+          }
+          return Response.json(
+            {
+              runId: result.runId,
+              status: "rejected",
+              rejectedCount: result.rejectedCount
+            },
+            { headers: ADMIN_CACHE_HEADERS }
+          );
+        } catch (error) {
+          console.error(
+            JSON.stringify({
+              event: "admin_api.error",
+              path: pathname,
+              message: error instanceof Error ? error.message : String(error)
+            })
+          );
+          return jsonError(internalError(), { headers: ADMIN_CACHE_HEADERS });
         }
       }
 
