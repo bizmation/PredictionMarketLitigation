@@ -4,7 +4,7 @@ baseline_commit: 85850d2b376bc56b194cffe6a173e87b36378b6b
 
 # Story 3.38: Pace CourtListener requests and recover from HTTP 429
 
-Status: in-progress
+Status: review
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -26,21 +26,21 @@ so that a normal daily Run finishes instead of failing before any Draft exists.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Pace and retry inside the connector** (AC: 1–7)
-  - [ ] Serialize docket and pagination fetches. Keep one pace clock per check invocation, measured from request start.
-  - [ ] Wait with an abortable `setTimeout` (same timer choice as story 3.19). Honor `Retry-After`, the 60-second default, the 15-second floor, the 60-second cap, 3 attempts, and the 6-minute wait budget.
-  - [ ] On exhaustion or budget breach, throw the existing source-level `http_429` with scrubbed detail. Do not retry any other failure class.
-  - [ ] Set `pollTimeoutMs` on the CourtListener check to 8 minutes. `observe` uses that only when the check defines it.
-  - [ ] Leave `DailyRunWorkflow.run` step names unchanged. Do not introduce Queues or a new dependency.
-- [ ] **Task 2: Tests** (AC: 1–7)
-  - [ ] Unit-test `retryAfterMs` for seconds, HTTP-date, missing, garbage, and over-cap values.
-  - [ ] 429 with `Retry-After` recovers and writes one Draft. 429 without the header waits 60 seconds and recovers.
-  - [ ] Three 429s, and a wait that does not fit the budget, skip `http_429` with scrubbed detail and zero Drafts.
-  - [ ] 401/403/5xx are not retried. The five-docket poll still reports every docket and the unmatched URL under the new serial schedule.
-  - [ ] Admission cancellation still aborts the in-flight request, writes no Draft, and does not call the provider. A full workflow poll that sees one 429 then 200 calls the provider twice (drafter and reviewer), not once per attempt.
-  - [ ] Existing connector, recovery, and `CONNECTOR_TIMEOUT_MS === 60_000` tests stay green. Inject an instant wait from test harnesses that already poll the real connector.
-- [ ] **Task 3: Verification** (AC: all)
-  - [ ] `npm run check` and `npm test` exit 0. No deploy, no staging or production call, no paid provider call.
+- [x] **Task 1: Pace and retry inside the connector** (AC: 1–7)
+  - [x] Serialize docket and pagination fetches. Keep one pace clock per check invocation, measured from request start.
+  - [x] Wait with an abortable `setTimeout` (same timer choice as story 3.19). Honor `Retry-After`, the 60-second default, the 15-second floor, the 60-second cap, 3 attempts, and the 6-minute wait budget.
+  - [x] On exhaustion or budget breach, throw the existing source-level `http_429` with scrubbed detail. Do not retry any other failure class.
+  - [x] Set `pollTimeoutMs` on the CourtListener check to 8 minutes. `observe` uses that only when the check defines it.
+  - [x] Leave `DailyRunWorkflow.run` step names unchanged. Do not introduce Queues or a new dependency.
+- [x] **Task 2: Tests** (AC: 1–7)
+  - [x] Unit-test `retryAfterMs` for seconds, HTTP-date, missing, garbage, and over-cap values.
+  - [x] 429 with `Retry-After` recovers and writes one Draft. 429 without the header waits 60 seconds and recovers.
+  - [x] Three 429s, and a wait that does not fit the budget, skip `http_429` with scrubbed detail and zero Drafts.
+  - [x] 401/403/5xx are not retried. The five-docket poll still reports every docket and the unmatched URL under the new serial schedule.
+  - [x] Admission cancellation still aborts the in-flight request, writes no Draft, and does not call the provider. A full workflow poll that sees one 429 then 200 calls the provider twice (drafter and reviewer), not once per attempt.
+  - [x] Existing connector, recovery, and `CONNECTOR_TIMEOUT_MS === 60_000` tests stay green. Inject an instant wait from test harnesses that already poll the real connector.
+- [x] **Task 3: Verification** (AC: all)
+  - [x] `npm run check` and `npm test` exit 0. No deploy, no staging or production call, no paid provider call.
 
 ## Dev Notes
 
@@ -114,14 +114,28 @@ Grok 4.7
 ### Completion Notes List
 
 - Ultimate context engine analysis completed - comprehensive developer guide created
+- CourtListener polls are serial. Request starts are at least 15 seconds apart. HTTP 429 retries up to 3 times, honoring a capped `Retry-After` or waiting 60 seconds when the header is missing. The wait budget is 6 minutes. The poll deadline is 8 minutes. Other failures still fail on the first response.
+- Exhausted 429 and an over-budget wait both skip the source as `http_429` with scrubbed detail and no Draft. A recovered 429 writes one Draft. The workflow test calls the provider twice for that Draft, not once per attempt.
+- `run-daily-step` was not split. `CONNECTOR_TIMEOUT_MS` remains 60 seconds. `npm run check` exited 0. `npm test` exited 0: 1,482 passed, 6 skipped, 63 files. No deploy, staging, production, or paid-provider call.
 
 ### File List
 
 - `_bmad-output/implementation-artifacts/3-38-pace-courtlistener-requests-and-recover-from-http-429.md`
 - `_bmad-output/implementation-artifacts/sprint-status.yaml`
 - `_bmad-output/implementation-artifacts/epic-3-context.md`
+- `_bmad-output/implementation-artifacts/spec-3-36-verify-the-corrected-staging-run-and-gateway.md`
 - `_bmad-output/planning-artifacts/epics.md`
+- `src/pipeline/connectors/connector.ts`
+- `src/pipeline/connectors/courtListener.ts`
+- `src/pipeline/connectors/courtListener.test.ts`
+- `src/pipeline/workflow/dailyRun.ts`
+- `src/pipeline/workflow/dailyRun.test.ts`
+- `src/pipeline/workflow/dailyRunRecovery.test.ts`
+- `src/pipeline/workflow/runAdmission.test.ts`
+- `src/shared/lib/timeouts.ts`
 
 ## Change Log
 
-- 2026-10-10: Created story 3.38. Create-story did not take backlog story 3.37 and did not edit the 3.36 spec. Status ready-for-dev.
+- 2026-10-10: Created story 3.38. Create-story did not take backlog story 3.37. Status ready-for-dev.
+- 2026-10-10: Patrick asked for a 3.36 blocker note. Status value of 3.36 stays `in-progress`. Live acceptance is blocked on 3.38 merge and deploy.
+- 2026-10-10: Implemented pacing and bounded 429 recovery. `npm run check` and `npm test` passed. Status review.

@@ -110,7 +110,7 @@ development_status:
   3-35-drive-apex-pending-copy-from-public-draft-data: done
   3-36-verify-the-corrected-staging-run-and-gateway: in-progress # USD 1 total authorized; DeepInfra/GLM Secrets Store implementation in review; live acceptance pending; blocked on 3.38 (CourtListener 429 pacing) merge and deploy
   # Added 2026-10-10 by create-story. Not part of 3.36 (operational verification) and not 3.37 (next backlog acceptance story).
-  3-38-pace-courtlistener-requests-and-recover-from-http-429: in-progress
+  3-38-pace-courtlistener-requests-and-recover-from-http-429: review
   3-37-prove-the-live-governed-loop-and-reassess-epic-3: backlog
   # Retrospective completed; verdict remains rejected until 3.37 reassessment.
   epic-3-retrospective: done
