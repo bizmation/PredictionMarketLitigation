@@ -3304,6 +3304,7 @@ describe("admin run reject", () => {
         ...realEnv(),
         DB: db
       });
+      expect(db.batchCalls()).toBe(1);
       expect(res.status).toBe(status);
       expect(await res.json()).toEqual(
         status === 409

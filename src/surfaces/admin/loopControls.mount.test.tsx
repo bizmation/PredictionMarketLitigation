@@ -944,9 +944,11 @@ describe("tab-local request recovery and confirmation", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<LoopControls />);
     await act(async () => {});
+    const before = loopGets(fetchMock);
     fireEvent.click(screen.getByRole("button", { name: "Reject this run" }));
     fireEvent.click(screen.getByRole("button", { name: "Reject 4 drafts" }));
     await act(async () => {});
+    expect(loopGets(fetchMock)).toBe(before + 1);
     expect(document.body.textContent).toContain("No answer within 30 seconds");
     expect(document.body.textContent).toContain("run-20261111-0000");
     expect(document.body.textContent).not.toContain(
@@ -987,6 +989,7 @@ describe("tab-local request recovery and confirmation", () => {
       screen.getByRole("button", { name: "Reject this run" })
     ).toBeTruthy();
     expect(loopGets(fetchMock)).toBe(before + 1);
+    expect(document.querySelector("output")).toBeNull();
   });
 
   it("uses singular copy when one undecided draft is rejected", async () => {
@@ -1016,6 +1019,31 @@ describe("tab-local request recovery and confirmation", () => {
     await act(async () => {});
     expect(document.body.textContent).toContain(
       "Run run-20261111-0000 rejected. 1 draft was rejected."
+    );
+    expect(document.body.textContent).not.toContain("drafts were rejected");
+  });
+
+  it("shows the count-free notice when reject succeeds without rejectedCount", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes("/reject") && init?.method === "POST") {
+          return scripted({
+            runId: "run-20261111-0000",
+            status: "rejected"
+          });
+        }
+        return awaitingLoop(4);
+      })
+    );
+    render(<LoopControls />);
+    await act(async () => {});
+    fireEvent.click(screen.getByRole("button", { name: "Reject this run" }));
+    fireEvent.click(screen.getByRole("button", { name: "Reject 4 drafts" }));
+    await act(async () => {});
+    expect(document.querySelector("output")?.textContent).toBe(
+      "Run run-20261111-0000 rejected."
     );
     expect(document.body.textContent).not.toContain("drafts were rejected");
   });
