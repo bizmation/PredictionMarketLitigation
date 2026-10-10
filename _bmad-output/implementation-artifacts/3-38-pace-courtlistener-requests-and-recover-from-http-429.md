@@ -4,7 +4,7 @@ baseline_commit: 85850d2b376bc56b194cffe6a173e87b36378b6b
 
 # Story 3.38: Pace CourtListener requests and recover from HTTP 429
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -243,3 +243,4 @@ Grok 4.7
 - 2026-10-10: Addressed code review findings - 12 items resolved (Date: 2026-10-10). Status review.
 - 2026-10-10: Addressed code review findings - 6 items resolved (Date: 2026-10-10). The five-docket poll finishes at 71 seconds. Status review.
 - 2026-10-10: Addressed code review findings - 5 items resolved (Date: 2026-10-10). Test and record fixes only. Status review.
+- 2026-10-10: PML Code Review approved #58 at `3086c2a`. Status done.
