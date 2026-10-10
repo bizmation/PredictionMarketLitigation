@@ -3232,6 +3232,24 @@ describe("admin run reject", () => {
     expect(await evidenceCount(`run-completed-${runId}`)).toBe(0);
   });
 
+  it("accepts an empty reject body", async () => {
+    const runId = "run-20260509-0b09";
+    await seedAwaiting(runId, "2026-05-09");
+    await seedDraft("d-empty-reject", runId);
+    const res = await worker.fetch(
+      rejectBody(runId, await sign(EMAIL), ""),
+      realEnv()
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      runId,
+      status: "rejected",
+      rejectedCount: 1
+    });
+    expect((await draftRow("d-empty-reject")).outcome).toBe("rejected");
+    expect(await runStatus(runId)).toBe("rejected");
+  });
+
   it("returns 400 for an array reject body and writes nothing", async () => {
     const runId = "run-20260508-0b08";
     await seedAwaiting(runId, "2026-05-08");

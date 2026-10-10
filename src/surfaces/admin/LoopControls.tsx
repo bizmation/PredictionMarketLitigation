@@ -491,6 +491,7 @@ export function LoopControls({
       }
       if (res.status === 404) {
         setRejectRunId(null);
+        setNotice(`Run ${runId} was not found. Status refreshed.`);
         setReload((value) => value + 1);
         return;
       }

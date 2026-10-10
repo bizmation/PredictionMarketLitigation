@@ -902,18 +902,19 @@ describe("tab-local request recovery and confirmation", () => {
   });
 
   it("keeps the confirm step open when reject returns 500", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         if (url.includes("/reject") && init?.method === "POST") {
           return scripted({ code: "internal_error" }, false, 500);
         }
         return awaitingLoop(4);
-      })
+      }
     );
+    vi.stubGlobal("fetch", fetchMock);
     render(<LoopControls />);
     await act(async () => {});
+    const before = loopGets(fetchMock);
     fireEvent.click(screen.getByRole("button", { name: "Reject this run" }));
     fireEvent.click(screen.getByRole("button", { name: "Reject 4 drafts" }));
     await act(async () => {});
@@ -923,9 +924,9 @@ describe("tab-local request recovery and confirmation", () => {
     expect(document.body.textContent).toContain(
       "Reject 4 undecided drafts in run-20261111-0000?"
     );
-    expect(
-      screen.getByRole("button", { name: "Reject 4 drafts" })
-    ).toBeTruthy();
+    const retry = screen.getByRole("button", { name: "Reject 4 drafts" });
+    expect(retry.hasAttribute("disabled")).toBe(false);
+    expect(loopGets(fetchMock)).toBe(before);
   });
 
   it("closes the confirm step after a timeout when the same awaiting run reloads", async () => {
@@ -959,11 +960,16 @@ describe("tab-local request recovery and confirmation", () => {
     ).toBeTruthy();
   });
 
-  it("closes the confirm step and reloads when reject returns 404", async () => {
+  it("replaces an earlier notice when reject returns 404", async () => {
+    let posts = 0;
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
         if (url.includes("/reject") && init?.method === "POST") {
+          posts += 1;
+          if (posts === 1) {
+            return scripted({ code: "internal_error" }, false, 500);
+          }
           return scripted({ code: "not_found" }, false, 404);
         }
         return awaitingLoop(4);
@@ -972,15 +978,20 @@ describe("tab-local request recovery and confirmation", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<LoopControls />);
     await act(async () => {});
-    const before = loopGets(fetchMock);
     fireEvent.click(screen.getByRole("button", { name: "Reject this run" }));
     fireEvent.click(screen.getByRole("button", { name: "Reject 4 drafts" }));
     await act(async () => {});
-    expect(document.body.textContent).not.toContain(
+    expect(document.body.textContent).toContain(
       "Reject did not complete. The run is unchanged until you confirm it again."
     );
+    const before = loopGets(fetchMock);
+    fireEvent.click(screen.getByRole("button", { name: "Reject 4 drafts" }));
+    await act(async () => {});
+    expect(document.querySelector("output")?.textContent).toBe(
+      "Run run-20261111-0000 was not found. Status refreshed."
+    );
     expect(document.body.textContent).not.toContain(
-      "This run cannot be rejected."
+      "Reject did not complete. The run is unchanged until you confirm it again."
     );
     expect(document.body.textContent).not.toContain(
       "Reject 4 undecided drafts"
@@ -989,7 +1000,6 @@ describe("tab-local request recovery and confirmation", () => {
       screen.getByRole("button", { name: "Reject this run" })
     ).toBeTruthy();
     expect(loopGets(fetchMock)).toBe(before + 1);
-    expect(document.querySelector("output")).toBeNull();
   });
 
   it("uses singular copy when one undecided draft is rejected", async () => {

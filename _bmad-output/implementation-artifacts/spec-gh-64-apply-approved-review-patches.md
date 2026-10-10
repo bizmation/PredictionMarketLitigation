@@ -4,7 +4,7 @@ type: 'bugfix'
 created: '2026-10-10'
 status: 'done'
 baseline_revision: '103fb656a6173eda92d9cd93824706cc5c9183cd'
-review_loop_iteration: 0
+review_loop_iteration: 1
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/spec-reject-awaiting-run-batch.md'
@@ -26,7 +26,7 @@ deferred: []
 **Always:**
 - `rejectAwaitingRun`'s batch catch returns `{ status: "conflict" }` only when `String(error)` contains `gate_assertion_failed` or the SQLite unique-failure text `UNIQUE constraint failed: evidence_events.id`. Every other error is rethrown. The route already maps conflict to 409 and a throw to 500 (`src/server.ts` ~476–498). Leave that mapping.
 - `POST /api/admin/runs/:id/reject` with body `"{not json"` or `"[]"`, from a verified operator, returns 400 and writes nothing. `{}` and an empty body stay accepted.
-- A 409 confirm shows `This run cannot be rejected.` and closes the confirm step. A 500 shows `Reject did not complete. The run is unchanged until you confirm it again.` and leaves the confirm step open. A timeout that reloads the same run id also closes the confirm step. A 404 closes the confirm step, refetches loop status, and does not show that did-not-complete sentence.
+- A 409 confirm shows `This run cannot be rejected.` and closes the confirm step. A 500 shows `Reject did not complete. The run is unchanged until you confirm it again.` and leaves the confirm step open, with the retry button enabled and no loop reload. A timeout that reloads the same run id also closes the confirm step. A 404 closes the confirm step, refetches loop status, and replaces any earlier notice with `Run ${runId} was not found. Status refreshed.`
 - When the count is 1, the confirm question is `Reject 1 undecided draft in {id}?`, the button is `Reject 1 draft`, and success is `Run {id} rejected. 1 draft was rejected.` Any other count stays plural.
 
 **Never:**
@@ -44,7 +44,7 @@ deferred: []
 | UI 409 | Confirm open; POST 409; loop reloads the same awaiting run | Notice `This run cannot be rejected.`; confirm closed; `Reject this run` is back | — |
 | UI 500 | Confirm open; POST 500 | Did-not-complete notice; confirm question still shown | — |
 | UI timeout, same run | POST throws `TimeoutError`; next loop GET is the same run id, still awaiting | Timeout notice; confirm closed; `Reject this run` is back | — |
-| UI 404 | Confirm open; POST 404; next loop GET is the same awaiting run | Confirm closed; loop GET runs again; did-not-complete sentence absent | — |
+| UI 404 | Confirm open; a 500 notice is already showing; POST 404; next loop GET is the same awaiting run | Notice becomes `Run {id} was not found. Status refreshed.`; confirm closed; loop GET runs again | — |
 | Singular | `pendingHeadCount` 1, success `rejectedCount` 1 | Question, button, and success use the singular sentences | — |
 | Plural | Count 4, as the existing confirm test | `undecided drafts` and `4 drafts were rejected.` stay | — |
 
@@ -57,7 +57,7 @@ deferred: []
 - `src/test/failingDb.ts` `failBatchAfter` — proxy whose nth `batch()` rejects. `rejectAwaitingRun` batches once, so `failBatchAfter(db, 1, error)` injects the classifier cases. Reuse it; do not add a production hook.
 - `src/server.ts` ~425–498 — body guard already returns `badRequest("Malformed JSON body.")` and `badRequest("Invalid reject body.")`. Conflict message is `Run cannot be rejected.` Do not change the guard.
 - `src/shared/api/adminApi.test.ts` `describe("admin run reject")` ~3017 — `reject()` posts `{}`. `rolls back when the evidence id is already taken` ~3189 is the live duplicate-id 409. No test posts `"{not json"` or `"[]"`.
-- `src/surfaces/admin/LoopControls.tsx` `rejectRun` ~457–531 — 409 closes and reloads; `!res.ok` (~492) shows the did-not-complete sentence and does not clear `rejectRunId`. Timeout ~521–528 already clears it. Copy ~616–626 and ~506–509 is always plural.
+- `src/surfaces/admin/LoopControls.tsx` `rejectRun` — 409 closes and reloads. 404 closes, reloads, and sets `Run ${runId} was not found. Status refreshed.` `!res.ok` shows the did-not-complete sentence, leaves the confirm step open, and does not reload. Timeout clears the confirm id and reloads. Count 1 uses singular copy.
 - `src/surfaces/admin/loopControls.mount.test.tsx` ~719 — timeout test swaps in `run-20261112-0001`, so a cleared confirm id is not required. `scripted(body, ok, status)` ~42. No 409, 500, or 404 reject test.
 - `src/shared/db/repos/draftsRepo.ts` `currentHeadSql` ~529 and `READY_HEAD_SQL` ~544 — CTE `FROM drafts` shadows an outer `drafts` alias. `approval.ts` ~337–341 calls `currentHeadSql("drafts")` inside `UPDATE drafts`. Record only.
 - `_bmad-output/implementation-artifacts/deferred-work.md` — append a dated section; do not edit older entries.
@@ -67,7 +67,7 @@ deferred: []
 **Execution:**
 - `src/pipeline/gate/approval.ts` — narrow the `rejectAwaitingRun` catch to the two conflict messages and rethrow the rest — stops CHECK, NOT NULL, FK, and other UNIQUE failures from becoming conflict.
 - `src/shared/api/adminApi.test.ts` — add the malformed and array body cases, plus `failBatchAfter` cases for both catch sides — deleting the body guard or restoring `includes("constraint")` / `includes("UNIQUE")` fails.
-- `src/surfaces/admin/LoopControls.tsx` — singular copy at count 1; on 404, `setRejectRunId(null)` and `setReload` with no did-not-complete notice — 500 stays on the current branch.
+- `src/surfaces/admin/LoopControls.tsx` — singular copy at count 1; on 404, close the confirm step, reload, and set `Run ${runId} was not found. Status refreshed.` — 500 stays on the current branch.
 - `src/surfaces/admin/loopControls.mount.test.tsx` — add 409 close, 500 notice, same-run timeout, 404 close-and-reload, and singular copy — the different-run timeout test stays.
 - `_bmad-output/implementation-artifacts/deferred-work.md` — append the shadowing note — the SQL stays unchanged.
 
@@ -106,24 +106,24 @@ The CTE note to append, verbatim in substance: using `currentHeadSql("drafts")` 
 
 **Commands:**
 - `npm run check` — expected: exit 0
-- `npm test` — expected: exit 0
+- `npm test` — expected: exit 0. The suite needs Node 24.
 
 ## Auto Run Result
 
-Summary: Awaiting-run reject now returns a conflict only for `gate_assertion_failed` and `UNIQUE constraint failed: evidence_events.id`. Other batch errors propagate. The confirm step uses singular copy at count 1, closes on 409, 404, and a same-run timeout, and a 500 still shows the did-not-complete notice. The head-SQL shadowing note is recorded and the SQL is unchanged.
+Summary: Awaiting-run reject now returns a conflict only for `gate_assertion_failed` and `UNIQUE constraint failed: evidence_events.id`. Other batch errors propagate. The confirm step uses singular copy at count 1, closes on 409, 404, and a same-run timeout, and a 500 still shows the did-not-complete notice with the retry button enabled and no reload. A 404 replaces that notice with `Run {id} was not found. Status refreshed.` An empty reject body is still accepted. The head-SQL shadowing note is recorded and the SQL is unchanged.
 
 Files changed:
 - `src/pipeline/gate/approval.ts` — narrows the `rejectAwaitingRun` batch catch.
-- `src/shared/api/adminApi.test.ts` — pins the two bad bodies and both sides of the catch, including `batchCalls()`.
-- `src/surfaces/admin/LoopControls.tsx` — singular copy at count 1, and 404 closes the confirm step and reloads.
-- `src/surfaces/admin/loopControls.mount.test.tsx` — 409, 500, same-run timeout, 404, singular copy, empty 404 notice, and a count-free success sentence.
+- `src/shared/api/adminApi.test.ts` — pins the two bad bodies, an empty body, and both sides of the catch, including `batchCalls()`.
+- `src/surfaces/admin/LoopControls.tsx` — singular copy at count 1, and 404 closes the confirm step, reloads, and sets the not-found notice.
+- `src/surfaces/admin/loopControls.mount.test.tsx` — 409, 500 with an enabled retry and no reload, same-run timeout, 404 replacing a 500 notice, singular copy, and a count-free success sentence.
 - `_bmad-output/implementation-artifacts/deferred-work.md` — records the `currentHeadSql("drafts")` shadowing note.
 - `_bmad-output/implementation-artifacts/spec-gh-64-apply-approved-review-patches.md` — this spec.
 
-Review findings breakdown: Four low patch entries were applied (empty 404 notice, timeout reload count, missing `rejectedCount`, and `batchCalls()`). No items were deferred. Rejected findings: the deferred-note wording and alias example match the requested text; non-object JSON bodies other than the two named ones are outside the intent; the 4s poll does not flake these millisecond assertions; HTTP 500 is the rethrow; the new 500 rows lock the narrow matcher; the SQL note lives in `deferred-work.md`.
+Review findings breakdown: The triage log has five `[patch]` rows (empty 404 notice, timeout reload count, missing `rejectedCount`, `batchCalls()`, and the intent-alignment row for that same timeout reload). No items were deferred in that pass. Rejected findings: the deferred-note wording and alias example match the requested text; non-object JSON bodies other than the two named ones are outside the intent; the 4s poll does not flake these millisecond assertions; HTTP 500 is the rethrow; the new 500 rows lock the narrow matcher; the SQL note lives in `deferred-work.md`.
 
-Follow-up review recommendation: false. Patched entries by verdict: low 4, medium 0, high 0.
+Follow-up review recommendation: false. Patched rows by verdict, matching the triage log: low 5, medium 0, high 0.
 
-Verification: `npm run check` exited 0. `npm test` exited 0 — 1530 passed, 6 skipped. A verbose run of the reject route and loop-controls files showed each matrix row's test passing, including the six injected batch messages, both 400 bodies, 409, 500, same-run timeout, 404, singular copy, and the existing plural confirm test.
+Verification: `npm run check` exited 0. `npm test` exited 0 — 1578 passed, 6 skipped. The suite needs Node 24. A verbose run of the reject route and loop-controls files showed each matrix row's test passing, including the six injected batch messages, both 400 bodies, the empty body, 409, 500, same-run timeout, 404, singular copy, and the existing plural confirm test.
 
 Residual risk: `currentHeadSql("drafts")` inside `UPDATE drafts` still scans roots from every run. The result stays correct because `current.id` binds to the outer row. The same pattern remains in `READY_HEAD_SQL`.
