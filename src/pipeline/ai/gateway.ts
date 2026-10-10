@@ -54,6 +54,33 @@ import { GUARDRAIL_RULE_ID, isToolAllowed } from "./actionPolicy";
 export const DEEPINFRA_CATALOG_USER_AGENT =
   "PredictionMarketLitigation/0.1.0 (+https://predictionmarketlitigation.com)";
 
+/** Catalog GET init. Workerd accepts only `follow` or `manual`. */
+export function deepInfraCatalogRequestInit(signal: AbortSignal): RequestInit {
+  return {
+    signal,
+    redirect: "manual",
+    headers: {
+      Accept: "application/json",
+      "User-Agent": DEEPINFRA_CATALOG_USER_AGENT
+    }
+  };
+}
+
+/** Chat POST init, including the JSON body. Same redirect mode as the catalog. */
+export function deepInfraChatRequestInit(
+  headers: Headers,
+  signal: AbortSignal | undefined,
+  body: string
+): RequestInit {
+  return {
+    method: "POST",
+    redirect: "manual",
+    signal,
+    headers,
+    body
+  };
+}
+
 const DIAGNOSTIC_TEXT_MAX = 180;
 
 export type CostPolicyDetail = {
@@ -1055,14 +1082,7 @@ export function createDeepInfraProvider(env: Env): LlmProvider | null {
           async (signal) => {
             const response = await fetch(
               "https://api.deepinfra.com/models/list",
-              {
-                signal,
-                redirect: "manual",
-                headers: {
-                  Accept: "application/json",
-                  "User-Agent": DEEPINFRA_CATALOG_USER_AGENT
-                }
-              }
+              deepInfraCatalogRequestInit(signal)
             );
             if (deepInfraRedirectRefused(response)) {
               let bodyPrefix = "";
@@ -1148,20 +1168,21 @@ export function createDeepInfraProvider(env: Env): LlmProvider | null {
               "Inference cancelled before dispatch."
             );
           try {
-            const response = await fetch(url, {
-              method: "POST",
-              redirect: "manual",
-              signal,
-              headers,
-              body: JSON.stringify({
-                model,
-                messages: [{ role: "user", content: prompt }],
-                max_tokens: policy.outputTokens,
-                stream: false,
-                n: 1,
-                reasoning_effort: "none"
-              })
-            });
+            const response = await fetch(
+              url,
+              deepInfraChatRequestInit(
+                headers,
+                signal,
+                JSON.stringify({
+                  model,
+                  messages: [{ role: "user", content: prompt }],
+                  max_tokens: policy.outputTokens,
+                  stream: false,
+                  n: 1,
+                  reasoning_effort: "none"
+                })
+              )
+            );
             if (deepInfraRedirectRefused(response)) throw new Error();
             const body = (await response.json()) as {
               id?: unknown;

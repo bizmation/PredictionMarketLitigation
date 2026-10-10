@@ -427,18 +427,6 @@ describe("DeepInfra central gateway", () => {
       warn.mockRestore();
     }
   });
-  it("rejects redirect error before a catalog or chat response", async () => {
-    const { fetcher } = http();
-    for (const url of [
-      "https://api.deepinfra.com/models/list",
-      "https://gateway.ai.cloudflare.com/v1/account/default/custom-deepinfra/v1/openai/chat/completions"
-    ]) {
-      await expect(fetcher(url, { redirect: "error" })).rejects.toThrow(
-        new TypeError(WORKERS_REDIRECT_ERROR)
-      );
-    }
-    expect(fetcher).toHaveBeenCalledTimes(2);
-  });
   it.each([
     ["302", 302, () => new Response("moved", { status: 302 })],
     [
@@ -464,6 +452,13 @@ describe("DeepInfra central gateway", () => {
           "fetch",
           vi.fn(async (url: unknown, init?: RequestInit) => {
             expect(init?.redirect).toBe("manual");
+            const headers = new Headers(init?.headers);
+            expect(headers.get("accept")).toBe("application/json");
+            expect(headers.get("user-agent")).toBe(
+              DEEPINFRA_CATALOG_USER_AGENT
+            );
+            expect(headers.get("authorization")).toBeNull();
+            expect(init?.signal).toBeInstanceOf(AbortSignal);
             if (url === "https://api.deepinfra.com/models/list")
               return respond();
             return inference(url, init);
@@ -474,17 +469,27 @@ describe("DeepInfra central gateway", () => {
           message: `cost_policy_invalid: deepinfra_preflight (http ${status})`,
           detail: expect.objectContaining({
             stage: "deepinfra_preflight",
-            status
+            status,
+            ...(status === 302 ? { bodyPrefix: "moved" } : {})
           })
         });
         expect(inference).not.toHaveBeenCalled();
-        expect(warn).toHaveBeenCalledWith(
-          expect.objectContaining({
-            event: "cost_policy_invalid",
-            stage: "deepinfra_preflight",
-            status
-          })
-        );
+        const policyLog = warn.mock.calls
+          .map((call) => call[0])
+          .find(
+            (entry) =>
+              typeof entry === "object" &&
+              entry != null &&
+              (entry as { event?: unknown }).event === "cost_policy_invalid"
+          );
+        expect(policyLog).toMatchObject({
+          event: "cost_policy_invalid",
+          stage: "deepinfra_preflight",
+          status,
+          ...(status === 302 ? { bodyPrefix: "moved" } : {})
+        });
+        expect(policyLog).not.toHaveProperty("field");
+        if (status === 0) expect(policyLog).not.toHaveProperty("bodyPrefix");
         await expectFree(input.runId);
       } finally {
         warn.mockRestore();
@@ -510,16 +515,21 @@ describe("DeepInfra central gateway", () => {
           errorMessage: WORKERS_REDIRECT_ERROR
         })
       });
-      expect(warn).toHaveBeenCalledWith(
-        expect.not.objectContaining({ status: expect.anything() })
-      );
-      expect(warn).toHaveBeenCalledWith(
-        expect.objectContaining({
-          event: "cost_policy_invalid",
-          stage: "deepinfra_preflight",
-          errorName: "TypeError"
-        })
-      );
+      const policyLog = warn.mock.calls
+        .map((call) => call[0])
+        .find(
+          (entry) =>
+            typeof entry === "object" &&
+            entry != null &&
+            (entry as { event?: unknown }).event === "cost_policy_invalid"
+        );
+      expect(policyLog).toMatchObject({
+        event: "cost_policy_invalid",
+        stage: "deepinfra_preflight",
+        errorName: "TypeError",
+        errorMessage: WORKERS_REDIRECT_ERROR
+      });
+      expect(policyLog).not.toHaveProperty("status");
       await expectFree(input.runId);
     } finally {
       warn.mockRestore();
@@ -1064,6 +1074,10 @@ describe("DeepInfra pre-dispatch validation and HTTP failures", () => {
           json: async () => {
             read = true;
             return json();
+          },
+          text: async () => {
+            read = true;
+            return "";
           }
         } as Response;
       });

@@ -2,7 +2,7 @@
 title: 'Use a Workers-legal redirect mode on DeepInfra fetches'
 type: 'bugfix'
 created: '2026-10-10'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 baseline_commit: 'f002b1edd61a5387e89e5899ecb43f61e8277ea8'
 review_loop_iteration: 0
@@ -66,10 +66,23 @@ context:
 - Request docs still list redirect mode `error`. The staging tail is the runtime: workerd throws before send. Both DeepInfra fetches use `manual`. `deepInfraRedirectRefused` keeps 3xx, status 0, and `opaqueredirect` on the existing non-OK branches. A chat failure still `markUncertain`s with `provider_outcome_unknown` and does not release or settle.
 - Status 0 is not valid `ResponseInit`. Those tests use a response-shaped object. The shared `http()` stub throws the tail `TypeError` when `redirect` is `"error"`, so a regression fails the existing success paths as well as the direct stub test.
 - Spec size is about 1900 tokens by characters/4 and about 1340 by words×1.3. The window string and the verbatim deferred note stay in this change because that was the requested scope.
+- Review patches: catalog and chat inits are `deepInfraCatalogRequestInit` and `deepInfraChatRequestInit`. `deepinfraRequest.test.ts` runs in the workers pool (`compatibility_date` `2026-06-11`) and passes those inits to `new Request`. Temporarily setting both to `"error"` made both tests throw the workerd `TypeError` at `new Request`; they were restored to `"manual"`. The mock-only redirect test is gone. The source scan has a positive control. The review prompt files are deleted.
 
 ## Spec Change Log
 
 ## Review Triage Log
+
+- Verification Gap: no gaps. Edge Case Hunter: `[]`.
+- `[medium]` `[patch]` Blind Hunter 1. `toHaveBeenCalledWith(expect.not.objectContaining({ status: expect.anything() }))` passes if any warn lacks `status`, and `expect.anything()` ignores null and undefined. Fixed: the `cost_policy_invalid` log object asserts `errorName` and `not.toHaveProperty("status")` together.
+- `[medium]` `[patch]` Blind Hunter 2. The scan had no sample that must match and one that must not. An unreadable file was treated as clean. The `.tsx` file does run: the Node `ui` project includes `src/**/*.test.tsx`, and `npm test` executed it. Computed redirect values are outside the literal check the spec required; a parser would be a new scanner. Fixed: `sourceSetsRedirectError` flags `"error"` and `'error'` and ignores `"manual"` and `"follow"`, and a read error fails the walk.
+- `[low]` `[reject]` Blind Hunter 3. `!response.ok` is the existing non-OK path, so 403 and 503 stay fail-closed. The extra arms do not change a real `Response`. Status 0 is not valid `ResponseInit`. Splitting the predicate adds branches for a name.
+- `[false]` `[reject]` Blind Hunter 4. The chat POST `redirect` is already `"manual"` at the success assertion and the non-2xx assertion in `deepinfra.test.ts`. PML Code Review rejected that part. The 302 and opaque chat tests already expect no `llm_calls` row, and the non-2xx test expects the repeat `accounting_uncertain` on this same catch. The workerd test still covers the chat init.
+- `[medium]` `[patch]` Blind Hunter 5. "rejects redirect error before a catalog or chat response" only calls the mock `fetcher`. Replaced by `deepinfraRequest.test.ts`, which passes the production catalog and chat inits to workerd `new Request`.
+- `[low]` `[reject]` Blind Hunter 6. The fix is a spec edit. The I/O matrix already states `manual`, the catalog error with no reservation, the uncertain chat row, and `env.build.vars`. The AC section does not repeat those rows.
+- `[low]` `[patch]` Blind Hunter 7. A missing `text()` still left `read` false. The catalog redirect stub did not check headers, `bodyPrefix`, or `field`. Fixed: `text()` sets `read`, and the catalog stub checks `Accept`, `User-Agent`, `signal`, `bodyPrefix`, and the absence of `field`.
+- `[low]` `[reject]` Blind Hunter 8. Informational. The Never rule leaves the OpenRouter fetch without a `redirect`. Extending the scan to other modes is a new rule.
+- `[false]` `[reject]` Blind Hunter 9. `configs` is still the `ACCESS_DEV_BYPASS` `it.each`. Both of its files are still checked: `wrangler.test.jsonc` has no `vars`, and `wrangler.jsonc` has only the build string.
+- `[false]` `[reject]` Blind Hunter 10. `string | number` matches `firstFetchWindowDays`, which accepts a JSON number. The committed build value is the string `"3"` because Wrangler vars are strings. The comment states both.
 
 ## Design Notes
 
