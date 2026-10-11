@@ -2,7 +2,7 @@
 title: '3.36 — Verify the corrected staging Run and gateway'
 type: 'chore'
 created: '2026-10-04'
-status: 'blocked'
+status: 'in-progress'
 baseline_revision: 'bd388d2d7d0159891983404ec307689b1830feeb'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -70,7 +70,7 @@ deferred: []
 - `npm run deploy:build` — build, all tests, staging migrations and staging deploy succeed.
 - Cloudflare deployment/settings/D1 read-only queries — verify version, bindings, migrations and frozen configuration without secret values.
 - Public HTTP reads — verify staging APIs, anonymous admin denial and unchanged production hashes.
-- Authorized live Run/gateway evidence — mandatory for completion, currently unavailable.
+- Authorized live Run/gateway evidence — `run-20261010-0005` is recorded under Acceptance Run evidence. AC1 production hashes and AC2 AI Gateway log entries remain PENDING operator evidence. Story status stays in-progress.
 
 
 ## Auto Run Result
@@ -131,10 +131,69 @@ Patrick also requested an admin usability correction. The admin now presents sep
 
 Patrick ruled on 2026-10-10, relayed by PML Eng Manager, so the Epic 3 retro has the scope.
 
-**3.36.** A successful operator revise of an existing `run-20261010-0003` draft, made after the #63 deploy (DeepInfra preflight diagnostics and first-fetch window) to staging `pml-build`, counts as 3.36's live acceptance: a post-deployment Run with authenticated DeepInfra gateway success on `zai-org/GLM-5.3-Flash`. `run-20261010-0003` started after the 3.38 deploy (`5ee23f6`). Its original evaluation failed preflight with `cost_policy_invalid`. The 12:07 AM ET Oct 11 run is expected to draft nothing new, because 0003's drafts already mark those docket entries as seen.
+**3.36 (2026-10-10).** `run-20261010-0005` on `deepseek-ai/DeepSeek-V4-Flash` is the 3.36 acceptance Run. This replaces the earlier 0003-revise wording. `run-20261010-0003` was rejected. `run-20261010-0004` was empty because of the CourtListener blank-description gap fixed in #74.
+
+**Superseded 3.36 wording.** A successful operator revise of an existing `run-20261010-0003` draft, made after the #63 deploy (DeepInfra preflight diagnostics and first-fetch window) to staging `pml-build`, was previously treated as 3.36's live acceptance: a post-deployment Run with authenticated DeepInfra gateway success on `zai-org/GLM-5.3-Flash`. `run-20261010-0003` started after the 3.38 deploy (`5ee23f6`). Its original evaluation failed preflight with `cost_policy_invalid`. The 12:07 AM ET Oct 11 run was expected to draft nothing new, because 0003's drafts already marked those docket entries as seen. That wording is replaced by the `run-20261010-0005` ruling above. The 3.37 bullets below are unchanged.
 
 **3.37.** That same revised `run-20261010-0003` draft may close 3.37 with the same Run. `epics.md` Story 3.37 already allows one Run to satisfy both 3.36 and 3.37 when it meets both sets of criteria. Patrick will read the draft text himself before it is approved, and the approval still needs his named go-ahead on that specific draft.
 
 **Known gap.** Once the revised draft is approved, #64's batch reject refuses the Run (`reject_run_unpublished`), so closing 0003 needs a follow-up that rejects the remaining undecided heads. That follow-up is being built separately.
 
 **2026-10-10 model and 3.37 evidence.** By Patrick's 8:05 PM ET ruling the model is now `deepseek-ai/DeepSeek-V4-Flash` for every role. `run-20261010-0003` is `rejected`, with 335 drafts rejected, 0 undecided, and nothing published. Those drafts never got a model call, so they cannot serve as 3.37's live-draft evidence, and the 0003 batch was rejected under Patrick's earlier approval. 3.37 will use the first V4-Flash run (expected `run-20261010-0004`) instead.
+
+### Acceptance Run evidence — `run-20261010-0005` (2026-10-11)
+
+Story status stays `in-progress`. The acceptance criteria above are unchanged. This record does not close the story. Code Review still confirms the acceptance criteria.
+
+**Deploy.** Revision `89d3d36` (`89d3d36611031d38060d83e8eea86ef4835d727b`) on main, after #74. Staging Worker version `b47b37cd`. No migrations on that deploy. Migration 0024 was applied on the earlier `450d456` (`450d45659948e353323c41d9e2dbaf75563ea345`) deploy, Worker version `e7c447a5`. `gateway_config` v4 has all five roles on `deepseek-ai/DeepSeek-V4-Flash`.
+
+**Run.** Authenticated Run now through real admission. Outcome `awaiting` with 6 drafts. HITL is holding everything and nothing is approved. Public Evidence: https://ops-build.predictionmarketlitigation.com/runs/run-20261010-0005
+
+**Accounting.** 12 DeepInfra calls (6 drafter plus 6 reviewer), all `settled`. $0.19 admission bound each. Retained liability $0. Held/Uncertain/Issues 0. 12¢ total against period `acceptance-3-36-deepinfra-20261004`. 5407 tokens. Guardrails passed ×6. Evals ok ×6.
+
+**CourtListener.** Nested `recap_documents__` fields worked: 4 entries got text from `recap_description`, 2 from the entry, and 0 from `short_description`.
+
+#### Per-call ledger
+
+Staging D1 `pml-build`, read 2026-10-11 ~02:05Z. All 12 calls use model `deepseek-ai/DeepSeek-V4-Flash`, state `settled`, `cost_cents` 1, `cost_basis` `token_estimate`, and `reported_cost_source` null.
+
+| # | llm_call id | role | tokens in/out | created_at (UTC) | providerRequestId |
+|---|---|---|---|---|---|
+| 1 | e4c2e09b-3882-48d4-be52-9ca3a3a6d67a | drafter | 461/70 | 2026-10-11T01:53:14.113Z | chatcmpl-RImvXY4tjjQDZZdqTZJiIqcR |
+| 2 | 144dff12-9708-4a51-9b08-c42b76c0bfd1 | reviewer | 402/101 | 2026-10-11T01:53:19.294Z | chatcmpl-RJvNoFKwYhEI5EWTQwds6oJi |
+| 3 | c7c33c49-feb1-4586-8107-80595814db5e | drafter | 474/80 | 2026-10-11T01:53:23.457Z | chatcmpl-RyE6fB6yt4DJDLNhz6MiFCka |
+| 4 | 6426cde5-ac88-454f-9595-0897b302be20 | reviewer | 425/93 | 2026-10-11T01:53:28.303Z | chatcmpl-RVsufZpWf0Hl8AO4CMUi7X5b |
+| 5 | f55c3f2c-e0a5-4937-a5d9-737c9d557841 | drafter | 386/37 | 2026-10-11T01:53:31.370Z | chatcmpl-R5TimkE8KQX1gzdofWkIO8uf |
+| 6 | e4e79c06-bf57-43fd-9bd3-184c25e0b9c9 | reviewer | 292/97 | 2026-10-11T01:53:35.644Z | chatcmpl-RgFH999q1DRsURBcxL4XkGWb |
+| 7 | 71f7b609-9c93-49e4-8187-bf929713e98f | drafter | 391/44 | 2026-10-11T01:53:38.683Z | chatcmpl-RqXpVQaeFGLtxmOJte5yFOKs |
+| 8 | 449be310-a327-4017-95df-26d997deb806 | reviewer | 304/94 | 2026-10-11T01:53:54.612Z | chatcmpl-Rsfcete6XOX3Ma1O53QUKTGi |
+| 9 | 92a8b91e-b4eb-4842-be79-4f7fa8d07b98 | drafter | 387/37 | 2026-10-11T01:53:58.006Z | chatcmpl-R809o04AxKNefV6FgGEzFkxg |
+| 10 | 3f74c38e-e9a3-484b-ab72-b3ce65e81f00 | reviewer | 295/83 | 2026-10-11T01:54:01.901Z | chatcmpl-ROd8dER40vM7I9WOVQxKYdAf |
+| 11 | c1033b55-b311-4e33-9b26-c1fb9356b2f4 | drafter | 392/58 | 2026-10-11T01:54:09.359Z | chatcmpl-RwVyjfqlsDMCercsgfUsVcqi |
+| 12 | 4c112064-c5c9-429a-9aab-cbeba2c36e35 | reviewer | 320/84 | 2026-10-11T01:54:13.219Z | chatcmpl-RcXGGKksxJrxLFkq9JThvVNV |
+
+### Known gaps, logged and not blocking
+
+(a) Reported charges: unknown. This is by design. `docs/deepinfra-runbook.md` (Evidence and failures, about lines 109-115) records that DeepInfra's `usage.estimated_cost` is not an actual charge and is never mapped to `reportedCostUsd`. The DeepInfra chat parser in `src/pipeline/ai/gateway.ts` (about lines 1722-1744) reads only `usage.prompt_tokens` and `usage.completion_tokens`, so settlement is `token_estimate`.
+
+(b) The Furcolo draft `de-case-ri-furcolo-480886814` has reviewer `citationCompleteness: 0`. The entry has `entry_number: null` on CourtListener, so the source link is the docket root with no `?entry=` and the body says "docket unnumbered entry". The reviewer judged it uncitable. Evals are `ok` and confidence is 100. It is a model judgment, and the pipeline did not mis-handle the entry. Follow-up is recorded in `deferred-work.md`.
+
+### PENDING operator evidence
+
+Code Review still needs these before the acceptance criteria can be confirmed. Story status stays `in-progress`.
+
+**AC1 — PENDING operator evidence.** Before and after SHA-256 of both production brochure roots, confirmation that production is still version `d894f294`, plus hosts and UTC time.
+
+- Production brochure root 1 before SHA-256: PENDING operator evidence
+- Production brochure root 1 after SHA-256: PENDING operator evidence
+- Production brochure root 2 before SHA-256: PENDING operator evidence
+- Production brochure root 2 after SHA-256: PENDING operator evidence
+- Production still version `d894f294`: PENDING operator evidence
+- Hosts: PENDING operator evidence
+- UTC time: PENDING operator evidence
+
+**AC2 — PENDING operator evidence.** AI Gateway log entries for gateway `default` / `custom-deepinfra` showing HTTP 200 and the route, with two spot-checked and the rest listed.
+
+- Spot-check 1 (HTTP 200 and route): PENDING operator evidence
+- Spot-check 2 (HTTP 200 and route): PENDING operator evidence
+- Remaining log entries: PENDING operator evidence

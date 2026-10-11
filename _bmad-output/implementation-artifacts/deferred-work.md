@@ -318,3 +318,10 @@ Ledger entries above are not edited; this block records where each Epic 3 entry 
 - A skipped entry is lost for good if a later-dated entry on the same docket publishes first (`dated < baseline.date`). That isn't a risk for 0005.
 - An `attachment_number` arriving as a numeric string is treated as the main document.
 - Move `SHORT_DESCRIPTION_SOURCE_NOTE` and `DescriptionSource` into a shared module with `descriptionSource` as the single source of truth instead of also storing `sourceTextNote`.
+
+## Deferred from: 0005 acceptance (2026-10-11)
+
+Logged from story 3.36 acceptance Run `run-20261010-0005`. Neither item blocks that acceptance. Source: `_bmad-output/implementation-artifacts/spec-3-36-verify-the-corrected-staging-run-and-gateway.md`.
+
+- Furcolo-style unnumbered-entry citation tweak (prompt or citation for `entry_number: null`). Draft `de-case-ri-furcolo-480886814` has reviewer `citationCompleteness: 0`. CourtListener has `entry_number: null`, so the source link is the docket root with no `?entry=` and the body says "docket unnumbered entry". The reviewer judged it uncitable while evals are `ok` and confidence is 100.
+- Reconcile actual DeepInfra charges from billing after the fact. Settlement on this Run is `token_estimate`. DeepInfra's `usage.estimated_cost` is not an actual charge and is never mapped to `reportedCostUsd`, so reported charges stayed unknown.
