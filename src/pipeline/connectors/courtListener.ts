@@ -42,16 +42,22 @@ import {
  * RECAP data is crowd-sourced and may lag PACER; the `source.fetched`
  * summary says so and records only what was seen. A blank entry
  * `description` falls back to nested RECAP document text.
- * `skippedIncomplete` is an undated entry, or one that still has no text
- * after that fallback. Run `run-20261010-0004` is the evidence.
+ * `skippedUndated` is an entry with no valid ISO `date_filed`.
+ * `skippedNoText` is a dated entry that still has no text after that
+ * fallback. `skippedIncomplete` is their sum. Each polled entry logs
+ * `courtlistener_entry` with counts and enums only. Run
+ * `run-20261010-0004` is the evidence; `0005` logs are the live field check.
  */
 
 export const COURTLISTENER_SOURCE_NAME = "CourtListener";
 export const COURTLISTENER_API_BASE =
   "https://www.courtlistener.com/api/rest/v4/docket-entries/";
 /**
- * Nested RECAP text, without `plain_text`. If a live body omits these keys,
- * switch this one line to
+ * Nested RECAP text, without `plain_text`. v4 field selection uses `__`
+ * for nested fields (https://wiki.free.law/c/courtlistener/help/api/rest/v4/query-refinement).
+ * Docket entries accept `recap_documents__<field>`
+ * (https://github.com/freelawproject/courtlistener/pull/5973). If a live
+ * body omits these keys, switch this one line to
  * `id,entry_number,date_filed,description,recap_documents`.
  */
 export const COURTLISTENER_FIELDS =
@@ -139,6 +145,9 @@ export type DocketEntry = {
   dateFiled: string | null;
   description: string;
   descriptionSource: DescriptionSource | null;
+  recapDocumentCount: number;
+  documentsWithDescription: number;
+  documentsWithShortDescription: number;
 };
 
 type RecapDocument = {
@@ -187,6 +196,21 @@ function normalizeDocuments(value: unknown): RecapDocument[] {
   return docs;
 }
 
+function documentStats(documents: RecapDocument[]) {
+  let documentsWithDescription = 0;
+  let documentsWithShortDescription = 0;
+  for (const document of documents) {
+    if (document.description.length > 0) documentsWithDescription += 1;
+    if (document.shortDescription.length > 0)
+      documentsWithShortDescription += 1;
+  }
+  return {
+    recapDocumentCount: documents.length,
+    documentsWithDescription,
+    documentsWithShortDescription
+  };
+}
+
 function resolveEntryText(
   entryDescription: string,
   documents: RecapDocument[]
@@ -230,16 +254,18 @@ export function parseEntries(body: unknown): DocketEntry[] | null {
       row != null && typeof row === "object" && !Array.isArray(row)
         ? (row as Record<string, unknown>)
         : {};
+    const documents = normalizeDocuments(raw.recap_documents);
     const text = resolveEntryText(
       (parsed.data.description ?? "").trim(),
-      normalizeDocuments(raw.recap_documents)
+      documents
     );
     entries.push({
       id: parsed.data.id,
       entryNumber: parsed.data.entry_number ?? null,
       dateFiled: parsed.data.date_filed ?? null,
       description: text.description,
-      descriptionSource: text.descriptionSource
+      descriptionSource: text.descriptionSource,
+      ...documentStats(documents)
     });
   }
   return entries;
@@ -891,34 +917,57 @@ async function pollDocket(
   const entities: EntityChange[] = [];
   let latestEntryDate: string | null = null;
   let seenCount = 0;
-  let undated = 0;
+  let skippedUndated = 0;
+  let skippedNoText = 0;
+  let recapDocsPresent = 0;
+  let shortDescriptionFallbacks = 0;
   for (const entry of fetched.entries) {
-    const dated = IsoDateSchema.safeParse(entry.dateFiled);
-    if (
-      !dated.success ||
-      entry.description.length === 0 ||
-      entry.descriptionSource == null
-    ) {
-      undated += 1;
+    if (entry.recapDocumentCount > 0) recapDocsPresent += 1;
+    if (entry.descriptionSource === "recap_short_description") {
+      shortDescriptionFallbacks += 1;
+    }
+    const dateFiled = IsoDateSchema.safeParse(entry.dateFiled);
+    const descriptionSource = entry.descriptionSource;
+    const missingText =
+      entry.description.length === 0 || descriptionSource == null;
+    const skippedIncomplete = !dateFiled.success || missingText;
+    console.info({
+      event: "courtlistener_entry",
+      entryId: entry.id,
+      descriptionSource: skippedIncomplete
+        ? "skipped_incomplete"
+        : descriptionSource,
+      recapDocumentsPresent: entry.recapDocumentCount > 0,
+      recapDocumentCount: entry.recapDocumentCount,
+      documentsWithDescription: entry.documentsWithDescription,
+      documentsWithShortDescription: entry.documentsWithShortDescription,
+      dateFiledValid: dateFiled.success
+    });
+    if (!dateFiled.success) {
+      skippedUndated += 1;
       continue;
     }
-    if (latestEntryDate == null || dated.data > latestEntryDate) {
-      latestEntryDate = dated.data;
+    if (missingText || descriptionSource == null) {
+      skippedNoText += 1;
+      continue;
     }
-    if (effectiveCutoff != null && dated.data < effectiveCutoff) continue;
+    if (latestEntryDate == null || dateFiled.data > latestEntryDate) {
+      latestEntryDate = dateFiled.data;
+    }
+    if (effectiveCutoff != null && dateFiled.data < effectiveCutoff) continue;
     const id = docketEventId(row.case_id, entry.id);
-    if (seen.has(id) || (baseline != null && dated.data < baseline.date)) {
+    if (seen.has(id) || (baseline != null && dateFiled.data < baseline.date)) {
       seenCount += 1;
       continue;
     }
     entities.push(
       toEntityChange({
         caseId: row.case_id,
-        occurredAt: dated.data,
+        occurredAt: dateFiled.data,
         description: entry.description,
-        descriptionSource: entry.descriptionSource,
+        descriptionSource,
         sourceTextNote:
-          entry.descriptionSource === "recap_short_description"
+          descriptionSource === "recap_short_description"
             ? SHORT_DESCRIPTION_SOURCE_NOTE
             : null,
         sourceUrl: entryUrl(row.url, entry.entryNumber),
@@ -953,7 +1002,11 @@ async function pollDocket(
       truncated: fetched.truncated,
       newEntries: entities.length,
       seen: seenCount,
-      skippedIncomplete: undated,
+      skippedUndated,
+      skippedNoText,
+      skippedIncomplete: skippedUndated + skippedNoText,
+      recapDocsPresent,
+      shortDescriptionFallbacks,
       ...(effectiveCutoff == null
         ? {}
         : { effectiveCutoff, olderEntriesNotRequested: true }),

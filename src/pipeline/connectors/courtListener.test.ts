@@ -295,7 +295,10 @@ describe("CourtListener helpers", () => {
         entryNumber: 12,
         dateFiled: "2026-09-15",
         description: ENTRIES[0]!.description,
-        descriptionSource: "entry"
+        descriptionSource: "entry",
+        recapDocumentCount: 0,
+        documentsWithDescription: 0,
+        documentsWithShortDescription: 0
       }
     ]);
     expect(parseEntries({ count: 0 })).toBeNull();
@@ -356,35 +359,50 @@ describe("CourtListener helpers", () => {
         entryNumber: null,
         dateFiled: "2026-10-07",
         description: "Full motion text",
-        descriptionSource: "recap_description"
+        descriptionSource: "recap_description",
+        recapDocumentCount: 3,
+        documentsWithDescription: 1,
+        documentsWithShortDescription: 2
       },
       {
         id: 2,
         entryNumber: null,
         dateFiled: "2026-10-08",
         description: "Case Assigned/Reassigned",
-        descriptionSource: "recap_short_description"
+        descriptionSource: "recap_short_description",
+        recapDocumentCount: 2,
+        documentsWithDescription: 0,
+        documentsWithShortDescription: 2
       },
       {
         id: 3,
         entryNumber: null,
         dateFiled: "2026-10-09",
         description: "Clerk text",
-        descriptionSource: "entry"
+        descriptionSource: "entry",
+        recapDocumentCount: 1,
+        documentsWithDescription: 0,
+        documentsWithShortDescription: 1
       },
       {
         id: 4,
         entryNumber: null,
         dateFiled: "2026-10-07",
         description: "",
-        descriptionSource: null
+        descriptionSource: null,
+        recapDocumentCount: 0,
+        documentsWithDescription: 0,
+        documentsWithShortDescription: 0
       },
       {
         id: 5,
         entryNumber: null,
         dateFiled: "2026-10-07",
         description: "Still the entry",
-        descriptionSource: "entry"
+        descriptionSource: "entry",
+        recapDocumentCount: 1,
+        documentsWithDescription: 0,
+        documentsWithShortDescription: 0
       }
     ]);
   });
@@ -937,7 +955,11 @@ describe("CourtListener connector (story 3.21)", () => {
       truncated: false,
       newEntries: 1,
       seen: 0,
+      skippedUndated: 1,
+      skippedNoText: 1,
       skippedIncomplete: 2,
+      recapDocsPresent: 0,
+      shortDescriptionFallbacks: 0,
       effectiveCutoff: "2026-09-11",
       olderEntriesNotRequested: true
     });
@@ -1062,8 +1084,95 @@ describe("CourtListener connector (story 3.21)", () => {
     }
     expect(docketSummary(await fetchedPayload(runId), FURCOLO)).toMatchObject({
       newEntries: 3,
-      skippedIncomplete: 2
+      skippedUndated: 1,
+      skippedNoText: 1,
+      skippedIncomplete: 2,
+      recapDocsPresent: 5,
+      shortDescriptionFallbacks: 2
     });
+  });
+
+  it("logs entry field counts and enums with no description text", async () => {
+    const notice = "Notice of Appearance";
+    const order = "Order on Motion to Withdraw as Attorney";
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      stubFetch((docketId) =>
+        docketId === FURCOLO
+          ? {
+              status: 200,
+              body: {
+                results: [
+                  {
+                    id: 174,
+                    entry_number: 174,
+                    date_filed: "2026-09-16",
+                    description: "",
+                    recap_documents: [
+                      { short_description: notice, attachment_number: null }
+                    ]
+                  },
+                  {
+                    id: 175,
+                    entry_number: 175,
+                    date_filed: "2026-09-16",
+                    description: "",
+                    recap_documents: [
+                      { description: order, attachment_number: 1 }
+                    ]
+                  }
+                ]
+              }
+            }
+          : { status: 200 }
+      );
+      const runId = await newRun();
+      await runConnector(testEnv.DB, runId, SOURCE, check());
+      const lines = info.mock.calls
+        .map((call) => call[0])
+        .filter(
+          (line): line is Record<string, unknown> =>
+            line != null &&
+            typeof line === "object" &&
+            (line as { event?: string }).event === "courtlistener_entry"
+        );
+      expect(lines).toEqual([
+        {
+          event: "courtlistener_entry",
+          entryId: 174,
+          descriptionSource: "recap_short_description",
+          recapDocumentsPresent: true,
+          recapDocumentCount: 1,
+          documentsWithDescription: 0,
+          documentsWithShortDescription: 1,
+          dateFiledValid: true
+        },
+        {
+          event: "courtlistener_entry",
+          entryId: 175,
+          descriptionSource: "recap_description",
+          recapDocumentsPresent: true,
+          recapDocumentCount: 1,
+          documentsWithDescription: 1,
+          documentsWithShortDescription: 0,
+          dateFiledValid: true
+        }
+      ]);
+      const serialized = JSON.stringify(lines);
+      expect(serialized).not.toContain(notice);
+      expect(serialized).not.toContain(order);
+      expect(docketSummary(await fetchedPayload(runId), FURCOLO)).toMatchObject(
+        {
+          recapDocsPresent: 2,
+          shortDescriptionFallbacks: 1,
+          skippedUndated: 0,
+          skippedNoText: 0,
+          skippedIncomplete: 0
+        }
+      );
+    } finally {
+      info.mockRestore();
+    }
   });
 
   it("leaves a skipped incomplete entry out of the dedupe stores and admits it on the next poll", async () => {

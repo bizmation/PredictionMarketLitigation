@@ -7,6 +7,7 @@ import type {
   RunDetail
 } from "../../shared/schemas/run";
 import type { LlmCallRecord } from "../../shared/schemas/gateway";
+import { SHORT_DESCRIPTION_SOURCE_NOTE } from "../../pipeline/connectors/courtListener";
 import { NOT_LIVE_LABEL } from "../../shared/ui";
 import {
   EvidenceDetail,
@@ -1100,9 +1101,7 @@ describe("EvidenceDetail docket-event inference (story 3.21)", () => {
     noLogin(html);
   });
 
-  it("shows the short-description marker on the record and the evidence step", () => {
-    const note =
-      "Source text is the CourtListener short description only; the full filing text is not available";
+  it("shows the short-description marker on the record block and the evidence step", () => {
     const html = renderToStaticMarkup(
       <EvidenceDetail
         runId="run-20260908-aaa1"
@@ -1115,8 +1114,19 @@ describe("EvidenceDetail docket-event inference (story 3.21)", () => {
               diff: {
                 ...record,
                 description: "Notice of Appearance",
-                sourceTextNote: note,
+                sourceTextNote: SHORT_DESCRIPTION_SOURCE_NOTE,
                 descriptionSource: "recap_short_description"
+              }
+            }),
+            draft({
+              id: "draft-full",
+              targetEntityType: "docket_events",
+              targetEntityId: "de-case-ny-cftc-175",
+              diff: {
+                ...record,
+                description: "Order on Motion",
+                sourceTextNote: null,
+                descriptionSource: "recap_description"
               }
             })
           ],
@@ -1125,15 +1135,30 @@ describe("EvidenceDetail docket-event inference (story 3.21)", () => {
               id: "ev-2",
               seq: 2,
               event: "draft.evaluated",
-              payload: { draftId: "draft-de", sourceTextNote: note }
+              payload: {
+                draftId: "draft-de",
+                sourceTextNote: SHORT_DESCRIPTION_SOURCE_NOTE
+              }
             })
           ]
         })}
       />
     );
-    expect(html).toContain("Notice of Appearance");
-    expect(html).toContain(note);
-    expect(html).toContain(`draft.evaluated · draft-de · ${note}`);
+    const records = html
+      .split('data-testid="docket-draft"')
+      .slice(1)
+      .map((part) => {
+        const inference = part.indexOf('class="kicker">Inference');
+        return inference === -1 ? part : part.slice(0, inference);
+      });
+    expect(records).toHaveLength(2);
+    expect(records[0]).toContain("Notice of Appearance");
+    expect(records[0]).toContain(SHORT_DESCRIPTION_SOURCE_NOTE);
+    expect(records[1]).toContain("Order on Motion");
+    expect(records[1]).not.toContain(SHORT_DESCRIPTION_SOURCE_NOTE);
+    expect(html).toContain(
+      `draft.evaluated · draft-de · ${SHORT_DESCRIPTION_SOURCE_NOTE}`
+    );
   });
 
   it("says the inference was dropped when the vocabulary check failed", () => {

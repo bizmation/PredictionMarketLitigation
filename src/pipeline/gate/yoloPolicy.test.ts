@@ -7,7 +7,12 @@ import * as evidenceRepo from "../../shared/db/repos/evidenceRepo";
 import * as modeRepo from "../../shared/db/repos/modeRepo";
 import * as runsRepo from "../../shared/db/repos/runsRepo";
 import type { DraftRecord, EvalSummary } from "../../shared/schemas/run";
-import { autoApproveRun, eligible, reasonsFor } from "./yoloPolicy";
+import {
+  autoApproveRun,
+  eligible,
+  isThinSourceText,
+  reasonsFor
+} from "./yoloPolicy";
 
 const testEnv = env as Env;
 const NOW = "2026-09-01T16:00:00.000Z";
@@ -126,6 +131,19 @@ describe("yoloPolicy statePatch blockers (story 3.21)", () => {
     const dated = docket({ decidedAt: { from: null, to: "2026-09-15" } });
     expect(eligible(dated, 70)).toBe(false);
     expect(reasonsFor(dated, 70)).toEqual(["lifecycle_change"]);
+  });
+
+  it("escalates a short-description-only docket Draft as thin_source_text", () => {
+    const thin = docket({});
+    thin.diff = {
+      ...(thin.diff as Record<string, unknown>),
+      description: "Notice of Appearance",
+      descriptionSource: "recap_short_description"
+    };
+    expect(isThinSourceText(thin.diff)).toBe(true);
+    expect(eligible(thin, 70)).toBe(false);
+    expect(reasonsFor(thin, 70)).toEqual(["thin_source_text"]);
+    expect(isThinSourceText(docket({}).diff)).toBe(false);
   });
 
   it("admits a record-only docket Draft under the existing rules", () => {
@@ -452,7 +470,8 @@ describe("autoApproveRun docket_events (story 3.21)", () => {
   async function seedDocketDraft(
     runId: string,
     inferenceConfidence: number,
-    reviewerDisagrees = false
+    reviewerDisagrees = false,
+    diffExtra: Record<string, unknown> = {}
   ) {
     const entryId = entrySeq++;
     const targetEntityId = `de-${CASE_ID}-${entryId}`;
@@ -477,7 +496,8 @@ describe("autoApproveRun docket_events (story 3.21)", () => {
           confidence: inferenceConfidence,
           basis: "NOTICE of Appearance"
         },
-        statePatch: {}
+        statePatch: {},
+        ...diffExtra
       },
       body: `Record body ${entryId}.`,
       tier2Only: false,
@@ -562,4 +582,27 @@ describe("autoApproveRun docket_events (story 3.21)", () => {
       });
     }
   );
+
+  it("leaves a short-description-only docket Draft pending for a human", async () => {
+    const runId = await seedYoloRun();
+    const { id } = await seedDocketDraft(runId, 0.9, false, {
+      description: "Notice of Appearance",
+      descriptionSource: "recap_short_description"
+    });
+    await autoApproveRun(testEnv.DB, runId);
+
+    expect((await draftsRepo.getById(testEnv.DB, id))?.outcome).toBeNull();
+    expect(
+      (await evidenceRepo.listByRun(testEnv.DB, runId)).find(
+        (e) => e.event === "yolo.validated"
+      )?.payload
+    ).toMatchObject({
+      verdict: "escalate",
+      draftId: id,
+      reasons: ["thin_source_text"]
+    });
+    expect((await runsRepo.getRunById(testEnv.DB, runId))?.status).toBe(
+      "awaiting"
+    );
+  });
 });

@@ -201,6 +201,12 @@ function isDocketEventDraft(
   return draft.targetEntityType === DOCKET_EVENTS_TARGET;
 }
 
+function sourceTextNotePayload(diff: unknown): Record<string, unknown> {
+  return asRecord(diff)?.descriptionSource === "recap_short_description"
+    ? { sourceTextNote: SHORT_DESCRIPTION_SOURCE_NOTE }
+    : {};
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (value == null || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -599,7 +605,8 @@ async function persistEvalsNotRun(
     confidence: null,
     evalSummary: evalsNotRunSummary(draft, threshold, diff, [], reason),
     createdAt,
-    guidance
+    guidance,
+    extraPayload: sourceTextNotePayload(diff)
   });
 }
 
@@ -631,6 +638,7 @@ async function persistToolDeny(
     evalSummary,
     createdAt,
     guidance: args.guidance,
+    extraPayload: sourceTextNotePayload(args.diff),
     extraStatements: [
       appendStmt(
         db,
@@ -871,9 +879,7 @@ export async function draftAndReview(
             disagrees: scored.evalSummary.disagreement.flagged,
             disagreement: scored.evalSummary.disagreement.description
           },
-          ...(asRecord(diff)?.descriptionSource === "recap_short_description"
-            ? { sourceTextNote: SHORT_DESCRIPTION_SOURCE_NOTE }
-            : {})
+          ...sourceTextNotePayload(diff)
         },
         extraStatements: vocabularyFailed
           ? [

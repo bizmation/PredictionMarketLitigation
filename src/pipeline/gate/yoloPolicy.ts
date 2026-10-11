@@ -79,6 +79,17 @@ export function isPartyCharacterization(
   return targetEntityType === "entities";
 }
 
+/** Short-description-only filings have no full text, so a human reviews them. */
+export function isThinSourceText(diff: unknown): boolean {
+  if (diff == null || typeof diff !== "object" || Array.isArray(diff)) {
+    return false;
+  }
+  return (
+    (diff as Record<string, unknown>).descriptionSource ===
+    "recap_short_description"
+  );
+}
+
 export function reasonsFor(
   draft: DraftRecord,
   threshold: number
@@ -104,6 +115,7 @@ export function reasonsFor(
   if (isPartyCharacterization(draft.targetEntityType)) {
     add("party_characterization");
   }
+  if (isThinSourceText(draft.diff)) add("thin_source_text");
   if (draft.confidence == null || draft.confidence < threshold) {
     add("below_threshold");
   }

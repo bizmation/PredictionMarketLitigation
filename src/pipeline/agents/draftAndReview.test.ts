@@ -1444,6 +1444,61 @@ describe("draftAndReview docket_events branch (story 3.21)", () => {
     expect(failed).toHaveLength(0);
   });
 
+  it.each(["recap_description", "entry"] as const)(
+    "omits the short-description marker when descriptionSource is %s",
+    async (descriptionSource) => {
+      const runId = await insertRun();
+      const draftId = await insertDocketDraft(runId, {
+        ...RECORD,
+        description: "Order on Motion",
+        descriptionSource,
+        sourceTextNote: null
+      });
+      await seedConfig(DRAFTER_REVIEWER_ROLES);
+      const provider = fakeProvider([
+        { text: JSON.stringify(INFERENCE) },
+        { text: reviewJson({ confidence: 80 }) }
+      ]);
+      await draftAndReview(testEnv.DB, runId, deps(provider));
+      expect(provider.prompts()[0]).not.toContain(
+        SHORT_DESCRIPTION_SOURCE_NOTE
+      );
+      expect(provider.prompts()[1]).not.toContain(
+        SHORT_DESCRIPTION_SOURCE_NOTE
+      );
+      const evaluated = (await evidenceRepo.listByRun(testEnv.DB, runId)).find(
+        (event) => event.event === "draft.evaluated"
+      );
+      expect(evaluated?.payload).toMatchObject({ draftId });
+      expect(evaluated?.payload).not.toHaveProperty("sourceTextNote");
+    }
+  );
+
+  it("keeps the short-description marker when evals do not run", async () => {
+    const runId = await insertRun();
+    const draftId = await insertDocketDraft(runId, {
+      ...RECORD,
+      description: "Notice of Appearance",
+      descriptionSource: "recap_short_description",
+      sourceTextNote: SHORT_DESCRIPTION_SOURCE_NOTE
+    });
+    await seedConfig(DRAFTER_REVIEWER_ROLES);
+    await draftAndReview(testEnv.DB, runId, {
+      db: testEnv.DB,
+      costPolicy: fixtureCostPolicy,
+      provider: null as unknown as LlmProvider,
+      now: () => NOW,
+      newId: deterministicNewId
+    });
+    const evaluated = (await evidenceRepo.listByRun(testEnv.DB, runId)).find(
+      (event) => event.event === "draft.evaluated"
+    );
+    expect(evaluated?.payload).toMatchObject({
+      draftId,
+      sourceTextNote: SHORT_DESCRIPTION_SOURCE_NOTE
+    });
+  });
+
   it("puts the short-description marker in both prompts and on draft.evaluated", async () => {
     const runId = await insertRun();
     const diff = {

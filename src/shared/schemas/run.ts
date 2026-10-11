@@ -113,7 +113,8 @@ export type RunLogItem = z.infer<typeof RunLogItemSchema>;
  * 3.6 adds `guardrail_fail`; 3.13 adds `posture_flip` and
  * `party_characterization` so those escalate categories never auto-approve;
  * 3.21 adds `lifecycle_change` for a docket-event Draft whose derived
- * `statePatch` would resolve a case.
+ * `statePatch` would resolve a case. `thin_source_text` blocks auto-approve
+ * when the only filing text is a CourtListener short description.
  */
 export const INELIGIBLE_REASON_VALUES = [
   "tier2_only",
@@ -123,7 +124,8 @@ export const INELIGIBLE_REASON_VALUES = [
   "guardrail_fail",
   "posture_flip",
   "party_characterization",
-  "lifecycle_change"
+  "lifecycle_change",
+  "thin_source_text"
 ] as const;
 
 export const IneligibleReasonSchema = z.enum(INELIGIBLE_REASON_VALUES);
