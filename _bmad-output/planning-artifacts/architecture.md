@@ -489,9 +489,10 @@ predictionmarketlitigation/
 │   │   │   ├── approvalGate.ts      # sole F1 publish path
 │   │   │   └── yoloPolicy.ts
 │   │   ├── connectors/
-│   │   │   ├── courtlistener.ts
-│   │   │   ├── federalRegister.ts
-│   │   │   └── tier2News.ts
+│   │   │   ├── courtListener.ts
+│   │   │   ├── cftcPress.ts
+│   │   │   ├── scotusDocket.ts
+│   │   │   └── legalNewsLeads.ts
 │   │   ├── projector/
 │   │   │   └── evidenceProjector.ts # scrub + write Evidence rows
 │   │   ├── config/
@@ -566,7 +567,7 @@ predictionmarketlitigation/
 - React surfaces → REST `/api/*` only
 
 **External Integrations:**
-- CourtListener, Federal Register, Tier-2 sources via `pipeline/connectors`
+- CourtListener, CFTC press, SCOTUS docket, and Legal news leads via `pipeline/connectors`. Further web and publication sources are added only when named.
 - LLM providers via AI Gateway only
 - GitHub issues link for corrections (no deep integration v1)
 

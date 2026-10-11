@@ -185,6 +185,7 @@ The pipeline monitors **Tier-1** primary sources (citation of record) and **Tier
 - A published factual claim must carry a Tier-1 citation **or** be explicitly labeled "reported by [source], pending primary confirmation."
 - A draft supported *only* by Tier-2 sources is flagged **low-confidence** and is ineligible for agent auto-approval (F3), even in Autonomous mode.
 - Source access respects each source's access/ToS constraints at the capability level (mechanism deferred to architecture); blocked sources are recorded as skipped with reason, not silently omitted — and that skip reason is part of the public Evidence record.
+- A configured source skipped only because no connector is wired is not monitored. Tier-1 and Tier-2 monitoring means each configured source is fetched, or skipped for a named access constraint.
 
 #### FR-10: Change detection → draft generation `[v1]`
 When material litigation/regulatory changes are detected, the pipeline produces one or more Drafts proposing updates to F1 surfaces (and related tracker fields).

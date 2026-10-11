@@ -18,6 +18,7 @@ scopeAmendments:
   - '2026-08-09: Readiness punch list applied (implementation-readiness-report-2026-08-09) — added Story 1.5 (CI/CD, envs, domains) and Story 3.6 (guardrails/action-policy/scoped-context enforcement, split from 3.5; old 3.6–3.12 renumbered 3.7–3.13); Vitest test ACs (1.1, 3.3, 3.11); governance-consequence ACs for FR20/FR21/FR22/FR37; state deep-link AC (2.4); named migrations for poll tally (2.9) and submissions (4.5); journal storage decided D1 (4.3); noon-ET DST AC (3.3); 2.10 scope made definite'
   - '2026-10-10: Story 3.38 paces CourtListener requests and retries a bounded HTTP 429. This supersedes only the story 3.23 fail-on-first 429 clause. Live story 3.36 acceptance depends on 3.38. See sprint-change-proposal-2026-10-10.md.'
   - '2026-10-11: Story 4.8 adds plain-language help, approve/reject identity confirmation, and an explicit private choice on the admin approver flow. See sprint-change-proposal-2026-10-11.md. Story 3.37 is unchanged.'
+  - '2026-10-11: Stories 3.39 and 3.40 monitor the seeded unwired sources and hold further web and publication sources. See sprint-change-proposal-2026-10-11T1823Z.md. Stories 3.4 and 3.21 keep their shipped text and gain a supersession sentence.'
 ---
 
 # PML - Epic Breakdown
@@ -636,6 +637,7 @@ So that material litigation changes become reviewable proposed updates without m
 **And** Drafts never write live F1 tables
 **And** the Run package handed to the gate includes Drafts (0..N) + Evidence stub + mode inputs (FR11)
 **And** partial connector failure is explicit on the Run (not marked fully successful)
+**And** story 3.39 supersedes "stubs acceptable if they record skip reasons" for CFTC press, SCOTUS docket, and Legal news leads. A `not wired` skip on those three sources is not FR-9 monitoring.
 
 ### Story 3.5: Drafter, Reviewer & Disagreement Flag
 
@@ -961,6 +963,7 @@ So that the daily Run produces material Drafts and the Approval Gate is exercise
 **And** a fetch failure is `source.skipped` with reason, and the Run still completes
 **And** a real material Run reaches the admin queue on `build.*` and can be approved to live F1 on staging with provenance
 **And** the remaining sources stay stubs with explicit `source.skipped` reasons
+**And** story 3.39 supersedes that stub allowance for CFTC press, SCOTUS docket, and Legal news leads. Those three are fetched, or skipped with a named access reason. `not wired` is no longer their success path.
 
 ### Story 3.22: Staging ops host (`ops-build`)
 
@@ -1182,6 +1185,45 @@ Effort: Medium, implementation. Dependencies: 3.23, 3.27, 3.32, 3.33, 3.34. Bloc
 - The connector currently starts every case docket at once and treats the first HTTP 429 as a source-level failure. CourtListener's published limit is about 5 requests per minute. Seed data polls four case dockets, so one burst plus any pagination or earlier account use trips that limit. Staging Run `run-20261004-0002` failed this way.
 - Space CourtListener HTTP requests so a sliding minute stays under 5 requests. On 429, honor a delta-seconds or HTTP-date `Retry-After` capped to the limit window; without that header, wait one limit window. Retry a finite number of times. Stop when the wait budget is exhausted and fail the source with scrubbed `http_429` evidence.
 - Keep 401, 403, 5xx, network, timeout, unsafe URLs, and redirects fail-on-first. Keep every-docket failure as a failed Run. Do not split `run-daily-step`. Do not call the drafter or reviewer again because a fetch was retried. Do not deploy or call staging, production, or a paid provider.
+
+### Story 3.39: Wire seeded CFTC, SCOTUS, and legal-news sources
+
+As an operator,
+I want the three seeded sources that are not CourtListener to be monitored,
+So that a day with no new CourtListener entries is empty only when those sources were actually consulted or explicitly blocked.
+
+**Depends on:** 3.21, 3.27, 3.38. Does not replace 3.21, 3.23, or 3.38. Does not change Epic 4.
+
+**Acceptance Criteria:**
+
+**Given** poll-sources version 0 names CourtListener, CFTC press, SCOTUS docket, and Legal news leads
+**When** a Run packages those four sources
+**Then** CFTC press and SCOTUS docket are consulted as Tier-1, and Legal news leads is consulted as Tier-2
+**And** each of those three emits `source.fetched` or `source.skipped` with a scrubbed reason other than `not wired`
+**And** a blocked or disallowed fetch records the skip and does not invent entries
+**And** material items from a consulted source become Drafts with tier labels under the story 3.4 package, and still cannot write live F1
+**And** CourtListener keeps story 3.38 pacing and story 3.23's fail-on-first behavior for 401, 403, 5xx, network, and timeout
+**And** an access failure on one of the three does not by itself fail CourtListener
+**And** fixture tests cover a fetch, a named access skip, and a CourtListener-only registry no longer being the success path for these three names
+**And** this story does not deploy, call staging or production, or make a paid model call
+
+### Story 3.40: Add further web and publication sources
+
+As an operator,
+I want web and publication sources beyond the four seeded names,
+So that Tier-2 leads are not limited to the single Legal news leads row.
+
+**Depends on:** 3.39. Does not start until Patrick names each additional source.
+
+**Acceptance Criteria:**
+
+**Given** a list Patrick has named, each item with a display name, https URL, and tier
+**When** that list is added to `poll_sources`
+**Then** each named source is consulted on a Run, or skipped with a scrubbed access reason other than `not wired`
+**And** a web or publication lead that is not itself a primary document is Tier-2
+**And** a Tier-2-only Draft stays ineligible for agent auto-approval (FR-9, FR-17)
+**And** no URL is added that Patrick did not name
+**And** this story does not deploy, call staging or production, or make a paid model call until a later approved story says so
 
 ## Epic 4: Governance Narrative & Invited Check
 

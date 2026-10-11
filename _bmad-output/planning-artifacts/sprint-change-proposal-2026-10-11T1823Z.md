@@ -2,7 +2,7 @@
 project: PredictionMarketLitigation
 date: 2026-10-11T18:23Z
 workflow: bmad-correct-course
-status: proposed
+status: approved
 mode: batch
 approach: direct-adjustment
 scope: moderate
@@ -80,9 +80,9 @@ Staging Runs finish `empty` while three configured sources are skipped as `not w
 | 5.5 | Handoff | [x] | Section 5. Not executed. |
 | 6.1 | Checklist completion | [x] | Sections 1–5 are recorded. 6.3–6.5 are waiting on Patrick. |
 | 6.2 | Proposal accuracy | [x] | Checked against the staging rows, `sources.ts`, `dailyRun.ts`, story 3.4, story 3.21, FR-9, and the architecture tree. |
-| 6.3 | Explicit approval | [ ] | Not asked yet. Step 4 halts before approval. |
-| 6.4 | `sprint-status.yaml` | [ ] | Not updated. Approval has not been given. |
-| 6.5 | Next steps confirmed | [ ] | Handoff is described in section 5 and is not confirmed. |
+| 6.3 | Explicit approval | [x] | Patrick approved the proposal as written on 2026-10-11. The approval message says the proposal in PR #81 is approved as written, and to continue. |
+| 6.4 | `sprint-status.yaml` | [x] | `epic-3: in-progress`. Stories `3-39-wire-seeded-cftc-scotus-and-legal-news-sources` and `3-40-add-further-web-and-publication-sources` are `backlog`. |
+| 6.5 | Next steps confirmed | [x] | Section 5. Handoff recorded below. |
 
 ### Epic impact
 
@@ -367,4 +367,17 @@ No edit. `ux-brief-pack.md` sections B1, B2, and B3 already show Run status, sou
 - Epic 4 stories 4.1–4.8 are unchanged.
 - No deploy and no staging or production call is performed by this proposal.
 
-Checklist 6.3, 6.4, and 6.5 are open. Step 5 has not been asked.
+## 6. Approval and handoff record
+
+Patrick approved this proposal as written on 2026-10-11. Scope is **Moderate**. Routed to the Product Owner and Developer agents.
+
+Applied on approval:
+
+- `epics.md`: stories 3.39 and 3.40, the story 3.4 and 3.21 supersession sentences, and the scope-amendment entry.
+- PRD FR-9: the monitoring consequence.
+- `architecture.md`: connector module names and the external-integrations line.
+- `sprint-status.yaml`: checklist 6.4. `sprint_plan.py generate --dry-run` was not written. A full generate would add the two new keys and would also orphan six existing `done` keys (`3-6`, `3-11`, `3-19`, `3-22`, `3-24`, `3-25`) because their stored slugs differ from the current headings, then recreate those stories as `backlog`. Those renames were not part of this approval, so the generator was not applied. The two new keys were added directly, and `epic-3` was set to `in-progress`.
+
+Developer handoff: implement story 3.39. Story 3.40 waits until Patrick names each additional source. This pass does not deploy and does not call staging or production.
+
+`workflow.on_complete` is empty.
