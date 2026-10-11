@@ -92,4 +92,6 @@ The role guard matches `0024`. Staging already names V4-Flash, so `migrate:build
 - `npm test` -- expected: exit 0, including the new period tests
 
 **Manual checks (if no CLI):**
-- Eng Manager applies `npm run migrate:build` on `pml-build` before `2026-10-11T19:10:00.000Z`. Do not run `npm run deploy` or `npm run migrate:remote`. Confirm the new window has no calls, operations, or accounting issues, that the old period still ends at that instant, and that `default_budget_cents` is still 100. Stop admissions when fewer than 19 cents remain.
+- Eng Manager applies `npm run migrate:build` on `pml-build` before `2026-10-11T19:10:00.000Z`. Do not run `npm run deploy` or `npm run migrate:remote`. Confirm the new window has no calls, operations, or accounting issues, and that `default_budget_cents` is still 100. Stop admissions when fewer than 19 cents remain.
+- The abut guard is a pre-apply check, not migration SQL. Confirm `acceptance-3-36-deepinfra-20261004.ends_at` is still `2026-10-11T19:10:00.000Z` before applying. If it is not, STOP.
+- The same-id guard is the post-apply check. After applying, `SELECT starts_at, ends_at, cap_cents FROM llm_periods WHERE id='staging-deepinfra-v4flash-20261011'` must return exactly `2026-10-11T19:10:00.000Z`, `2026-10-18T00:10:57.000Z`, 100. If it returns no row or different values, STOP and do not run. A silent no-op means no period cap from 19:10Z.

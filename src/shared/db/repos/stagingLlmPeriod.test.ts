@@ -189,4 +189,31 @@ it("renews the V4-Flash period once and hands off at 19:10:00Z", async () => {
   expect(await attributed(db, handoffId)).toEqual([NEW_ID]);
   expect(await attributed(db, insideEndId)).toEqual([NEW_ID]);
   expect(await attributed(db, endId)).toEqual([]);
+  const capRun = "run-20261011-aa02";
+  await db
+    .prepare(
+      "INSERT INTO runs (id,origin,mode,status,started_at,spend_cents,spend_currency,budget_cents) VALUES (?,'manual','hitl','running',?,0,'USD',200)"
+    )
+    .bind(capRun, HANDOFF)
+    .run();
+  async function reserveBound(bound: number, key: string) {
+    return accounting.reserve(db, {
+      id: crypto.randomUUID(),
+      runId: capRun,
+      role: "drafter",
+      key,
+      fingerprint: "fp",
+      owner: crypto.randomUUID(),
+      bound,
+      budget: 200,
+      policy: fixtureCostPolicy("deepinfra", v4!.model, HANDOFF),
+      now: HANDOFF,
+      awaiting: false
+    });
+  }
+  const first = await reserveBound(60, "draft:cap:1");
+  expect(await attributed(db, first.id)).toEqual([NEW_ID]);
+  await expect(reserveBound(50, "draft:cap:2")).rejects.toBeInstanceOf(
+    accounting.AccountingRefused
+  );
 });
