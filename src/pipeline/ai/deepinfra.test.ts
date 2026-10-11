@@ -7,6 +7,7 @@ import {
   llmProvidersFromEnv
 } from "./gateway";
 import { resolveCostPolicy } from "./costPolicy";
+import recordedCatalog from "./fixtures/deepseek-v4-flash-catalog-row.json";
 import { insertRun } from "../../shared/db/repos/runsRepo";
 import { accountingForRun } from "../../shared/db/repos/llmAccountingRepo";
 import {
@@ -17,9 +18,13 @@ import {
 const db = (env as Env).DB;
 const NOW = "2026-10-04T19:12:00.000Z";
 const MODEL = "zai-org/GLM-5.3-Flash";
+const V4_MODEL = "deepseek-ai/DeepSeek-V4-Flash";
+// After the GLM policy window. A settled V4 call inside that window is counted by the campaign period.
+const NOW_V4 = "2026-10-12T00:00:00.000Z";
 const WORKERS_REDIRECT_ERROR =
   'Invalid redirect value, must be one of "follow" or "manual" ("error" won\'t be implemented since it does not make sense at the edge; use "manual" and check the response status code)';
 const policy = resolveCostPolicy("deepinfra", MODEL, NOW);
+const v4Policy = resolveCostPolicy("deepinfra", V4_MODEL, NOW_V4);
 const configured = {
   ...env,
   DEEPINFRA_API_KEY: "PRIVATE-provider-key",
@@ -357,8 +362,7 @@ describe("DeepInfra central gateway", () => {
       { cents_per_output_token: {} },
       { type: "unknown" },
       { rate_per_input_token_cached: 1.1 },
-      { rate_per_input_token_cache_write: 0.2 },
-      { rate_per_service_tier_priority: 1.2 },
+      { rate_per_input_token_cache_write: 2 },
       { table: [] },
       { new_billable_dimension: 0.1 }
     ].map(
@@ -393,6 +397,114 @@ describe("DeepInfra central gateway", () => {
       ).toBeNull();
     }
   );
+  it("accepts the recorded V4-Flash catalog row before inference", async () => {
+    const input = await setup(V4_MODEL);
+    const { inference } = http(responseBody(), [recordedCatalog]);
+    await expect(
+      complete({ ...deps(), now: () => NOW_V4 }, input)
+    ).resolves.toMatchObject({
+      provider: "deepinfra",
+      model: V4_MODEL
+    });
+    expect(inference).toHaveBeenCalledTimes(1);
+  });
+  it.each([
+    [
+      "an input price above the policy",
+      {
+        pricing: {
+          ...recordedCatalog.pricing,
+          cents_per_input_token: 0.000019
+        }
+      }
+    ],
+    [
+      "an output price above the policy",
+      {
+        pricing: {
+          ...recordedCatalog.pricing,
+          cents_per_output_token: 0.000019
+        }
+      }
+    ],
+    [
+      "context below inputTokens",
+      { max_tokens: recordedCatalog.max_tokens - 1 }
+    ],
+    [
+      "an explicit cache-write multiplier above the policy",
+      {
+        pricing: {
+          ...recordedCatalog.pricing,
+          rate_per_explicit_cache_write_token: { "5m": 1.25, "1h": 2.5 }
+        }
+      }
+    ],
+    [
+      "an explicit cache-write list",
+      {
+        pricing: {
+          ...recordedCatalog.pricing,
+          rate_per_explicit_cache_write_token: []
+        }
+      }
+    ],
+    [
+      "a cache-read multiplier above 2",
+      {
+        pricing: {
+          ...recordedCatalog.pricing,
+          rate_per_input_token_cached: 2.1
+        }
+      }
+    ],
+    [
+      "no can-disable-reasoning tag",
+      {
+        tags: recordedCatalog.tags.filter(
+          (tag) => tag !== "can-disable-reasoning"
+        )
+      }
+    ]
+  ])(
+    "fails closed on the recorded row when it has %s",
+    async (_label, change) => {
+      const input = await setup(V4_MODEL);
+      const { inference } = http(responseBody(), [
+        { ...recordedCatalog, ...change }
+      ]);
+      await expect(
+        complete({ ...deps(), now: () => NOW_V4 }, input)
+      ).rejects.toMatchObject({ code: "cost_policy_invalid" });
+      expect(inference).not.toHaveBeenCalled();
+      expect(await accountingForRun(db, input.runId)).toMatchObject({
+        totalCents: 0
+      });
+      expect(
+        await db
+          .prepare("SELECT id FROM llm_operations WHERE run_id=?")
+          .bind(input.runId)
+          .first()
+      ).toBeNull();
+    }
+  );
+  it("sends DeepSeek-V4-Flash with reasoning off and no service tier", async () => {
+    const input = await setup(V4_MODEL);
+    const { inference } = http(responseBody(), [recordedCatalog]);
+    await complete({ ...deps(), now: () => NOW_V4 }, input);
+    const body = JSON.parse(inference.mock.calls[0]![1]!.body as string) as {
+      model: string;
+      reasoning_effort: string;
+      reasoning: { enabled: boolean };
+      service_tier?: unknown;
+    };
+    expect(body).toMatchObject({
+      model: V4_MODEL,
+      reasoning_effort: "none",
+      reasoning: { enabled: false }
+    });
+    expect(body).not.toHaveProperty("service_tier");
+  });
   it.each(["expired", "unsupported"])(
     "rejects %s policy before HTTP",
     async (kind) => {
@@ -1722,6 +1834,137 @@ describe("DeepInfra pre-dispatch validation and HTTP failures", () => {
         })
       ])
     );
+  });
+
+  function requestedModel(init: RequestInit | undefined): string {
+    return (JSON.parse(String(init?.body)) as { model: string }).model;
+  }
+
+  it("retries engine_overloaded with the configured DeepSeek-V4-Flash model", async () => {
+    const input = await setup(V4_MODEL);
+    const { inference } = http(responseBody(), [recordedCatalog]);
+    const models: string[] = [];
+    let calls = 0;
+    let entered!: () => void;
+    const reached = new Promise<void>((resolve) => (entered = resolve));
+    inference.mockImplementation(async (_url, init) => {
+      calls += 1;
+      models.push(requestedModel(init));
+      if (calls === 1) {
+        entered();
+        return overloadResponse();
+      }
+      return Response.json(responseBody());
+    });
+    vi.useFakeTimers();
+    const pending = complete({ ...deps(), now: () => NOW_V4 }, input);
+    await reached;
+    await vi.advanceTimersByTimeAsync(5_000);
+    await expect(pending).resolves.toMatchObject({
+      provider: "deepinfra",
+      model: V4_MODEL
+    });
+    expect(models).toEqual([V4_MODEL, V4_MODEL]);
+    expect(
+      await db
+        .prepare("SELECT model FROM llm_calls WHERE run_id=?")
+        .bind(input.runId)
+        .first()
+    ).toEqual({ model: V4_MODEL });
+  });
+
+  it("rechecks the DeepSeek-V4-Flash policy before an overload retry and releases", async () => {
+    const input = await setup(V4_MODEL);
+    const { inference } = http(responseBody(), [recordedCatalog]);
+    const models: string[] = [];
+    let calls = 0;
+    let time = NOW_V4;
+    let entered!: () => void;
+    const reached = new Promise<void>((resolve) => (entered = resolve));
+    inference.mockImplementation(async (_url, init) => {
+      calls += 1;
+      models.push(requestedModel(init));
+      entered();
+      time = v4Policy.validUntil;
+      return overloadResponse();
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.useFakeTimers();
+    const pending = complete({ ...deps(), now: () => time }, input);
+    const failed = expect(pending).rejects.toMatchObject({
+      code: "provider_error"
+    });
+    await reached;
+    await vi.advanceTimersByTimeAsync(5_000);
+    await failed;
+    expect(calls).toBe(1);
+    expect(models).toEqual([V4_MODEL]);
+    expect(warn.mock.calls.map((call) => call[0])).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "provider_call_retry_stopped",
+          attempt: 2,
+          reason: "policy_invalid"
+        })
+      ])
+    );
+    const row = await db
+      .prepare(
+        "SELECT state, bound_cents, policy_json FROM llm_operations WHERE run_id=?"
+      )
+      .bind(input.runId)
+      .first<{ state: string; bound_cents: number; policy_json: string }>();
+    expect(row?.state).toBe("released");
+    expect(row?.bound_cents).toBe(19);
+    expect(JSON.parse(row!.policy_json).model).toBe(V4_MODEL);
+    warn.mockRestore();
+  });
+
+  it("releases a persistent DeepSeek-V4-Flash overload after retrying that model", async () => {
+    const input = await setup(V4_MODEL);
+    const { inference } = http(responseBody(), [recordedCatalog]);
+    const models: string[] = [];
+    let calls = 0;
+    let entered!: () => void;
+    const reached = new Promise<void>((resolve) => (entered = resolve));
+    inference.mockImplementation(async (_url, init) => {
+      calls += 1;
+      models.push(requestedModel(init));
+      if (calls === 1) entered();
+      return overloadResponse();
+    });
+    vi.useFakeTimers();
+    const pending = complete({ ...deps(), now: () => NOW_V4 }, input);
+    const failed = expect(pending).rejects.toMatchObject({
+      code: "provider_error",
+      message: "DeepInfra gateway request failed."
+    });
+    await reached;
+    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(15_000);
+    await failed;
+    expect(models).toEqual([V4_MODEL, V4_MODEL, V4_MODEL]);
+    const row = await db
+      .prepare(
+        "SELECT state, liability_cents, bound_cents, policy_json, response_evidence_json FROM llm_operations WHERE run_id=?"
+      )
+      .bind(input.runId)
+      .first<{
+        state: string;
+        liability_cents: number;
+        bound_cents: number;
+        policy_json: string;
+        response_evidence_json: string;
+      }>();
+    expect(row?.state).toBe("released");
+    expect(row?.liability_cents).toBe(0);
+    expect(row?.bound_cents).toBe(19);
+    expect(JSON.parse(row!.policy_json).model).toBe(V4_MODEL);
+    expect(JSON.parse(row!.response_evidence_json)).toMatchObject({
+      reason: "provider_definite_refusal",
+      status: 429,
+      errorCode: "engine_overloaded"
+    });
   });
 
   it("keeps an uncertain reservation when overload is followed by a network failure", async () => {

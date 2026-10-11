@@ -70,6 +70,27 @@ export const COST_POLICIES: readonly CostPolicy[] = [
       "https://docs.deepinfra.com/chat/overview",
       "https://docs.deepinfra.com/chat/reasoning"
     ]
+  },
+  // Catalog `cents_per_*` values are cents per token. USD per million tokens
+  // is cents_per_token × 10_000. Cache-read, cache-write, and explicit
+  // cache-write values are multipliers on the input cents, not dollar prices.
+  // The recorded 1h multiplier is 2.0, so 2.0 × 9e-06 cents/token = 1.8e-05
+  // cents/token = $0.18 per million input tokens. Output is 1.8e-05
+  // cents/token = $0.18/M. Bound is 19 cents.
+  {
+    ...common,
+    provider: "deepinfra",
+    model: "deepseek-ai/DeepSeek-V4-Flash",
+    inputTokens: 1048576,
+    inputUsdPerMillion: "0.18",
+    outputUsdPerMillion: "0.18",
+    verifiedAt: "2026-10-11T00:10:57.000Z",
+    validUntil: "2026-10-18T00:10:57.000Z",
+    sources: [
+      "https://api.deepinfra.com/models/list",
+      "https://deepinfra.com/deepseek-ai/DeepSeek-V4-Flash",
+      "https://docs.deepinfra.com/chat/reasoning"
+    ]
   }
 ];
 export class CostPolicyError extends Error {}
@@ -149,6 +170,39 @@ export function decimalAtMost(value: unknown, limit: string): boolean {
     const [a, b] = rational(String(value)),
       [c, d] = rational(limit);
     return a * d <= c * b;
+  } catch {
+    return false;
+  }
+}
+
+/** USD per million tokens → cents per token. `0.18` → `"0.000018"`. */
+export function usdPerMillionToCentsPerToken(usdPerMillion: string): string {
+  const [whole, fraction = ""] = usdPerMillion.split(".");
+  const digits = (whole + fraction).replace(/^0+/, "") || "0";
+  if (digits === "0") return "0";
+  const scale = fraction.length + 4;
+  if (scale < digits.length) {
+    const point = digits.length - scale;
+    const fractionDigits = digits.slice(point).replace(/0+$/, "");
+    const wholeDigits = digits.slice(0, point);
+    return fractionDigits.length > 0
+      ? wholeDigits + "." + fractionDigits
+      : wholeDigits;
+  }
+  return "0." + digits.padStart(scale, "0").replace(/0+$/, "");
+}
+
+/** `factor * value <= limit`, exact rational comparison. */
+export function decimalProductAtMost(
+  factor: string,
+  value: string,
+  limit: string
+): boolean {
+  try {
+    const [a, b] = rational(factor);
+    const [c, d] = rational(value);
+    const [e, f] = rational(limit);
+    return a * c * f <= e * b * d;
   } catch {
     return false;
   }

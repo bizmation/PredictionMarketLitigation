@@ -79,7 +79,8 @@ function fakeProvider(
     text?: string;
     fail?: boolean;
     costCents?: number;
-  }> = []
+  }> = [],
+  name = "fake"
 ): LlmProvider & {
   count: () => number;
   roles: () => string[];
@@ -89,7 +90,7 @@ function fakeProvider(
   const roles: string[] = [];
   const prompts: string[] = [];
   return {
-    name: "fake",
+    name,
     count: () => calls,
     roles: () => roles,
     prompts: () => prompts,
@@ -1370,6 +1371,28 @@ describe("draftAndReview docket_events branch (story 3.21)", () => {
     return id;
   }
 
+  it("parses a DeepInfra docket drafter reply that leads with prose", async () => {
+    const runId = await insertRun();
+    const draftId = await insertDocketDraft(runId);
+    await seedConfig({
+      drafter: { provider: "deepinfra", model: "reply-model" },
+      reviewer: { provider: "deepinfra", model: "reply-model" }
+    });
+    const provider = fakeProvider(
+      [
+        { text: `Classification follows.\n${JSON.stringify(INFERENCE)}` },
+        { text: reviewJson({ confidence: 85 }) }
+      ],
+      "deepinfra"
+    );
+    await draftAndReview(testEnv.DB, runId, deps(provider));
+    const draft = (await draftsRepo.getById(testEnv.DB, draftId))!;
+    expect(draft.diff).toMatchObject({
+      inference: INFERENCE,
+      statePatch: { posture: { from: "pending", to: "platform" } }
+    });
+  });
+
   it("keeps the record verbatim, stores the inference and the derived statePatch, and projects both on draft.evaluated", async () => {
     const runId = await insertRun();
     const draftId = await insertDocketDraft(runId);
@@ -1804,5 +1827,115 @@ describe("durable production Draft replay (3.31)", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe("DeepInfra reply JSON", () => {
+  const visible = {
+    body: "Visible draft after the think block.",
+    diff: { operationalStatus: { from: "go", to: "restricted" } }
+  };
+  const hidden = {
+    body: "Hidden inside the think block.",
+    diff: { operationalStatus: { from: "go", to: "banned" } }
+  };
+
+  async function reviewed(drafterText: string, providerName: string) {
+    const runId = await insertRun();
+    await insertShellDraft(runId);
+    await seedConfig({
+      drafter: { provider: providerName, model: "reply-model" },
+      reviewer: { provider: providerName, model: "reply-model" }
+    });
+    const provider = fakeProvider(
+      [{ text: drafterText }, { text: reviewJson() }],
+      providerName
+    );
+    await draftAndReview(testEnv.DB, runId, deps(provider));
+    const drafts = await draftsRepo.listByRun(testEnv.DB, runId);
+    return drafts[0];
+  }
+
+  it("parses the JSON object that follows leading prose", async () => {
+    const draft = await reviewed(
+      `Here is the draft:\n${JSON.stringify(visible)}`,
+      "deepinfra"
+    );
+    expect(draft?.body).toBe(visible.body);
+    expect(draft?.diff).toEqual(visible.diff);
+  });
+
+  it("does not parse a JSON object that appears only inside a think block", async () => {
+    const draft = await reviewed(
+      `<think>${JSON.stringify(hidden)}</think>\nNo object follows.`,
+      "deepinfra"
+    );
+    expect(draft?.body).toBe(SHELL_BODY);
+    expect(draft?.body).not.toBe(hidden.body);
+  });
+
+  it("uses the later object when a think block holds a decoy", async () => {
+    const draft = await reviewed(
+      `<think>${JSON.stringify(hidden)}</think>\nNotes.\n${JSON.stringify(visible)}`,
+      "deepinfra"
+    );
+    expect(draft?.body).toBe(visible.body);
+    expect(draft?.diff).toEqual(visible.diff);
+  });
+
+  it("does not strip leading prose for another provider", async () => {
+    const draft = await reviewed(
+      `Here is the draft:\n${JSON.stringify(visible)}`,
+      "fake"
+    );
+    expect(draft?.body).toBe(SHELL_BODY);
+  });
+
+  it("does not parse JSON inside a truncated think tag", async () => {
+    const draft = await reviewed(
+      `<think>${JSON.stringify(hidden)}`,
+      "deepinfra"
+    );
+    expect(draft?.body).toBe(SHELL_BODY);
+    expect(draft?.body).not.toBe(hidden.body);
+  });
+
+  it("does not parse JSON before an orphan think close tag", async () => {
+    const draft = await reviewed(
+      `${JSON.stringify(hidden)}</think>\nNo object follows.`,
+      "deepinfra"
+    );
+    expect(draft?.body).toBe(SHELL_BODY);
+    expect(draft?.body).not.toBe(hidden.body);
+  });
+
+  it("parses the object after a case-insensitive think tag with attributes", async () => {
+    const draft = await reviewed(
+      `<THINK mode="on">${JSON.stringify(hidden)}</THINK>\n${JSON.stringify(visible)}`,
+      "deepinfra"
+    );
+    expect(draft?.body).toBe(visible.body);
+    expect(draft?.diff).toEqual(visible.diff);
+  });
+
+  it("parses a DeepInfra reviewer reply after a think block and prose", async () => {
+    const runId = await insertRun();
+    await insertShellDraft(runId);
+    await seedConfig({
+      drafter: { provider: "deepinfra", model: "reply-model" },
+      reviewer: { provider: "deepinfra", model: "reply-model" }
+    });
+    const provider = fakeProvider(
+      [
+        { text: drafterJson() },
+        {
+          text: `<think>private reasoning</think>\nNotes before the score.\n${reviewJson({ confidence: 85 })}`
+        }
+      ],
+      "deepinfra"
+    );
+    await draftAndReview(testEnv.DB, runId, deps(provider));
+    const drafts = await draftsRepo.listByRun(testEnv.DB, runId);
+    expect(drafts[0]?.confidence).toBe(85);
   });
 });

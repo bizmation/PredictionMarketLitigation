@@ -136,3 +136,5 @@ Patrick ruled on 2026-10-10, relayed by PML Eng Manager, so the Epic 3 retro has
 **3.37.** That same revised `run-20261010-0003` draft may close 3.37 with the same Run. `epics.md` Story 3.37 already allows one Run to satisfy both 3.36 and 3.37 when it meets both sets of criteria. Patrick will read the draft text himself before it is approved, and the approval still needs his named go-ahead on that specific draft.
 
 **Known gap.** Once the revised draft is approved, #64's batch reject refuses the Run (`reject_run_unpublished`), so closing 0003 needs a follow-up that rejects the remaining undecided heads. That follow-up is being built separately.
+
+**2026-10-10 model and 3.37 evidence.** By Patrick's 8:05 PM ET ruling the model is now `deepseek-ai/DeepSeek-V4-Flash` for every role. `run-20261010-0003` is `rejected`, with 335 drafts rejected, 0 undecided, and nothing published. Those drafts never got a model call, so they cannot serve as 3.37's live-draft evidence, and the 0003 batch was rejected under Patrick's earlier approval. 3.37 will use the first V4-Flash run (expected `run-20261010-0004`) instead.

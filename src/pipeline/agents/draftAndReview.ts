@@ -103,19 +103,92 @@ function nowIso(deps: GatewayDeps): string {
   return deps.now?.() ?? new Date().toISOString();
 }
 
-function parseJson(text: string): unknown {
+/**
+ * Keep only the text after the last `</think>`. An unmatched `<think>` drops
+ * the rest of that remainder. Tags are case-insensitive and may have attributes.
+ */
+function stripThinkBlocks(text: string): string {
+  let lastCloseEnd = -1;
+  for (const match of text.matchAll(/<\/think\b[^>]*>/gi)) {
+    if (match.index == null) continue;
+    lastCloseEnd = match.index + match[0].length;
+  }
+  const afterClose = lastCloseEnd >= 0 ? text.slice(lastCloseEnd) : text;
+  const open = /<think\b[^>]*>/i.exec(afterClose);
+  if (open?.index == null) return afterClose;
+  return afterClose.slice(0, open.index);
+}
+
+/** End index exclusive, or null when braces never close. Strings are skipped. */
+function endOfJsonObject(text: string, start: number): number | null {
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i]!;
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") depth += 1;
+    else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) return i + 1;
+    }
+  }
+  return null;
+}
+
+function lastJsonObject(text: string): unknown {
+  let last: unknown;
+  let found = false;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] !== "{") continue;
+    const end = endOfJsonObject(text, i);
+    if (end == null) continue;
+    try {
+      const value: unknown = JSON.parse(text.slice(i, end));
+      if (
+        value !== null &&
+        typeof value === "object" &&
+        !Array.isArray(value)
+      ) {
+        last = value;
+        found = true;
+        // A successful object owns its interior, so a nested diff is not a later reply.
+        i = end - 1;
+      }
+    } catch {
+      /* A balanced span can still be invalid JSON. */
+    }
+  }
+  return found ? last : undefined;
+}
+
+function parseJson(text: string, provider?: string): unknown {
+  const body =
+    provider === "deepinfra" ? stripThinkBlocks(text).trim() : text.trim();
   try {
-    return JSON.parse(text.trim());
+    return JSON.parse(body);
   } catch {
-    return undefined;
+    return provider === "deepinfra" ? lastJsonObject(body) : undefined;
   }
 }
 
-function parseDrafter(text: string): {
+function parseDrafter(
+  text: string,
+  provider?: string
+): {
   body: string;
   diff: Record<string, { from: unknown; to: unknown }>;
 } | null {
-  const parsed = DrafterOutputSchema.safeParse(parseJson(text));
+  const parsed = DrafterOutputSchema.safeParse(parseJson(text, provider));
   if (!parsed.success) return null;
   if (parsed.data.body.trim().length === 0) return null;
   return { body: parsed.data.body, diff: parsed.data.diff };
@@ -141,8 +214,8 @@ function stripInference(diff: unknown): Record<string, unknown> {
   return record;
 }
 
-function parseInference(text: string): Inference | null {
-  const parsed = InferenceSchema.safeParse(parseJson(text));
+function parseInference(text: string, provider?: string): Inference | null {
+  const parsed = InferenceSchema.safeParse(parseJson(text, provider));
   return parsed.success ? parsed.data : null;
 }
 
@@ -578,12 +651,13 @@ function scoreReviewer(
   draft: DraftRecord,
   text: string,
   threshold: number,
-  diff: unknown
+  diff: unknown,
+  provider?: string
 ): {
   confidence: number | null;
   evalSummary: EvalSummary;
 } {
-  const parsed = ReviewerOutputSchema.safeParse(parseJson(text));
+  const parsed = ReviewerOutputSchema.safeParse(parseJson(text, provider));
   if (!parsed.success) {
     return {
       confidence: null,
@@ -708,7 +782,7 @@ export async function draftAndReview(
       let vocabularyFailed = false;
       if (docket) {
         const record = diff as Record<string, unknown>;
-        inference = parseInference(drafter.text);
+        inference = parseInference(drafter.text, drafter.provider);
         if (inference) {
           statePatch = await derivePatch(db, record, inference);
           diff = { ...record, inference, statePatch };
@@ -716,7 +790,7 @@ export async function draftAndReview(
           vocabularyFailed = true;
         }
       } else {
-        const overwritten = parseDrafter(drafter.text);
+        const overwritten = parseDrafter(drafter.text, drafter.provider);
         if (overwritten) {
           body = overwritten.body;
           diff = overwritten.diff;
@@ -747,7 +821,13 @@ export async function draftAndReview(
         });
         continue;
       }
-      const scored = scoreReviewer(draft, reviewer.text, threshold, diff);
+      const scored = scoreReviewer(
+        draft,
+        reviewer.text,
+        threshold,
+        diff,
+        reviewer.provider
+      );
       const createdAt = nowIso(gatewayDeps);
       if (!docket) {
         await persist(db, draft, {

@@ -1168,6 +1168,8 @@ Effort: Medium, operational. Dependencies: 3.36. Covers live acceptance action /
 - Reuse the same Run for 3.36 and 3.37 when it satisfies both sets of criteria; do not duplicate paid work for reporting. An empty Run cannot satisfy this material acceptance story.
 - Run a fresh/resumed Epic 3 retrospective against the final merged and deployed state. Close the nine actions only with linked evidence. Mark Epic 3 done and release Epic 4's entry gate only if acceptance succeeds; retain any new blockers visibly otherwise.
 
+**2026-10-10 note.** By Patrick's 8:05 PM ET ruling the model is now `deepseek-ai/DeepSeek-V4-Flash` for every role. `run-20261010-0003` is `rejected`, with 335 drafts rejected, 0 undecided, and nothing published. Those drafts never got a model call, so they cannot serve as 3.37's live-draft evidence, and the 0003 batch was rejected under Patrick's earlier approval. 3.37 will use the first V4-Flash run (expected `run-20261010-0004`) instead.
+
 ### Story 3.38: Pace CourtListener requests and recover from HTTP 429
 
 As an operator, a normal daily CourtListener poll stays inside the published request limit and a transient HTTP 429 does not fail the Run.

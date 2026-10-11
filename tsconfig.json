@@ -1,6 +1,7 @@
 {
   "extends": "agents/tsconfig",
   "compilerOptions": {
+    "resolveJsonModule": true,
     // Runtime types come from `wrangler types` (env.d.ts), not the
     // @cloudflare/workers-types package.
     // @cloudflare/vitest-pool-workers/types declares the test-only modules

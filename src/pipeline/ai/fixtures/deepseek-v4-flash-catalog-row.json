@@ -1,0 +1,47 @@
+{
+  "model_name": "deepseek-ai/DeepSeek-V4-Flash",
+  "type": "text-generation",
+  "reported_type": "text-generation",
+  "description": "DeepSeek V4 Flash is an efficiency-focused MoE model with 284B total parameters (13B active) and a 1M-token context window. It's tuned for fast inference and high-throughput use cases while still holding up on reasoning and coding tasks.",
+  "cover_img_url": "https://shared.deepinfra.com/models/deepseek-ai/DeepSeek-V4-Flash/cover_image.816346e8186ef1652de4efda60bee06c74b3629aba75fd26151fc15bc69185c7.webp",
+  "tags": [
+    "structured-output",
+    "openai",
+    "tools",
+    "json",
+    "can-disable-reasoning",
+    "reasoning",
+    "priority",
+    "flex",
+    "cc-native",
+    "featured"
+  ],
+  "pricing": {
+    "discount": null,
+    "discount_ends_at": null,
+    "short": null,
+    "full": null,
+    "table": null,
+    "type": "tokens",
+    "cents_per_input_token": 9e-6,
+    "cents_per_output_token": 1.8e-5,
+    "rate_per_input_token_cached": 0.2,
+    "rate_per_input_token_cache_write": null,
+    "rate_per_service_tier_priority": 1.5,
+    "rate_per_service_tier_flex": 0.8,
+    "rate_per_explicit_cache_write_token": {
+      "5m": 1.25,
+      "1h": 2.0
+    },
+    "explicit_cache_granularity_tokens": 1024
+  },
+  "max_tokens": 1048576,
+  "replaced_by": null,
+  "deprecated": null,
+  "quantization": "fp8",
+  "mmlu": null,
+  "expected": null,
+  "create_ts": "2026-04-24T06:16:17+00:00",
+  "private": 0,
+  "is_partner": false
+}
