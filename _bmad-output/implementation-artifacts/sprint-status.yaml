@@ -126,6 +126,8 @@ development_status:
   4-5-correction-feedback-form-queued: backlog
   4-6-admin-feedback-moderation-github-issue: backlog
   4-7-trust-closure-donations-repo-cross-links: backlog
+  # Added 2026-10-11 by sprint-change-proposal-2026-10-11. Approver control help. Does not change 3.37 or any existing status.
+  4-8-admin-approver-control-help: backlog
   epic-4-retrospective: optional
 action_items:
   - id: "epic-2-retro-item-1-stand-up-build-predictionmarketlitigatio"

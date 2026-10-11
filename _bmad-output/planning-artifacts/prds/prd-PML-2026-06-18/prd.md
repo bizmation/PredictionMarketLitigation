@@ -238,6 +238,8 @@ In Human-in-the-Loop mode, every Draft requires Patrick's approve / edit / rejec
 - Full Draft text is already public while pending (FR-15); approval only promotes it to canonical F1 (or rejection leaves F1 unchanged).
 - Edit-then-approve preserves both the original agent Draft and the human-edited published version in public lineage with a **full before/after diff** on `ops.` (not summary-only).
 - Reject leaves live F1 unchanged; reject **reason is public by default**, with an operator control to mark a specific reason (or portion) **private** before/at submit.
+- Before an approve or a reject is sent, the operator confirms the Draft's case, its entry number when the Draft has one, and the first line of the record. The Approve control's label, or the approve confirmation, names the entry number (for example "Approve entry 102"). When there is no entry number, that label or confirmation uses the case and the first line. Adjacent Drafts must be distinguishable without reading the raw id. (Added 2026-10-11, story 4.8.)
+- The control that marks a reject reason private is a visible, explicit choice before submit. The screen states whether that reason will be public. Silence is not a private mark. The reason stays public by default. (Added 2026-10-11, story 4.8.)
 
 #### FR-15: Public pending drafts + operator action queue `[v1]`
 Pending Drafts — including **full draft body text** — are publicly readable on `ops.` / site harness surfaces (including party-naming and posture-flip Drafts). Patrick has an authenticated operator surface to take approve / edit / reject actions.
@@ -248,6 +250,7 @@ Pending Drafts — including **full draft body text** — are publicly readable 
 - Pending Drafts are clearly labeled **not live / awaiting approval** so readers do not confuse them with canonical F1 content.
 - Approve / edit / reject **actions** require operator authentication; the public can observe outcomes, not perform them.
 - Keyboard-accessible operator actions on the admin queue.
+- Every control on the operator queue and its steering panel — Approve, Edit, Reject, Accept/Strip per field, Submit turn, Revise draft, Steer pipeline, Record guidance, Mark private, and the A/E/R hotkeys — states in plain words what it does, whether it makes a paid model call, whether the result is public, and whether it can be undone. That help is available on hover and on keyboard focus. Story 4.8 does not add an undo or redraft path; that gap is recorded in `deferred-work.md` through PR #76. (Added 2026-10-11, story 4.8.)
 
 #### FR-16: Autonomous mode enablement `[v1]`
 Autonomous ("YOLO") mode is off by default; only Patrick's operator identity can enable or disable it; enablement is an audited event.

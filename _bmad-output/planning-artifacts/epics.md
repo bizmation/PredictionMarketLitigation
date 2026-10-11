@@ -17,6 +17,7 @@ scopeAmendments:
   - '2026-08-09: Correction/feedback form is moderated — submissions queue for operator approval before a GitHub issue is created'
   - '2026-08-09: Readiness punch list applied (implementation-readiness-report-2026-08-09) — added Story 1.5 (CI/CD, envs, domains) and Story 3.6 (guardrails/action-policy/scoped-context enforcement, split from 3.5; old 3.6–3.12 renumbered 3.7–3.13); Vitest test ACs (1.1, 3.3, 3.11); governance-consequence ACs for FR20/FR21/FR22/FR37; state deep-link AC (2.4); named migrations for poll tally (2.9) and submissions (4.5); journal storage decided D1 (4.3); noon-ET DST AC (3.3); 2.10 scope made definite'
   - '2026-10-10: Story 3.38 paces CourtListener requests and retries a bounded HTTP 429. This supersedes only the story 3.23 fail-on-first 429 clause. Live story 3.36 acceptance depends on 3.38. See sprint-change-proposal-2026-10-10.md.'
+  - '2026-10-11: Story 4.8 adds plain-language help, approve/reject identity confirmation, and an explicit private choice on the admin approver flow. See sprint-change-proposal-2026-10-11.md. Story 3.37 is unchanged.'
 ---
 
 # PML - Epic Breakdown
@@ -218,6 +219,8 @@ UX-DR19: Build journal list/post — series nav (layer / fault-line / bookend); 
 
 UX-DR20: Admin approval queue — J/K navigate, A approve, E edit, R reject; edit buffer; reject reason + private-portion control; mode toggle + threshold slider; audit trail panel.
 
+UX-DR26: Admin approver control help — on the draft approval queue and its steering panel, every listed control (Approve, Edit, Reject, Accept/Strip per field, Submit turn, Revise draft, Steer pipeline, Record guidance, Mark private, and the A/E/R hotkeys) exposes plain-language help on hover and on keyboard focus. The help states what the control does, whether it makes a paid model call, whether the result is public, and whether it can be undone. A `title` attribute alone is not enough. Approve and reject confirmation names the Draft's case, entry number when it has one, and first line before the decision is sent. The Approve label, or that confirmation, names the entry number (for example "Approve entry 102"); when there is no entry number it uses the case and the first line. Mark private and the reject flow state whether the reason will be public; private is a visible explicit choice before submit. Fact (d) does not add an undo or redraft path; that gap is in deferred-work.md through PR #76. Story 4.8.
+
 UX-DR21: EmptyState component — dashed frame, reason, what it means for the reader (never apology-only).
 
 UX-DR22: Responsive collapse — two-column grids → one at 940px; sticky panels become static when stacked; map remains usable.
@@ -299,8 +302,8 @@ Patrick can run the daily harness; anyone can inspect Runs, Evidence, and pendin
 
 ### Epic 4: Governance Narrative & Invited Check
 Readers explore the nine-layer explainer and build journal on `ops.`; anyone can submit corrections/feedback that queue for operator approval before a public GitHub issue is created; donations and repo affordances complete the trust loop.
-**FRs covered:** FR31–FR35, FR37, FR45 (and polish FR36/FR38/FR39 as needed)  
-**UX-DRs:** UX-DR16, UX-DR18–19, UX-DR25
+**FRs covered:** FR31–FR35, FR37, FR45 (and polish FR36/FR38/FR39 as needed); story 4.8 refines the operator-facing consequences of FR14–FR15 and FR46–FR50 without moving those requirements out of Epic 3  
+**UX-DRs:** UX-DR16, UX-DR18–19, UX-DR25, UX-DR26
 
 **Deferred post-v1:** FR5 (timeline), FR7 (regulatory tracker), residual FR6 beyond FR41 entity ledger.
 
@@ -1182,7 +1185,7 @@ Effort: Medium, implementation. Dependencies: 3.23, 3.27, 3.32, 3.33, 3.34. Bloc
 
 ## Epic 4: Governance Narrative & Invited Check
 
-**Entry dependency (approved 2026-09-24):** Epic 4 implementation waits for story 3.37 and accepted Epic 3 retrospective evidence. All seven Epic 4 stories retain their scope.
+**Entry dependency (approved 2026-09-24):** Epic 4 implementation waits for story 3.37 and accepted Epic 3 retrospective evidence. Stories 4.1–4.7 retain their scope. Story 4.8, added 2026-10-11, is additional approver-help scope and waits on the same entry gate. See [sprint change proposal 2026-10-11](sprint-change-proposal-2026-10-11.md).
 
 
 Readers explore the nine-layer explainer and build journal on `ops.`; anyone can submit corrections/feedback that queue for operator approval before a public GitHub issue is created; donations and repo affordances complete the trust loop.
@@ -1297,3 +1300,56 @@ So that sustainability and open-source invitations are obvious without undermini
 **And** correction entry points remain on both surfaces and reflect moderated-queue copy (FR37/FR45)
 **And** apex ↔ `ops.` discoverability links are clear; IA split remains (no second full dashboard on apex)
 **And** “Powered by Bizmation” (or equivalent) and not-legal-advice / AI-governed disclosures remain visible on F1 (FR36)
+
+### Story 4.8: Admin approver control help
+
+As the operator approving a pending Draft,
+I want every control on the admin approver flow to say what it does, whether it makes a paid model call, whether the result is public, and whether I can undo it, and I want approve and reject to name the Draft I am deciding,
+So that I do not approve the neighboring entry, type into the steering box when I meant to approve, or publish a reject reason I meant to keep private.
+
+**Depends on:** the shipped admin queue and steering panel (stories 3.10 and 3.14–3.18). Same Epic 4 entry gate as stories 4.1–4.7. Does not change story 3.37, its spec, or any current story status, and does not block that gate.
+
+**Ruling (Patrick, 2026-10-11, 9:12 AM ET):** Illinois entry 101, `d:run-20261010-0005:CourtListener:docket_events:de-case-il-cftc-481187548`, stands as the story 3.37 publication. The five rejects whose public reason is `dev` and whose `reject_reason_private` is null stay as recorded. This story does not change those rows.
+
+**Out of scope:** An undo or redraft path for a sent approval or rejection is not this story. That gap is recorded in [`deferred-work.md`](../implementation-artifacts/deferred-work.md) through [PR #76](https://github.com/bizmation/PredictionMarketLitigation/pull/76).
+
+**Acceptance Criteria:**
+
+**AC — Control help.**
+
+**Given** the Access-protected admin approval queue and the inline steering panel on the selected Draft (UX-DR20, UX-DR26, FR14–FR15, FR46–FR50)
+**When** I hover or move keyboard focus to a control listed below
+**Then** I can read plain-language help for that control, both on hover and on keyboard focus, stating (a) what it does, (b) whether it makes a paid model call, (c) whether the result is public, and (d) whether it can be undone
+**And** a `title` attribute alone does not satisfy the help
+**And** the help matches the facts below and does not invent a publish path, a paid call, or an undo the control does not have
+**And** fact (d) states only whether the control can be undone from the screen. It does not specify an undo or redraft design
+
+**And** **Approve** (the button, and the A hotkey once confirmation is accepted) publishes the selected pending Draft to live F1 as human-approved, including the fields currently marked Accepted. It does not make a paid model call: `approveAction` in `src/surfaces/admin/ApprovalQueue.tsx` posts `{ action: "approve" }`, `src/server.ts` calls `decide`, and `decide` in `src/pipeline/gate/approval.ts` does not call `complete()`. The publish and its Evidence are public (`applyF1Stmts` on approve). A sent approval cannot be undone from this screen: `decide` returns `already_decided` when the Draft already has an outcome.
+
+**And** **Edit** (the button, and the E hotkey) opens an editor on the Draft body, or discards unsent edits if that editor is already open. It does not make a paid model call: opening the editor is local state, and "Approve with edits" posts `{ action: "edit", editedBody }` to the same `decide` path, which does not call `complete()`. Unsent edits stay on this screen and are not public. Discarding them undoes them on this screen. A sent edit-approve publishes the edited body and a public before/after diff, and `decide` will not write that decision again.
+
+**And** **Reject** (the button, and the R hotkey) opens the reason and does not send the rejection until Confirm rejection. Confirm rejection posts `{ action: "reject" }` through `src/server.ts` to `decide`, which does not call `complete()` and does not call `applyF1Stmts` for a reject, so live F1 stays unchanged. The rejection is public. The reason is public unless Mark private was explicitly chosen (`server.ts` leaves `rejectReason` set only when `private` is not true). A sent rejection cannot be undone from this screen (`already_decided`).
+
+**And** **Accept / Strip per field** chooses which inference fields publish with the docket record. It does not make a paid model call: `toggleAccepted` in `src/surfaces/admin/ApprovalQueue.tsx` only changes local state until Approve or Edit sends `acceptedFields` on the `decide` body. The choice stays on this screen until that POST, and it becomes public only as part of that publish (`gate.decided` records `acceptedFields` / `strippedFields`). Toggling again before the POST undoes it. After `decide` succeeds it cannot be undone from this screen.
+
+**And** **Submit turn** asks the steward about this Draft and does not approve it. The form submit calls `submit("ask")` in `src/surfaces/admin/SteeringPanel.tsx`. `executeTurn` in `src/pipeline/steering/submitTurn.ts` defaults the intent to `ask` and `askSteward` calls `complete()` with `role: "steward"`. That is a paid model call. The file header says this path does not call `decide` or F1 apply. The turn is public on `ops.` at submit unless marked private first: `toPublicSteeringTurn` in `src/shared/schemas/steering.ts` nulls `content` and `reply` when `private` is true and still returns actor, time, and draft id. A stored turn is not updated later: `src/shared/db/repos/steeringTurnsRepo.ts` only inserts and lists. Typing in the steering box and submitting it is this control, not Approve.
+
+**And** **Revise draft** posts `intent: "revise"`. `reviseDraft` in `src/pipeline/steering/submitTurn.ts` calls `draftAndReview`, and `draftAndReview` in `src/pipeline/agents/draftAndReview.ts` calls `complete()` for `role: "drafter"` and `role: "reviewer"`. That is a paid model call. The same file header says steward `complete()` does not run on revise. The instruction is public unless marked private before submit (`toPublicSteeringTurn`). The child Draft is inserted by `insertRevision` without a private-body flag; Draft rows have no private body column, only `reject_reason_private`. Live F1 does not change on this path (`submitTurn` does not call `decide`). `reviseDraft` does not delete the child. Whether some other route can remove a Draft version is a 4.8 implementation-time check, not a locked claim.
+
+**And** **Steer pipeline** posts `intent: "config"`. Conversational steering calls `complete()` with `role: "steward"` inside `steerPipelineConfig` in `src/pipeline/steering/submitTurn.ts`. That is a paid model call. `private` nulls the reply text there and does not skip `pipelineConfigRepo.appendVersion`, so the config change is still written. It takes effect on the next Run. The separate Revert control sends `revertToVersion`; that branch returns before `complete()`, so Revert is not a paid model call. The steering turn is insert-only in `steeringTurnsRepo`.
+
+**And** **Record guidance** posts `intent: "guidance"`. `steerGuidance` in `src/pipeline/steering/submitTurn.ts` writes a version row and does not call `complete()`. The file header says guidance has no LLM in the write path. The guidance text is the version content. If the turn is private, `steerGuidance` returns `invalid` immediately and writes no version. A later edit calls `appendVersion` and revoke calls `standingGuidanceRepo.revoke`. The turn itself is insert-only.
+
+**And** **Mark private** (the steering "Mark private at submit" checkbox and the reject-reason checkbox) is the choice, before submit, to withhold words. It does not make a paid model call: both checkboxes are local state until the existing POST. Steering sends `private` on the steering body (`SteeringPanel.tsx`); reject sends `private` and `src/server.ts` copies the reason into `rejectReasonPrivate` with no `complete()`. What it affects is the words, not the fact of the event. `toPublicSteeringTurn` nulls steering `content` and `reply` and keeps actor, time, and draft id. A private reject stores the text only in `reject_reason_private` and sends a null public reason. `steerGuidance` refuses a private turn, so this checkbox does not record guidance. The checkbox can be changed before submit. After submit it cannot: turns are insert-only, and `decide` returns `already_decided` once the Draft has an outcome.
+
+**And** the **A / E / R hotkeys** in `ApprovalQueue.tsx` call the same Approve, Edit, and Reject handlers and add no `complete()` of their own. A does not publish until the confirmation below is accepted. R opens Reject and does not send it. The keys return immediately when focus is in an input, textarea, or select, including the steering box, and the help says so.
+
+**AC — Confirm the draft.**
+
+**And** before Approve sends, and before Confirm rejection sends, the confirmation shows that Draft's case, its entry number when it has one, and the first line of the record. The Approve button's label, or its confirmation step, names the entry number, for example "Approve entry 102", so the target cannot be mistaken for the adjacent draft. When the Draft has no entry number, that label or confirmation falls back to the case and the first line, and does not invent an entry number. Illinois entry 102 (`d:run-20261010-0005:CourtListener:docket_events:de-case-il-cftc-481187549`) and the adjacent Illinois entry 101 (`d:run-20261010-0005:CourtListener:docket_events:de-case-il-cftc-481187548`) must be distinguishable from that label or confirmation without reading the raw id. This confirmation does not move the standing entry 101 publication.
+
+**AC — Mark private before submit.**
+
+**And** the Mark private control and the reject flow make clear, before submit, whether the reason will be public. Private is a visible, explicit choice. Silence is not a private mark. A reject the operator did not explicitly mark private stays public, and the screen says so before Confirm rejection. The line after submit matches that choice. Mark private withholds the words only: the rejection or the turn still happened in public, the checkbox itself does not make a paid model call, and the choice cannot be changed after submit. The same choice on a steering turn is the steering "Mark private at submit" control. This criterion does not rewrite the five public `dev` rejects.
+
+**And** tests cover every control listed in AC — Control help, including Mark private, for the four facts, on hover and on keyboard focus. They also cover the A/E/R focus exception, the approve and reject confirmation identity, and AC — Mark private before submit (a public reject that was clearly labeled public before submit, and an explicitly private reject). Tests do not call a paid provider, staging, or production, and they do not change the entry 101 publication or the five `dev` rejects. A paid or unpaid claim with no code path in this story is an implementation-time check, not a locked assertion.

@@ -386,3 +386,22 @@ Applies to B1/B2 Run and Evidence, B3 pending Drafts, C1 review queue, and the a
 Evaluation in progress is visible and decision controls are unavailable until the server reports eligibility. Completed explicit evals_not_run shows its reason and permits authorized human review. Stale or superseded decisions explain the conflict, offer refresh, and preserve unsent edits. Cost projections distinguish reserved/estimated liability from recorded spend. Pending count shares its source with the pending band and represents loading, error and stale states without asserting zero.
 
 Keep the current screen hierarchy and accessibility conventions. Annotate existing screen states and transitions; no new major screen is required.
+
+## Admin approver control help — 2026-10-11
+
+Applies to C1 and C4. See [the proposal](sprint-change-proposal-2026-10-11.md) and story 4.8. UX-DR26. This does not add a screen. It makes the existing queue and steering panel understandable at the moment of action. Patrick's 9:12 AM ET ruling on 2026-10-11 stands: Illinois entry 101 remains the story 3.37 publication, and the five public `dev` rejects stay. An undo or redraft path is not designed here; that gap is in [`deferred-work.md`](../implementation-artifacts/deferred-work.md) through [PR #76](https://github.com/bizmation/PredictionMarketLitigation/pull/76).
+
+Every control below has plain-language help on hover and on keyboard focus. A `title` attribute alone is not the help. The help states four facts: what it does, whether it makes a paid model call, whether the result is public, and whether it can be undone. The words match the control's real behavior.
+
+- **Approve** and the **A** hotkey publish the selected Draft to live F1 as human-approved. No paid model call. The result is public. A sent approval cannot be undone from this screen.
+- **Edit** and the **E** hotkey open or discard an unsent editor buffer. No paid model call. Unsent edits are not public. Discard undoes them on this screen. "Approve with edits" is public, and a sent edit-approve cannot be undone from this screen.
+- **Reject** and the **R** hotkey open the reason. Confirm rejection sends it, leaves live F1 unchanged, and does not make a paid model call. The rejection is public. The reason is public unless private was explicitly chosen. A sent rejection cannot be undone from this screen.
+- **Accept / Strip per field** is a local choice until Approve. No paid model call. It becomes public only with that publish. Toggling again before Approve undoes it.
+- **Submit turn** asks the steward and does not approve the Draft. It makes a paid model call. It is public at submit unless marked private first, and it cannot be undone. Typing in the steering box is this control.
+- **Revise draft** writes a new Draft version and makes a paid drafter and reviewer call. The new Draft is public even if the instruction was marked private. Live F1 is unchanged until a later approval. This control cannot remove the new version.
+- **Steer pipeline** makes a paid steward call and changes what the next Run watches. The config change is public even if the instruction text was marked private. Revert restores an older version and does not make a paid call. The turn cannot be unpublished.
+- **Record guidance** does not make a paid model call. Guidance is public. A private mark refuses the guidance write. Later edit or revoke can change what is in force; history stays.
+- **Mark private** withholds words only. It does not make a paid model call. The event stays public. The choice cannot be changed after submit.
+- **A / E / R** do nothing while focus is in a text field, including the steering box. A does not publish before confirmation. R does not send the rejection.
+
+Before Approve sends, and before Confirm rejection sends, show that Draft's case, its entry number when it has one, and the first line of the record. The Approve button label, or the approve confirmation, names the entry number, for example "Approve entry 102". When there is no entry number, fall back to the case and the first line. Do not invent an entry number. The Mark private control and the reject flow state, before submit, whether the reason will be public. Private is a visible, explicit choice. Silence leaves the reason public.
