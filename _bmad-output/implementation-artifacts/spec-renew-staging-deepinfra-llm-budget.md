@@ -2,7 +2,7 @@
 title: 'Renew the staging DeepInfra LLM budget period'
 type: 'feature'
 created: '2026-10-11'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 baseline_commit: 'f531e4e9a59ff828292dc8c6d29b62724d411a57'
 review_loop_iteration: 0
@@ -63,10 +63,23 @@ context:
 
 - `migrations/0025_staging_deepinfra_v4flash_period.sql` inserts the row only when `gateway_config` already names `deepseek-ai/DeepSeek-V4-Flash`. `NOT EXISTS` keeps a second execution to one row. Tests seed `acceptance-3-36-deepinfra-20261004` on `UPGRADE_DB`; the migration does not write that row.
 - `npm run check` passed. `npm test` passed: 1645 tests, 6 skipped.
+- Review at `c9d17959`: the role guard now matches the quoted `"model":"deepseek-ai/DeepSeek-V4-Flash"` field. The renewal test runs `0025` on the Workers AI seed and on a longer model id before the real role, derives the 18h 59m 3s shortfall from the timestamps, and reserves the exclusive end. `deferred-work.md` names `2026-10-18T00:10:57Z` and requires a successor period with the policy refresh.
+- After those patches, `npm run check` passed and `npm test` passed: 1645 tests, 6 skipped.
 
 ## Spec Change Log
 
 ## Review Triage Log
+
+- `false` — Edge, old `ends_at` may not equal the new start. Live `pml-build` `acceptance-3-36-deepinfra-20261004.ends_at` is `2026-10-11T19:10:00.000Z`, and the append-only triggers abort any later change. Rejected.
+- `false` — Edge, the new id might already exist with other bounds. That id is absent (`COUNT = 0`). `NOT EXISTS` is the replay rule, and an append-only row cannot be replaced. Rejected.
+- `medium` — Blind, a policy-only refresh drops the shared cap. `reserve` admits a time with zero covering periods. Patched the deferred note to require a successor period.
+- `false` — Blind, `0025` leaves a 500-cent default and an uncovered V4 window from `00:10:57Z`. Staging `default_budget_cents` is already 100, and this file does not write it. The old period covers through `19:10:00Z`, which is the required start. The period cap still binds when the default is higher. Rejected.
+- `false` — Blind, spend already inside the new window counts, and `0025` does not clear the old period. That count is the documented `llm_period_accounting` contract. The window currently has 0 calls and 0 operations. The old period stays by intent. Operator timing is in the migration comment and the PR, not a new guard. Rejected.
+- `low` — Blind, "before 2026-10-17" has no timezone. Patched the deferred note with `2026-10-18T00:10:57Z` (2026-10-17 20:10:57 ET).
+- `low` — Blind, `instr` matches a longer model id, and a later production V4 edit could take the row. Patched the predicate to the quoted model field and covered a longer id in the test.
+- `low` — Blind, five 19-cent admissions strand 5 cents, and the test reserves 1 cent. Rejected: the ruling is a 100-cent cap, the runbook already says to stop below 19 cents, and the fix would add a packing scenario rather than correct the insert.
+- `low` — Blind, the Workers AI test does not execute `0025`. Patched: that test reads `d1_migrations`, and the upgrade test runs the statements while the seed is still Workers AI.
+- `low` — Blind, the end instant and the shortfall are not derived. Patched: the test computes `min(start + 7 days, validUntil)` and reserves `2026-10-18T00:10:56.999Z` and `2026-10-18T00:10:57.000Z`. `fixtureCostPolicy` does not choose the period; `now` does.
 
 ## Design Notes
 
@@ -79,4 +92,4 @@ The role guard matches `0024`. Staging already names V4-Flash, so `migrate:build
 - `npm test` -- expected: exit 0, including the new period tests
 
 **Manual checks (if no CLI):**
-- Eng Manager applies `npm run migrate:build` on `pml-build` only. Do not run `npm run deploy` or `npm run migrate:remote`.
+- Eng Manager applies `npm run migrate:build` on `pml-build` before `2026-10-11T19:10:00.000Z`. Do not run `npm run deploy` or `npm run migrate:remote`. Confirm the new window has no calls, operations, or accounting issues, that the old period still ends at that instant, and that `default_budget_cents` is still 100. Stop admissions when fewer than 19 cents remain.

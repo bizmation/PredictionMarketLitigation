@@ -16,11 +16,19 @@
 -- cost_policy_invalid whatever the budget says, until a reviewed
 -- V4-Flash cost-policy refresh.
 --
--- The insert runs only when gateway_config id 'current' already names
--- deepseek-ai/DeepSeek-V4-Flash. Staging pml-build does. A production
--- catch-up is still the Workers AI seed after 0024, so this file no-ops
--- there. NOT EXISTS makes a replay of this statement a no-op. D1 records
--- the file once in d1_migrations.
+-- The insert runs only when gateway_config id 'current' contains the
+-- quoted model field "model":"deepseek-ai/DeepSeek-V4-Flash". A longer id
+-- does not match. Staging pml-build does. A production catch-up is still
+-- the Workers AI seed after 0024, so this file no-ops there. NOT EXISTS
+-- makes a replay of this statement a no-op. D1 records the file once in
+-- d1_migrations.
+--
+-- Apply on pml-build before 2026-10-11T19:10:00.000Z. Accounting counts
+-- calls and operations whose created_at falls in the new window, including
+-- rows written before this insert. Confirm that window is empty.
+-- gateway_config.default_budget_cents on staging is already 100; this file
+-- does not change it or the old period. Stop new admissions when fewer
+-- than 19 cents remain, the V4-Flash per-call bound.
 -- https://developers.cloudflare.com/d1/reference/migrations/
 
 INSERT INTO llm_periods (id, starts_at, ends_at, cap_cents, provenance)
@@ -33,7 +41,7 @@ SELECT
 WHERE EXISTS (
   SELECT 1 FROM gateway_config
   WHERE id = 'current'
-    AND instr(roles_json, 'deepseek-ai/DeepSeek-V4-Flash') > 0
+    AND instr(roles_json, '"model":"deepseek-ai/DeepSeek-V4-Flash"') > 0
 )
 AND NOT EXISTS (
   SELECT 1 FROM llm_periods WHERE id = 'staging-deepinfra-v4flash-20261011'

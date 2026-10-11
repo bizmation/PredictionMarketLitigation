@@ -343,4 +343,4 @@ Logged after Patrick accepted entry 101 (`de-case-il-cftc-481187548`) as the 3.3
 
 Patrick ruled at 10:07 AM ET on 2026-10-11, verbatim: "Accept Epic 3 with open items, mark 3.37 and Epic 3 done, apply the recommended action-item changes, and renew the staging DeepInfra budget at $1 for 7 days on V4-Flash." Period `staging-deepinfra-v4flash-20261011` ends at the V4-Flash cost-policy `validUntil` `2026-10-18T00:10:57.000Z`, 18 hours 59 minutes 3 seconds (about 19 hours) short of 7 days. Source: `spec-renew-staging-deepinfra-llm-budget.md`.
 
-- Do a reviewed V4-Flash cost-policy refresh before 2026-10-17. After that `validUntil`, runs fail with `cost_policy_invalid` whatever the budget says.
+- Do a reviewed V4-Flash cost-policy refresh before 2026-10-17. The failure instant is `2026-10-18T00:10:57Z` (2026-10-17 20:10:57 ET). After that instant, runs fail with `cost_policy_invalid` whatever the budget says. Review a successor `llm_periods` row in the same change. A policy refresh alone does not add a shared cap: `reserve` admits a timestamp covered by zero periods, so paid calls would continue under only the per-Run budget.
