@@ -77,7 +77,7 @@ Catalog prices are cents per token. Cache-write values are multipliers on input,
 
 The V4 accept test settles a call. `llm_period_accounting` counts any call whose `created_at` falls inside a later period, and the campaign period ends at the GLM `validUntil` (`2026-10-11T19:10:00.000Z`). `NOW_V4` is `2026-10-12T00:00:00.000Z`, inside the V4 window and outside that campaign window.
 
-PR #72 was still open (`aad5ed62`, no merge commit) and `origin/main` was still `e2d0d3d` when this implementation finished, so there was nothing to rebase. `complete()`, `chatOutputDegraded`, and the 429 path were not edited.
+PR #72 merged as `aa58d2d` while this branch was still unpushed. The branch merges that commit. `complete()` still passes `mapping.model` into the overload retry, `revalidateBeforeInference` still rechecks that call's policy, and a persistent 429 still releases that reservation. The DeepInfra tests pin `deepseek-ai/DeepSeek-V4-Flash` on each retry body, on the policy re-check, and on the released operation.
 
 D1 migrations docs (https://developers.cloudflare.com/d1/reference/migrations/): a new sequential `.sql` file in `migrations/` is applied in order and recorded in `d1_migrations`. `0024` follows that. No library API changed, so Context7 was not required.
 

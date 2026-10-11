@@ -24,6 +24,7 @@ const NOW_V4 = "2026-10-12T00:00:00.000Z";
 const WORKERS_REDIRECT_ERROR =
   'Invalid redirect value, must be one of "follow" or "manual" ("error" won\'t be implemented since it does not make sense at the edge; use "manual" and check the response status code)';
 const policy = resolveCostPolicy("deepinfra", MODEL, NOW);
+const v4Policy = resolveCostPolicy("deepinfra", V4_MODEL, NOW_V4);
 const configured = {
   ...env,
   DEEPINFRA_API_KEY: "PRIVATE-provider-key",
@@ -1775,6 +1776,137 @@ describe("DeepInfra pre-dispatch validation and HTTP failures", () => {
         })
       ])
     );
+  });
+
+  function requestedModel(init: RequestInit | undefined): string {
+    return (JSON.parse(String(init?.body)) as { model: string }).model;
+  }
+
+  it("retries engine_overloaded with the configured DeepSeek-V4-Flash model", async () => {
+    const input = await setup(V4_MODEL);
+    const { inference } = http(responseBody(), [recordedCatalog]);
+    const models: string[] = [];
+    let calls = 0;
+    let entered!: () => void;
+    const reached = new Promise<void>((resolve) => (entered = resolve));
+    inference.mockImplementation(async (_url, init) => {
+      calls += 1;
+      models.push(requestedModel(init));
+      if (calls === 1) {
+        entered();
+        return overloadResponse();
+      }
+      return Response.json(responseBody());
+    });
+    vi.useFakeTimers();
+    const pending = complete({ ...deps(), now: () => NOW_V4 }, input);
+    await reached;
+    await vi.advanceTimersByTimeAsync(5_000);
+    await expect(pending).resolves.toMatchObject({
+      provider: "deepinfra",
+      model: V4_MODEL
+    });
+    expect(models).toEqual([V4_MODEL, V4_MODEL]);
+    expect(
+      await db
+        .prepare("SELECT model FROM llm_calls WHERE run_id=?")
+        .bind(input.runId)
+        .first()
+    ).toEqual({ model: V4_MODEL });
+  });
+
+  it("rechecks the DeepSeek-V4-Flash policy before an overload retry and releases", async () => {
+    const input = await setup(V4_MODEL);
+    const { inference } = http(responseBody(), [recordedCatalog]);
+    const models: string[] = [];
+    let calls = 0;
+    let time = NOW_V4;
+    let entered!: () => void;
+    const reached = new Promise<void>((resolve) => (entered = resolve));
+    inference.mockImplementation(async (_url, init) => {
+      calls += 1;
+      models.push(requestedModel(init));
+      entered();
+      time = v4Policy.validUntil;
+      return overloadResponse();
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.useFakeTimers();
+    const pending = complete({ ...deps(), now: () => time }, input);
+    const failed = expect(pending).rejects.toMatchObject({
+      code: "provider_error"
+    });
+    await reached;
+    await vi.advanceTimersByTimeAsync(5_000);
+    await failed;
+    expect(calls).toBe(1);
+    expect(models).toEqual([V4_MODEL]);
+    expect(warn.mock.calls.map((call) => call[0])).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "provider_call_retry_stopped",
+          attempt: 2,
+          reason: "policy_invalid"
+        })
+      ])
+    );
+    const row = await db
+      .prepare(
+        "SELECT state, bound_cents, policy_json FROM llm_operations WHERE run_id=?"
+      )
+      .bind(input.runId)
+      .first<{ state: string; bound_cents: number; policy_json: string }>();
+    expect(row?.state).toBe("released");
+    expect(row?.bound_cents).toBe(19);
+    expect(JSON.parse(row!.policy_json).model).toBe(V4_MODEL);
+    warn.mockRestore();
+  });
+
+  it("releases a persistent DeepSeek-V4-Flash overload after retrying that model", async () => {
+    const input = await setup(V4_MODEL);
+    const { inference } = http(responseBody(), [recordedCatalog]);
+    const models: string[] = [];
+    let calls = 0;
+    let entered!: () => void;
+    const reached = new Promise<void>((resolve) => (entered = resolve));
+    inference.mockImplementation(async (_url, init) => {
+      calls += 1;
+      models.push(requestedModel(init));
+      if (calls === 1) entered();
+      return overloadResponse();
+    });
+    vi.useFakeTimers();
+    const pending = complete({ ...deps(), now: () => NOW_V4 }, input);
+    const failed = expect(pending).rejects.toMatchObject({
+      code: "provider_error",
+      message: "DeepInfra gateway request failed."
+    });
+    await reached;
+    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(15_000);
+    await failed;
+    expect(models).toEqual([V4_MODEL, V4_MODEL, V4_MODEL]);
+    const row = await db
+      .prepare(
+        "SELECT state, liability_cents, bound_cents, policy_json, response_evidence_json FROM llm_operations WHERE run_id=?"
+      )
+      .bind(input.runId)
+      .first<{
+        state: string;
+        liability_cents: number;
+        bound_cents: number;
+        policy_json: string;
+        response_evidence_json: string;
+      }>();
+    expect(row?.state).toBe("released");
+    expect(row?.liability_cents).toBe(0);
+    expect(row?.bound_cents).toBe(19);
+    expect(JSON.parse(row!.policy_json).model).toBe(V4_MODEL);
+    expect(JSON.parse(row!.response_evidence_json)).toMatchObject({
+      reason: "provider_definite_refusal",
+      status: 429,
+      errorCode: "engine_overloaded"
+    });
   });
 
   it("keeps an uncertain reservation when overload is followed by a network failure", async () => {
