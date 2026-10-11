@@ -36,7 +36,7 @@
 # - Source epics: _bmad-output/planning-artifacts/epics.md; 3.14–3.21 backfill tracked in 3.26.
 
 generated: 2026-08-09
-last_updated: 2026-10-11
+last_updated: 10-11-2026 14:12
 project: PML
 project_key: NOKEY
 tracking_system: file-system
@@ -69,7 +69,7 @@ development_status:
   # Epic 3: Governed Daily Loop (Pipeline → Gate → Live)
   # Original 25 stories complete; approved corrective stories 3.26–3.38 remain.
   # Story 3.38 ratified by sprint-change-proposal-2026-10-10. Live 3.36 acceptance depends on it.
-  epic-3: in-progress
+  epic-3: done
   3-1-run-draft-evidence-data-model: done
   3-2-ai-gateway-budget-envelope-role-model-config: done
   3-3-daily-run-workflow-empty-runs: done
@@ -112,8 +112,8 @@ development_status:
   3-36-verify-the-corrected-staging-run-and-gateway: done # USD 1 / DeepInfra authorized 2026-10-04; run-20261010-0005 on DeepSeek-V4-Flash is the acceptance Run; operator evidence recorded 2026-10-11; Code Review confirmed acceptance against #75 at 29dd3f8 (2026-10-10, about 10:07 PM ET)
   # Added 2026-10-10 by create-story. Not part of 3.36 (operational verification) and not 3.37 (next backlog acceptance story).
   3-38-pace-courtlistener-requests-and-recover-from-http-429: done
-  3-37-prove-the-live-governed-loop-and-reassess-epic-3: in-progress
-  # Retrospective completed; verdict remains rejected until 3.37 reassessment.
+  3-37-prove-the-live-governed-loop-and-reassess-epic-3: done
+  # Retrospective 2026-10-11 human override: accepted-with-open-items. Machine verdict was rejected.
   epic-3-retrospective: done
 
   # Epic 4: Governance Narrative & Invited Check
@@ -159,7 +159,7 @@ action_items:
     action: "Break the deferred fragility family: failed-vs-empty in useCircuitData,
       per-row parse tolerance, fetch timeout, deep-link reconciliation"
     owner: "agent"
-    status: open
+    status: in-progress
     ref: "_bmad-output/implementation-artifacts/epic-2-retro-2026-09-04.md"
   - id: "epic-2-retro-item-5-add-ci-github-actions-running-npm-run-ch"
     epic: 2
@@ -174,7 +174,7 @@ action_items:
       follow-up review): jsdom + @testing-library/react; harness landed with the EvidenceDetail
       mount test, remaining hooks to follow"
     owner: "Patrick decides, agent implements"
-    status: open
+    status: in-progress
     ref: "_bmad-output/implementation-artifacts/epic-2-retro-2026-09-04.md"
   - id: "epic-2-retro-item-7-burn-down-the-patrick-decision-backlog-d"
     epic: 2
@@ -215,7 +215,9 @@ action_items:
     owner: "agent"
     status: done
     ref: "_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-17.md"
-    note: "Closed by story 3.26 / PR #42: canonical 3.14–3.21 ACs, F9/FR46–50, coverage and UX reconciled; source parity and required CI run 36037980580 passed. Other corrective actions remain outstanding."
+    note: "Closed by story 3.26 / PR #42: canonical 3.14–3.21 ACs, F9/FR46–50, coverage
+      and UX reconciled; source parity and required CI run 36037980580 passed. Other
+      corrective actions remain outstanding."
   - id: "epic-3-retro-item-12-fail-a-courtlistener-poll-when-every-doc"
     epic: 3
     action: "Fail a CourtListener poll when every docket errors, and store a scrubbed
@@ -233,7 +235,10 @@ action_items:
     owner: "agent"
     status: done
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
-    note: "Closed by 3.24 copy cleanup and 3.35 PR #53 (implementation a2006c674c7b3b9bbbcc5bdfa5edafbed85efdd2, CI 37220744011 passed). 1,410 tests pass; staging version c063fe36-59b8-42af-b6ec-88b8695d1cf9 verified tracker/API/ops agreement at zero pending, correct #drafts navigation, and rendered positive/failure/revision transitions."
+    note: "Closed by 3.24 copy cleanup and 3.35 PR #53 (implementation a2006c674c7b3b9bbbcc5bdfa5edafbed85efdd2,
+      CI 37220744011 passed). 1,410 tests pass; staging version c063fe36-59b8-42af-b6ec-88b8695d1cf9
+      verified tracker/API/ops agreement at zero pending, correct #drafts navigation,
+      and rendered positive/failure/revision transitions."
 
   - id: "epic-3-retro-item-14-make-the-ops-shell-reachable-on-staging"
     epic: 3
@@ -270,9 +275,11 @@ action_items:
     action: "Deploy current main to pml-build after the connector fix, record the
       next Run, and confirm which OpenRouter gateway path returns 200"
     owner: "agent + Patrick"
-    status: in-progress
+    status: done
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
-    note: "Main through 3.33 (2276a828344b59a853d7b6a68dba40477dbba470) deployed to staging 2026-10-04 as 6c2756d2-4d0b-43c3-9887-db355cbab2dc; migrations 0001-0023 applied, 1373 tests and checks pass. Public/browser/admin-boundary smoke checks pass; production unchanged. Post-deploy governed Run, authenticated provider 200 and remaining 3.36 verification remain outstanding. Patrick selected DeepInfra zai-org/GLM-5.3-Flash with USD 1 total cap on 2026-10-04; this supersedes OpenRouter acceptance. See docs/deploy-runbook.md."
+    note: "Closed 2026-10-11 by Patrick's 10:07 AM ET override. OpenRouter was superseded.
+      run-20261010-0005 on deepseek-ai/DeepSeek-V4-Flash is the gateway evidence:
+      12 settled calls, public run API HTTP 200. See epic-3-retro-2026-10-11.md."
   - id: "epic-3-retro-gate-transaction-safety"
     # Approved corrective stories: 3.28, 3.29; close only on linked evidence.
     epic: 3
@@ -282,7 +289,11 @@ action_items:
     owner: "agent"
     status: done
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
-    note: "Closed by stories 3.28 / PR #44 and 3.29 / PR #45: readiness/sealing, atomic snapshot/head/CAS guards, revision ownership and persisted-state Run completion. Real-D1 races, authenticated API and UI coverage pass; CI run 36147854656 passed 1148 tests with 6 environment-dependent skips. Deployment and operational acceptance remain separate."
+    note: "Closed by stories 3.28 / PR #44 and 3.29 / PR #45: readiness/sealing, atomic
+      snapshot/head/CAS guards, revision ownership and persisted-state Run completion.
+      Real-D1 races, authenticated API and UI coverage pass; CI run 36147854656 passed
+      1148 tests with 6 environment-dependent skips. Deployment and operational acceptance
+      remain separate."
   - id: "epic-3-retro-paid-budget-accounting-safety"
     # Approved corrective stories: 3.30, 3.31; close only on linked evidence.
     epic: 3
@@ -290,7 +301,12 @@ action_items:
       and atomically update the LLM ledger and Run spend (R5-R7)."
     owner: "agent + Patrick (cost policy)"
     status: done
-    note: "Closed by 3.30 / PR #46 and 3.31 / PR #47: approved bounded cost, atomic Run/period reservations, stable retry identity, uncertain/late liability, atomic settlement, operator reconciliation and authoritative public totals. CI 37024712148 passed for implementation 6d9e8bf3e299efc1fa56de3cca954ad19380205e; 1267 local tests pass including populated upgrades and real-D1 races. Deployment and operational acceptance remain separate."
+    note: "Closed by 3.30 / PR #46 and 3.31 / PR #47: approved bounded cost, atomic
+      Run/period reservations, stable retry identity, uncertain/late liability, atomic
+      settlement, operator reconciliation and authoritative public totals. CI 37024712148
+      passed for implementation 6d9e8bf3e299efc1fa56de3cca954ad19380205e; 1267 local
+      tests pass including populated upgrades and real-D1 races. Deployment and operational
+      acceptance remain separate."
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
   - id: "epic-3-retro-workflow-replay-admission-safety"
     # Approved corrective stories: 3.32, 3.33; close only on linked evidence.
@@ -300,7 +316,14 @@ action_items:
       admission (R8-R11)."
     owner: "agent"
     status: done
-    note: "Closed by 3.32 / PR #48 (implementation b899dba64908f84c74afd51881995c3209a4aeb2, CI 37132587255) and 3.33 / PR #49 (implementation c69eb9c95f6af3c8154f44f4d654d4860bedc05e, CI 37212176029): durable package/config recovery, atomic cross-origin admission, stable dispatch/recovery identity, explicit uncertainty and stale source/paid-work fencing. 1373 local tests plus checks pass; hosted acceptance remains separate. Pre-existing competing active legacy history requires verified reconciliation as recorded in the 3.33 spec. Evidence: https://github.com/bizmation/PredictionMarketLitigation/pull/49 and https://github.com/bizmation/PredictionMarketLitigation/actions/runs/37212176029."
+    note: "Closed by 3.32 / PR #48 (implementation b899dba64908f84c74afd51881995c3209a4aeb2,
+      CI 37132587255) and 3.33 / PR #49 (implementation c69eb9c95f6af3c8154f44f4d654d4860bedc05e,
+      CI 37212176029): durable package/config recovery, atomic cross-origin admission,
+      stable dispatch/recovery identity, explicit uncertainty and stale source/paid-work
+      fencing. 1373 local tests plus checks pass; hosted acceptance remains separate.
+      Pre-existing competing active legacy history requires verified reconciliation
+      as recorded in the 3.33 spec. Evidence: https://github.com/bizmation/PredictionMarketLitigation/pull/49
+      and https://github.com/bizmation/PredictionMarketLitigation/actions/runs/37212176029."
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
   - id: "epic-3-retro-connector-pagination-origin"
     # Approved corrective stories: 3.27; close only on linked evidence.
@@ -310,7 +333,10 @@ action_items:
     owner: "agent"
     status: done
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
-    note: "Closed by story 3.27 / PR #43: exact HTTPS origin validation, safe relative pagination, fail-closed redirects and scrubbed Evidence; 57 focused connector tests and required full CI run 36042880802 passed. Deployment remains story 3.36."
+    note: "Closed by story 3.27 / PR #43: exact HTTPS origin validation, safe relative
+      pagination, fail-closed redirects and scrubbed Evidence; 57 focused connector
+      tests and required full CI run 36042880802 passed. Deployment remains story
+      3.36."
   - id: "epic-3-retro-executing-workflow-regression"
     # Approved corrective stories: 3.34; close only on linked evidence.
     epic: 3
@@ -320,7 +346,12 @@ action_items:
     owner: "agent"
     status: done
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
-    note: "Closed by Story 3.34 / PR #54: native Workflow execution with real D1, persisted evaluated Drafts/public Evidence, replay and admission/accounting/gate concurrency; both orchestration mutations detected and restored. Implementation 8661e0a10204abea0e1812f6fc3913004834e0db passed required CI 37223061737, with 1419 tests/62 files and checks. Hosted acceptance remains 3.36/3.37. Evidence: https://github.com/bizmation/PredictionMarketLitigation/pull/54 and https://github.com/bizmation/PredictionMarketLitigation/actions/runs/37223061737."
+    note: "Closed by Story 3.34 / PR #54: native Workflow execution with real D1,
+      persisted evaluated Drafts/public Evidence, replay and admission/accounting/gate
+      concurrency; both orchestration mutations detected and restored. Implementation
+      8661e0a10204abea0e1812f6fc3913004834e0db passed required CI 37223061737, with
+      1419 tests/62 files and checks. Hosted acceptance remains 3.36/3.37. Evidence:
+      https://github.com/bizmation/PredictionMarketLitigation/pull/54 and https://github.com/bizmation/PredictionMarketLitigation/actions/runs/37223061737."
   - id: "epic-3-retro-live-governed-loop-acceptance"
     # Approved corrective stories: 3.37; close only on linked evidence.
     epic: 3
@@ -328,5 +359,265 @@ action_items:
       with matching public Evidence after fixes; coordinate with existing post-deploy
       Run and gateway item 17 (R18)."
     owner: "agent + Patrick"
-    status: open
+    status: done
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md"
+    note: "Closed 2026-10-11. The published row is de-case-il-cftc-481187548 (Illinois
+      entry 101) per Patrick's 9:12 AM ET ruling. Entry 102 was rejected with public
+      reason dev. See epic-3-retro-2026-10-11.md."
+  - id: "epic-3-retro-item-24-add-an-unpublish-path-or-an-explicit-ope"
+    epic: 3
+    action: "Add an unpublish path, or an explicit operator procedure, for a published
+      docket_events row. Deferred to Epic 4 planning."
+    owner: "Patrick decides the contract; agent implements"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-25-let-a-rejected-docket-id-be-drafted-agai"
+    epic: 3
+    action: "Let a rejected docket id be drafted again. seenEventIds treats any draft
+      outcome as seen. Deferred to Epic 4 planning."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-26-implement-story-4-8-admin-approver-contr"
+    epic: 3
+    action: "Implement story 4.8, admin approver control help, after the Epic 4 entry
+      gate. The story stays backlog; this retrospective does not start it."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-27-decide-whether-published-docket_events-a"
+    epic: 3
+    action: "Decide whether published docket_events and the public tracker carry descriptionSource
+      or another thin-text label. Deferred to Epic 4 planning."
+    owner: "Patrick and the engineering manager"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-28-extend-isthinsourcetext-beyond-descripti"
+    epic: 3
+    action: "Extend isThinSourceText beyond descriptionSource recap_short_description
+      so a one-line recap_description cannot skip the thin-text block."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-29-cite-an-unnumbered-docket-entry-without"
+    epic: 3
+    action: "Cite an unnumbered docket entry without a zero citationCompleteness.
+      Furcolo is the example."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-30-allow-a-later-full-text-to-replace-a-sho"
+    epic: 3
+    action: "Allow a later full text to replace a short-description admission instead
+      of id-deduping it forever."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-31-move-descriptionsource-and-short_descrip"
+    epic: 3
+    action: "Move DescriptionSource and SHORT_DESCRIPTION_SOURCE_NOTE into one shared
+      module."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-32-reconcile-epics-md-story-3-38-to-the-use"
+    epic: 3
+    action: "Reconcile epics.md story 3.38 to the user-story form and the concrete
+      pace limits (15 s spacing, 3 attempts, 6-minute wait, 8-minute poll)."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-33-correct-epic-3-context-md-so-a-timeout-i"
+    epic: 3
+    action: "Correct epic-3-context.md so a timeout is described as retried, not failed
+      on the first response."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-34-keep-timeoutfact-and-the-summary-timeout"
+    epic: 3
+    action: "Keep timeoutFact and the summary timeouts count when pacing stops during
+      a timeout retry."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-35-add-runid-to-the-courtlistener_request_t"
+    epic: 3
+    action: "Add runId to the courtlistener_request_timeout log."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-36-bound-a-courtlistener-body-that-stalls-a"
+    epic: 3
+    action: "Bound a CourtListener body that stalls after the headers."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-37-read-the-first-fetch-calendar-date-once"
+    epic: 3
+    action: "Read the first-fetch calendar date once per Run."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-38-count-an-already-stored-entry-as-seen-wh"
+    epic: 3
+    action: "Count an already-stored entry as seen when it is also before the cutoff."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-39-specify-the-delayed-arrival-policy-r13-i"
+    epic: 3
+    action: "Specify the delayed-arrival policy (R13), including first-fetch backfill
+      and a skipped entry that a later-dated sibling publishes past."
+    owner: "Patrick decides the policy; agent implements"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-40-add-a-scrubbed-authenticated-courtlisten"
+    epic: 3
+    action: "Add a scrubbed authenticated CourtListener docket-entries fixture with
+      recap_documents__ nested keys."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-41-treat-attachment_number-arriving-as-a-nu"
+    epic: 3
+    action: "Treat attachment_number arriving as a numeric string as an attachment,
+      not the main document."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-42-scrub-a-courtlistener-error-body-that-ec"
+    epic: 3
+    action: "Scrub a CourtListener error body that echoes the token in a non-exact
+      form."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-43-reconcile-deepinfra-actual-charges-for-r"
+    epic: 3
+    action: "Reconcile DeepInfra actual charges for run-20261010-0005 onto reportedCostUsd.
+      Waits on Patrick's billing export."
+    owner: "Patrick supplies the billing export; agent maps it"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-44-pointer-only-renew-the-staging-deepinfra"
+    epic: 3
+    action: "Pointer only: renew the staging DeepInfra budget at $1 for 7 days on
+      deepseek-ai/DeepSeek-V4-Flash. Handled in a separate pull request. Not implemented
+      by this retrospective."
+    owner: "Patrick"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-45-distinguish-a-period-issue-refusal-from"
+    epic: 3
+    action: "Distinguish a period-issue refusal from a budget refusal, and decide
+      whether one open issue blocks every Run in the period."
+    owner: "Patrick decides the scope; agent implements the message"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-46-stop-a-failed-revise-from-stranding-a-nu"
+    epic: 3
+    action: "Stop a failed revise from stranding a NULL-eval child, and decide whether
+      a failed child is terminal (R14)."
+    owner: "agent; Patrick decides the terminal rule"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-47-bound-deepinfra-error-body-reads-reject"
+    epic: 3
+    action: "Bound DeepInfra error-body reads, reject an empty or four-character account
+      id, and share the path-mask helper."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-48-size-steering_post_timeout_ms-for-catalo"
+    epic: 3
+    action: "Size STEERING_POST_TIMEOUT_MS for catalog preflight plus prepare plus
+      two chats, and scale the draft-and-review step timeout with draftCount."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-49-reject-non-integer-and-over-large-max_to"
+    epic: 3
+    action: "Reject non-integer and over-large max_tokens, reject a non-scalar priority
+      or flex value, skip an unparseable span in lastJsonObject, and record a tool
+      denial when a DeepInfra reply is prose or a think tag."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-50-fix-deepinfra-release-evidence-keep-ever"
+    epic: 3
+    action: "Fix DeepInfra release evidence: keep every attempt aigLogId, do not mark
+      an abort during backoff as uncertain, and log a later-attempt success at info."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-51-send-the-catalog-user-agent-and-redirect"
+    epic: 3
+    action: "Send the catalog User-Agent and redirect manual on the OpenRouter endpoints
+      fetch."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-52-alias-currentheadsql-inside-update-draft"
+    epic: 3
+    action: "Alias currentHeadSql inside UPDATE drafts so the CTE does not shadow
+      the table."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-53-tighten-the-awaiting-run-reject-route-un"
+    epic: 3
+    action: "Tighten the awaiting-run reject route: unknown outcome on a bad 2xx body,
+      positive-integer rejectedCount, and a test that an unauthenticated caller is
+      refused before the body is parsed."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-54-finish-the-admin-reconcile-follow-ups-fr"
+    epic: 3
+    action: "Finish the admin reconcile follow-ups from the #71 review: stable requestId,
+      form persistence, schema-derived validation, timeout copy, aria, docs/llm-accounting.md,
+      parallel loop GET, and a version schema."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-55-assert-the-provider_call_failed-warn-in"
+    epic: 3
+    action: "Assert the provider_call_failed warn in the 120 s abort test, and stub
+      an opaque redirect with a runtime response."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-56-start-the-gateway-seed-budget-test-from"
+    epic: 3
+    action: "Start the gateway seed budget test from a non-default budget and version,
+      and pass the fixture rate into the 19-cent bound test."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-57-pass-an-abortsignal-into-sourcecheck-so"
+    epic: 3
+    action: "Pass an AbortSignal into SourceCheck so withDeadline can cancel the fetch."
+    owner: "agent, with the next connector"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-58-mount-test-the-pendingdrafts-and-runlog"
+    epic: 3
+    action: "Mount-test the PendingDrafts and RunLog hung-GET empty state, and pin
+      migration 0017 idempotence by re-applying the migration text."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-59-close-the-story-3-28-leftovers-concurren"
+    epic: 3
+    action: "Close the story 3.28 leftovers: concurrent guardrail receipts, revision
+      offered on a stopped Run, and a readiness-query benchmark."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
+  - id: "epic-3-retro-item-60-reconcile-epics-md-story-3-36-so-the-acc"
+    epic: 3
+    action: "Reconcile epics.md story 3.36 so the acceptance model is deepseek-ai/DeepSeek-V4-Flash."
+    owner: "agent"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-10-11.md"
