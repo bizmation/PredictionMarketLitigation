@@ -256,6 +256,39 @@ export async function releaseBeforePaidInvocation(
     syncRun(db, op.run_id)
   ]);
 }
+/**
+ * A DeepInfra chat 429 `engine_overloaded` whose headers were received.
+ * Evidence is the provider refusal, not `local_policy_refusal_before_paid_invocation`.
+ */
+export async function releaseDefiniteProviderRefusal(
+  db: Db,
+  op: Operation,
+  evidence: {
+    status: 429;
+    errorCode: "engine_overloaded";
+    aigLogId?: string;
+  }
+): Promise<boolean> {
+  const [updated] = await db.batch([
+    db
+      .prepare(
+        "UPDATE llm_operations SET state='released',version=version+1,liability_cents=0,issue=NULL,response_evidence_json=? WHERE id=? AND owner=? AND state='dispatched' AND version=?"
+      )
+      .bind(
+        JSON.stringify({
+          reason: "provider_definite_refusal",
+          status: evidence.status,
+          errorCode: evidence.errorCode,
+          ...(evidence.aigLogId ? { aigLogId: evidence.aigLogId } : {})
+        }),
+        op.id,
+        op.owner,
+        op.version + 1
+      ),
+    syncRun(db, op.run_id)
+  ]);
+  return updated?.meta.changes === 1;
+}
 export async function settle(
   db: Db,
   op: Operation,

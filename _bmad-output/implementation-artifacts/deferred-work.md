@@ -294,3 +294,9 @@ Ledger entries above are not edited; this block records where each Epic 3 entry 
 - `Promise.all` the loop GET queries and trim the payload to open operations. The handler still awaits them in sequence and returns every operation for the latest run.
 - Give `version` its own schema instead of reusing `cents`.
 - Spec metadata: `followup_review_recommended`, a fuller triage log, and the CSS note in the spec.
+
+## Deferred from: code review of #72 at aad5ed6 (2026-10-11)
+
+- Release evidence keeps only the last attempt's `aigLogId` and no attempt count. Record `attempts` and all `aigLogIds`.
+- An abort or cancel during the backoff sleep reaches `complete()` as a raw `AbortError` and is marked uncertain even though nothing is in flight, which costs a 16¢ issue. Consider release plus a log.
+- A later-attempt success is logged with `console.warn` `provider_call_attempt`. Use info level.

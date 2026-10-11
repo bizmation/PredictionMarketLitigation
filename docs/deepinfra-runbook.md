@@ -65,7 +65,9 @@ The temporary 50% discount is never used to reduce liability.
 
 Requests contain text only, `max_tokens: 2048`, `reasoning_effort: "none"`,
 `stream: false`, and `n: 1`. Service tier is omitted (standard service). There are
-no tools, media inputs, cache writes, priority/flex options, or automatic retries.
+no tools, media inputs, cache writes, or priority/flex options. The only
+automatic retry is a chat 429 whose error code is `engine_overloaded` (see
+Evidence and failures).
 Gateway caching is skipped and maximum attempts is one. Credentialed redirects
 are rejected. Reasoning text is never substituted for message content.
 
@@ -111,7 +113,19 @@ request ID is retained in the existing private receipt for reconciliation.
 Missing/invalid usage, non-text content, or token counts over the bound retain at
 least the conservative liability and block further inference pending
 reconciliation. Failed, aborted, and unknown outcomes keep their reservation;
-replaying the operation cannot retry inference. Public evidence excludes prompts,
+replaying the operation cannot retry inference. One exception, which Patrick
+approved on 2026-10-10: a chat response whose headers were received, whose status
+is 429, and whose error code is `engine_overloaded`. The chat closure may retry
+that refusal under the same reservation, inside the 120-second chat deadline.
+At most three fetches. Backoff is 5 seconds, then 15 seconds. The attempt cap
+is the count, and the minimum-80-second rule is a second guard. If that
+refusal persists, the reservation is released with no issue and evidence reason
+`provider_definite_refusal`
+(status, error code, and the AI Gateway log id when present). Drafter plus
+reviewer chats still fit in the 250-second steering client timeout. Catalog
+preflight plus prepare, and sizing the 20-minute draft-and-review step by draft
+count, stay deferred. Every other HTTP failure keeps its reservation. Public
+evidence excludes prompts,
 completion/reasoning text, credentials, and raw provider error bodies. Never
 approve or publish Draft content as part of acceptance.
 
