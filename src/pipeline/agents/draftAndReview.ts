@@ -40,6 +40,7 @@ import {
 } from "../ai/actionPolicy";
 import { complete, GatewayError, type GatewayDeps } from "../ai/gateway";
 import { evidenceId } from "../connectors/connector";
+import { SHORT_DESCRIPTION_SOURCE_NOTE } from "../connectors/courtListener";
 import { appendStmt } from "../projector/evidence";
 
 /**
@@ -453,6 +454,9 @@ function buildDocketPrompt(
     `Docket entry ${entryNumber}, filed ${stringField(diff, "occurredAt")}:`,
     stringField(diff, "description")
   ];
+  if (diff.descriptionSource === "recap_short_description") {
+    recordLines.push(SHORT_DESCRIPTION_SOURCE_NOTE);
+  }
   if (role === "drafter") {
     const lines = [
       "You are the drafter for a litigation-tracker docket-entry Draft.",
@@ -866,7 +870,10 @@ export async function draftAndReview(
             confidence: scored.confidence,
             disagrees: scored.evalSummary.disagreement.flagged,
             disagreement: scored.evalSummary.disagreement.description
-          }
+          },
+          ...(asRecord(diff)?.descriptionSource === "recap_short_description"
+            ? { sourceTextNote: SHORT_DESCRIPTION_SOURCE_NOTE }
+            : {})
         },
         extraStatements: vocabularyFailed
           ? [

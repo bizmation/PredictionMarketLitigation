@@ -1100,6 +1100,42 @@ describe("EvidenceDetail docket-event inference (story 3.21)", () => {
     noLogin(html);
   });
 
+  it("shows the short-description marker on the record and the evidence step", () => {
+    const note =
+      "Source text is the CourtListener short description only; the full filing text is not available";
+    const html = renderToStaticMarkup(
+      <EvidenceDetail
+        runId="run-20260908-aaa1"
+        detail={detail({
+          drafts: [
+            draft({
+              id: "draft-de",
+              targetEntityType: "docket_events",
+              targetEntityId: "de-case-ny-cftc-174",
+              diff: {
+                ...record,
+                description: "Notice of Appearance",
+                sourceTextNote: note,
+                descriptionSource: "recap_short_description"
+              }
+            })
+          ],
+          evidence: [
+            event({
+              id: "ev-2",
+              seq: 2,
+              event: "draft.evaluated",
+              payload: { draftId: "draft-de", sourceTextNote: note }
+            })
+          ]
+        })}
+      />
+    );
+    expect(html).toContain("Notice of Appearance");
+    expect(html).toContain(note);
+    expect(html).toContain(`draft.evaluated · draft-de · ${note}`);
+  });
+
   it("says the inference was dropped when the vocabulary check failed", () => {
     const html = renderToStaticMarkup(
       <EvidenceDetail

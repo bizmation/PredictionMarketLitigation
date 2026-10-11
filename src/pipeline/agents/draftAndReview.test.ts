@@ -16,6 +16,7 @@ import {
   type GatewayDeps,
   type LlmProvider
 } from "../ai/gateway";
+import { SHORT_DESCRIPTION_SOURCE_NOTE } from "../connectors/courtListener";
 import { completeDailyStep } from "../workflow/dailyRunSteps";
 import {
   AUTO_APPROVE_CONFIDENCE_THRESHOLD,
@@ -1441,6 +1442,32 @@ describe("draftAndReview docket_events branch (story 3.21)", () => {
       (e) => e.event === "guardrails.failed"
     );
     expect(failed).toHaveLength(0);
+  });
+
+  it("puts the short-description marker in both prompts and on draft.evaluated", async () => {
+    const runId = await insertRun();
+    const diff = {
+      ...RECORD,
+      description: "Notice of Appearance",
+      descriptionSource: "recap_short_description",
+      sourceTextNote: SHORT_DESCRIPTION_SOURCE_NOTE
+    };
+    const draftId = await insertDocketDraft(runId, diff);
+    await seedConfig(DRAFTER_REVIEWER_ROLES);
+    const provider = fakeProvider([
+      { text: JSON.stringify(INFERENCE) },
+      { text: reviewJson({ confidence: 80 }) }
+    ]);
+    await draftAndReview(testEnv.DB, runId, deps(provider));
+    expect(provider.prompts()[0]).toContain(SHORT_DESCRIPTION_SOURCE_NOTE);
+    expect(provider.prompts()[1]).toContain(SHORT_DESCRIPTION_SOURCE_NOTE);
+    const evaluated = (await evidenceRepo.listByRun(testEnv.DB, runId)).find(
+      (event) => event.event === "draft.evaluated"
+    );
+    expect(evaluated?.payload).toMatchObject({
+      draftId,
+      sourceTextNote: SHORT_DESCRIPTION_SOURCE_NOTE
+    });
   });
 
   it("derives lifecycle, posture and decidedAt for a dispositive entry and stamps both blockers", async () => {

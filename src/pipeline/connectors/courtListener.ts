@@ -40,13 +40,24 @@ import {
  * CourtListener entry id so a re-Run is idempotent.
  *
  * RECAP data is crowd-sourced and may lag PACER; the `source.fetched`
- * summary says so and records only what was seen.
+ * summary says so and records only what was seen. A blank entry
+ * `description` falls back to nested RECAP document text.
+ * `skippedIncomplete` is an undated entry, or one that still has no text
+ * after that fallback. Run `run-20261010-0004` is the evidence.
  */
 
 export const COURTLISTENER_SOURCE_NAME = "CourtListener";
 export const COURTLISTENER_API_BASE =
   "https://www.courtlistener.com/api/rest/v4/docket-entries/";
-export const COURTLISTENER_FIELDS = "id,entry_number,date_filed,description";
+/**
+ * Nested RECAP text, without `plain_text`. If a live body omits these keys,
+ * switch this one line to
+ * `id,entry_number,date_filed,description,recap_documents`.
+ */
+export const COURTLISTENER_FIELDS =
+  "id,entry_number,date_filed,description,recap_documents__description,recap_documents__short_description,recap_documents__attachment_number";
+export const SHORT_DESCRIPTION_SOURCE_NOTE =
+  "Source text is the CourtListener short description only; the full filing text is not available";
 export const RECAP_LAG_NOTE =
   "RECAP is crowd-sourced and may lag PACER; dates are as seen on CourtListener.";
 
@@ -117,12 +128,90 @@ const EntrySchema = z.object({
 
 const PageSchema = z.object({ results: z.array(z.unknown()) });
 
+export type DescriptionSource =
+  | "entry"
+  | "recap_description"
+  | "recap_short_description";
+
 export type DocketEntry = {
   id: number;
   entryNumber: number | null;
   dateFiled: string | null;
   description: string;
+  descriptionSource: DescriptionSource | null;
 };
+
+type RecapDocument = {
+  description: string;
+  shortDescription: string;
+  attachmentNumber: number | null;
+  index: number;
+};
+
+function trimmedText(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function attachmentNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) ? value : null;
+}
+
+/** Main document (`attachment_number` null) first, then ascending, stable. */
+function normalizeDocuments(value: unknown): RecapDocument[] {
+  if (!Array.isArray(value)) return [];
+  const docs: RecapDocument[] = [];
+  value.forEach((item, index) => {
+    if (item == null || typeof item !== "object" || Array.isArray(item)) {
+      return;
+    }
+    const row = item as Record<string, unknown>;
+    docs.push({
+      description: trimmedText(row.description),
+      shortDescription: trimmedText(row.short_description),
+      attachmentNumber: attachmentNumber(row.attachment_number),
+      index
+    });
+  });
+  docs.sort((a, b) => {
+    if (a.attachmentNumber == null && b.attachmentNumber != null) return -1;
+    if (a.attachmentNumber != null && b.attachmentNumber == null) return 1;
+    if (
+      a.attachmentNumber != null &&
+      b.attachmentNumber != null &&
+      a.attachmentNumber !== b.attachmentNumber
+    ) {
+      return a.attachmentNumber - b.attachmentNumber;
+    }
+    return a.index - b.index;
+  });
+  return docs;
+}
+
+function resolveEntryText(
+  entryDescription: string,
+  documents: RecapDocument[]
+): { description: string; descriptionSource: DescriptionSource | null } {
+  if (entryDescription.length > 0) {
+    return { description: entryDescription, descriptionSource: "entry" };
+  }
+  for (const document of documents) {
+    if (document.description.length > 0) {
+      return {
+        description: document.description,
+        descriptionSource: "recap_description"
+      };
+    }
+  }
+  for (const document of documents) {
+    if (document.shortDescription.length > 0) {
+      return {
+        description: document.shortDescription,
+        descriptionSource: "recap_short_description"
+      };
+    }
+  }
+  return { description: "", descriptionSource: null };
+}
 
 /** Tolerant parse: malformed rows are dropped, never fatal. */
 export function parseEntries(body: unknown): DocketEntry[] | null {
@@ -137,11 +226,20 @@ export function parseEntries(body: unknown): DocketEntry[] | null {
   for (const row of rows) {
     const parsed = EntrySchema.safeParse(row);
     if (!parsed.success) continue;
+    const raw =
+      row != null && typeof row === "object" && !Array.isArray(row)
+        ? (row as Record<string, unknown>)
+        : {};
+    const text = resolveEntryText(
+      (parsed.data.description ?? "").trim(),
+      normalizeDocuments(raw.recap_documents)
+    );
     entries.push({
       id: parsed.data.id,
       entryNumber: parsed.data.entry_number ?? null,
       dateFiled: parsed.data.date_filed ?? null,
-      description: (parsed.data.description ?? "").trim()
+      description: text.description,
+      descriptionSource: text.descriptionSource
     });
   }
   return entries;
@@ -167,6 +265,8 @@ export type DocketEventRecord = {
   caseId: string;
   occurredAt: string;
   description: string;
+  descriptionSource: DescriptionSource;
+  sourceTextNote: string | null;
   sourceUrl: string;
   entryNumber: number | null;
   entryId: number;
@@ -794,7 +894,11 @@ async function pollDocket(
   let undated = 0;
   for (const entry of fetched.entries) {
     const dated = IsoDateSchema.safeParse(entry.dateFiled);
-    if (!dated.success || entry.description.length === 0) {
+    if (
+      !dated.success ||
+      entry.description.length === 0 ||
+      entry.descriptionSource == null
+    ) {
       undated += 1;
       continue;
     }
@@ -812,6 +916,11 @@ async function pollDocket(
         caseId: row.case_id,
         occurredAt: dated.data,
         description: entry.description,
+        descriptionSource: entry.descriptionSource,
+        sourceTextNote:
+          entry.descriptionSource === "recap_short_description"
+            ? SHORT_DESCRIPTION_SOURCE_NOTE
+            : null,
         sourceUrl: entryUrl(row.url, entry.entryNumber),
         entryNumber: entry.entryNumber,
         entryId: entry.id,
