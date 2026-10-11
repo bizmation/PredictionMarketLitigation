@@ -171,13 +171,13 @@ class ProvenPreDispatchRefusal extends GatewayError {}
 
 /** Headers were received and the body code is `engine_overloaded`. Not a pre-dispatch refusal. */
 class DefiniteProviderRefusal extends Error {
-  readonly status: number;
-  readonly errorCode: string;
+  readonly status: 429;
+  readonly errorCode: "engine_overloaded";
   readonly aigLogId?: string;
 
   constructor(evidence: {
-    status: number;
-    errorCode: string;
+    status: 429;
+    errorCode: "engine_overloaded";
     aigLogId?: string;
   }) {
     super("DeepInfra gateway request failed.");
@@ -567,11 +567,28 @@ export async function complete(
       throw cause;
     }
     if (cause instanceof DefiniteProviderRefusal) {
-      await accounting.releaseDefiniteProviderRefusal(db, operation, {
-        status: cause.status,
-        errorCode: cause.errorCode,
-        ...(cause.aigLogId ? { aigLogId: cause.aigLogId } : {})
-      });
+      let released = false;
+      try {
+        released = await accounting.releaseDefiniteProviderRefusal(
+          db,
+          operation,
+          {
+            status: cause.status,
+            errorCode: cause.errorCode,
+            ...(cause.aigLogId ? { aigLogId: cause.aigLogId } : {})
+          }
+        );
+      } catch {
+        released = false;
+      }
+      if (!released) {
+        await accounting.markUncertain(
+          db,
+          operation.id,
+          owner,
+          "provider_outcome_unknown"
+        );
+      }
       throw new GatewayError(
         "provider_error",
         "DeepInfra gateway request failed."
@@ -1243,6 +1260,7 @@ function logDeepInfraChatFailure(input: {
   bodyText?: string;
   parsed?: unknown;
   started: number;
+  deadlineElapsedMs: number;
   dispatchedAt: string;
   model: string;
   gatewayId: string;
@@ -1283,6 +1301,7 @@ function logDeepInfraChatFailure(input: {
     provider: "deepinfra",
     stage,
     elapsedMs: Math.max(0, Date.now() - input.started),
+    deadlineElapsedMs: input.deadlineElapsedMs,
     model: scrub(input.model),
     gatewayId: scrub(input.gatewayId),
     accountIdLast4: input.accountId.slice(-4),
@@ -1317,6 +1336,7 @@ function logDeepInfraChatDegraded(input: {
   response: Response;
   started: number;
   dispatchedAt: string;
+  attempt: number;
   model: string;
   gatewayId: string;
   accountId: string;
@@ -1341,6 +1361,7 @@ function logDeepInfraChatDegraded(input: {
     hasAuthorization: input.hasAuthorization,
     hasGatewayAuth: input.hasGatewayAuth,
     dispatchedAt: input.dispatchedAt,
+    attempt: input.attempt,
     headersReceived: true,
     ...(usage.finishReason ? { finishReason: scrub(usage.finishReason) } : {}),
     ...(usage.completionTokens == null
@@ -1354,12 +1375,28 @@ function logDeepInfraChatDegraded(input: {
 }
 
 /**
- * At most three fetches, so the 30s backoff is never reached, and the
- * minimum-80s rule enforces that. After the 5s and 15s sleeps, a 30s backoff
- * would leave at most 70s of the 120s chat deadline.
+ * The cap is the count: at most three fetches. Backoff before attempts 2 and 3
+ * is 5s, then 15s. The minimum-80s rule is a second guard: do not start an
+ * attempt when less than 80s of the 120s chat deadline would remain after that
+ * backoff.
  */
-const DEEPINFRA_OVERLOAD_BACKOFF_MS = [5_000, 15_000, 30_000] as const;
+const DEEPINFRA_OVERLOAD_MAX_ATTEMPTS = 3;
+const DEEPINFRA_OVERLOAD_BACKOFF_MS = [5_000, 15_000] as const;
 const DEEPINFRA_OVERLOAD_MIN_REMAINING_MS = 80_000;
+
+function logDeepInfraRetryStopped(input: {
+  attempt: number;
+  deadlineElapsedMs: number;
+  reason: "min_remaining" | "policy_invalid";
+}): void {
+  console.warn({
+    event: "provider_call_retry_stopped",
+    provider: "deepinfra",
+    attempt: input.attempt,
+    deadlineElapsedMs: input.deadlineElapsedMs,
+    reason: input.reason
+  });
+}
 
 function deepInfraOverloadRefusal(
   response: Response,
@@ -1513,7 +1550,8 @@ export function createDeepInfraProvider(env: Env): LlmProvider | null {
               "Inference cancelled before dispatch."
             );
           const deadlineStarted = Date.now();
-          const dispatchedAt = now();
+          const deadlineElapsedMs = () =>
+            Math.max(0, Date.now() - deadlineStarted);
           const chatBody = JSON.stringify({
             model,
             messages: [{ role: "user", content: prompt }],
@@ -1544,21 +1582,47 @@ export function createDeepInfraProvider(env: Env): LlmProvider | null {
             | undefined;
           for (
             let attempt = 1;
-            attempt <= DEEPINFRA_OVERLOAD_BACKOFF_MS.length + 1;
+            attempt <= DEEPINFRA_OVERLOAD_MAX_ATTEMPTS;
             attempt++
           ) {
             if (attempt > 1) {
               const backoff = DEEPINFRA_OVERLOAD_BACKOFF_MS[attempt - 2];
               if (backoff == null) break;
-              const elapsed = Date.now() - deadlineStarted;
+              const elapsed = deadlineElapsedMs();
               if (
                 DEEPINFRA_CHAT_TIMEOUT_MS - elapsed - backoff <
                 DEEPINFRA_OVERLOAD_MIN_REMAINING_MS
-              )
+              ) {
+                try {
+                  logDeepInfraRetryStopped({
+                    attempt,
+                    deadlineElapsedMs: elapsed,
+                    reason: "min_remaining"
+                  });
+                } catch {
+                  /* A diagnostic failure must not replace the provider error. */
+                }
                 break;
+              }
               await waitForOverloadRetry(backoff, signal);
+              try {
+                revalidateBeforeInference(policy, now());
+              } catch (error) {
+                if (!(error instanceof ProvenPreDispatchRefusal)) throw error;
+                try {
+                  logDeepInfraRetryStopped({
+                    attempt,
+                    deadlineElapsedMs: deadlineElapsedMs(),
+                    reason: "policy_invalid"
+                  });
+                } catch {
+                  /* A diagnostic failure must not replace the provider error. */
+                }
+                break;
+              }
             }
             const started = Date.now();
+            const dispatchedAt = now();
             let response: Response | undefined;
             let bodyText: string | undefined;
             let parsed: unknown;
@@ -1593,6 +1657,7 @@ export function createDeepInfraProvider(env: Env): LlmProvider | null {
                       bodyText,
                       parsed,
                       started,
+                      deadlineElapsedMs: deadlineElapsedMs(),
                       dispatchedAt,
                       attempt,
                       ...diagnostic
@@ -1636,6 +1701,7 @@ export function createDeepInfraProvider(env: Env): LlmProvider | null {
                     response,
                     started,
                     dispatchedAt,
+                    attempt,
                     ...diagnostic
                   });
                 } catch {
@@ -1649,13 +1715,14 @@ export function createDeepInfraProvider(env: Env): LlmProvider | null {
                   provider: "deepinfra",
                   attempt,
                   elapsedMs: Math.max(0, Date.now() - started),
+                  deadlineElapsedMs: deadlineElapsedMs(),
+                  dispatchedAt,
                   status: response.status,
                   ...(aigLogId ? { aigLogId } : {})
                 });
               }
               return completion;
             } catch (error) {
-              if (error instanceof DefiniteProviderRefusal) throw error;
               try {
                 logDeepInfraChatFailure({
                   error,
@@ -1663,6 +1730,7 @@ export function createDeepInfraProvider(env: Env): LlmProvider | null {
                   bodyText,
                   parsed,
                   started,
+                  deadlineElapsedMs: deadlineElapsedMs(),
                   dispatchedAt,
                   attempt,
                   ...diagnostic

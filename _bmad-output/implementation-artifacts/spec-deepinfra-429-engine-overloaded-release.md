@@ -21,7 +21,7 @@ context:
 
 ## Boundaries & Constraints
 
-**Always:** Release (`issue` null, `liability_cents` 0) only when the chat response exists, `status` is 429, and `jsonApiError` `errorCode` is `engine_overloaded`. Evidence is `{ reason: "provider_definite_refusal", status, errorCode, aigLogId }` (`aigLogId` from `cf-aig-log-id` when present). New repo function, not `releaseBeforePaidInvocation`. Retry only this case, in the chat closure, on that same row. At most three fetches. Backoff is 5s, then 15s, then 30s. The 30s backoff is never reached. The minimum-80s rule enforces that: do not start an attempt when less than 80s of the 120s chat deadline would remain after that backoff. Log every attempt: attempt number, `elapsedMs`, `status`, `errorCode`, `aigLogId`. Both docs name this exception and Patrick's approval on 2026-10-10. The release is its own commit.
+**Always:** Release (`issue` null, `liability_cents` 0) only when the chat response exists, `status` is 429, and `jsonApiError` `errorCode` is `engine_overloaded`. Evidence is `{ reason: "provider_definite_refusal", status, errorCode, aigLogId }` (`aigLogId` from `cf-aig-log-id` when present). New repo function, not `releaseBeforePaidInvocation`. Retry only this case, in the chat closure, on that same row. At most three HTTP attempts. Backoff 5s, then 15s, then 30s. Do not start an attempt when less than 80s of the 120s chat deadline would remain after that backoff. Log every attempt: attempt number, `elapsedMs`, `status`, `errorCode`, `aigLogId`. Both docs name this exception and Patrick's approval on 2026-10-10. The release is its own commit.
 
 **Never:** Do not release any other 4xx, any 5xx, timeout, network error, redirect, or 429 with a different code. Do not call `gateway.complete` again on the same key. Do not change admission SQL, `cf-aig-max-attempts` (`"1"`), preflight, `prepare`, other providers, `timeouts.ts`, `STEERING_POST_TIMEOUT_MS`, or the 20-minute `draft-and-review` step (retries 0). No deploy.
 
@@ -49,7 +49,7 @@ context:
 **Execution:**
 - [x] `src/shared/db/repos/llmAccountingRepo.ts` -- `releaseDefiniteProviderRefusal` uses the same owner, `dispatched`, and `version = op.version + 1` guard and `syncRun` as `releaseBeforePaidInvocation`. Own commit, with the docs and `gateway.ts` (the `complete()` branch and the chat retry share that file).
 - [x] `docs/llm-accounting.md` and `docs/deepinfra-runbook.md` -- Name only this 429 and Patrick's approval on 2026-10-10. Runbook: retries share the 120s deadline, so two chats fit in 250s. Leave the ~480s preflight gap and per-`draftCount` step timeout deferred.
-- [x] `src/pipeline/ai/gateway.ts` -- Same commit as the release. Retry in the closure. Backoff `[5_000, 15_000, 30_000]` before attempts 2–4. No sleep and no send when `120_000 - elapsed - backoff < 80_000`. At most three fetches, so the 30s backoff is never reached, and the minimum-80s rule enforces that. Say so in the code comment. Sleep with `setTimeout` on the deadline signal. Log `attempt` on each failure and on a later success. Terminal matching 429 is not `ProvenPreDispatchRefusal`. `complete()` releases, then throws the existing `provider_error`.
+- [x] `src/pipeline/ai/gateway.ts` -- Same commit as the release. Retry in the closure. `DEEPINFRA_OVERLOAD_MAX_ATTEMPTS` is 3. Backoff `[5_000, 15_000]` before attempts 2 and 3. The cap is the count. The 80s rule is a second guard: no sleep and no send when `120_000 - elapsed - backoff < 80_000`. Re-check `revalidateBeforeInference` after each backoff. Say so in the code comment. Sleep with `setTimeout` on the deadline signal. Log `attempt` on each failure and on a later success. Terminal matching 429 is not `ProvenPreDispatchRefusal`. `complete()` releases only when the guarded update changes one row, then throws the existing `provider_error`. A missed or thrown release falls back to `markUncertain`.
 - [x] `src/pipeline/ai/deepinfra.test.ts` -- Matrix, including fake timers for the 80s gate. One settlement. Give-up: `uncertainCents` 0, `issueCount` 0, evidence fields, and a different key can reserve.
 
 **Acceptance Criteria:**
@@ -57,16 +57,20 @@ context:
 
 ## Implementation Notes
 
-- `releaseDefiniteProviderRefusal`, both docs, and `gateway.ts` (the `complete()` release branch and the in-closure retry) are one commit. The tests are the following commit. Splitting the retry out would split `gateway.ts`. At most three fetches, so the 30s backoff is never reached, and the minimum-80s rule enforces that. The comment is on `DEEPINFRA_OVERLOAD_BACKOFF_MS`.
+- `releaseDefiniteProviderRefusal`, both docs, and `gateway.ts` (the `complete()` release branch and the in-closure retry) are one commit, `e8a57db`. The tests are the following commit. The attempt cap is the count (`DEEPINFRA_OVERLOAD_MAX_ATTEMPTS = 3`). Backoff is 5s, then 15s. The 80s rule is a second guard. The comment is on `DEEPINFRA_OVERLOAD_MAX_ATTEMPTS`.
 - Context7 `/vitest-dev/vitest/v4.1.6`: `vi.useFakeTimers()` mocks `Date` and `setTimeout`. `advanceTimersByTimeAsync` drives the 5s and 15s sleeps. The 80s gate test uses `advanceTimersByTime` for the in-mock 40s response timer.
-- `npm run check` exit 0. `npm test` exit 0: 1599 passed, 6 skipped.
+- `npm run check` exit 0. `npm test` exit 0: 1607 passed, 6 skipped.
 - This session cannot launch review subagents. Code Review's separate bmad-code-review pass stands in for those layers. They were skipped.
 
 ## Spec Change Log
 
+- Release and retry were combined in `e8a57db` because both touch `complete()`. The own-commit rule existed so the release could be dropped if Patrick declined. He approved the exception at 7:51 PM ET on 2026-10-10.
+- Code Review's four-layer pass on `aad5ed6` requested patches with no decisions. The fix re-checks the policy after each backoff, caps fetches at 3 with 5s and 15s backoff (the 80s rule is a second guard), requires the release update to change one row or else marks the operation uncertain, narrows the evidence type, drops the dead rethrow, and logs each attempt's `dispatchedAt`, `deadlineElapsedMs`, and a stop line.
+
 ## Review Triage Log
 
 - Skipped blind-hunter, edge-case-hunter, and verification-gap. This session cannot launch review subagents. Code Review's separate bmad-code-review pass stands in for those layers.
+- Code Review's four-layer pass ran on `aad5ed6` and requested the patches in the Spec Change Log. No decisions were left open.
 
 ## Verification
 

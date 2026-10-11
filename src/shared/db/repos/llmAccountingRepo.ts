@@ -263,9 +263,13 @@ export async function releaseBeforePaidInvocation(
 export async function releaseDefiniteProviderRefusal(
   db: Db,
   op: Operation,
-  evidence: { status: number; errorCode: string; aigLogId?: string }
-): Promise<void> {
-  await db.batch([
+  evidence: {
+    status: 429;
+    errorCode: "engine_overloaded";
+    aigLogId?: string;
+  }
+): Promise<boolean> {
+  const [updated] = await db.batch([
     db
       .prepare(
         "UPDATE llm_operations SET state='released',version=version+1,liability_cents=0,issue=NULL,response_evidence_json=? WHERE id=? AND owner=? AND state='dispatched' AND version=?"
@@ -283,6 +287,7 @@ export async function releaseDefiniteProviderRefusal(
       ),
     syncRun(db, op.run_id)
   ]);
+  return updated?.meta.changes === 1;
 }
 export async function settle(
   db: Db,
