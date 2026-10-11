@@ -2,7 +2,7 @@
 title: '3.36 — Verify the corrected staging Run and gateway'
 type: 'chore'
 created: '2026-10-04'
-status: 'in-progress'
+status: 'done'
 baseline_revision: 'bd388d2d7d0159891983404ec307689b1830feeb'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -64,6 +64,8 @@ deferred: []
 ## Spec Change Log
 
 ## Review Triage Log
+
+**2026-10-10, about 10:07 PM ET.** Code Review confirmed acceptance against #75 at `29dd3f8`. AC1 and AC2 met. AC3 is n/a.
 
 ## Verification
 
