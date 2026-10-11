@@ -300,3 +300,12 @@ Ledger entries above are not edited; this block records where each Epic 3 entry 
 - Release evidence keeps only the last attempt's `aigLogId` and no attempt count. Record `attempts` and all `aigLogIds`.
 - An abort or cancel during the backoff sleep reaches `complete()` as a raw `AbortError` and is marked uncertain even though nothing is in flight, which costs a 16¢ issue. Consider release plus a log.
 - A later-attempt success is logged with `console.warn` `provider_call_attempt`. Use info level.
+
+## Deferred from: code review of #73 at c61da72 (2026-10-11)
+
+- `max_tokens` above `inputTokens` is accepted, `1048576.5` is not rejected as a non-integer, and a string or object priority/flex value is not rejected.
+- `lastJsonObject` should skip the interior of a span that fails to parse, or try candidates last to first against the role schema.
+- The gateway seed budget test should start from a non-default budget and version. The ceiling fixture's provider and model match the 0017 seed again after that seed assertion was restored.
+- The 19-cent bound test should pass the fixture-derived rate string into `tokenCostCents`.
+- `parseConfigProposal` in `submitTurn.ts` and `parseToolRequest` in `actionPolicy.ts` still parse strictly, so a DeepInfra reply with prose or `<think>` is treated as plain text and no tool denial is recorded.
+- Release evidence and the docs do not say whether the USD 1 authorization and period `acceptance-3-36-deepinfra-20261004` (ends 2026-10-11T19:10:00Z) cover V4-Flash calls after that time.

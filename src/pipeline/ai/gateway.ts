@@ -1048,6 +1048,11 @@ function deepInfraCatalogField(
   for (const tag of ["openai", "reasoning", "json"]) {
     if (!row.tags.includes(tag)) return `tags.${tag}`;
   }
+  if (
+    policy.model === "deepseek-ai/DeepSeek-V4-Flash" &&
+    !row.tags.includes("can-disable-reasoning")
+  )
+    return "tags.can-disable-reasoning";
   const pricing = row.pricing;
   if (
     pricing == null ||

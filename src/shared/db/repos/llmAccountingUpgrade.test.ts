@@ -111,8 +111,8 @@ it("upgrades populated legacy accounting without fabricating or discarding charg
   );
   // Exercise today's gateway against the complete current schema after proving
   // the populated 0021 upgrade above preserves all original accounting.
-  // 0024 sets every role to DeepSeek-V4-Flash, so point drafter at the fake
-  // provider only after those later migrations have applied.
+  // Later migrations include 0024, which rewrites a GLM role map. Point
+  // drafter at the fake provider only after those migrations have applied.
   await applyD1Migrations(
     db,
     migrations.filter((m) => m.name > migration.name)

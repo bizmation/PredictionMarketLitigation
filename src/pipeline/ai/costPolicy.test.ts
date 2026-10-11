@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import recordedCatalog from "./fixtures/deepseek-v4-flash-catalog-row.json";
 import {
   COST_POLICIES,
+  decimalProductAtMost,
   reportedUsdCents,
   resolveCostPolicy,
   tokenCostCents,
+  usdPerMillionToCentsPerToken,
   validatePolicy
 } from "./costPolicy";
 describe("bounded-text-v1", () => {
@@ -82,6 +84,20 @@ describe("bounded-text-v1", () => {
     expect(
       resolveCostPolicy(policy.provider, policy.model, policy.verifiedAt)
     ).toEqual(policy);
+  });
+  it("converts USD per million tokens to cents per token", () => {
+    expect(usdPerMillionToCentsPerToken("10000")).toBe("1");
+    expect(usdPerMillionToCentsPerToken("0.18")).toBe("0.000018");
+    expect(usdPerMillionToCentsPerToken("0.15")).toBe("0.000015");
+    expect(usdPerMillionToCentsPerToken("0.50")).toBe("0.00005");
+  });
+  it("compares a decimal product without floating-point conversion", () => {
+    expect(decimalProductAtMost("2", "3", "6")).toBe(true);
+    expect(decimalProductAtMost("2", "4", "6")).toBe(false);
+    expect(decimalProductAtMost("2.0", "1.50", "3.000")).toBe(true);
+    expect(decimalProductAtMost("2.00", "0.000009", "0.000018")).toBe(true);
+    expect(decimalProductAtMost("nope", "1", "1")).toBe(false);
+    expect(decimalProductAtMost("1", "1", "")).toBe(false);
   });
   it.each([
     { inputUsdPerMillion: "NaN" },

@@ -27,8 +27,10 @@ import {
 
 const testEnv = env as Env;
 
-const SEEDED_PROVIDER = "deepinfra";
-const SEEDED_MODEL = "deepseek-ai/DeepSeek-V4-Flash";
+const SEEDED_PROVIDER = "workersai";
+const SEEDED_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+const V4_MODEL = "deepseek-ai/DeepSeek-V4-Flash";
+const CATALOG_AT = "2026-10-11T00:10:57.000Z";
 
 const SEED_STATEMENT = `INSERT INTO gateway_config (id, version, roles_json, default_budget_cents, updated_at)
 VALUES ('current', 1, '{}', 1, '2026-09-17T00:00:00.000Z')
@@ -89,17 +91,101 @@ const REVIEWER_JSON = JSON.stringify({
   disagreement: ""
 });
 
+function migrations() {
+  return (
+    testEnv as unknown as {
+      TEST_MIGRATIONS: Array<{ name: string; queries: string[] }>;
+    }
+  ).TEST_MIGRATIONS;
+}
+
+async function apply0024() {
+  const migration = migrations().find((entry) => entry.name.startsWith("0024"));
+  expect(migration?.queries.length).toBeGreaterThan(0);
+  await testEnv.DB.batch(
+    migration!.queries.map((sql) => testEnv.DB.prepare(sql))
+  );
+}
+
 describe("migration 0017 gateway seed (story 3.19)", () => {
-  it("leaves every role on DeepSeek-V4-Flash at version 2 with a 500-cent default budget", async () => {
+  it("seeds all five roles to Workers AI at version 1 with a 500-cent default budget", async () => {
     const config = await roleModelsRepo.readConfig(testEnv.DB);
     expect(config).not.toBeNull();
-    expect(config?.version).toBe(2);
+    expect(config?.version).toBe(1);
     expect(config?.defaultBudgetCents).toBe(500);
     for (const role of GATEWAY_ROLE_VALUES) {
       expect(config?.roles[role]).toEqual({
         provider: SEEDED_PROVIDER,
         model: SEEDED_MODEL
       });
+    }
+  });
+
+  it("leaves the 0017 Workers AI row untouched when 0024 runs", async () => {
+    const before = await roleModelsRepo.readConfig(testEnv.DB);
+    await apply0024();
+    expect(await roleModelsRepo.readConfig(testEnv.DB)).toEqual(before);
+    expect(before?.version).toBe(1);
+    for (const role of GATEWAY_ROLE_VALUES) {
+      expect(before?.roles[role]?.model).toBe(SEEDED_MODEL);
+    }
+  });
+
+  it("switches a GLM config row to DeepSeek-V4-Flash and keeps the later updated_at", async () => {
+    const before = await testEnv.DB.prepare(
+      "SELECT version, roles_json, default_budget_cents, updated_at FROM gateway_config WHERE id='current'"
+    ).first<{
+      version: number;
+      roles_json: string;
+      default_budget_cents: number;
+      updated_at: string;
+    }>();
+    const glmRoles = Object.fromEntries(
+      GATEWAY_ROLE_VALUES.map((role) => [
+        role,
+        { provider: "deepinfra", model: "zai-org/GLM-5.3-Flash" }
+      ])
+    );
+    const later = "2026-10-12T00:00:00.000Z";
+    try {
+      await testEnv.DB.prepare(
+        "UPDATE gateway_config SET version=4, roles_json=?, updated_at=? WHERE id='current'"
+      )
+        .bind(JSON.stringify(glmRoles), "2026-10-04T19:12:00.000Z")
+        .run();
+      await apply0024();
+      const switched = await roleModelsRepo.readConfig(testEnv.DB);
+      expect(switched?.version).toBe(5);
+      expect(switched?.defaultBudgetCents).toBe(500);
+      expect(switched?.updatedAt).toBe(CATALOG_AT);
+      for (const role of GATEWAY_ROLE_VALUES) {
+        expect(switched?.roles[role]).toEqual({
+          provider: "deepinfra",
+          model: V4_MODEL
+        });
+      }
+
+      await testEnv.DB.prepare(
+        "UPDATE gateway_config SET version=4, roles_json=?, updated_at=? WHERE id='current'"
+      )
+        .bind(JSON.stringify(glmRoles), later)
+        .run();
+      await apply0024();
+      const kept = await roleModelsRepo.readConfig(testEnv.DB);
+      expect(kept?.version).toBe(5);
+      expect(kept?.updatedAt).toBe(later);
+      expect(kept?.roles.drafter?.model).toBe(V4_MODEL);
+    } finally {
+      await testEnv.DB.prepare(
+        "UPDATE gateway_config SET version=?, roles_json=?, default_budget_cents=?, updated_at=? WHERE id='current'"
+      )
+        .bind(
+          before!.version,
+          before!.roles_json,
+          before!.default_budget_cents,
+          before!.updated_at
+        )
+        .run();
     }
   });
 
@@ -119,7 +205,7 @@ describe("migration 0017 gateway seed (story 3.19)", () => {
     expect(after?.defaultBudgetCents).toBe(500);
   });
 
-  it("a manual Run with no test seeding drafts and reviews on deepinfra and reaches awaiting", async () => {
+  it("a manual Run with no test seeding drafts and reviews on workersai and reaches awaiting", async () => {
     const date = "2026-09-17";
     await ensureRun(testEnv.DB, "manual", date);
     const id = runIdFor(date, "manual");

@@ -86,7 +86,11 @@ export const COST_POLICIES: readonly CostPolicy[] = [
     outputUsdPerMillion: "0.18",
     verifiedAt: "2026-10-11T00:10:57.000Z",
     validUntil: "2026-10-18T00:10:57.000Z",
-    sources: ["https://api.deepinfra.com/models/list"]
+    sources: [
+      "https://api.deepinfra.com/models/list",
+      "https://deepinfra.com/deepseek-ai/DeepSeek-V4-Flash",
+      "https://docs.deepinfra.com/chat/reasoning"
+    ]
   }
 ];
 export class CostPolicyError extends Error {}
@@ -179,9 +183,11 @@ export function usdPerMillionToCentsPerToken(usdPerMillion: string): string {
   const scale = fraction.length + 4;
   if (scale < digits.length) {
     const point = digits.length - scale;
-    return (
-      digits.slice(0, point) + "." + digits.slice(point).replace(/0+$/, "")
-    );
+    const fractionDigits = digits.slice(point).replace(/0+$/, "");
+    const wholeDigits = digits.slice(0, point);
+    return fractionDigits.length > 0
+      ? wholeDigits + "." + fractionDigits
+      : wholeDigits;
   }
   return "0." + digits.padStart(scale, "0").replace(/0+$/, "");
 }

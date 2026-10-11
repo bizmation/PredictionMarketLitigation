@@ -64,8 +64,15 @@ Scientific numeric notation in JSON is accepted with exact decimal comparison.
 The temporary 50% discount is never used to reduce liability.
 
 Requests contain text only, `max_tokens: 2048`, `reasoning_effort: "none"`,
-`stream: false`, and `n: 1`. Service tier is omitted (standard service). There are
-no tools, media inputs, cache writes, or priority/flex options. The only
+`reasoning: { enabled: false }`, `stream: false`, and `n: 1`. Service tier is
+omitted (standard service). There are no tools, media inputs, cache writes, or
+priority/flex options. Preflight requires the `can-disable-reasoning` tag on
+DeepSeek-V4-Flash. Cache-read and cache-write figures are multipliers on the
+input cents-per-token price; a multiplier that pushes that price above the
+reviewed input rate fails closed. A DeepInfra reply keeps only the text after
+the last `</think>`. An unclosed `<think>` drops the rest of the reply. The
+parser then takes the last JSON object. Tags match case-insensitively and may
+carry attributes. The only
 automatic retry is a chat 429 whose error code is `engine_overloaded` (see
 Evidence and failures).
 Gateway caching is skipped and maximum attempts is one. Credentialed redirects

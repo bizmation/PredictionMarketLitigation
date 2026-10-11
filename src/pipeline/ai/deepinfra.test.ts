@@ -430,6 +430,41 @@ describe("DeepInfra central gateway", () => {
     [
       "context below inputTokens",
       { max_tokens: recordedCatalog.max_tokens - 1 }
+    ],
+    [
+      "an explicit cache-write multiplier above the policy",
+      {
+        pricing: {
+          ...recordedCatalog.pricing,
+          rate_per_explicit_cache_write_token: { "5m": 1.25, "1h": 2.5 }
+        }
+      }
+    ],
+    [
+      "an explicit cache-write list",
+      {
+        pricing: {
+          ...recordedCatalog.pricing,
+          rate_per_explicit_cache_write_token: []
+        }
+      }
+    ],
+    [
+      "a cache-read multiplier above 2",
+      {
+        pricing: {
+          ...recordedCatalog.pricing,
+          rate_per_input_token_cached: 2.1
+        }
+      }
+    ],
+    [
+      "no can-disable-reasoning tag",
+      {
+        tags: recordedCatalog.tags.filter(
+          (tag) => tag !== "can-disable-reasoning"
+        )
+      }
     ]
   ])(
     "fails closed on the recorded row when it has %s",
@@ -445,8 +480,31 @@ describe("DeepInfra central gateway", () => {
       expect(await accountingForRun(db, input.runId)).toMatchObject({
         totalCents: 0
       });
+      expect(
+        await db
+          .prepare("SELECT id FROM llm_operations WHERE run_id=?")
+          .bind(input.runId)
+          .first()
+      ).toBeNull();
     }
   );
+  it("sends DeepSeek-V4-Flash with reasoning off and no service tier", async () => {
+    const input = await setup(V4_MODEL);
+    const { inference } = http(responseBody(), [recordedCatalog]);
+    await complete({ ...deps(), now: () => NOW_V4 }, input);
+    const body = JSON.parse(inference.mock.calls[0]![1]!.body as string) as {
+      model: string;
+      reasoning_effort: string;
+      reasoning: { enabled: boolean };
+      service_tier?: unknown;
+    };
+    expect(body).toMatchObject({
+      model: V4_MODEL,
+      reasoning_effort: "none",
+      reasoning: { enabled: false }
+    });
+    expect(body).not.toHaveProperty("service_tier");
+  });
   it.each(["expired", "unsupported"])(
     "rejects %s policy before HTTP",
     async (kind) => {

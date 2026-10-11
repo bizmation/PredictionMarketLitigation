@@ -103,9 +103,20 @@ function nowIso(deps: GatewayDeps): string {
   return deps.now?.() ?? new Date().toISOString();
 }
 
-/** Drop complete think blocks. Incomplete tags stay in the text. */
+/**
+ * Keep only the text after the last `</think>`. An unmatched `<think>` drops
+ * the rest of that remainder. Tags are case-insensitive and may have attributes.
+ */
 function stripThinkBlocks(text: string): string {
-  return text.replace(/<think>[\s\S]*?<\/think>/g, "");
+  let lastCloseEnd = -1;
+  for (const match of text.matchAll(/<\/think\b[^>]*>/gi)) {
+    if (match.index == null) continue;
+    lastCloseEnd = match.index + match[0].length;
+  }
+  const afterClose = lastCloseEnd >= 0 ? text.slice(lastCloseEnd) : text;
+  const open = /<think\b[^>]*>/i.exec(afterClose);
+  if (open?.index == null) return afterClose;
+  return afterClose.slice(0, open.index);
 }
 
 /** End index exclusive, or null when braces never close. Strings are skipped. */
