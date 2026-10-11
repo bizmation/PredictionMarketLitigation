@@ -89,6 +89,32 @@ SELECT id, event, payload_json FROM evidence_events
   WHERE run_id = 'run-20261010-0005' AND event IN ('gate.decided','run.completed')
   ORDER BY seq;
 SELECT COUNT(*) AS llm_calls FROM llm_calls WHERE run_id = 'run-20261010-0005';
+SELECT id, event, created_at FROM evidence_events
+  WHERE run_id = 'run-20261010-0005'
+    AND event IN ('steering.turn','steering.applied');
+SELECT id, role, created_at FROM llm_calls
+  WHERE run_id = 'run-20261010-0005' AND created_at > '2026-10-11T13:01:00.000Z';
+SELECT id, role, state, created_at FROM llm_operations
+  WHERE run_id = 'run-20261010-0005' AND created_at > '2026-10-11T13:01:00.000Z';
+SELECT d.outcome, d.edited_body,
+       d.body = e.description AS published_equals_full_body,
+       e.description = json_extract(d.diff_json, '$.description') AS published_equals_diff_description,
+       d.body = (
+         json_extract(d.diff_json, '$.context.caption') || ' — docket entry ' ||
+         json_extract(d.diff_json, '$.entryNumber') || ', filed ' ||
+         json_extract(d.diff_json, '$.occurredAt') || ': ' || e.description
+       ) AS body_equals_caption_plus_published
+  FROM drafts d
+  JOIN docket_events e ON e.id = d.target_entity_id
+ WHERE d.id = 'd:run-20261010-0005:CourtListener:docket_events:de-case-il-cftc-481187549';
+SELECT json_extract(payload_json, '$.approvedText') = (
+         SELECT body FROM drafts
+          WHERE id = 'd:run-20261010-0005:CourtListener:docket_events:de-case-il-cftc-481187549'
+       ) AS approved_text_equals_body
+  FROM evidence_events
+ WHERE run_id = 'run-20261010-0005' AND event = 'gate.decided'
+   AND json_extract(payload_json, '$.draftId')
+       = 'd:run-20261010-0005:CourtListener:docket_events:de-case-il-cftc-481187549';
 ```
 
 **Public surfaces** (GET only):
@@ -116,6 +142,8 @@ Observed cells stay blank until his click results arrive.
 | Run `run-20261010-0005` | `published`; spend 12; `llm_calls` 12 | |
 | Public tracker | `GET /api/cases/case-il-cftc` lists entry 102; ops run page HTTP 200 | |
 | Production isolation | both brochure hashes `bffcd5c604008e866cc2d71a0b9aa74478ba024167898f45fc910f3f0d41b270` | |
+| Unsent steering on IL 102 | zero `steering.turn` and `steering.applied` rows for `run-20261010-0005`; zero `llm_calls` and `llm_operations` for that Run with `created_at` after `2026-10-11T13:01:00.000Z` | |
+| Published text vs draft body | `outcome` `approved`; `edited_body` null; `published_equals_diff_description` 1; `body_equals_caption_plus_published` 1; `approved_text_equals_body` 1. `published_equals_full_body` is 0: `docket_events.description` is the entry text, and `drafts.body` is the caption line plus that text | |
 
 ## Spec Change Log
 
