@@ -112,7 +112,7 @@ development_status:
   3-36-verify-the-corrected-staging-run-and-gateway: done # USD 1 / DeepInfra authorized 2026-10-04; run-20261010-0005 on DeepSeek-V4-Flash is the acceptance Run; operator evidence recorded 2026-10-11; Code Review confirmed acceptance against #75 at 29dd3f8 (2026-10-10, about 10:07 PM ET)
   # Added 2026-10-10 by create-story. Not part of 3.36 (operational verification) and not 3.37 (next backlog acceptance story).
   3-38-pace-courtlistener-requests-and-recover-from-http-429: done
-  3-37-prove-the-live-governed-loop-and-reassess-epic-3: backlog
+  3-37-prove-the-live-governed-loop-and-reassess-epic-3: in-progress
   # Retrospective completed; verdict remains rejected until 3.37 reassessment.
   epic-3-retrospective: done
 
