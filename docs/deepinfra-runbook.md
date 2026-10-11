@@ -107,7 +107,18 @@ request ID is retained in the existing private receipt for reconciliation.
 Missing/invalid usage, non-text content, or token counts over the bound retain at
 least the conservative liability and block further inference pending
 reconciliation. Failed, aborted, and unknown outcomes keep their reservation;
-replaying the operation cannot retry inference. Public evidence excludes prompts,
+replaying the operation cannot retry inference. One exception, which Patrick
+approved on 2026-10-10: a chat response whose headers were received, whose status
+is 429, and whose error code is `engine_overloaded`. The chat closure may retry
+that refusal under the same reservation, inside the 120-second chat deadline.
+At most three fetches, so the 30-second backoff is never reached, and the
+minimum-80-second rule enforces that. If that refusal persists, the reservation
+is released with no issue and evidence reason `provider_definite_refusal`
+(status, error code, and the AI Gateway log id when present). Drafter plus
+reviewer chats still fit in the 250-second steering client timeout. Catalog
+preflight plus prepare, and sizing the 20-minute draft-and-review step by draft
+count, stay deferred. Every other HTTP failure keeps its reservation. Public
+evidence excludes prompts,
 completion/reasoning text, credentials, and raw provider error bodies. Never
 approve or publish Draft content as part of acceptance.
 
