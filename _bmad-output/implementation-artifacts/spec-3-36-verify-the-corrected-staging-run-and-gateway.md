@@ -70,7 +70,7 @@ deferred: []
 - `npm run deploy:build` — build, all tests, staging migrations and staging deploy succeed.
 - Cloudflare deployment/settings/D1 read-only queries — verify version, bindings, migrations and frozen configuration without secret values.
 - Public HTTP reads — verify staging APIs, anonymous admin denial and unchanged production hashes.
-- Authorized live Run/gateway evidence — `run-20261010-0005` is recorded under Acceptance Run evidence. AC1 production hashes and AC2 AI Gateway log entries remain PENDING operator evidence. Story status stays in-progress.
+- Authorized live Run/gateway evidence — `run-20261010-0005` is recorded under Acceptance Run evidence, including AC1 production isolation and AC2 gateway route/status. Story status stays in-progress.
 
 
 ## Auto Run Result
@@ -145,9 +145,9 @@ Patrick ruled on 2026-10-10, relayed by PML Eng Manager, so the Epic 3 retro has
 
 Story status stays `in-progress`. The acceptance criteria above are unchanged. This record does not close the story. Code Review still confirms the acceptance criteria.
 
-**Deploy.** Revision `89d3d36` (`89d3d36611031d38060d83e8eea86ef4835d727b`) on main, after #74. Staging Worker version `b47b37cd`. No migrations on that deploy. Migration 0024 was applied on the earlier `450d456` (`450d45659948e353323c41d9e2dbaf75563ea345`) deploy, Worker version `e7c447a5`. `gateway_config` v4 has all five roles on `deepseek-ai/DeepSeek-V4-Flash`.
+**Deploy.** Revision `89d3d36` (`89d3d36611031d38060d83e8eea86ef4835d727b`) on main, after #74. Staging Worker version `b47b37cd-9f5f-4fb2-a681-131c9f0df427`. No migrations on that deploy. Migration 0024 was applied on the earlier `450d456` (`450d45659948e353323c41d9e2dbaf75563ea345`) deploy, Worker version `e7c447a5`. `gateway_config` v4 has all five roles on `deepseek-ai/DeepSeek-V4-Flash`. Staging hosts are `build.predictionmarketlitigation.com` and `ops-build.predictionmarketlitigation.com`. Deployed about 2026-10-11T01:50Z.
 
-**Run.** Authenticated Run now through real admission. Outcome `awaiting` with 6 drafts. HITL is holding everything and nothing is approved. Public Evidence: https://ops-build.predictionmarketlitigation.com/runs/run-20261010-0005
+**Run.** Authenticated Run now through real admission. Outcome `awaiting` with 6 drafts. HITL is holding everything and nothing is approved. Public Evidence https://ops-build.predictionmarketlitigation.com/runs/run-20261010-0005 returned HTTP 200 at 2026-10-11T02:00:37Z. `GET /api/runs/run-20261010-0005` also returned HTTP 200: status `awaiting`, spend 12, reserved 0, uncertain 0, issues 0.
 
 **Accounting.** 12 DeepInfra calls (6 drafter plus 6 reviewer), all `settled`. $0.19 admission bound each. Retained liability $0. Held/Uncertain/Issues 0. 12¢ total against period `acceptance-3-36-deepinfra-20261004`. 5407 tokens. Guardrails passed ×6. Evals ok ×6.
 
@@ -155,9 +155,11 @@ Story status stays `in-progress`. The acceptance criteria above are unchanged. T
 
 #### Per-call ledger
 
-Staging D1 `pml-build`, read 2026-10-11 ~02:05Z. All 12 calls use model `deepseek-ai/DeepSeek-V4-Flash`, state `settled`, `cost_cents` 1, `cost_basis` `token_estimate`, and `reported_cost_source` null.
+Staging D1 `pml-build`, read 2026-10-11 ~02:05Z. All 12 calls use model `deepseek-ai/DeepSeek-V4-Flash`, state `settled`, `cost_cents` 1, `cost_basis` `token_estimate`, and `reported_cost_source` null on `llm_calls`.
 
-| # | llm_call id | role | tokens in/out | created_at (UTC) | providerRequestId |
+`llm_calls` has no `provider_request_id` column. The `chatcmpl-*` ids are persisted on `llm_operations`, keyed by operation id (the same id as the `llm_calls` row), in `provider_request_id` and in `settlement_json.providerRequestId`. `settle()` in `src/shared/db/repos/llmAccountingRepo.ts` writes both. The same ids are in the gateway response bodies. All 12 operation rows have the id.
+
+| # | operation id | role | tokens in/out | created_at (UTC) | llm_operations.provider_request_id |
 |---|---|---|---|---|---|
 | 1 | e4c2e09b-3882-48d4-be52-9ca3a3a6d67a | drafter | 461/70 | 2026-10-11T01:53:14.113Z | chatcmpl-RImvXY4tjjQDZZdqTZJiIqcR |
 | 2 | 144dff12-9708-4a51-9b08-c42b76c0bfd1 | reviewer | 402/101 | 2026-10-11T01:53:19.294Z | chatcmpl-RJvNoFKwYhEI5EWTQwds6oJi |
@@ -178,22 +180,38 @@ Staging D1 `pml-build`, read 2026-10-11 ~02:05Z. All 12 calls use model `deepsee
 
 (b) The Furcolo draft `de-case-ri-furcolo-480886814` has reviewer `citationCompleteness: 0`. The entry has `entry_number: null` on CourtListener, so the source link is the docket root with no `?entry=` and the body says "docket unnumbered entry". The reviewer judged it uncitable. Evals are `ok` and confidence is 100. It is a model judgment, and the pipeline did not mis-handle the entry. Follow-up is recorded in `deferred-work.md`.
 
-### PENDING operator evidence
+### AC1 — Production isolation (2026-10-11T02:00:07Z)
 
-Code Review still needs these before the acceptance criteria can be confirmed. Story status stays `in-progress`.
+Same curl plus sha256sum method as 2026-10-04.
 
-**AC1 — PENDING operator evidence.** Before and after SHA-256 of both production brochure roots, confirmation that production is still version `d894f294`, plus hosts and UTC time.
+| Host | HTTP | Bytes | SHA-256 |
+|---|---|---|---|
+| `https://predictionmarketlitigation.com/` | 200 | 49404 | `bffcd5c604008e866cc2d71a0b9aa74478ba024167898f45fc910f3f0d41b270` |
+| `https://ops.predictionmarketlitigation.com/` | 200 | 49404 | `bffcd5c604008e866cc2d71a0b9aa74478ba024167898f45fc910f3f0d41b270` |
 
-- Production brochure root 1 before SHA-256: PENDING operator evidence
-- Production brochure root 1 after SHA-256: PENDING operator evidence
-- Production brochure root 2 before SHA-256: PENDING operator evidence
-- Production brochure root 2 after SHA-256: PENDING operator evidence
-- Production still version `d894f294`: PENDING operator evidence
-- Hosts: PENDING operator evidence
-- UTC time: PENDING operator evidence
+Both hashes match the 2026-10-04 value. Production Worker `pml`: `wrangler deployments list` shows `d894f294-d530-4f17-bb73-6b6d2db60845` at 100%, deployed 2026-09-08T23:01:29Z (Rollback). There has been no production deploy since. Staging at this check: revision `89d3d36`, version `b47b37cd-9f5f-4fb2-a681-131c9f0df427`, no migrations, hosts `build.predictionmarketlitigation.com` and `ops-build.predictionmarketlitigation.com`, deployed about 01:50Z.
 
-**AC2 — PENDING operator evidence.** AI Gateway log entries for gateway `default` / `custom-deepinfra` showing HTTP 200 and the route, with two spot-checked and the rest listed.
+### AC2 — Route and status
 
-- Spot-check 1 (HTTP 200 and route): PENDING operator evidence
-- Spot-check 2 (HTTP 200 and route): PENDING operator evidence
-- Remaining log entries: PENDING operator evidence
+Source: `cf ai-gateway logs list --gateway-id default --provider custom-deepinfra`, window 2026-10-11T01:45Z through 02:05Z. 12 logs, all HTTP 200, `success` true, `cached` false, path `v1/openai/chat/completions`, model `deepseek-ai/deepseek-v4-flash`. They match the 12 `llm_calls` rows one-to-one on order and exact in/out tokens. Each gateway log lands 0.12-0.87 s after its D1 row. Totals: 4,529 in / 878 out. Gateway `cost` is 0 (custom provider). D1 records 12¢.
+
+The operator export is `aigw_0005.json` from that command. Request and response bodies in the export are empty. This repo does not keep raw gateway JSON evidence files, so the table below is the recorded copy.
+
+| log id | created | status | success | cached | model | tokens in/out | duration ms |
+|---|---|---|---|---|---|---|---|
+| 01a128a9-f674-775f-87c7-7d1cf65d8646 | 2026-10-11T01:53:14.985Z | 200 | True | False | deepseek-ai/deepseek-v4-flash | 461/70 | 3879 |
+| 01a128aa-0a57-725a-95a0-e5ae1024664f | 2026-10-11T01:53:19.419Z | 200 | True | False | deepseek-ai/deepseek-v4-flash | 402/101 | 4439 |
+| 01a128aa-1eeb-76bf-ba25-4948031e006a | 2026-10-11T01:53:23.576Z | 200 | True | False | deepseek-ai/deepseek-v4-flash | 474/80 | 3338 |
+| 01a128aa-2ee9-7767-bb6f-2cbcf9b0331f | 2026-10-11T01:53:28.500Z | 200 | True | False | deepseek-ai/deepseek-v4-flash | 425/93 | 4091 |
+| 01a128aa-4602-7558-b2ab-bce72c2296f3 | 2026-10-11T01:53:31.623Z | 200 | True | False | deepseek-ai/deepseek-v4-flash | 386/37 | 1250 |
+| 01a128aa-4d88-7705-bc30-dc5555ad5604 | 2026-10-11T01:53:35.814Z | 200 | True | False | deepseek-ai/deepseek-v4-flash | 292/97 | 3593 |
+| 01a128aa-5edf-778f-a6e8-7845a4265797 | 2026-10-11T01:53:38.860Z | 200 | True | False | deepseek-ai/deepseek-v4-flash | 391/44 | 2194 |
+| 01a128aa-6bee-7149-bda8-736b3174c6bd | 2026-10-11T01:53:54.769Z | 200 | True | False | deepseek-ai/deepseek-v4-flash | 304/94 | 14779 |
+| 01a128aa-a8a4-724f-acd4-97c980b3648f | 2026-10-11T01:53:58.187Z | 200 | True | False | deepseek-ai/deepseek-v4-flash | 387/37 | 2632 |
+| 01a128aa-b5c8-75c8-879d-4ee5fc441aa6 | 2026-10-11T01:54:02.092Z | 200 | True | False | deepseek-ai/deepseek-v4-flash | 295/83 | 3162 |
+| 01a128aa-c4e1-778d-9efb-eadf1b2c0448 | 2026-10-11T01:54:09.517Z | 200 | True | False | deepseek-ai/deepseek-v4-flash | 392/58 | 6758 |
+| 01a128aa-e283-7766-ac83-93036e7d93f2 | 2026-10-11T01:54:13.376Z | 200 | True | False | deepseek-ai/deepseek-v4-flash | 320/84 | 3030 |
+
+**Spot-check 1 (drafter).** Log `01a128a9-f674-775f-87c7-7d1cf65d8646` matches operation `e4c2e09b-3882-48d4-be52-9ca3a3a6d67a`. HTTP 200, 3878 ms (`timings.total`; log `duration` is 3879), tokens 461/70, `llm_operations.provider_request_id` `chatcmpl-RImvXY4tjjQDZZdqTZJiIqcR`, finish `stop`, IL entry 101.
+
+**Spot-check 2 (reviewer, the slowest call).** Log `01a128aa-6bee-7149-bda8-736b3174c6bd` matches operation `449be310-a327-4017-95df-26d997deb806`. HTTP 200, 14778 ms (`timings.total`; log `duration` is 14779), tokens 304/94, `llm_operations.provider_request_id` `chatcmpl-Rsfcete6XOX3Ma1O53QUKTGi`, finish `stop`, NY entry 175, `disagrees` false.
