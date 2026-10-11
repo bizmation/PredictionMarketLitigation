@@ -7,6 +7,7 @@ import {
   llmProvidersFromEnv
 } from "./gateway";
 import { resolveCostPolicy } from "./costPolicy";
+import recordedCatalog from "./fixtures/deepseek-v4-flash-catalog-row.json";
 import { insertRun } from "../../shared/db/repos/runsRepo";
 import { accountingForRun } from "../../shared/db/repos/llmAccountingRepo";
 import {
@@ -17,6 +18,9 @@ import {
 const db = (env as Env).DB;
 const NOW = "2026-10-04T19:12:00.000Z";
 const MODEL = "zai-org/GLM-5.3-Flash";
+const V4_MODEL = "deepseek-ai/DeepSeek-V4-Flash";
+// After the GLM policy window. A settled V4 call inside that window is counted by the campaign period.
+const NOW_V4 = "2026-10-12T00:00:00.000Z";
 const WORKERS_REDIRECT_ERROR =
   'Invalid redirect value, must be one of "follow" or "manual" ("error" won\'t be implemented since it does not make sense at the edge; use "manual" and check the response status code)';
 const policy = resolveCostPolicy("deepinfra", MODEL, NOW);
@@ -349,8 +353,7 @@ describe("DeepInfra central gateway", () => {
       { cents_per_output_token: {} },
       { type: "unknown" },
       { rate_per_input_token_cached: 1.1 },
-      { rate_per_input_token_cache_write: 0.2 },
-      { rate_per_service_tier_priority: 1.2 },
+      { rate_per_input_token_cache_write: 2 },
       { table: [] },
       { new_billable_dimension: 0.1 }
     ].map(
@@ -383,6 +386,56 @@ describe("DeepInfra central gateway", () => {
           .bind(input.runId)
           .first()
       ).toBeNull();
+    }
+  );
+  it("accepts the recorded V4-Flash catalog row before inference", async () => {
+    const input = await setup(V4_MODEL);
+    const { inference } = http(responseBody(), [recordedCatalog]);
+    await expect(
+      complete({ ...deps(), now: () => NOW_V4 }, input)
+    ).resolves.toMatchObject({
+      provider: "deepinfra",
+      model: V4_MODEL
+    });
+    expect(inference).toHaveBeenCalledTimes(1);
+  });
+  it.each([
+    [
+      "an input price above the policy",
+      {
+        pricing: {
+          ...recordedCatalog.pricing,
+          cents_per_input_token: 0.000019
+        }
+      }
+    ],
+    [
+      "an output price above the policy",
+      {
+        pricing: {
+          ...recordedCatalog.pricing,
+          cents_per_output_token: 0.000019
+        }
+      }
+    ],
+    [
+      "context below inputTokens",
+      { max_tokens: recordedCatalog.max_tokens - 1 }
+    ]
+  ])(
+    "fails closed on the recorded row when it has %s",
+    async (_label, change) => {
+      const input = await setup(V4_MODEL);
+      const { inference } = http(responseBody(), [
+        { ...recordedCatalog, ...change }
+      ]);
+      await expect(
+        complete({ ...deps(), now: () => NOW_V4 }, input)
+      ).rejects.toMatchObject({ code: "cost_policy_invalid" });
+      expect(inference).not.toHaveBeenCalled();
+      expect(await accountingForRun(db, input.runId)).toMatchObject({
+        totalCents: 0
+      });
     }
   );
   it.each(["expired", "unsupported"])(

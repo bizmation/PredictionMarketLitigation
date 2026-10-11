@@ -35,22 +35,26 @@ provision the separate `AI_GATEWAY_TOKEN` as an asynchronous Secrets Store bindi
 gateway has gateway-level authentication disabled. Never put credentials into
 source, D1, prompts, logs, evidence, or commands that print their values.
 
-Select provider `deepinfra` and exact model `zai-org/GLM-5.3-Flash` in the existing
-role configuration. Workers AI and OpenRouter remain selectable with their
-original policies and expiry dates. Unsupported or expired policies fail closed;
-this change does not renew them.
+Select provider `deepinfra` and exact model `deepseek-ai/DeepSeek-V4-Flash` in the
+existing role configuration. Workers AI and OpenRouter remain selectable with their
+original policies and expiry dates. The 2026-10-04 GLM-5.3-Flash selection is
+superseded. Unsupported or expired policies fail closed; this change does not
+renew them.
 
 ## Reviewed bound and request restrictions
 
-The reviewed policy is valid from **2026-10-04T19:10:00.000Z** until (exclusive)
-**2026-10-11T19:10:00.000Z**, exactly seven days. The implementation clock was
-checked after verification on October 4. Renewal requires another review.
+The reviewed V4-Flash policy is valid from **2026-10-11T00:10:57.000Z** until
+(exclusive) **2026-10-18T00:10:57.000Z**, exactly seven days. Catalog
+`cents_per_*` prices are cents per token. Cache-write values are multipliers on
+the input cents, so the 1h × 2.0 multiplier on `9e-06` cents/token is `$0.18`
+per million input tokens. Output is `1.8e-05` cents/token, `$0.18` per million.
+The output maximum is 2,048. Context `max_tokens` is 1,048,576. The per-call
+reservation is:
 
-The full context is 1,048,576 input tokens, at undiscounted USD 0.15 per million
-input tokens and USD 0.50 per million output tokens. The output maximum is 2,048.
-The conservative per-call reservation is:
+`ceil(100 * (1048576 * 0.18 + 2048 * 0.18) / 1000000) = 19 cents`
 
-`ceil(100 * (1048576 * 0.15 + 2048 * 0.50) / 1000000) = 16 cents`
+The earlier GLM-5.3-Flash policy (16 cents, through 2026-10-11T19:10:00.000Z)
+stays in the allowlist and is not the configured model.
 
 The public catalog is fetched without authentication before reservation, with a
 full-body deadline. The exact active public text-generation model, context,
@@ -83,7 +87,7 @@ inactive until all of these controls are persisted and verified in real D1:
    to regain budget. Confirm no unresolved accounting issues exist.
 4. Verify the configured exact provider/model, route, secure credentials, policy
    validity, existing admission gate, and the real period before permitting a
-   bounded acceptance attempt. Stop when the remaining capacity is below 16 cents.
+   bounded acceptance attempt. Stop when the remaining capacity is below 19 cents.
 
 The implementation deliberately does not insert this remote period or activate
 execution. Its gateway uses the existing atomic reservation/dispatch accounting:
@@ -114,6 +118,7 @@ approve or publish Draft content as part of acceptance.
 ## Review sources
 
 - [DeepInfra public model catalog](https://api.deepinfra.com/models/list)
+- [DeepSeek-V4-Flash model page](https://deepinfra.com/deepseek-ai/DeepSeek-V4-Flash)
 - [GLM-5.3-Flash model prices](https://deepinfra.com/zai-org/GLM-5.3-Flash)
 - [DeepInfra chat parameters and standard service](https://docs.deepinfra.com/chat/overview)
 - [Disabling reasoning](https://docs.deepinfra.com/chat/reasoning)

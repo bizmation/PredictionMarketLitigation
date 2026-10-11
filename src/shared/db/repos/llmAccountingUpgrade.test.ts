@@ -109,16 +109,18 @@ it("upgrades populated legacy accounting without fabricating or discarding charg
   expect(JSON.parse(receipt!.before_json).ledger).toEqual(
     JSON.parse(op.response_evidence_json!)
   );
-  await db
-    .prepare("UPDATE gateway_config SET roles_json=? WHERE id='current'")
-    .bind(JSON.stringify({ drafter: { provider: "fake", model: "m" } }))
-    .run();
   // Exercise today's gateway against the complete current schema after proving
   // the populated 0021 upgrade above preserves all original accounting.
+  // 0024 sets every role to DeepSeek-V4-Flash, so point drafter at the fake
+  // provider only after those later migrations have applied.
   await applyD1Migrations(
     db,
     migrations.filter((m) => m.name > migration.name)
   );
+  await db
+    .prepare("UPDATE gateway_config SET roles_json=? WHERE id='current'")
+    .bind(JSON.stringify({ drafter: { provider: "fake", model: "m" } }))
+    .run();
   const dispatch = vi.fn(async () => ({
     text: "ok",
     inputTokens: 1,

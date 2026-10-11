@@ -27,7 +27,8 @@ import {
 
 const testEnv = env as Env;
 
-const WORKERS_AI_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
+const SEEDED_PROVIDER = "deepinfra";
+const SEEDED_MODEL = "deepseek-ai/DeepSeek-V4-Flash";
 
 const SEED_STATEMENT = `INSERT INTO gateway_config (id, version, roles_json, default_budget_cents, updated_at)
 VALUES ('current', 1, '{}', 1, '2026-09-17T00:00:00.000Z')
@@ -39,7 +40,7 @@ function fakeProvider(
   let calls = 0;
   const models: string[] = [];
   return {
-    name: "workersai",
+    name: SEEDED_PROVIDER,
     count: () => calls,
     models: () => models,
     complete: async ({ model }) => {
@@ -89,15 +90,15 @@ const REVIEWER_JSON = JSON.stringify({
 });
 
 describe("migration 0017 gateway seed (story 3.19)", () => {
-  it("seeds all five roles to Workers AI at version 1 with a 500-cent default budget", async () => {
+  it("leaves every role on DeepSeek-V4-Flash at version 2 with a 500-cent default budget", async () => {
     const config = await roleModelsRepo.readConfig(testEnv.DB);
     expect(config).not.toBeNull();
-    expect(config?.version).toBe(1);
+    expect(config?.version).toBe(2);
     expect(config?.defaultBudgetCents).toBe(500);
     for (const role of GATEWAY_ROLE_VALUES) {
       expect(config?.roles[role]).toEqual({
-        provider: "workersai",
-        model: WORKERS_AI_MODEL
+        provider: SEEDED_PROVIDER,
+        model: SEEDED_MODEL
       });
     }
   });
@@ -118,7 +119,7 @@ describe("migration 0017 gateway seed (story 3.19)", () => {
     expect(after?.defaultBudgetCents).toBe(500);
   });
 
-  it("a manual Run with no test seeding drafts and reviews on workersai and reaches awaiting", async () => {
+  it("a manual Run with no test seeding drafts and reviews on deepinfra and reaches awaiting", async () => {
     const date = "2026-09-17";
     await ensureRun(testEnv.DB, "manual", date);
     const id = runIdFor(date, "manual");
@@ -134,7 +135,7 @@ describe("migration 0017 gateway seed (story 3.19)", () => {
     await reviewDailyRun(testEnv.DB, packaged, deps(provider));
 
     expect(provider.count()).toBe(2);
-    expect(provider.models()).toEqual([WORKERS_AI_MODEL, WORKERS_AI_MODEL]);
+    expect(provider.models()).toEqual([SEEDED_MODEL, SEEDED_MODEL]);
     const run = await runsRepo.getRunById(testEnv.DB, id);
     expect(run?.status).toBe("awaiting");
     expect(run?.budgetCents).toBe(500);
@@ -157,8 +158,8 @@ describe("migration 0017 gateway seed (story 3.19)", () => {
       .bind(id)
       .all<{ role: string; provider: string; model: string }>();
     expect(calls.results).toEqual([
-      { role: "drafter", provider: "workersai", model: WORKERS_AI_MODEL },
-      { role: "reviewer", provider: "workersai", model: WORKERS_AI_MODEL }
+      { role: "drafter", provider: SEEDED_PROVIDER, model: SEEDED_MODEL },
+      { role: "reviewer", provider: SEEDED_PROVIDER, model: SEEDED_MODEL }
     ]);
   });
 
@@ -177,13 +178,13 @@ describe("migration 0017 gateway seed (story 3.19)", () => {
     expect(result.status).toBe("ok");
     if (result.status !== "ok") return;
     expect(result.turn.reply).toBe("steward reply");
-    expect(provider.models()).toEqual([WORKERS_AI_MODEL]);
+    expect(provider.models()).toEqual([SEEDED_MODEL]);
     const call = await testEnv.DB.prepare(
       `SELECT provider, model FROM llm_calls WHERE run_id = ? AND role = 'steward'`
     )
       .bind(id)
       .first<{ provider: string; model: string }>();
-    expect(call).toEqual({ provider: "workersai", model: WORKERS_AI_MODEL });
+    expect(call).toEqual({ provider: SEEDED_PROVIDER, model: SEEDED_MODEL });
   });
 
   it("enforces the seeded 500-cent ceiling on a Run without its own budget", async () => {
@@ -194,7 +195,7 @@ describe("migration 0017 gateway seed (story 3.19)", () => {
       `INSERT INTO llm_calls (id, run_id, role, provider, model, tokens_json, cost_cents, currency, created_at)
        VALUES (?, ?, 'drafter', 'workersai', ?, NULL, 500, 'USD', ?)`
     )
-      .bind(`prior-${id}`, id, WORKERS_AI_MODEL, "2026-09-16T16:00:00.000Z")
+      .bind(`prior-${id}`, id, SEEDED_MODEL, "2026-09-16T16:00:00.000Z")
       .run();
     const provider = fakeProvider([DRAFTER_JSON, REVIEWER_JSON]);
     const packaged = await packageDailyRun(

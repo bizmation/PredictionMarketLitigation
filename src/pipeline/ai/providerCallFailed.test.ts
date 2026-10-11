@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDeepInfraProvider } from "./gateway";
 import { resolveCostPolicy } from "./costPolicy";
 
-const MODEL = "zai-org/GLM-5.3-Flash";
-const NOW = "2026-10-04T19:12:00.000Z";
+const MODEL = "deepseek-ai/DeepSeek-V4-Flash";
+const NOW = "2026-10-11T12:00:00.000Z";
 const KEY = "PRIVATE-provider-key";
 const TOKEN = "PRIVATE-gateway-key";
 const ACCOUNT = "00112233445566778899aabbccddeeff3c16";

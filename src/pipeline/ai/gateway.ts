@@ -1,8 +1,10 @@
 import {
   decimalAtMost,
+  decimalProductAtMost,
   resolveCostPolicy,
   tokenCostCents,
   reportedUsdCents,
+  usdPerMillionToCentsPerToken,
   validatePolicy,
   type CostPolicy
 } from "./costPolicy";
@@ -982,15 +984,19 @@ function deepInfraCatalogField(
       typeof entry === "object" &&
       (entry as { model_name?: unknown }).model_name === model
   );
-  if (matches.length !== 1 || model !== "zai-org/GLM-5.3-Flash")
-    return "model_name";
+  if (matches.length !== 1 || model !== policy.model) return "model_name";
   const row = matches[0] as Record<string, unknown>;
   if (row.type !== "text-generation") return "type";
   if (row.reported_type !== "text-generation") return "reported_type";
   if (row.private !== 0) return "private";
   if (row.deprecated !== null) return "deprecated";
   if (row.replaced_by !== null) return "replaced_by";
-  if (row.max_tokens !== policy.inputTokens) return "max_tokens";
+  if (
+    typeof row.max_tokens !== "number" ||
+    !Number.isInteger(row.max_tokens) ||
+    row.max_tokens < policy.inputTokens
+  )
+    return "max_tokens";
   if (!Array.isArray(row.tags)) return "tags";
   for (const tag of ["openai", "reasoning", "json"]) {
     if (!row.tags.includes(tag)) return `tags.${tag}`;
@@ -1002,33 +1008,43 @@ function deepInfraCatalogField(
     (pricing as { type?: unknown }).type !== "tokens"
   )
     return "pricing.type";
-  const prices = pricing as Record<string, unknown>;
-  const limits: Record<string, string> = {
-    cents_per_input_token: "0.000015",
-    cents_per_output_token: "0.00005",
-    rate_per_input_token_cached: "1",
-    discount: "1"
+  return deepInfraPriceField(pricing as Record<string, unknown>, policy);
+}
+
+/**
+ * Compare billable token and cache-replacement prices to this model's policy.
+ * Priority, flex, and cache-granularity may be non-null. A null or absent
+ * discount is allowed. Unknown keys fail closed.
+ */
+function deepInfraPriceField(
+  prices: Record<string, unknown>,
+  policy: CostPolicy
+): string | null {
+  const inputLimit = usdPerMillionToCentsPerToken(policy.inputUsdPerMillion);
+  const outputLimit = usdPerMillionToCentsPerToken(policy.outputUsdPerMillion);
+  const inputCents = catalogDecimal(prices.cents_per_input_token);
+  const outputCents = catalogDecimal(prices.cents_per_output_token);
+  if (!inputCents || !decimalAtMost(inputCents, inputLimit))
+    return "pricing.cents_per_input_token";
+  if (!outputCents || !decimalAtMost(outputCents, outputLimit))
+    return "pricing.cents_per_output_token";
+  const multiplierOk = (value: unknown): boolean => {
+    const factor = catalogDecimal(value);
+    return (
+      factor != null && decimalProductAtMost(factor, inputCents, inputLimit)
+    );
   };
-  const nullFields = [
-    "discount_ends_at",
-    "short",
-    "full",
-    "table",
-    "rate_per_input_token_cache_write",
-    "rate_per_service_tier_priority",
-    "rate_per_service_tier_flex",
-    "rate_per_explicit_cache_write_token",
-    "explicit_cache_granularity_tokens"
-  ];
-  for (const key of Object.keys(limits)) {
-    if (!(key in prices)) return `pricing.${key}`;
-  }
-  for (const key of nullFields) {
-    if (!(key in prices)) return `pricing.${key}`;
-  }
   for (const [key, value] of Object.entries(prices)) {
     if (key === "type") {
       if (value !== "tokens") return "pricing.type";
+      continue;
+    }
+    if (key === "cents_per_input_token" || key === "cents_per_output_token")
+      continue;
+    if (key === "discount") {
+      if (value === null) continue;
+      const discount = catalogDecimal(value);
+      if (!discount || !decimalAtMost(discount, "1")) return "pricing.discount";
       continue;
     }
     if (key === "discount_ends_at") {
@@ -1041,12 +1057,39 @@ function deepInfraCatalogField(
         return "pricing.discount_ends_at";
       continue;
     }
-    if (key in limits) {
-      if (!decimalAtMost(catalogDecimal(value), limits[key]!))
-        return `pricing.${key}`;
+    if (key === "short" || key === "full" || key === "table") {
+      if (value !== null) return `pricing.${key}`;
       continue;
     }
-    if (!(nullFields.includes(key) && value === null)) return `pricing.${key}`;
+    if (
+      key === "rate_per_input_token_cached" ||
+      key === "rate_per_input_token_cache_write"
+    ) {
+      if (value === null) continue;
+      if (!multiplierOk(value)) return `pricing.${key}`;
+      continue;
+    }
+    if (key === "rate_per_explicit_cache_write_token") {
+      if (value === null) continue;
+      if (typeof value !== "object" || Array.isArray(value))
+        return "pricing.rate_per_explicit_cache_write_token";
+      for (const [ttl, multiplier] of Object.entries(
+        value as Record<string, unknown>
+      )) {
+        if (!multiplierOk(multiplier))
+          return `pricing.rate_per_explicit_cache_write_token.${ttl}`;
+      }
+      continue;
+    }
+    if (
+      key === "rate_per_service_tier_priority" ||
+      key === "rate_per_service_tier_flex" ||
+      key === "explicit_cache_granularity_tokens"
+    ) {
+      if (value === null || catalogDecimal(value) != null) continue;
+      return `pricing.${key}`;
+    }
+    return `pricing.${key}`;
   }
   return null;
 }

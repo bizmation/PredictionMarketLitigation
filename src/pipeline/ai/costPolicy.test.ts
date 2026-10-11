@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import recordedCatalog from "./fixtures/deepseek-v4-flash-catalog-row.json";
 import {
   COST_POLICIES,
   reportedUsdCents,
@@ -11,7 +12,7 @@ describe("bounded-text-v1", () => {
   it("computes approved bounds by summing before ceiling", () => {
     expect(
       COST_POLICIES.map((p) => tokenCostCents(p, p.inputTokens, p.outputTokens))
-    ).toEqual([2, 124, 16]);
+    ).toEqual([2, 124, 16, 19]);
     expect(
       tokenCostCents(
         {
@@ -57,6 +58,30 @@ describe("bounded-text-v1", () => {
     expect(() => validatePolicy(p, p.validUntil)).toThrow();
     expect(() => validatePolicy(p, "2026-09-25T23:59:59.999Z")).toThrow();
     expect(validatePolicy(p, "2026-10-03T14:01:48.999Z")).toEqual(p);
+  });
+  it("pins the V4-Flash 19-cent bound from the recorded catalog row", () => {
+    const policy = COST_POLICIES.find(
+      (entry) => entry.model === "deepseek-ai/DeepSeek-V4-Flash"
+    )!;
+    const pricing = recordedCatalog.pricing;
+    const hourWrite = pricing.rate_per_explicit_cache_write_token["1h"];
+    // cents/token × multiplier × 10_000 = USD per million tokens.
+    const inputUsdPerMillion =
+      pricing.cents_per_input_token * hourWrite * 10_000;
+    const outputUsdPerMillion = pricing.cents_per_output_token * 10_000;
+    expect(pricing.cents_per_input_token).toBe(9e-6);
+    expect(hourWrite).toBe(2);
+    expect(inputUsdPerMillion).toBe(0.18);
+    expect(outputUsdPerMillion).toBe(0.18);
+    expect(policy.inputTokens).toBe(recordedCatalog.max_tokens);
+    expect(policy.inputUsdPerMillion).toBe(String(inputUsdPerMillion));
+    expect(policy.outputUsdPerMillion).toBe(String(outputUsdPerMillion));
+    expect(
+      tokenCostCents(policy, policy.inputTokens, policy.outputTokens)
+    ).toBe(19);
+    expect(
+      resolveCostPolicy(policy.provider, policy.model, policy.verifiedAt)
+    ).toEqual(policy);
   });
   it.each([
     { inputUsdPerMillion: "NaN" },

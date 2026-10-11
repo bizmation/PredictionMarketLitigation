@@ -28,7 +28,7 @@ describe("workerd accepts the DeepInfra request inits", () => {
         "Content-Type": "application/json"
       }),
       AbortSignal.timeout(1_000),
-      JSON.stringify({ model: "zai-org/GLM-5.3-Flash" })
+      JSON.stringify({ model: "deepseek-ai/DeepSeek-V4-Flash" })
     );
     const request = new Request(CHAT_URL, init);
     expect(request.method).toBe("POST");

@@ -2,8 +2,9 @@
 title: 'Switch every LLM role to DeepSeek-V4-Flash'
 type: 'feature'
 created: '2026-10-11'
-status: 'draft'
+status: 'in-review'
 route: 'dispatch'
+baseline_commit: '16c3dfd77f83fc4143da224339902e7201fa91b8'
 review_loop_iteration: 0
 followup_review_recommended: false
 context: []
@@ -43,7 +44,7 @@ deferred: []
 ## Code Map
 
 - `https://api.deepinfra.com/models/list` at `2026-10-11T00:10:57Z`: one `deepseek-ai/DeepSeek-V4-Flash` row, `text-generation`, `private` 0, `deprecated`/`replaced_by` null, `max_tokens` 1048576, tags include `openai`, `reasoning`, `json`, `can-disable-reasoning`.
-- Prices: input `9e-06` ($0.09/M), output `1.8e-05` ($0.18/M), `discount` null, cache-read `0.2` ($0.018/M), cache-write null, explicit cache-write `{5m: 1.25, 1h: 2.0}` ($0.1125/M, $0.18/M), priority `1.5`, flex `0.8`. Input rate `$0.18/M` (highest cache-write). Output rate `$0.18/M`. Priority and flex are not reserved.
+- Prices are cents per token. Input `9e-06` cents/token is `9e-06 * 10000 = $0.09` per million tokens. Output `1.8e-05` cents/token is `$0.18/M`. `discount` is null. Cache-read `0.2`, cache-write null, and explicit cache-write `{5m: 1.25, 1h: 2.0}` are multipliers on the input cents, not dollar prices. `1h × 2.0 × 9e-06 = 1.8e-05` cents/token = `$0.18/M`, which is the highest input-side price, so the input rate is `$0.18/M`. Cache-read `0.2×` is `$0.018/M`. Output has no cache multiplier above `$0.18/M`. Priority `1.5` and flex `0.8` are not reserved.
 - Bound `ceil(100 * (1048576 * 0.18 + 2048 * 0.18) / 1000000) = 19` cents. Policy: `inputTokens` 1048576, rates `0.18`/`0.18`, `verifiedAt` `2026-10-11T00:10:57.000Z`, `validUntil` `2026-10-18T00:10:57.000Z`, catalog URL in `sources`. GLM row and its `2026-10-11T19:10:00.000Z` expiry stay. Prior bounds stay 2, 124, 16.
 - `src/pipeline/ai/gateway.ts` `deepInfraCatalogField` (~973–1052, GLM check at 985) — match `policy.model`; cent limits come from the policy; cache multiplier compares as `multiplier * cents_per_input_token`; unknown keys fail. Leave `complete`, `chatOutputDegraded`, and the 429 path.
 - `src/pipeline/agents/draftAndReview.ts` `parseJson` (106–112) — DeepInfra: strip complete `<think>…</think>`, then the last brace-balanced `JSON.parse` object. Else trimmed `JSON.parse`. `parseToolRequest` stays first. `GatewayResult.provider` is already returned.
@@ -55,20 +56,34 @@ deferred: []
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `src/pipeline/ai/costPolicy.ts` — append the Code Map policy.
-- [ ] `src/pipeline/ai/fixtures/deepseek-v4-flash-catalog-row.json` — commit the live row.
-- [ ] `src/pipeline/ai/gateway.ts` — policy-relative `deepInfraCatalogField` for the configured model.
-- [ ] `migrations/0024_deepseek_v4_flash_roles.sql` — set all five roles.
-- [ ] `src/pipeline/agents/draftAndReview.ts` — DeepInfra think-strip and last-object parse.
-- [ ] `src/pipeline/ai/*.test.ts`, `src/pipeline/workflow/gatewaySeed.test.ts`, `src/pipeline/agents/draftAndReview.test.ts` — matrix, 19-cent bound, seeded roles.
-- [ ] `docs/deepinfra-runbook.md`, `epic-3-context.md`, `epics.md`, `spec-3-36-verify-the-corrected-staging-run-and-gateway.md` — ruling and 335-draft note.
+- [x] `src/pipeline/ai/costPolicy.ts` — append the Code Map policy.
+- [x] `src/pipeline/ai/fixtures/deepseek-v4-flash-catalog-row.json` — commit the live row.
+- [x] `src/pipeline/ai/gateway.ts` — policy-relative `deepInfraCatalogField` for the configured model.
+- [x] `migrations/0024_deepseek_v4_flash_roles.sql` — set all five roles.
+- [x] `src/pipeline/agents/draftAndReview.ts` — DeepInfra think-strip and last-object parse.
+- [x] `src/pipeline/ai/*.test.ts`, `src/pipeline/workflow/gatewaySeed.test.ts`, `src/pipeline/agents/draftAndReview.test.ts` — matrix, 19-cent bound, seeded roles.
+- [x] `docs/deepinfra-runbook.md`, `epic-3-context.md`, `epics.md`, `spec-3-36-verify-the-corrected-staging-run-and-gateway.md` — ruling and 335-draft note.
 
 **Acceptance Criteria:**
-- Given the new policy, when `tokenCostCents` runs at `inputTokens` and 2048, then the result is 19 cents and the GLM bounds stay 2, 124, and 16.
+- Given the recorded catalog row, when the cost-policy test derives the input rate from `cents_per_input_token ×` the 1h cache-write multiplier and runs `tokenCostCents` at `inputTokens` and 2048, then the result is 19 cents and the GLM bounds stay 2, 124, and 16.
 - Given migrations applied, when `gateway_config` is read, then every role is DeepInfra `deepseek-ai/DeepSeek-V4-Flash`, version is incremented, and `default_budget_cents` is unchanged.
 - Given the records, when 3.37 and the 3.36 scope rulings are read, then the 2026-10-10 note includes the V4-Flash ruling, `rejected` / 335 / 0 / nothing published, and expected `run-20261010-0004`, and 3.37's bullets are unchanged.
 
 ## Implementation Notes
+
+Catalog prices are cents per token. Cache-write values are multipliers on input, so the recorded 1h × 2.0 on `9e-06` cents/token is `$0.18/M`. That sentence is in the `costPolicy.ts` comment and the cost-policy test derives the 19-cent bound from the committed catalog row (`cents_per_input_token ×` the 1h multiplier, then `tokenCostCents` at `inputTokens` and 2048).
+
+`lastJsonObject` skips a successful object's interior. A nested `{from,to}` diff is not treated as a later reply.
+
+The V4 accept test settles a call. `llm_period_accounting` counts any call whose `created_at` falls inside a later period, and the campaign period ends at the GLM `validUntil` (`2026-10-11T19:10:00.000Z`). `NOW_V4` is `2026-10-12T00:00:00.000Z`, inside the V4 window and outside that campaign window.
+
+PR #72 was still open (`aad5ed62`, no merge commit) and `origin/main` was still `e2d0d3d` when this implementation finished, so there was nothing to rebase. `complete()`, `chatOutputDegraded`, and the 429 path were not edited.
+
+D1 migrations docs (https://developers.cloudflare.com/d1/reference/migrations/): a new sequential `.sql` file in `migrations/` is applied in order and recorded in `d1_migrations`. `0024` follows that. No library API changed, so Context7 was not required.
+
+`llmAccountingUpgrade.test.ts` set the fake drafter role before later migrations. `0024` then replaced that role, so the gateway exercise now sets the fake role after those migrations apply. The budget assertion is unchanged.
+
+This session cannot launch review subagents. Code Review's separate `bmad-code-review` stands in for those review layers. Status is `in-review` for that pass.
 
 ## Spec Change Log
 
@@ -76,7 +91,9 @@ deferred: []
 
 ## Design Notes
 
-Explicit cache write is opt-in, and our chat body still omits it, but `dimensions` says cache replacement rates are included and that 2.0× write is the highest listed cache-write price. Reserving `$0.18/M` input covers it. A null cache-write is skipped. `discount` null is allowed; a numeric discount above 1 still fails.
+Catalog `cents_per_input_token` and `cents_per_output_token` are cents per token. USD per million tokens is `cents_per_token × 10_000`. Cache-read, cache-write, and explicit cache-write values are multipliers on the input cents-per-token price. The recorded 1h multiplier is 2.0, so `2.0 × 9e-06 = 1.8e-05` cents/token = `$0.18/M`, and that sets `inputUsdPerMillion`. A null cache-write is skipped. `discount` null is allowed; a numeric discount above 1 still fails. The cost-policy test must compute that 19-cent bound from the committed catalog row, not from a hand-copied rate.
+
+Approved 2026-10-11: keep the full spec (2199 tokens) and continue. PR #72 may merge first; rebase onto it and keep both the 429 release in `complete()` and this catalog check. This session cannot launch review subagents. Code Review's separate `bmad-code-review` stands in for those review layers.
 
 ## Verification
 

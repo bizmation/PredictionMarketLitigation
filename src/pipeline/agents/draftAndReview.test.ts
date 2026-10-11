@@ -79,7 +79,8 @@ function fakeProvider(
     text?: string;
     fail?: boolean;
     costCents?: number;
-  }> = []
+  }> = [],
+  name = "fake"
 ): LlmProvider & {
   count: () => number;
   roles: () => string[];
@@ -89,7 +90,7 @@ function fakeProvider(
   const roles: string[] = [];
   const prompts: string[] = [];
   return {
-    name: "fake",
+    name,
     count: () => calls,
     roles: () => roles,
     prompts: () => prompts,
@@ -1804,5 +1805,67 @@ describe("durable production Draft replay (3.31)", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe("DeepInfra reply JSON", () => {
+  const visible = {
+    body: "Visible draft after the think block.",
+    diff: { operationalStatus: { from: "go", to: "restricted" } }
+  };
+  const hidden = {
+    body: "Hidden inside the think block.",
+    diff: { operationalStatus: { from: "go", to: "banned" } }
+  };
+
+  async function reviewed(drafterText: string, providerName: string) {
+    const runId = await insertRun();
+    await insertShellDraft(runId);
+    await seedConfig({
+      drafter: { provider: providerName, model: "reply-model" },
+      reviewer: { provider: providerName, model: "reply-model" }
+    });
+    const provider = fakeProvider(
+      [{ text: drafterText }, { text: reviewJson() }],
+      providerName
+    );
+    await draftAndReview(testEnv.DB, runId, deps(provider));
+    const drafts = await draftsRepo.listByRun(testEnv.DB, runId);
+    return drafts[0];
+  }
+
+  it("parses the JSON object that follows leading prose", async () => {
+    const draft = await reviewed(
+      `Here is the draft:\n${JSON.stringify(visible)}`,
+      "deepinfra"
+    );
+    expect(draft?.body).toBe(visible.body);
+    expect(draft?.diff).toEqual(visible.diff);
+  });
+
+  it("does not parse a JSON object that appears only inside a think block", async () => {
+    const draft = await reviewed(
+      `<think>${JSON.stringify(hidden)}</think>\nNo object follows.`,
+      "deepinfra"
+    );
+    expect(draft?.body).toBe(SHELL_BODY);
+    expect(draft?.body).not.toBe(hidden.body);
+  });
+
+  it("uses the later object when a think block holds a decoy", async () => {
+    const draft = await reviewed(
+      `<think>${JSON.stringify(hidden)}</think>\nNotes.\n${JSON.stringify(visible)}`,
+      "deepinfra"
+    );
+    expect(draft?.body).toBe(visible.body);
+    expect(draft?.diff).toEqual(visible.diff);
+  });
+
+  it("does not strip leading prose for another provider", async () => {
+    const draft = await reviewed(
+      `Here is the draft:\n${JSON.stringify(visible)}`,
+      "fake"
+    );
+    expect(draft?.body).toBe(SHELL_BODY);
   });
 });
