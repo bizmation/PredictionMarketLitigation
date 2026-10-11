@@ -72,7 +72,7 @@ context: []
 
 - 2026-10-11: Implemented on the candidate `COURTLISTENER_FIELDS` value. Nested keys are read from the raw row, so a missing `recap_documents` array, a non-object document, or a missing `description` / `short_description` / `attachment_number` does not drop a valid entry. Switching the request to plain `recap_documents` is that one constant. Context7 Zod 4 docs: `z.object` strips unknown keys, so document fields are read before that strip matters.
 - `seenEventIds` still only reads `docket_events` and `drafts`. The incomplete check returns before any insert. The second-poll test locks that. No extra write was found.
-- `npm run check` exit 0. `npm test` 66 files, 1637 passed, 6 skipped, exit 0. The skips were already in the suite.
+- `npm run check` exit 0. `npm test` 66 files, 1643 passed, 6 skipped, exit 0. The skips were already in the suite. `shortDescriptionFallbacks` counts a resolved short description even when the entry is later `skippedUndated`.
 - No live fixture. `0005` logs are the check. The backfill sentence is in `deferred-work.md`.
 
 ## Spec Change Log

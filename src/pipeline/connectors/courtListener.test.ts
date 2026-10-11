@@ -1082,13 +1082,14 @@ describe("CourtListener connector (story 3.21)", () => {
           .first()
       ).toBeNull();
     }
+    // 178 is undated, so it is not drafted, but its short description still counts.
     expect(docketSummary(await fetchedPayload(runId), FURCOLO)).toMatchObject({
       newEntries: 3,
       skippedUndated: 1,
       skippedNoText: 1,
       skippedIncomplete: 2,
       recapDocsPresent: 5,
-      shortDescriptionFallbacks: 2
+      shortDescriptionFallbacks: 3
     });
   });
 
