@@ -4,7 +4,7 @@
 
 ## Goal
 
-Close the daily source → Draft → Approval Gate → canonical tracker → public Evidence loop. Patrick operates it with HITL by default and bounded optional autonomy; anyone can inspect its work. Stories 3.1–3.35 are complete. Operational acceptance remains rejected until a real governed staging publication. Story 3.36 stays in progress, and its live Run waits until story 3.38 is merged and deployed to staging. Story 3.37 stays in the backlog and still depends on 3.36. Story 3.38 paces CourtListener so a transient HTTP 429 does not fail a normal poll. A 401, 403, 5xx, network error, or timeout still fails that request on the first response.
+Close the daily source → Draft → Approval Gate → canonical tracker → public Evidence loop. Patrick operates it in human-in-the-loop mode by default, with optional bounded autonomy; anyone can inspect Runs, Evidence, and pending Drafts on `ops.`. Sprint status on this checkout records stories 3.1–3.36 and 3.38 done. Story 3.37 is the remaining acceptance: one real material docket event on staging, Patrick’s named approval of that live draft, exactly one F1 publication, then a fresh Epic 3 retrospective. Epic 4 stays gated until that acceptance succeeds. Every role uses `deepseek-ai/DeepSeek-V4-Flash` (Patrick, 2026-10-10, 8:05 PM ET). `run-20261010-0003` was rejected; those drafts never received a model call and are not 3.37 evidence.
 
 ## Stories
 
@@ -45,86 +45,36 @@ Close the daily source → Draft → Approval Gate → canonical tracker → pub
 - Story 3.35: Drive apex pending copy from public Draft data
 - Story 3.36: Verify the corrected staging Run and gateway
 - Story 3.37: Prove the live governed loop and reassess Epic 3
-- Story 3.38: Pace CourtListener requests and recover from HTTP 429 (blocks the remaining live 3.36 Run; does not replace 3.36 or 3.37)
+- Story 3.38: Pace CourtListener requests and recover from HTTP 429
 
 ## Requirements & Constraints
 
-- Canonical F1 changes only through the Approval Gate. Agents, including the steward, never receive a direct publish tool. Human edits preserve the original and public diff; approval identity and provenance freeze at publication.
-- Attempt a daily noon-ET Run with an explicit DST rule. Preserve manual/catch-up history, empty days, partial failures, total-source failure, and budget stops. Empty means no material work, not failed collection. Sequential Runs per date remain allowed; competing origins share atomic active-date admission.
-- Server-side evaluation readiness must distinguish processing, completed evaluation, and explicit completed `evals_not_run` with a reason. Null or uncertain outcomes cannot imply completion; classify legacy rows from existing evidence without inventing evaluations. Completed explicit not-run remains human-reviewable; autonomous approval excludes it, Tier-2-only evidence, failed/low confidence, party characterization, and posture changes. Evaluator writes target only eligible undecided Drafts; a decision seals the artifact against later mutation.
-- Publication atomically checks eligibility, latest revision, and expected prior field values. Conflicts abort the entire write and receipt set. Concurrent sibling decisions finalize the Run; retries cannot duplicate publication.
-- All model calls use the central gateway. Preserve the configured 500-cent seed and each Run's frozen ceiling. Paid admission requires a conservative provider-enforced bound and atomic reservation against Run/period limits. Settle idempotently against authoritative accounting; unknown outcomes retain liability until reconciliation. Estimated/reserved amounts are not actual charges.
-- Steering supports interrogation, revision, versioned pipeline configuration, and capped/revocable guidance. Budgets, mode, thresholds, guardrails, and tool policy remain outside chat mutation. Influential turns leave public causation; private content never hides actor, time, or effect. Guidance is advisory authorized context, never a policy override.
-- Published claims require primary-source support or explicit pending-primary attribution. Tier-2-only evidence cannot authorize autonomous publication.
-- Public Evidence supports a thin exportable review bundle (FR26); private provider logs cannot replace that public record.
-- Public evidence links sources, models/configuration, tools, revisions, evaluations, spend, and decisions without credentials. Source credentials accompany only validated HTTPS API-origin requests, including pagination and redirects.
-- Acceptance requires targeted regressions, review, required CI, merged changes, and staging lineage from a real material source through named approval to F1. Planning approval does not authorize unspecified paid calls or approval of unknown content.
+- Canonical F1 changes only through the Approval Gate. Agents, including the steward, never receive a direct publish tool. Human edits preserve the original and the public diff; approval identity and provenance freeze at publication. Planning approval is not approval of unknown legal content.
+- Attempt a daily noon-ET Run with an explicit DST rule. Preserve manual and catch-up history, empty days, partial failures, total-source failure, and budget stops. Empty means no material work, not failed collection. Sequential Runs per date remain allowed; competing origins share atomic active-date admission.
+- Evaluation readiness distinguishes processing, a completed evaluation, and an explicit completed not-run with a reason. Null or uncertain outcomes cannot imply completion. Autonomous approval excludes not-run, Tier-2-only evidence, failed or low confidence, party characterization, and posture changes. A decision seals the Draft.
+- Publication atomically checks eligibility, the latest revision, and expected prior field values. Conflicts abort the whole write. Concurrent sibling decisions finalize the Run; retries cannot publish twice.
+- Model calls use the central gateway. Preserve the configured seed ceiling and each Run’s frozen ceiling. Paid admission requires a conservative bound and an atomic reservation against Run and period limits. Settle idempotently. Unknown outcomes retain liability until reconciliation. Estimated or reserved amounts are not actual charges.
+- Steering may interrogate, revise, change versioned pipeline configuration, and record capped guidance. Budgets, mode, thresholds, guardrails, and tool policy stay outside chat mutation. Influential turns leave public causation.
+- Published claims need primary-source support or an explicit pending-primary label. Tier-2-only evidence cannot authorize autonomous publication.
+- Public Evidence links sources, models, tools, revisions, evaluations, spend, and decisions without credentials. Credentials attach only to validated HTTPS API-origin requests, including pagination and redirects.
 
 ## Technical Decisions
 
-- Retain Cloudflare Workers, Agents, Workflows, D1, and AI Gateway with configurable role→model routing and OpenRouter support. D1 owns canonical structured truth; durable orchestration preserves Run identity across interruption and approval waits.
-- Replay recovers this Run's persisted package before deciding empty/material status, avoids duplicate paid work, and consumes pinned source configuration matching receipts. Distinguish dispatch errors from confirmed duplicate instances and record failures durably.
-- Validate concrete transaction/schema mechanisms against actual platform capabilities. Test the real Workflow entrypoint and database persistence with deterministic external effects, including checkpoint loss and concurrency; helper-only coverage is insufficient.
-- Recorded steering decisions: `poll_sources` is the sole chat-writable config key; source-tier changes do not alter FR17 reason codes. Guidance is capped at 12 active items / 600 characters each, injected into the drafter only. J/K/A/E/R are preserved with the inline panel; no new hotkey is implied.
-- Timeout policy: GET 15 seconds, general admin POST 30 seconds, connector/provider 60 seconds. Patrick’s approved 3.19 exception gives the steering composer `2 × provider + 10s` (130 seconds).
-- Authoritative tokens are `awaiting`, `stopped`, and `run.stopped`; the stopped chip reads budget-stopped. Use integer cents and explicit missing/not-run states.
-- Staging uses `pml-build` with its D1 on `build.predictionmarketlitigation.com` and `ops-build.predictionmarketlitigation.com`. Production apex/ops stay on `pml` with brochure behavior preserved. Only the staging deployment process applies; do not run `npm run deploy`.
-- CourtListener HTTP 429 is in-connector serial pacing: space starts, honor a bounded `Retry-After`, and fail the source with scrubbed `http_429` evidence only after the retry budget is exhausted. Cloudflare Queues stay deferred. One account and a handful of serial reads are not the fan-out or dead-letter threshold, and `run-daily-step` stays a single packaging checkpoint.
+- Cloudflare Workers, Agents, Workflows, D1, and AI Gateway stay. D1 is canonical structured truth. Durable orchestration keeps Run identity across interruption and approval waits.
+- Replay recovers this Run’s persisted package, avoids duplicate paid work, and consumes the pinned source configuration. Dispatch errors are distinct from confirmed duplicate instances.
+- Status tokens are `awaiting`, `stopped`, and `run.stopped`. The stopped chip reads budget-stopped. Money is integer cents.
+- Timeouts: GET 15 seconds, general admin POST 30 seconds, connector and provider 60 seconds. The steering composer uses `2 × provider + 10s` (130 seconds).
+- Staging is `pml-build` on `build.predictionmarketlitigation.com` and `ops-build.predictionmarketlitigation.com`. Production stays `pml`. Staging deploys use the documented build process, not `npm run deploy`.
+- CourtListener HTTP 429 is in-connector serial pacing: space starts, honor a bounded `Retry-After`, and fail the source with scrubbed `http_429` evidence only after the retry budget is exhausted. A 401, 403, 5xx, network error, or timeout still fails that request on the first response. `run-daily-step` stays one packaging checkpoint. Cloudflare Queues stay deferred.
 
 ## UX & Interaction Patterns
 
-- Run log, Evidence, full pending Drafts, and steering receipts are public. Pending content has conspicuous not-live treatment; authenticated actions remain separate. Show empty, failed, stopped, and missing-record states honestly.
-- Preserve keyboard review, accessible feedback, and original-versus-edited review. Processing disables decisions; stale/superseded conflicts explain refresh and preserve unsent edits. Pending count and band share a data contract with loading/error/stale states that never assert false zero.
-- The steering composer is private; completed turns publish immediately without another publishing step or token streaming. Choose privacy/redaction at submit and explain this beside the action. Private turns retain causal placeholders. No intervention is a normal empty state.
+- The Run log, Evidence, full pending Drafts, and steering receipts are public. Pending content is conspicuously not live. Authenticated actions stay separate. Empty, failed, stopped, and missing-record states stay honest.
+- Keyboard review, accessible feedback, and original-versus-edited comparison stay. Processing disables decisions. Stale conflicts explain refresh and keep unsent edits. The pending count and the pending band share one data contract and never assert a false zero.
+- The steering composer is private. Completed turns publish immediately. Private turns keep causal placeholders. No intervention is a normal empty state.
 
 ## Cross-Story Dependencies
 
-- Epic 2 supplies canonical F1 entities. Foundation, gateway, orchestration, evaluation, and gate underpin public/operator surfaces. Approved steering and hardening stories 3.14–3.21 now have canonical entries in epics.md; F9/FR46–50 and UX B8/C4 are reconciled by 3.26.
-- Historical staging sequence was 3.23–3.25 before the 3.22 deployment; all are complete. The September 24 corrective plan controls the next staging deployment. R13 delayed-arrival policy and R14 failed-revision recovery remain deferred.
-- Corrective order: 3.26 planning is complete; 3.27 connector boundary is complete; 3.28 readiness and 3.29 atomic publication are complete; 3.30 bounded cost is complete (PR #46); 3.31 reservation/accounting is complete (PR #47); 3.32 replay/config and 3.33 admission/dispatch are complete; 3.34 native executing-Workflow coverage and 3.35 live pending count are complete (PR #54 and PR #53). Story 3.38 must be merged and deployed to `pml-build` before another paid 3.36 Run. Then 3.36 staging gateway verification, followed by 3.37 live acceptance. Story 3.38 does not replace 3.36 or 3.37.
-- All 3.26–3.35 must merge with required CI before 3.36 staging gateway verification. Then 3.37 proves material publication and reruns the retrospective. Reuse one qualifying Run rather than duplicate paid work. Epic 4 waits for 3.37 and accepted Epic 3 evidence; planning completion closes no runtime acceptance gap.
-
-
-## Story 3.30 handoff — 2026-09-26
-
-Patrick approved bounded-text-v1: 2,048 output tokens, seven-day pricing validity, exact-model support, conservative 2-cent Workers AI / 124-cent Sonnet admission bounds, and unchanged 500-cent seed. PR #46 implements per-request bounds and explicit estimated/reported/unknown accounting. The current Sonnet endpoint tier metadata is refused rather than exceeding the approved policy; policy expires 2026-10-03T14:01:49.000Z and requires reviewed refresh. Required implementation CI 36248114402 passed. No deployment or paid inference occurred. The shared paid-budget corrective action remains open for 3.31's concurrent reservations, uncertain attempts, retry identity and atomic settlement.
-
-
-## Story 3.31 handoff — 2026-10-02
-
-PR #47 implements atomic bounded reservations and dispatch checks against Run/all configured period caps, stable Draft/steering retry identity, private result recovery, uncertain/late liability, idempotent settlement and authenticated evidence-backed reconciliation. Migration 0021 preserves legacy balances/provenance and seeds no period. Public/operator totals share one authority. Implementation 6d9e8bf3e299efc1fa56de3cca954ad19380205e passed CI 37024712148; local verification passed 1,267 tests in 55 files plus checks. The shared 3.30/3.31 paid-budget corrective action is closed on implementation evidence. No deployment or paid inference occurred. Late evidence capture depends on a living worker and available D1; retained liabilities never permit blind replay. The spec defers one unverified query-scalability concern for representative-history measurement. Existing pricing expires 2026-10-03T14:01:49.000Z and was not refreshed. Next corrective implementation is 3.32; Epic 3 operational acceptance remains rejected until 3.37.
-
-
-## Story 3.32 handoff — 2026-10-03
-
-PR #48 (implementation b899dba64908f84c74afd51881995c3209a4aeb2, successful CI 37132587255) adds durable exact-Run source journals and immutable actual source snapshots that preserve material Drafts, failures and truthful configuration versions across interrupted packaging/review. Migration 0022 is additive. CourtListener database interruptions remain replayable; stopped Runs recover unfinished readiness without new paid calls or mutation of sealed decisions. The production Workflow entrypoint has 38 focused local-D1 recovery tests, including actual CourtListener dedup, checkpoint loss, atomic receipt rollback and competing snapshots. Full verification passes 1,305 tests in 56 files plus formatting/lint/types. No deployment, remote migration, pricing refresh or paid inference occurred. Legacy inputs that cannot be proven are refused explicitly. Native Workflow-service acceptance remains 3.34; shared replay/admission corrective action remains open for 3.33. Epic 3 operational acceptance still requires 3.37.
-
-
-## Story 3.33 handoff — 2026-10-04
-
-Atomic cross-origin date admission, stable keyed dispatch/recovery, explicit uncertainty, immutable dispatch Evidence and stale source/paid-work fencing are implemented. Reload-safe tab-local operator identity preserves the original ET date and uncertain supersede request. Populated migration preserves conflicting historical Runs; such pre-existing conflicts require verified platform/accounting reconciliation and remain a documented deferral. Local verification passes 1,373 tests in 58 files, 206 focused matrix tests and formatting/lint/types. Two four-layer review passes and one execution-spec repair are complete. [PR #49](https://github.com/bizmation/PredictionMarketLitigation/pull/49), implementation c69eb9c95f6af3c8154f44f4d654d4860bedc05e, passed [CI 37212176029](https://github.com/bizmation/PredictionMarketLitigation/actions/runs/37212176029). Together with PR #48 / CI 37132587255, this closes the shared 3.32/3.33 replay/admission corrective action on implementation evidence. Next is 3.34; no deployment, remote migration, paid inference or pricing refresh occurred. Epic 3 operational acceptance remains rejected through 3.37 and Epic 4 remains blocked.
-
-
-## Staging handoff — 2026-10-04
-
-At Patrick’s explicit request, main through 3.33 (`2276a828344b59a853d7b6a68dba40477dbba470`) is now deployed on `pml-build` as `6c2756d2-4d0b-43c3-9887-db355cbab2dc`, with migrations 0001–0023 applied. Build/check and 1,373 tests passed; tracker, ops Run/Evidence, public API and anonymous admin-denial smoke checks passed. Production version and brochure hashes are unchanged. See `docs/deploy-runbook.md`. This later deployment supersedes the individual stories’ historical “no deployment occurred” handoff statements. No manual/paid Run or editorial approval was performed; policy remains expired. 3.34/3.35 implementation and the remaining 3.36/3.37 acceptance work remain pending.
-
-
-## Story 3.35 handoff — 2026-10-04
-
-At Patrick's request 3.35 ran before independent 3.34 (its dependency 3.28 was complete). PR #53, implementation `a2006c674c7b3b9bbbcc5bdfa5edafbed85efdd2`, passed CI 37220744011 and 1,410 tests/61 files. The tracker pending count and ops cards share public membership, freshness/error handling and 30-second/focus refresh, with accessible status and stale/retry behavior. Four review layers completed; five repairs are covered by 31 rendered matrix cases. Staging `pml-build` version `c063fe36-59b8-42af-b6ec-88b8695d1cf9` shows matching API/masthead/ops zero pending and correct #drafts navigation. Positive/failure/revision states use deterministic automated fixtures, not fabricated staging content. Action 13 is closed; a low pre-existing validator completeness issue remains deferred in the story. No paid calls or approvals. Next at Patrick's explicit request: 3.34, then 3.36/3.37 acceptance; Epic 3 remains in progress.
-
-
-## Story 3.34 handoff — 2026-10-04
-
-PR #54, implementation `8661e0a10204abea0e1812f6fc3913004834e0db`, passed required [CI 37223061737](https://github.com/bizmation/PredictionMarketLitigation/actions/runs/37223061737). Nine native Workflow tests execute inherited production orchestration with real D1 and deterministic external effects; cover material/empty/failure/budget outcomes, replay identity, admission/shared-budget concurrency and signed production approval routing. Both removed-source-forwarding and removed-review-dispatch mutations fail the intended persisted assertions and restore green; required full CI runs after restoration. Local and CI verification pass 1,419 tests/62 files plus checks. Four review layers and four repair groups completed; CI terminal-color portability was corrected and verified with forced color. R15 is closed on linked implementation evidence. No production runtime change or new deployment is needed for this test-only story; 3.35 remains live on staging version `c063fe36-59b8-42af-b6ec-88b8695d1cf9`. No paid calls, pricing refresh or real approval occurred. Native completed restart is distinct from retained synthetic checkpoint-loss coverage. Next: 3.36, then 3.37; Epic 3 operational acceptance and Epic 4 remain blocked on that evidence.
-
-### 3.36 provider/storage decision — 2026-10-04
-
-Patrick explicitly selected DeepInfra `zai-org/GLM-5.3-Flash` instead of OpenRouter, with USD 1 total acceptance authorization. That GLM sentence is superseded. On 2026-10-10 at 8:05 PM ET he ruled that every role now uses `deepseek-ai/DeepSeek-V4-Flash`. That policy is valid from 2026-10-11T00:10:57.000Z until 2026-10-18T00:10:57.000Z, and the per-call bound is 19 cents. Cloudflare Secrets Store is the default for new credentials; supplied `PML_DEEPINFRA_AI` is bound only to staging as `DEEPINFRA_API_KEY`. Staging period `acceptance-3-36-deepinfra-20261004` caps all participating Runs at 100 cents through reviewed policy expiry on 2026-10-11T19:10:00Z, and default Run budget is 100 cents. No silent renewal/reset is authorized. Implementation remains in review; live 3.36 success is not claimed. Staging lacks an Access login application; creating a separate same-operator app is awaiting explicit approval after automatic review rejected the configuration mutation. Production remains unchanged; 3.37 publication is not authorized by this preparation.
-
-Staging continuation: Patrick approved the separate operator-only Access app; it is now configured and browser navigation reaches Cloudflare sign-in. DeepInfra PR #55 is merged/deployed with config version 3 and the shared $1 cap. The observed CourtListener legacy `limit` request is being corrected with a reproduced 400 regression test. Live Run acceptance remains pending signed-in operator execution.
-
-## Story 3.38 handoff — 2026-10-10
-
-CourtListener request starts are serial and at least 15 seconds apart. HTTP 429 retries at most three times, using a capped `Retry-After` or a 60-second window, inside a 6-minute wait budget and an 8-minute poll deadline. Exhaustion still fails the Run with scrubbed `http_429` evidence. `run-daily-step` is unchanged. Local `npm run check` passed and `npm test` passed 1,482 tests with 6 skipped. No deploy and no paid call. Story 3.36 stays in progress; its live Run is blocked until 3.38 is merged and deployed to `pml-build`. Then 3.37.
+- Epic 2 supplies canonical F1. Stories 3.14–3.21 are in the canonical epic list. Epic 4’s seven stories wait for story 3.37 and accepted Epic 3 retrospective evidence.
+- Corrective order 3.26–3.35 is done, as are 3.36 (staging gateway verification) and 3.38 (CourtListener pacing). Story 3.37 reuses a qualifying material Run rather than starting duplicate paid work, then reruns the retrospective. An empty Run cannot close 3.37.
+- Delayed-arrival policy and failed-revision recovery stay deferred. Close retrospective actions only with linked evidence. If acceptance fails, keep the blockers visible and leave Epic 3 unfinished.
