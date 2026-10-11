@@ -2,8 +2,9 @@
 title: '3.37 — Prove the live governed loop and reassess Epic 3'
 type: 'chore'
 created: '2026-10-11'
-status: 'draft'
+status: 'in-progress'
 route: 'dispatch'
+baseline_commit: '44afaf459976f9013635e9f6c52838e27c1c0b0e'
 review_loop_iteration: 0
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context.md'
@@ -36,12 +37,15 @@ context:
 | Batch reject after approval | Same control after any approved or edited head | HTTP 409 `Run cannot be rejected.` (`reject_run_unpublished`). The approved row stays | Reject the other heads one by one from Review drafts |
 | Steering revise | A steering turn on any 0005 draft | Paid drafter/reviewer calls. Not an approval and not this story | Do not do this. Period `acceptance-3-36-deepinfra-20261004` ends 2026-10-11T19:10:00Z; 12¢ of the 100¢ cap is already settled. Approval and per-draft reject make no model call |
 
+## Decisions
+
+Patrick chose option A for both questions at 9:01 AM ET on 2026-10-11, relayed by PML Eng Manager. He kept the full spec. His exact words:
+
+> I approve draft d:run-20261010-0005:CourtListener:docket_events:de-case-il-cftc-481187549 by clicking Approve on https://build.predictionmarketlitigation.com/admin#queue, leaving the loaded field checks unchanged and not editing the body. I'll reject the other five privately first with 'Not the named 3.37 publication.'
+
+The other five are `d:run-20261010-0005:CourtListener:docket_events:de-case-il-cftc-481187548`, `d:run-20261010-0005:CourtListener:docket_events:de-case-ny-cftc-480884781`, `d:run-20261010-0005:CourtListener:docket_events:de-case-ny-cftc-481007743`, `d:run-20261010-0005:CourtListener:docket_events:de-case-ny-cftc-481153828`, and `d:run-20261010-0005:CourtListener:docket_events:de-case-ri-furcolo-480886814`. Private means the checkbox that stores `reject_reason_private` and leaves the public reason null. Loaded checks at threshold 70 are `kind` and `favors`. Patrick performs every click. No agent calls the admin API.
+
 </frozen-after-approval>
-
-## Open Questions
-
-- Named approval wording and surface — options: (A, recommended) Patrick replies with this exact sentence and then performs it himself: `I approve draft d:run-20261010-0005:CourtListener:docket_events:de-case-il-cftc-481187549 by clicking Approve on https://build.predictionmarketlitigation.com/admin#queue, leaving the loaded field checks unchanged and not editing the body.` The button posts `{ action: "approve", acceptedFields }` to `/api/admin/drafts/<id>/decision`. At inference confidence 0.95, disagreement false, and threshold 70, the loaded checks are `kind` and `favors` only. (B) The same click after he toggles those checks off, so the row publishes with null `kind` and `favors`. (C) Steering. Steering cannot approve or publish; a revise is a new paid call and still needs a later queue approval.
-- The other five drafts — options: (A, recommended) Before that Approve click, Patrick rejects each of these in the same Review drafts queue, with the private checkbox on and the reason text `Not the named 3.37 publication.`: `d:run-20261010-0005:CourtListener:docket_events:de-case-il-cftc-481187548` (IL 101, full status-report entry), `d:run-20261010-0005:CourtListener:docket_events:de-case-ny-cftc-480884781` (NY 174), `d:run-20261010-0005:CourtListener:docket_events:de-case-ny-cftc-481007743` (NY 175), `d:run-20261010-0005:CourtListener:docket_events:de-case-ny-cftc-481153828` (NY 176), `d:run-20261010-0005:CourtListener:docket_events:de-case-ri-furcolo-480886814` (Furcolo, citation 0). NY 174, 175, 176, and Furcolo are one-line titles labelled `recap_description`. Each reject writes `gate.decided` with a null public reason. The later Approve is the last head, so publication and `published` commit together. (B) Leave them `awaiting`. The named row can still publish, and the Run never reaches `published`. (C) Batch-reject the Run from Manage runs (`https://build.predictionmarketlitigation.com/admin#loop`, POST `/api/admin/runs/run-20261010-0005/reject` with `{}`). That rejects all six, publishes nothing, and is refused once any head is approved.
 
 ## Code Map
 
@@ -70,13 +74,56 @@ context:
 
 ## Implementation Notes
 
+Patrick's clicks are not in yet. These checks run only after he sends the results. No admin API call, queue click, steering turn, or publish has been made. Spend must stay 12¢ and `llm_calls` for this Run must stay 12.
+
+**Staging D1** `pml-build` `9e83494a-016e-4bff-9e07-7fca3a159a83`, read-only:
+
+```sql
+SELECT id, outcome, decided_by, reject_reason, reject_reason_private, decided_at
+  FROM drafts WHERE run_id = 'run-20261010-0005' ORDER BY id;
+SELECT id, status, spend_cents, completed_at FROM runs WHERE id = 'run-20261010-0005';
+SELECT id, case_id, occurred_at, kind, favors, provenance_kind, source_id
+  FROM docket_events WHERE id = 'de-case-il-cftc-481187549';
+SELECT id, owning_id, tier FROM sources WHERE id = 'src-de-case-il-cftc-481187549';
+SELECT id, event, payload_json FROM evidence_events
+  WHERE run_id = 'run-20261010-0005' AND event IN ('gate.decided','run.completed')
+  ORDER BY seq;
+SELECT COUNT(*) AS llm_calls FROM llm_calls WHERE run_id = 'run-20261010-0005';
+```
+
+**Public surfaces** (GET only):
+
+- `https://ops-build.predictionmarketlitigation.com/api/runs/run-20261010-0005` — status, spend, drafts, `gate.decided`, `run.completed`, `llmCalls` length.
+- `https://ops-build.predictionmarketlitigation.com/runs/run-20261010-0005` — HTTP status of the ops page.
+- `https://build.predictionmarketlitigation.com/api/cases/case-il-cftc` — `docketEvents` contains `de-case-il-cftc-481187549`.
+- `https://build.predictionmarketlitigation.com/api/developments` — entry 102 appears here only if it is among the seven newest events.
+- `https://ops-build.predictionmarketlitigation.com/api/drafts` — the five rejects may appear with a null public reason; the approved draft is not in this list.
+- Production `https://predictionmarketlitigation.com/` and `https://ops.predictionmarketlitigation.com/` — SHA-256 of each body.
+
+### Evidence table
+
+Observed cells stay blank until his click results arrive.
+
+| Check | Expected | Observed |
+|---|---|---|
+| IL 101 reject `d:run-20261010-0005:CourtListener:docket_events:de-case-il-cftc-481187548` | `rejected`; `reject_reason` null; `reject_reason_private` `Not the named 3.37 publication.`; `gate.decided` reason null | |
+| NY 174 reject `d:run-20261010-0005:CourtListener:docket_events:de-case-ny-cftc-480884781` | same private reject | |
+| NY 175 reject `d:run-20261010-0005:CourtListener:docket_events:de-case-ny-cftc-481007743` | same private reject | |
+| NY 176 reject `d:run-20261010-0005:CourtListener:docket_events:de-case-ny-cftc-481153828` | same private reject | |
+| Furcolo reject `d:run-20261010-0005:CourtListener:docket_events:de-case-ri-furcolo-480886814` | same private reject | |
+| Approval `d:run-20261010-0005:CourtListener:docket_events:de-case-il-cftc-481187549` | `approved`; `acceptedFields` `kind`, `favors`; body not edited; `decidedBy` is his display name | |
+| `docket_events` `de-case-il-cftc-481187549` | one row; `kind` `procedural-order`; `favors` `none`; `provenance_kind` `human`; source `src-de-case-il-cftc-481187549` | |
+| Run `run-20261010-0005` | `published`; spend 12; `llm_calls` 12 | |
+| Public tracker | `GET /api/cases/case-il-cftc` lists entry 102; ops run page HTTP 200 | |
+| Production isolation | both brochure hashes `bffcd5c604008e866cc2d71a0b9aa74478ba024167898f45fc910f3f0d41b270` | |
+
 ## Spec Change Log
 
 ## Review Triage Log
 
 ## Design Notes
 
-Recommend reject-then-approve on Review drafts, not Manage runs and not steering. Batch reject and a single publication cannot both happen: the batch endpoint refuses as soon as one head is approved, and using it first rejects the Illinois minute order too. Leaving the five undecided publishes the row but strands the Run in `awaiting`. No further paid call is required. A revise before 2026-10-11T19:10:00Z would spend more of the 100¢ period; after that instant the period is closed.
+Patrick adopted reject-then-approve on Review drafts on 2026-10-11. Batch reject and a single publication cannot both happen: the batch endpoint refuses as soon as one head is approved, and using it first rejects the Illinois minute order too. Leaving the five undecided publishes the row but strands the Run in `awaiting`. No further paid call is required. A revise before 2026-10-11T19:10:00Z would spend more of the 100¢ period; after that instant the period is closed.
 
 The nine rows are the 2026-09-24 corrective set: `epic-3-cc-item-1`, items 13 and 17, gate transaction safety, paid-budget accounting, workflow replay/admission, connector pagination, executing-workflow regression, and live governed-loop acceptance.
 
