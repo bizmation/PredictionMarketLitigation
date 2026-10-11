@@ -77,7 +77,7 @@ A new Epic 3 story, 3.39, would sit inside the epic story 3.37 is closing, and t
 
 ### Epic impact
 
-Epic 4 stays `backlog`. Stories 4.1–4.7 stay `backlog` with their current text. Story 4.8 is added as `backlog`. Epic 3 stays `in-progress`. Story 3.37 stays `backlog` on this branch. Its spec and story text are not modified. PR #76 remains the owner of the 3.37 spec and of the deferred-work entry for the undo/redraft gap.
+Epic 4 stays `backlog`. Stories 4.1–4.7 stay `backlog` with their current text. Story 4.8 is added as `backlog`. Epic 3 stays `in-progress`. This PR doesn't change 3.37's status. Its spec and story text are not modified. PR #76 remains the owner of the 3.37 spec and of the deferred-work entry for the undo/redraft gap.
 
 ### Story impact
 
@@ -130,7 +130,9 @@ Batch presentation. Applied in the files below. Step 5 is yes, after the AC — 
 
 **NEW:** Story 4.8, with the 9:12 AM ET ruling, the deferred-work cross-reference, and these acceptance criteria:
 
-- **AC — Control help.** Hover and keyboard focus on Approve, Edit, Reject, Accept/Strip per field, Submit turn, Revise draft, Steer pipeline, Record guidance, and the A/E/R hotkeys. Each help states what it does, whether it makes a paid model call, whether the result is public, and whether it can be undone. A `title` attribute alone is not enough. Fact (d) does not specify an undo or redraft design. The per-control facts are in the story.
+- **AC — Control help.** Hover and keyboard focus on Approve, Edit, Reject, Accept/Strip per field, Submit turn, Revise draft, Steer pipeline, Record guidance, Mark private, and the A/E/R hotkeys. Each help states what it does, whether it makes a paid model call, whether the result is public, and whether it can be undone. A `title` attribute alone is not enough. Fact (d) does not specify an undo or redraft design. Paid and unpaid claims cite the code path below. A claim with no path in that list is a 4.8 implementation-time check, not a locked claim.
+- **Mark private** (inside AC — Control help). The steering checkbox and the reject-reason checkbox withhold words. They do not make a paid call: both are local state until the existing POST (`SteeringPanel.tsx` sends `private`; `src/server.ts` copies a private reject reason into `rejectReasonPrivate` and does not call `complete()`). The result stays public as an event: `toPublicSteeringTurn` in `src/shared/schemas/steering.ts` nulls `content` and `reply` and keeps actor, time, and draft id; a private reject stores the text only in `reject_reason_private`. What it affects is those words. It also blocks guidance: `steerGuidance` returns `invalid` when the turn is private. It can be changed before submit. After submit it cannot: `steeringTurnsRepo` only inserts, and `decide` returns `already_decided` once the Draft has an outcome.
+- **Code paths for the other paid and unpaid claims.** Approve, Edit, and Reject reach `decide` in `src/pipeline/gate/approval.ts` from `src/server.ts` and do not call `complete()`. Reject does not call `applyF1Stmts`. Accept/Strip is `toggleAccepted` until `acceptedFields` rides on that same POST. Submit turn is intent `ask`; `askSteward` calls `complete()` with `role: "steward"`. Revise is intent `revise`; `reviseDraft` calls `draftAndReview`, which calls `complete()` for the drafter and the reviewer. Steer pipeline is intent `config`; conversational `steerPipelineConfig` calls `complete()` with `role: "steward"`, and `revertToVersion` returns before that call. Record guidance is intent `guidance`; `steerGuidance` does not call `complete()`. A, E, and R call those same queue handlers. `reviseDraft` does not delete the child Draft; whether another route can remove one is an implementation-time check.
 - **AC — Confirm the draft.** Before Approve sends, and before Confirm rejection sends, show the Draft's case, its entry number when it has one, and the first line. The Approve button's label, or its confirmation step, names the entry number, for example "Approve entry 102". When there is no entry number, that label or confirmation falls back to the case and the first line. Entry 102 (`…481187549`) and entry 101 (`…481187548`) must be distinguishable without reading the raw id. Do not invent an entry number. Do not move the standing entry 101 publication.
 - **AC — Mark private before submit.** The Mark private control and the reject flow state, before submit, whether the reason will be public. Private is a visible, explicit choice. Silence is not a private mark. This criterion does not rewrite the five public `dev` rejects.
 - Tests cover the four facts, hover and focus, the hotkey focus exception, the confirmation identity, and the named Mark-private criterion. No paid provider, staging, or production call.
@@ -180,7 +182,7 @@ Batch presentation. Applied in the files below. Step 5 is yes, after the AC — 
 4-8-admin-approver-control-help: backlog
 ```
 
-**Rationale:** Checklist 6.4. `backlog` matches the legend: the story exists in the epic file and has no story file. No current story status changes. Story 3.37 stays `backlog`.
+**Rationale:** Checklist 6.4. `backlog` matches the legend: the story exists in the epic file and has no story file. No current story status changes. This PR doesn't change 3.37's status.
 
 ### F. Artifacts intentionally unchanged
 
@@ -220,6 +222,7 @@ Approval authorizes implementation of story 4.8 under the Epic 4 entry gate. It 
 - [x] 6.3: PML Eng Manager approved on 2026-10-11 under the team's checkpoint routing. Step 4 choice: Continue, after applying the one revision to AC — Confirm the draft. Step 5 choice: yes.
 - [x] 6.4: `4-8-admin-approver-control-help: backlog` in `epics.md` and `sprint-status.yaml`. No other status changed.
 - [x] 6.5: Handoff is section 5. Scope is moderate. Routed to Product Owner / Developer. Next product step is story 4.8 after the Epic 4 entry gate. This pass does not implement it.
+- [x] Code review on PR #77 (2026-10-11, at `20d0fba`): Mark private is a control-help bullet with its four facts; each paid and unpaid claim cites its code path; §2 and §4E say this PR doesn't change 3.37's status.
 
 Mode: batch. The brief asked for the proposal and the canonical planning edits in one pass. The 9:12 AM ET ruling and the approval revision are in this document.
 
