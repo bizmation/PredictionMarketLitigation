@@ -379,6 +379,7 @@ function stepLabel(event: EvidenceEvent): string {
     payloadGuidanceRefs(event.payload, "guidanceInForce"),
     payloadGuidanceRefs(event.payload, "guidance"),
     payloadInference(event.payload),
+    payloadField(event.payload, "sourceTextNote"),
     payloadStringList(event.payload, "docketIds"),
     payloadStringList(event.payload, "acceptedFields"),
     payloadStringList(event.payload, "strippedFields"),
@@ -500,6 +501,7 @@ type DocketDraftView = {
   description: string;
   occurredAt: string;
   sourceUrl: string;
+  sourceTextNote: string | null;
   inference: {
     kind: string;
     favors: string;
@@ -572,6 +574,10 @@ function docketDraftView(draft: DraftRecord): DocketDraftView | null {
     description: row.description,
     occurredAt: row.occurredAt,
     sourceUrl: row.sourceUrl,
+    sourceTextNote:
+      typeof row.sourceTextNote === "string" && row.sourceTextNote.length > 0
+        ? row.sourceTextNote
+        : null,
     inference,
     statePatch
   };
@@ -588,6 +594,7 @@ function DocketDraftBlock({ view }: { view: DocketDraftView }) {
     <div data-testid="docket-draft">
       <div className="kicker">Record · {view.occurredAt}</div>
       <p>{view.description}</p>
+      {view.sourceTextNote != null ? <p>{view.sourceTextNote}</p> : null}
       <p className="lastupd">
         <a href={view.sourceUrl} target="_blank" rel="noopener">
           Tier-1 · CourtListener ↗

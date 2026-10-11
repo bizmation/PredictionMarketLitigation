@@ -309,3 +309,12 @@ Ledger entries above are not edited; this block records where each Epic 3 entry 
 - The 19-cent bound test should pass the fixture-derived rate string into `tokenCostCents`.
 - `parseConfigProposal` in `submitTurn.ts` and `parseToolRequest` in `actionPolicy.ts` still parse strictly, so a DeepInfra reply with prose or `<think>` is treated as plain text and no tool denial is recorded.
 - Release evidence and the docs do not say whether the USD 1 authorization and period `acceptance-3-36-deepinfra-20261004` (ends 2026-10-11T19:10:00Z) cover V4-Flash calls after that time.
+
+## Deferred from: code review of #74 at 17989f3 (2026-10-11)
+
+- Backfill a recorded CourtListener docket-entries fixture from a real authenticated response (fields with recap_documents__ nested keys) and a test that fails if short_description is missing; deferred because no token was available on 2026-10-10. 0005's logs serve as the live check.
+- The published `docket_events` row and public tracker don't carry `descriptionSource`, so short-description-only entries publish with no thin-text label. That is a product call for EM and Patrick before Epic 4 publishing.
+- An entry admitted on short_description never gets the full text later, because the id-based dedupe means no update.
+- A skipped entry is lost for good if a later-dated entry on the same docket publishes first (`dated < baseline.date`). That isn't a risk for 0005.
+- An `attachment_number` arriving as a numeric string is treated as the main document.
+- Move `SHORT_DESCRIPTION_SOURCE_NOTE` and `DescriptionSource` into a shared module with `descriptionSource` as the single source of truth instead of also storing `sourceTextNote`.

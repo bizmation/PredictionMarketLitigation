@@ -19,6 +19,7 @@ import {
   COURTLISTENER_MIN_INTERVAL_MS,
   COURTLISTENER_POLL_TIMEOUT_MS,
   COURTLISTENER_SOURCE_NAME,
+  COURTLISTENER_FIELDS,
   createCourtListenerCheck,
   docketIdFromUrl,
   entriesUrl,
@@ -27,6 +28,7 @@ import {
   parseEntries,
   reasonForStatus,
   retryAfterMs,
+  SHORT_DESCRIPTION_SOURCE_NOTE,
   type CourtListenerCheckDeps
 } from "./courtListener";
 import { POLL_SOURCES } from "./sources";
@@ -177,6 +179,14 @@ describe("CourtListener helpers", () => {
     ).toBe(
       "https://www.courtlistener.com/docket/73375343/kalshiex-llc-v-mark-furcolo/?entry=12"
     );
+    expect(
+      entryUrl(
+        "https://www.courtlistener.com/docket/73375343/kalshiex-llc-v-mark-furcolo/?entry=1#x",
+        null
+      )
+    ).toBe(
+      "https://www.courtlistener.com/docket/73375343/kalshiex-llc-v-mark-furcolo/"
+    );
     const url = new URL(entriesUrl("73375343"));
     expect(url.origin + url.pathname).toBe(
       "https://www.courtlistener.com/api/rest/v4/docket-entries/"
@@ -184,8 +194,12 @@ describe("CourtListener helpers", () => {
     expect(Object.fromEntries(url.searchParams)).toEqual({
       docket: "73375343",
       order_by: "-date_filed",
-      fields: "id,entry_number,date_filed,description"
+      fields: COURTLISTENER_FIELDS
     });
+    expect(COURTLISTENER_FIELDS).toBe(
+      "id,entry_number,date_filed,description,recap_documents__description,recap_documents__short_description,recap_documents__attachment_number"
+    );
+    expect(COURTLISTENER_FIELDS).not.toContain("plain_text");
     expect(
       Object.fromEntries(
         new URL(entriesUrl("73375343", "2026-05-21")).searchParams
@@ -193,7 +207,7 @@ describe("CourtListener helpers", () => {
     ).toEqual({
       docket: "73375343",
       order_by: "-date_filed",
-      fields: "id,entry_number,date_filed,description",
+      fields: COURTLISTENER_FIELDS,
       date_filed__gte: "2026-05-21"
     });
     expect(entriesUrl("73375343", "not-a-date")).toBe(entriesUrl("73375343"));
@@ -280,11 +294,117 @@ describe("CourtListener helpers", () => {
         id: 501,
         entryNumber: 12,
         dateFiled: "2026-09-15",
-        description: ENTRIES[0]!.description
+        description: ENTRIES[0]!.description,
+        descriptionSource: "entry",
+        recapDocumentCount: 0,
+        documentsWithDescription: 0,
+        documentsWithShortDescription: 0
       }
     ]);
     expect(parseEntries({ count: 0 })).toBeNull();
     expect(parseEntries("nope")).toBeNull();
+  });
+
+  it("reads nested RECAP text defensively and prefers description over short description", () => {
+    const parsed = parseEntries({
+      results: [
+        {
+          id: 1,
+          date_filed: "2026-10-07",
+          description: "  ",
+          recap_documents: [
+            {
+              short_description: "  Notice of Appearance  ",
+              attachment_number: 2
+            },
+            { description: "  Full motion text  ", attachment_number: 1 },
+            { short_description: "Main short", attachment_number: null }
+          ]
+        },
+        {
+          id: 2,
+          date_filed: "2026-10-08",
+          description: "",
+          recap_documents: [
+            {
+              short_description: "Leave to File Document",
+              attachment_number: 1
+            },
+            { short_description: "  Case Assigned/Reassigned  " }
+          ]
+        },
+        {
+          id: 3,
+          date_filed: "2026-10-09",
+          description: "  Clerk text  ",
+          recap_documents: [{ short_description: "ignored" }]
+        },
+        {
+          id: 4,
+          date_filed: "2026-10-07",
+          description: null,
+          recap_documents: "not-an-array"
+        },
+        {
+          id: 5,
+          date_filed: "2026-10-07",
+          description: "Still the entry",
+          recap_documents: [null, "nope", { plain_text: "huge" }]
+        }
+      ]
+    });
+    expect(parsed).toEqual([
+      {
+        id: 1,
+        entryNumber: null,
+        dateFiled: "2026-10-07",
+        description: "Full motion text",
+        descriptionSource: "recap_description",
+        recapDocumentCount: 3,
+        documentsWithDescription: 1,
+        documentsWithShortDescription: 2
+      },
+      {
+        id: 2,
+        entryNumber: null,
+        dateFiled: "2026-10-08",
+        description: "Case Assigned/Reassigned",
+        descriptionSource: "recap_short_description",
+        recapDocumentCount: 2,
+        documentsWithDescription: 0,
+        documentsWithShortDescription: 2
+      },
+      {
+        id: 3,
+        entryNumber: null,
+        dateFiled: "2026-10-09",
+        description: "Clerk text",
+        descriptionSource: "entry",
+        recapDocumentCount: 1,
+        documentsWithDescription: 0,
+        documentsWithShortDescription: 1
+      },
+      {
+        id: 4,
+        entryNumber: null,
+        dateFiled: "2026-10-07",
+        description: "",
+        descriptionSource: null,
+        recapDocumentCount: 0,
+        documentsWithDescription: 0,
+        documentsWithShortDescription: 0
+      },
+      {
+        id: 5,
+        entryNumber: null,
+        dateFiled: "2026-10-07",
+        description: "Still the entry",
+        descriptionSource: "entry",
+        recapDocumentCount: 1,
+        documentsWithDescription: 0,
+        documentsWithShortDescription: 0
+      }
+    ]);
   });
 });
 
@@ -794,6 +914,8 @@ describe("CourtListener connector (story 3.21)", () => {
       caseId: FURCOLO_CASE,
       occurredAt: "2026-09-15",
       description: ENTRIES[0]!.description,
+      descriptionSource: "entry",
+      sourceTextNote: null,
       sourceUrl:
         "https://www.courtlistener.com/docket/73375343/kalshiex-llc-v-mark-furcolo/?entry=12",
       entryNumber: 12,
@@ -833,7 +955,11 @@ describe("CourtListener connector (story 3.21)", () => {
       truncated: false,
       newEntries: 1,
       seen: 0,
+      skippedUndated: 1,
+      skippedNoText: 1,
       skippedIncomplete: 2,
+      recapDocsPresent: 0,
+      shortDescriptionFallbacks: 0,
       effectiveCutoff: "2026-09-11",
       olderEntriesNotRequested: true
     });
@@ -842,6 +968,283 @@ describe("CourtListener connector (story 3.21)", () => {
         (e) => e.event === "draft.created"
       )
     ).toHaveLength(1);
+  });
+
+  it("admits short-description text, prefers a recap description, and keeps a null entry number on the docket URL", async () => {
+    const furcoloUrl =
+      "https://www.courtlistener.com/docket/73375343/kalshiex-llc-v-mark-furcolo/";
+    stubFetch((docketId) =>
+      docketId === FURCOLO
+        ? {
+            status: 200,
+            body: {
+              results: [
+                {
+                  id: 174,
+                  entry_number: 174,
+                  date_filed: "2026-09-16",
+                  description: "",
+                  recap_documents: [
+                    {
+                      short_description: "Notice of Appearance",
+                      attachment_number: null
+                    }
+                  ]
+                },
+                {
+                  id: 175,
+                  entry_number: 175,
+                  date_filed: "2026-09-16",
+                  description: " ",
+                  recap_documents: [
+                    {
+                      short_description: "Main short",
+                      attachment_number: null
+                    },
+                    { description: "Order on Motion", attachment_number: 1 }
+                  ]
+                },
+                {
+                  id: 176,
+                  entry_number: null,
+                  date_filed: "2026-09-16",
+                  description: "",
+                  recap_documents: [
+                    {
+                      short_description: "Leave to File Document",
+                      attachment_number: 1
+                    },
+                    { short_description: "Case Assigned/Reassigned" }
+                  ]
+                },
+                {
+                  id: 177,
+                  entry_number: 177,
+                  date_filed: "2026-09-16",
+                  description: "   ",
+                  recap_documents: [
+                    { description: "  ", short_description: "" }
+                  ]
+                },
+                {
+                  id: 178,
+                  entry_number: 178,
+                  date_filed: null,
+                  description: "",
+                  recap_documents: [{ short_description: "Dated missing" }]
+                }
+              ]
+            }
+          }
+        : { status: 200 }
+    );
+    const runId = await newRun();
+    const result = await runConnector(testEnv.DB, runId, SOURCE, check());
+    expect(result).toEqual({ draftCount: 3, failed: false });
+    const drafts = await draftsRepo.listByRun(testEnv.DB, runId);
+    const byId = new Map(drafts.map((draft) => [draft.targetEntityId, draft]));
+    expect(byId.get(`de-${FURCOLO_CASE}-174`)?.diff).toMatchObject({
+      description: "Notice of Appearance",
+      descriptionSource: "recap_short_description",
+      sourceTextNote: SHORT_DESCRIPTION_SOURCE_NOTE,
+      entryId: 174,
+      entryNumber: 174
+    });
+    expect(byId.get(`de-${FURCOLO_CASE}-175`)?.diff).toMatchObject({
+      description: "Order on Motion",
+      descriptionSource: "recap_description",
+      sourceTextNote: null,
+      entryId: 175
+    });
+    expect(byId.get(`de-${FURCOLO_CASE}-176`)?.diff).toMatchObject({
+      description: "Case Assigned/Reassigned",
+      descriptionSource: "recap_short_description",
+      sourceUrl: furcoloUrl,
+      entryNumber: null,
+      entryId: 176
+    });
+    expect(byId.get(`de-${FURCOLO_CASE}-176`)?.diff).not.toMatchObject({
+      sourceUrl: expect.stringContaining("?entry=")
+    });
+    for (const skipped of [177, 178]) {
+      const id = `de-${FURCOLO_CASE}-${skipped}`;
+      expect(byId.has(id)).toBe(false);
+      expect(
+        await testEnv.DB.prepare("SELECT id FROM docket_events WHERE id = ?")
+          .bind(id)
+          .first()
+      ).toBeNull();
+      expect(
+        await testEnv.DB.prepare(
+          "SELECT target_entity_id FROM drafts WHERE target_entity_id = ?"
+        )
+          .bind(id)
+          .first()
+      ).toBeNull();
+    }
+    // 178 is undated, so it is not drafted, but its short description still counts.
+    expect(docketSummary(await fetchedPayload(runId), FURCOLO)).toMatchObject({
+      newEntries: 3,
+      skippedUndated: 1,
+      skippedNoText: 1,
+      skippedIncomplete: 2,
+      recapDocsPresent: 5,
+      shortDescriptionFallbacks: 3
+    });
+  });
+
+  it("logs entry field counts and enums with no description text", async () => {
+    const notice = "Notice of Appearance";
+    const order = "Order on Motion to Withdraw as Attorney";
+    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+    try {
+      stubFetch((docketId) =>
+        docketId === FURCOLO
+          ? {
+              status: 200,
+              body: {
+                results: [
+                  {
+                    id: 174,
+                    entry_number: 174,
+                    date_filed: "2026-09-16",
+                    description: "",
+                    recap_documents: [
+                      { short_description: notice, attachment_number: null }
+                    ]
+                  },
+                  {
+                    id: 175,
+                    entry_number: 175,
+                    date_filed: "2026-09-16",
+                    description: "",
+                    recap_documents: [
+                      { description: order, attachment_number: 1 }
+                    ]
+                  }
+                ]
+              }
+            }
+          : { status: 200 }
+      );
+      const runId = await newRun();
+      await runConnector(testEnv.DB, runId, SOURCE, check());
+      const lines = info.mock.calls
+        .map((call) => call[0])
+        .filter(
+          (line): line is Record<string, unknown> =>
+            line != null &&
+            typeof line === "object" &&
+            (line as { event?: string }).event === "courtlistener_entry"
+        );
+      expect(lines).toEqual([
+        {
+          event: "courtlistener_entry",
+          entryId: 174,
+          descriptionSource: "recap_short_description",
+          recapDocumentsPresent: true,
+          recapDocumentCount: 1,
+          documentsWithDescription: 0,
+          documentsWithShortDescription: 1,
+          dateFiledValid: true
+        },
+        {
+          event: "courtlistener_entry",
+          entryId: 175,
+          descriptionSource: "recap_description",
+          recapDocumentsPresent: true,
+          recapDocumentCount: 1,
+          documentsWithDescription: 1,
+          documentsWithShortDescription: 0,
+          dateFiledValid: true
+        }
+      ]);
+      const serialized = JSON.stringify(lines);
+      expect(serialized).not.toContain(notice);
+      expect(serialized).not.toContain(order);
+      expect(docketSummary(await fetchedPayload(runId), FURCOLO)).toMatchObject(
+        {
+          recapDocsPresent: 2,
+          shortDescriptionFallbacks: 1,
+          skippedUndated: 0,
+          skippedNoText: 0,
+          skippedIncomplete: 0
+        }
+      );
+    } finally {
+      info.mockRestore();
+    }
+  });
+
+  it("leaves a skipped incomplete entry out of the dedupe stores and admits it on the next poll", async () => {
+    const entryId = 880;
+    const eventId = `de-${FURCOLO_CASE}-${entryId}`;
+    const blank = {
+      id: entryId,
+      entry_number: null,
+      date_filed: "2026-09-16",
+      description: "",
+      recap_documents: [{ description: " ", short_description: "" }]
+    };
+    stubFetch((docketId) =>
+      docketId === FURCOLO
+        ? { status: 200, body: { results: [blank] } }
+        : { status: 200 }
+    );
+    const firstRun = await newRun();
+    expect(await runConnector(testEnv.DB, firstRun, SOURCE, check())).toEqual({
+      draftCount: 0,
+      failed: false
+    });
+    expect(
+      docketSummary(await fetchedPayload(firstRun), FURCOLO)
+    ).toMatchObject({ newEntries: 0, skippedIncomplete: 1 });
+    expect(
+      await testEnv.DB.prepare("SELECT id FROM docket_events WHERE id = ?")
+        .bind(eventId)
+        .first()
+    ).toBeNull();
+    expect(
+      await testEnv.DB.prepare(
+        "SELECT target_entity_id FROM drafts WHERE target_entity_id = ?"
+      )
+        .bind(eventId)
+        .first()
+    ).toBeNull();
+
+    stubFetch((docketId) =>
+      docketId === FURCOLO
+        ? {
+            status: 200,
+            body: {
+              results: [
+                {
+                  ...blank,
+                  recap_documents: [
+                    { short_description: "Case Assigned/Reassigned" }
+                  ]
+                }
+              ]
+            }
+          }
+        : { status: 200 }
+    );
+    const secondRun = await newRun();
+    expect(await runConnector(testEnv.DB, secondRun, SOURCE, check())).toEqual({
+      draftCount: 1,
+      failed: false
+    });
+    const drafts = await draftsRepo.listByRun(testEnv.DB, secondRun);
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0]?.targetEntityId).toBe(eventId);
+    expect(drafts[0]?.diff).toMatchObject({
+      description: "Case Assigned/Reassigned",
+      descriptionSource: "recap_short_description",
+      sourceUrl:
+        "https://www.courtlistener.com/docket/73375343/kalshiex-llc-v-mark-furcolo/",
+      entryNumber: null,
+      entryId
+    });
   });
 
   it("uses the latest published development as the baseline and skips entries already Drafted (any outcome)", async () => {

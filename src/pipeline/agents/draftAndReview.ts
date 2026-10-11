@@ -40,6 +40,7 @@ import {
 } from "../ai/actionPolicy";
 import { complete, GatewayError, type GatewayDeps } from "../ai/gateway";
 import { evidenceId } from "../connectors/connector";
+import { SHORT_DESCRIPTION_SOURCE_NOTE } from "../connectors/courtListener";
 import { appendStmt } from "../projector/evidence";
 
 /**
@@ -198,6 +199,12 @@ function isDocketEventDraft(
   draft: Pick<DraftRecord, "targetEntityType">
 ): boolean {
   return draft.targetEntityType === DOCKET_EVENTS_TARGET;
+}
+
+function sourceTextNotePayload(diff: unknown): Record<string, unknown> {
+  return asRecord(diff)?.descriptionSource === "recap_short_description"
+    ? { sourceTextNote: SHORT_DESCRIPTION_SOURCE_NOTE }
+    : {};
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -453,6 +460,9 @@ function buildDocketPrompt(
     `Docket entry ${entryNumber}, filed ${stringField(diff, "occurredAt")}:`,
     stringField(diff, "description")
   ];
+  if (diff.descriptionSource === "recap_short_description") {
+    recordLines.push(SHORT_DESCRIPTION_SOURCE_NOTE);
+  }
   if (role === "drafter") {
     const lines = [
       "You are the drafter for a litigation-tracker docket-entry Draft.",
@@ -595,7 +605,8 @@ async function persistEvalsNotRun(
     confidence: null,
     evalSummary: evalsNotRunSummary(draft, threshold, diff, [], reason),
     createdAt,
-    guidance
+    guidance,
+    extraPayload: sourceTextNotePayload(diff)
   });
 }
 
@@ -627,6 +638,7 @@ async function persistToolDeny(
     evalSummary,
     createdAt,
     guidance: args.guidance,
+    extraPayload: sourceTextNotePayload(args.diff),
     extraStatements: [
       appendStmt(
         db,
@@ -866,7 +878,8 @@ export async function draftAndReview(
             confidence: scored.confidence,
             disagrees: scored.evalSummary.disagreement.flagged,
             disagreement: scored.evalSummary.disagreement.description
-          }
+          },
+          ...sourceTextNotePayload(diff)
         },
         extraStatements: vocabularyFailed
           ? [

@@ -40,13 +40,30 @@ import {
  * CourtListener entry id so a re-Run is idempotent.
  *
  * RECAP data is crowd-sourced and may lag PACER; the `source.fetched`
- * summary says so and records only what was seen.
+ * summary says so and records only what was seen. A blank entry
+ * `description` falls back to nested RECAP document text.
+ * `skippedUndated` is an entry with no valid ISO `date_filed`.
+ * `skippedNoText` is a dated entry that still has no text after that
+ * fallback. `skippedIncomplete` is their sum. Each polled entry logs
+ * `courtlistener_entry` with counts and enums only. Run
+ * `run-20261010-0004` is the evidence; `0005` logs are the live field check.
  */
 
 export const COURTLISTENER_SOURCE_NAME = "CourtListener";
 export const COURTLISTENER_API_BASE =
   "https://www.courtlistener.com/api/rest/v4/docket-entries/";
-export const COURTLISTENER_FIELDS = "id,entry_number,date_filed,description";
+/**
+ * Nested RECAP text, without `plain_text`. v4 field selection uses `__`
+ * for nested fields (https://wiki.free.law/c/courtlistener/help/api/rest/v4/query-refinement).
+ * Docket entries accept `recap_documents__<field>`
+ * (https://github.com/freelawproject/courtlistener/pull/5973). If a live
+ * body omits these keys, switch this one line to
+ * `id,entry_number,date_filed,description,recap_documents`.
+ */
+export const COURTLISTENER_FIELDS =
+  "id,entry_number,date_filed,description,recap_documents__description,recap_documents__short_description,recap_documents__attachment_number";
+export const SHORT_DESCRIPTION_SOURCE_NOTE =
+  "Source text is the CourtListener short description only; the full filing text is not available";
 export const RECAP_LAG_NOTE =
   "RECAP is crowd-sourced and may lag PACER; dates are as seen on CourtListener.";
 
@@ -117,12 +134,108 @@ const EntrySchema = z.object({
 
 const PageSchema = z.object({ results: z.array(z.unknown()) });
 
+export type DescriptionSource =
+  | "entry"
+  | "recap_description"
+  | "recap_short_description";
+
 export type DocketEntry = {
   id: number;
   entryNumber: number | null;
   dateFiled: string | null;
   description: string;
+  descriptionSource: DescriptionSource | null;
+  recapDocumentCount: number;
+  documentsWithDescription: number;
+  documentsWithShortDescription: number;
 };
+
+type RecapDocument = {
+  description: string;
+  shortDescription: string;
+  attachmentNumber: number | null;
+  index: number;
+};
+
+function trimmedText(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function attachmentNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) ? value : null;
+}
+
+/** Main document (`attachment_number` null) first, then ascending, stable. */
+function normalizeDocuments(value: unknown): RecapDocument[] {
+  if (!Array.isArray(value)) return [];
+  const docs: RecapDocument[] = [];
+  value.forEach((item, index) => {
+    if (item == null || typeof item !== "object" || Array.isArray(item)) {
+      return;
+    }
+    const row = item as Record<string, unknown>;
+    docs.push({
+      description: trimmedText(row.description),
+      shortDescription: trimmedText(row.short_description),
+      attachmentNumber: attachmentNumber(row.attachment_number),
+      index
+    });
+  });
+  docs.sort((a, b) => {
+    if (a.attachmentNumber == null && b.attachmentNumber != null) return -1;
+    if (a.attachmentNumber != null && b.attachmentNumber == null) return 1;
+    if (
+      a.attachmentNumber != null &&
+      b.attachmentNumber != null &&
+      a.attachmentNumber !== b.attachmentNumber
+    ) {
+      return a.attachmentNumber - b.attachmentNumber;
+    }
+    return a.index - b.index;
+  });
+  return docs;
+}
+
+function documentStats(documents: RecapDocument[]) {
+  let documentsWithDescription = 0;
+  let documentsWithShortDescription = 0;
+  for (const document of documents) {
+    if (document.description.length > 0) documentsWithDescription += 1;
+    if (document.shortDescription.length > 0)
+      documentsWithShortDescription += 1;
+  }
+  return {
+    recapDocumentCount: documents.length,
+    documentsWithDescription,
+    documentsWithShortDescription
+  };
+}
+
+function resolveEntryText(
+  entryDescription: string,
+  documents: RecapDocument[]
+): { description: string; descriptionSource: DescriptionSource | null } {
+  if (entryDescription.length > 0) {
+    return { description: entryDescription, descriptionSource: "entry" };
+  }
+  for (const document of documents) {
+    if (document.description.length > 0) {
+      return {
+        description: document.description,
+        descriptionSource: "recap_description"
+      };
+    }
+  }
+  for (const document of documents) {
+    if (document.shortDescription.length > 0) {
+      return {
+        description: document.shortDescription,
+        descriptionSource: "recap_short_description"
+      };
+    }
+  }
+  return { description: "", descriptionSource: null };
+}
 
 /** Tolerant parse: malformed rows are dropped, never fatal. */
 export function parseEntries(body: unknown): DocketEntry[] | null {
@@ -137,11 +250,22 @@ export function parseEntries(body: unknown): DocketEntry[] | null {
   for (const row of rows) {
     const parsed = EntrySchema.safeParse(row);
     if (!parsed.success) continue;
+    const raw =
+      row != null && typeof row === "object" && !Array.isArray(row)
+        ? (row as Record<string, unknown>)
+        : {};
+    const documents = normalizeDocuments(raw.recap_documents);
+    const text = resolveEntryText(
+      (parsed.data.description ?? "").trim(),
+      documents
+    );
     entries.push({
       id: parsed.data.id,
       entryNumber: parsed.data.entry_number ?? null,
       dateFiled: parsed.data.date_filed ?? null,
-      description: (parsed.data.description ?? "").trim()
+      description: text.description,
+      descriptionSource: text.descriptionSource,
+      ...documentStats(documents)
     });
   }
   return entries;
@@ -167,6 +291,8 @@ export type DocketEventRecord = {
   caseId: string;
   occurredAt: string;
   description: string;
+  descriptionSource: DescriptionSource;
+  sourceTextNote: string | null;
   sourceUrl: string;
   entryNumber: number | null;
   entryId: number;
@@ -791,27 +917,59 @@ async function pollDocket(
   const entities: EntityChange[] = [];
   let latestEntryDate: string | null = null;
   let seenCount = 0;
-  let undated = 0;
+  let skippedUndated = 0;
+  let skippedNoText = 0;
+  let recapDocsPresent = 0;
+  let shortDescriptionFallbacks = 0;
   for (const entry of fetched.entries) {
-    const dated = IsoDateSchema.safeParse(entry.dateFiled);
-    if (!dated.success || entry.description.length === 0) {
-      undated += 1;
+    if (entry.recapDocumentCount > 0) recapDocsPresent += 1;
+    if (entry.descriptionSource === "recap_short_description") {
+      shortDescriptionFallbacks += 1;
+    }
+    const dateFiled = IsoDateSchema.safeParse(entry.dateFiled);
+    const descriptionSource = entry.descriptionSource;
+    const missingText =
+      entry.description.length === 0 || descriptionSource == null;
+    const skippedIncomplete = !dateFiled.success || missingText;
+    console.info({
+      event: "courtlistener_entry",
+      entryId: entry.id,
+      descriptionSource: skippedIncomplete
+        ? "skipped_incomplete"
+        : descriptionSource,
+      recapDocumentsPresent: entry.recapDocumentCount > 0,
+      recapDocumentCount: entry.recapDocumentCount,
+      documentsWithDescription: entry.documentsWithDescription,
+      documentsWithShortDescription: entry.documentsWithShortDescription,
+      dateFiledValid: dateFiled.success
+    });
+    if (!dateFiled.success) {
+      skippedUndated += 1;
       continue;
     }
-    if (latestEntryDate == null || dated.data > latestEntryDate) {
-      latestEntryDate = dated.data;
+    if (missingText || descriptionSource == null) {
+      skippedNoText += 1;
+      continue;
     }
-    if (effectiveCutoff != null && dated.data < effectiveCutoff) continue;
+    if (latestEntryDate == null || dateFiled.data > latestEntryDate) {
+      latestEntryDate = dateFiled.data;
+    }
+    if (effectiveCutoff != null && dateFiled.data < effectiveCutoff) continue;
     const id = docketEventId(row.case_id, entry.id);
-    if (seen.has(id) || (baseline != null && dated.data < baseline.date)) {
+    if (seen.has(id) || (baseline != null && dateFiled.data < baseline.date)) {
       seenCount += 1;
       continue;
     }
     entities.push(
       toEntityChange({
         caseId: row.case_id,
-        occurredAt: dated.data,
+        occurredAt: dateFiled.data,
         description: entry.description,
+        descriptionSource,
+        sourceTextNote:
+          descriptionSource === "recap_short_description"
+            ? SHORT_DESCRIPTION_SOURCE_NOTE
+            : null,
         sourceUrl: entryUrl(row.url, entry.entryNumber),
         entryNumber: entry.entryNumber,
         entryId: entry.id,
@@ -844,7 +1002,11 @@ async function pollDocket(
       truncated: fetched.truncated,
       newEntries: entities.length,
       seen: seenCount,
-      skippedIncomplete: undated,
+      skippedUndated,
+      skippedNoText,
+      skippedIncomplete: skippedUndated + skippedNoText,
+      recapDocsPresent,
+      shortDescriptionFallbacks,
       ...(effectiveCutoff == null
         ? {}
         : { effectiveCutoff, olderEntriesNotRequested: true }),
