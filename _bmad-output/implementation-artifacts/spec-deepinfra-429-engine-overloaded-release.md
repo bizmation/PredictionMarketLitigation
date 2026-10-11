@@ -47,9 +47,9 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [x] `src/shared/db/repos/llmAccountingRepo.ts` -- `releaseDefiniteProviderRefusal` uses the same owner, `dispatched`, and `version = op.version + 1` guard and `syncRun` as `releaseBeforePaidInvocation`. Own commit, with the docs and the `complete()` branch that calls it.
+- [x] `src/shared/db/repos/llmAccountingRepo.ts` -- `releaseDefiniteProviderRefusal` uses the same owner, `dispatched`, and `version = op.version + 1` guard and `syncRun` as `releaseBeforePaidInvocation`. Own commit, with the docs and `gateway.ts` (the `complete()` branch and the chat retry share that file).
 - [x] `docs/llm-accounting.md` and `docs/deepinfra-runbook.md` -- Name only this 429 and Patrick's approval on 2026-10-10. Runbook: retries share the 120s deadline, so two chats fit in 250s. Leave the ~480s preflight gap and per-`draftCount` step timeout deferred.
-- [x] `src/pipeline/ai/gateway.ts` -- Second commit. Retry in the closure. Backoff `[5_000, 15_000, 30_000]` before attempts 2–4. No sleep and no send when `120_000 - elapsed - backoff < 80_000`. At most three fetches, so the 30s backoff is never reached, and the minimum-80s rule enforces that. Say so in the code comment. Sleep with `setTimeout` on the deadline signal. Log `attempt` on each failure and on a later success. Terminal matching 429 is not `ProvenPreDispatchRefusal`. `complete()` releases, then throws the existing `provider_error`.
+- [x] `src/pipeline/ai/gateway.ts` -- Same commit as the release. Retry in the closure. Backoff `[5_000, 15_000, 30_000]` before attempts 2–4. No sleep and no send when `120_000 - elapsed - backoff < 80_000`. At most three fetches, so the 30s backoff is never reached, and the minimum-80s rule enforces that. Say so in the code comment. Sleep with `setTimeout` on the deadline signal. Log `attempt` on each failure and on a later success. Terminal matching 429 is not `ProvenPreDispatchRefusal`. `complete()` releases, then throws the existing `provider_error`.
 - [x] `src/pipeline/ai/deepinfra.test.ts` -- Matrix, including fake timers for the 80s gate. One settlement. Give-up: `uncertainCents` 0, `issueCount` 0, evidence fields, and a different key can reserve.
 
 **Acceptance Criteria:**
@@ -57,7 +57,7 @@ context:
 
 ## Implementation Notes
 
-- `releaseDefiniteProviderRefusal` is the release commit, with both docs and the `complete()` branch. The chat retry is the following commit. At most three fetches, so the 30s backoff is never reached, and the minimum-80s rule enforces that. The comment is on `DEEPINFRA_OVERLOAD_BACKOFF_MS`.
+- `releaseDefiniteProviderRefusal`, both docs, and `gateway.ts` (the `complete()` release branch and the in-closure retry) are one commit. The tests are the following commit. Splitting the retry out would split `gateway.ts`. At most three fetches, so the 30s backoff is never reached, and the minimum-80s rule enforces that. The comment is on `DEEPINFRA_OVERLOAD_BACKOFF_MS`.
 - Context7 `/vitest-dev/vitest/v4.1.6`: `vi.useFakeTimers()` mocks `Date` and `setTimeout`. `advanceTimersByTimeAsync` drives the 5s and 15s sleeps. The 80s gate test uses `advanceTimersByTime` for the in-mock 40s response timer.
 - `npm run check` exit 0. `npm test` exit 0: 1599 passed, 6 skipped.
 - This session cannot launch review subagents. Code Review's separate bmad-code-review pass stands in for those layers. They were skipped.
