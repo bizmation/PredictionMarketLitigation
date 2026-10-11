@@ -169,6 +169,25 @@ function throwCostPolicy(
 
 class ProvenPreDispatchRefusal extends GatewayError {}
 
+/** Headers were received and the body code is `engine_overloaded`. Not a pre-dispatch refusal. */
+class DefiniteProviderRefusal extends Error {
+  readonly status: 429;
+  readonly errorCode: "engine_overloaded";
+  readonly aigLogId?: string;
+
+  constructor(evidence: {
+    status: 429;
+    errorCode: "engine_overloaded";
+    aigLogId?: string;
+  }) {
+    super("DeepInfra gateway request failed.");
+    this.name = "DefiniteProviderRefusal";
+    this.status = evidence.status;
+    this.errorCode = evidence.errorCode;
+    this.aigLogId = evidence.aigLogId;
+  }
+}
+
 /**
  * The provider contract the gateway delegates to. Production registers
  * Workers AI and (when configured) OpenRouter/DeepInfra; tests inject a fake
@@ -546,6 +565,34 @@ export async function complete(
     if (cause instanceof ProvenPreDispatchRefusal) {
       await accounting.releaseBeforePaidInvocation(db, operation);
       throw cause;
+    }
+    if (cause instanceof DefiniteProviderRefusal) {
+      let released = false;
+      try {
+        released = await accounting.releaseDefiniteProviderRefusal(
+          db,
+          operation,
+          {
+            status: cause.status,
+            errorCode: cause.errorCode,
+            ...(cause.aigLogId ? { aigLogId: cause.aigLogId } : {})
+          }
+        );
+      } catch {
+        released = false;
+      }
+      if (!released) {
+        await accounting.markUncertain(
+          db,
+          operation.id,
+          owner,
+          "provider_outcome_unknown"
+        );
+      }
+      throw new GatewayError(
+        "provider_error",
+        "DeepInfra gateway request failed."
+      );
     }
     await accounting.markUncertain(
       db,
@@ -1213,6 +1260,7 @@ function logDeepInfraChatFailure(input: {
   bodyText?: string;
   parsed?: unknown;
   started: number;
+  deadlineElapsedMs: number;
   dispatchedAt: string;
   model: string;
   gatewayId: string;
@@ -1221,6 +1269,7 @@ function logDeepInfraChatFailure(input: {
   hasAuthorization: boolean;
   hasGatewayAuth: boolean;
   secrets: readonly string[];
+  attempt: number;
 }): void {
   const response = input.response;
   const stage = deepInfraFailureStage(input.error, response);
@@ -1252,6 +1301,7 @@ function logDeepInfraChatFailure(input: {
     provider: "deepinfra",
     stage,
     elapsedMs: Math.max(0, Date.now() - input.started),
+    deadlineElapsedMs: input.deadlineElapsedMs,
     model: scrub(input.model),
     gatewayId: scrub(input.gatewayId),
     accountIdLast4: input.accountId.slice(-4),
@@ -1260,6 +1310,7 @@ function logDeepInfraChatFailure(input: {
     hasAuthorization: input.hasAuthorization,
     hasGatewayAuth: input.hasGatewayAuth,
     dispatchedAt: input.dispatchedAt,
+    attempt: input.attempt,
     headersReceived: response != null,
     ...(response
       ? { status: response.status, responseType: response.type }
@@ -1285,6 +1336,7 @@ function logDeepInfraChatDegraded(input: {
   response: Response;
   started: number;
   dispatchedAt: string;
+  attempt: number;
   model: string;
   gatewayId: string;
   accountId: string;
@@ -1309,6 +1361,7 @@ function logDeepInfraChatDegraded(input: {
     hasAuthorization: input.hasAuthorization,
     hasGatewayAuth: input.hasGatewayAuth,
     dispatchedAt: input.dispatchedAt,
+    attempt: input.attempt,
     headersReceived: true,
     ...(usage.finishReason ? { finishReason: scrub(usage.finishReason) } : {}),
     ...(usage.completionTokens == null
@@ -1318,6 +1371,68 @@ function logDeepInfraChatDegraded(input: {
       ? {}
       : { reasoningTokens: usage.reasoningTokens }),
     ...(aigLogId ? { aigLogId: scrub(aigLogId) } : {})
+  });
+}
+
+/**
+ * The cap is the count: at most three fetches. Backoff before attempts 2 and 3
+ * is 5s, then 15s. The minimum-80s rule is a second guard: do not start an
+ * attempt when less than 80s of the 120s chat deadline would remain after that
+ * backoff.
+ */
+const DEEPINFRA_OVERLOAD_MAX_ATTEMPTS = 3;
+const DEEPINFRA_OVERLOAD_BACKOFF_MS = [5_000, 15_000] as const;
+const DEEPINFRA_OVERLOAD_MIN_REMAINING_MS = 80_000;
+
+function logDeepInfraRetryStopped(input: {
+  attempt: number;
+  deadlineElapsedMs: number;
+  reason: "min_remaining" | "policy_invalid";
+}): void {
+  console.warn({
+    event: "provider_call_retry_stopped",
+    provider: "deepinfra",
+    attempt: input.attempt,
+    deadlineElapsedMs: input.deadlineElapsedMs,
+    reason: input.reason
+  });
+}
+
+function deepInfraOverloadRefusal(
+  response: Response,
+  parsed: unknown
+):
+  | { status: 429; errorCode: "engine_overloaded"; aigLogId?: string }
+  | undefined {
+  if (response.status !== 429) return undefined;
+  if (jsonApiError(parsed).errorCode !== "engine_overloaded") return undefined;
+  const aigLogId = headerValue(response, "cf-aig-log-id");
+  return {
+    status: 429,
+    errorCode: "engine_overloaded",
+    ...(aigLogId ? { aigLogId } : {})
+  };
+}
+
+function waitForOverloadRetry(
+  ms: number,
+  signal: AbortSignal | undefined
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let timer: ReturnType<typeof setTimeout>;
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException("The operation was aborted.", "AbortError"));
+    };
+    timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
   });
 }
 
@@ -1434,120 +1549,206 @@ export function createDeepInfraProvider(env: Env): LlmProvider | null {
               "provider_error",
               "Inference cancelled before dispatch."
             );
-          const started = Date.now();
-          const dispatchedAt = now();
-          let response: Response | undefined;
-          let bodyText: string | undefined;
-          let parsed: unknown;
-          try {
-            response = await fetch(
-              url,
-              deepInfraChatRequestInit(
-                headers,
-                signal,
-                JSON.stringify({
-                  model,
-                  messages: [{ role: "user", content: prompt }],
-                  max_tokens: policy.outputTokens,
-                  stream: false,
-                  n: 1,
-                  reasoning_effort: "none",
-                  reasoning: { enabled: false }
-                })
-              )
-            );
-            if (chatRedirectRefused(response)) throw new Error();
-            if (!response.ok) {
-              try {
-                bodyText = await response.text();
-              } catch (readError) {
-                if (isAbortError(readError) || isTimeoutError(readError))
-                  throw readError;
-                bodyText = undefined;
+          const deadlineStarted = Date.now();
+          const deadlineElapsedMs = () =>
+            Math.max(0, Date.now() - deadlineStarted);
+          const chatBody = JSON.stringify({
+            model,
+            messages: [{ role: "user", content: prompt }],
+            max_tokens: policy.outputTokens,
+            stream: false,
+            n: 1,
+            reasoning_effort: "none",
+            reasoning: { enabled: false }
+          });
+          const secrets = [key, token].filter(
+            (secret): secret is string => secret !== undefined
+          );
+          const diagnostic = {
+            model,
+            gatewayId: env.AI_GATEWAY_ID ?? "",
+            accountId: env.CLOUDFLARE_ACCOUNT_ID ?? "",
+            url,
+            hasAuthorization: headers.has("authorization"),
+            hasGatewayAuth: headers.has("cf-aig-authorization"),
+            secrets
+          };
+          let lastRefusal:
+            | {
+                status: 429;
+                errorCode: "engine_overloaded";
+                aigLogId?: string;
               }
-              if (bodyText != null) {
+            | undefined;
+          for (
+            let attempt = 1;
+            attempt <= DEEPINFRA_OVERLOAD_MAX_ATTEMPTS;
+            attempt++
+          ) {
+            if (attempt > 1) {
+              const backoff = DEEPINFRA_OVERLOAD_BACKOFF_MS[attempt - 2];
+              if (backoff == null) break;
+              const elapsed = deadlineElapsedMs();
+              if (
+                DEEPINFRA_CHAT_TIMEOUT_MS - elapsed - backoff <
+                DEEPINFRA_OVERLOAD_MIN_REMAINING_MS
+              ) {
                 try {
-                  parsed = JSON.parse(bodyText);
+                  logDeepInfraRetryStopped({
+                    attempt,
+                    deadlineElapsedMs: elapsed,
+                    reason: "min_remaining"
+                  });
                 } catch {
-                  parsed = undefined;
+                  /* A diagnostic failure must not replace the provider error. */
+                }
+                break;
+              }
+              await waitForOverloadRetry(backoff, signal);
+              try {
+                revalidateBeforeInference(policy, now());
+              } catch (error) {
+                if (!(error instanceof ProvenPreDispatchRefusal)) throw error;
+                try {
+                  logDeepInfraRetryStopped({
+                    attempt,
+                    deadlineElapsedMs: deadlineElapsedMs(),
+                    reason: "policy_invalid"
+                  });
+                } catch {
+                  /* A diagnostic failure must not replace the provider error. */
+                }
+                break;
+              }
+            }
+            const started = Date.now();
+            const dispatchedAt = now();
+            let response: Response | undefined;
+            let bodyText: string | undefined;
+            let parsed: unknown;
+            try {
+              response = await fetch(
+                url,
+                deepInfraChatRequestInit(headers, signal, chatBody)
+              );
+              if (chatRedirectRefused(response)) throw new Error();
+              if (!response.ok) {
+                try {
+                  bodyText = await response.text();
+                } catch (readError) {
+                  if (isAbortError(readError) || isTimeoutError(readError))
+                    throw readError;
+                  bodyText = undefined;
+                }
+                if (bodyText != null) {
+                  try {
+                    parsed = JSON.parse(bodyText);
+                  } catch {
+                    parsed = undefined;
+                  }
+                }
+                const refusal = deepInfraOverloadRefusal(response, parsed);
+                if (refusal) {
+                  lastRefusal = refusal;
+                  try {
+                    logDeepInfraChatFailure({
+                      error: new Error(`HTTP ${response.status}`),
+                      response,
+                      bodyText,
+                      parsed,
+                      started,
+                      deadlineElapsedMs: deadlineElapsedMs(),
+                      dispatchedAt,
+                      attempt,
+                      ...diagnostic
+                    });
+                  } catch {
+                    /* A diagnostic failure must not replace the provider error. */
+                  }
+                  continue;
+                }
+                throw new Error(`HTTP ${response.status}`);
+              }
+              bodyText = await response.text();
+              parsed = JSON.parse(bodyText);
+              const body = parsed as {
+                id?: unknown;
+                model?: unknown;
+                choices?: Array<{ message?: { content?: unknown } }>;
+                usage?: { prompt_tokens?: number; completion_tokens?: number };
+              };
+              const content = body.choices?.[0]?.message?.content;
+              const mismatch = body.model !== undefined && body.model !== model;
+              const completion = {
+                text: !mismatch && typeof content === "string" ? content : "",
+                inputTokens: body.usage?.prompt_tokens ?? null,
+                outputTokens: body.usage?.completion_tokens ?? null,
+                accountingIssue: mismatch
+                  ? "returned_model_mismatch"
+                  : typeof content !== "string"
+                    ? "non_text_output"
+                    : undefined,
+                providerRequestId:
+                  typeof body.id === "string" &&
+                  /^[a-zA-Z0-9_.:-]{1,200}$/.test(body.id)
+                    ? body.id
+                    : undefined
+              };
+              if (response.status === 200 && chatOutputDegraded(parsed)) {
+                try {
+                  logDeepInfraChatDegraded({
+                    parsed,
+                    response,
+                    started,
+                    dispatchedAt,
+                    attempt,
+                    ...diagnostic
+                  });
+                } catch {
+                  /* A diagnostic failure must not change the completion. */
                 }
               }
-              throw new Error(`HTTP ${response.status}`);
-            }
-            bodyText = await response.text();
-            parsed = JSON.parse(bodyText);
-            const body = parsed as {
-              id?: unknown;
-              model?: unknown;
-              choices?: Array<{ message?: { content?: unknown } }>;
-              usage?: { prompt_tokens?: number; completion_tokens?: number };
-            };
-            const content = body.choices?.[0]?.message?.content;
-            const mismatch = body.model !== undefined && body.model !== model;
-            const completion = {
-              text: !mismatch && typeof content === "string" ? content : "",
-              inputTokens: body.usage?.prompt_tokens ?? null,
-              outputTokens: body.usage?.completion_tokens ?? null,
-              accountingIssue: mismatch
-                ? "returned_model_mismatch"
-                : typeof content !== "string"
-                  ? "non_text_output"
-                  : undefined,
-              providerRequestId:
-                typeof body.id === "string" &&
-                /^[a-zA-Z0-9_.:-]{1,200}$/.test(body.id)
-                  ? body.id
-                  : undefined
-            };
-            if (response.status === 200 && chatOutputDegraded(parsed)) {
-              try {
-                logDeepInfraChatDegraded({
-                  parsed,
-                  response,
-                  started,
+              if (attempt > 1) {
+                const aigLogId = headerValue(response, "cf-aig-log-id");
+                console.warn({
+                  event: "provider_call_attempt",
+                  provider: "deepinfra",
+                  attempt,
+                  elapsedMs: Math.max(0, Date.now() - started),
+                  deadlineElapsedMs: deadlineElapsedMs(),
                   dispatchedAt,
-                  model,
-                  gatewayId: env.AI_GATEWAY_ID ?? "",
-                  accountId: env.CLOUDFLARE_ACCOUNT_ID ?? "",
-                  url,
-                  hasAuthorization: headers.has("authorization"),
-                  hasGatewayAuth: headers.has("cf-aig-authorization"),
-                  secrets: [key, token].filter(
-                    (secret): secret is string => secret !== undefined
-                  )
+                  status: response.status,
+                  ...(aigLogId ? { aigLogId } : {})
+                });
+              }
+              return completion;
+            } catch (error) {
+              try {
+                logDeepInfraChatFailure({
+                  error,
+                  response,
+                  bodyText,
+                  parsed,
+                  started,
+                  deadlineElapsedMs: deadlineElapsedMs(),
+                  dispatchedAt,
+                  attempt,
+                  ...diagnostic
                 });
               } catch {
-                /* A diagnostic failure must not change the completion. */
+                /* A diagnostic failure must not replace the provider error. */
               }
+              throw new GatewayError(
+                "provider_error",
+                "DeepInfra gateway request failed."
+              );
             }
-            return completion;
-          } catch (error) {
-            try {
-              logDeepInfraChatFailure({
-                error,
-                response,
-                bodyText,
-                parsed,
-                started,
-                dispatchedAt,
-                model,
-                gatewayId: env.AI_GATEWAY_ID ?? "",
-                accountId: env.CLOUDFLARE_ACCOUNT_ID ?? "",
-                url,
-                hasAuthorization: headers.has("authorization"),
-                hasGatewayAuth: headers.has("cf-aig-authorization"),
-                secrets: [key, token].filter(
-                  (secret): secret is string => secret !== undefined
-                )
-              });
-            } catch {
-              /* A diagnostic failure must not replace the provider error. */
-            }
-            throw new GatewayError(
-              "provider_error",
-              "DeepInfra gateway request failed."
-            );
           }
+          if (lastRefusal) throw new DefiniteProviderRefusal(lastRefusal);
+          throw new GatewayError(
+            "provider_error",
+            "DeepInfra gateway request failed."
+          );
         };
       } catch {
         throw new GatewayError(
