@@ -238,7 +238,7 @@ In Human-in-the-Loop mode, every Draft requires Patrick's approve / edit / rejec
 - Full Draft text is already public while pending (FR-15); approval only promotes it to canonical F1 (or rejection leaves F1 unchanged).
 - Edit-then-approve preserves both the original agent Draft and the human-edited published version in public lineage with a **full before/after diff** on `ops.` (not summary-only).
 - Reject leaves live F1 unchanged; reject **reason is public by default**, with an operator control to mark a specific reason (or portion) **private** before/at submit.
-- Before an approve or a reject is sent, the operator confirms the Draft's case, its entry number when the Draft has one, and the first line of the record. Adjacent Drafts must be distinguishable without reading the raw id. (Added 2026-10-11, story 4.8.)
+- Before an approve or a reject is sent, the operator confirms the Draft's case, its entry number when the Draft has one, and the first line of the record. The Approve control's label, or the approve confirmation, names the entry number (for example "Approve entry 102"). When there is no entry number, that label or confirmation uses the case and the first line. Adjacent Drafts must be distinguishable without reading the raw id. (Added 2026-10-11, story 4.8.)
 - The control that marks a reject reason private is a visible, explicit choice before submit. The screen states whether that reason will be public. Silence is not a private mark. The reason stays public by default. (Added 2026-10-11, story 4.8.)
 
 #### FR-15: Public pending drafts + operator action queue `[v1]`

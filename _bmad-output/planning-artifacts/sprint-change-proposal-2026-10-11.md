@@ -2,7 +2,7 @@
 project: PredictionMarketLitigation
 date: 2026-10-11
 workflow: bmad-correct-course
-status: proposed
+status: approved
 mode: batch
 scope: moderate
 approach: direct-adjustment
@@ -63,9 +63,9 @@ This run resolved customization with `uv run _bmad/scripts/resolve_customization
 | 5.5 | Handoff | [x] | Section 5. Implementation routing waits on an explicit yes. |
 | 6.1 | Checklist completion | [x] | Every applicable item above is decided. |
 | 6.2 | Proposal accuracy | [x] | Story 4.8 matches the applied epic text. The 9:12 ruling is in the story. The undo/redraft gap is a cross-reference only. |
-| 6.3 | Explicit approval | [!] | Planning artifacts were applied because the brief ordered the backlog story, this proposal, and a draft PR. Step 5 implementation approval is still open: yes / no / revise. |
+| 6.3 | Explicit approval | [x] | PML Eng Manager, 2026-10-11, under the team's checkpoint routing. Step 5: yes. One revision applied before finalizing: AC — Confirm the draft requires the Approve label, or its confirmation, to name the entry number (for example "Approve entry 102"), falling back to the case and first line when there is no entry number. |
 | 6.4 | Sprint status | [x] | `4-8-admin-approver-control-help: backlog`. No other status token changed. |
-| 6.5 | Next steps | [!] | Section 5. Do not start implementation until the step 5 answer is yes. |
+| 6.5 | Next steps | [x] | Section 5. Moderate scope. Routed to Product Owner / Developer. Story 4.8 stays `backlog` until the Epic 4 entry gate opens. |
 
 ### Where the story sits
 
@@ -118,7 +118,7 @@ Timeline impact is sequencing only. Story 4.8 cannot start until the Epic 4 entr
 
 ## 4. Detailed change proposals
 
-Batch presentation. Applied in the files below because the brief ordered the backlog story and this proposal. Step 5 approval for implementation is still open.
+Batch presentation. Applied in the files below. Step 5 is yes, after the AC — Confirm the draft revision.
 
 ### A. New story 4.8
 
@@ -131,7 +131,7 @@ Batch presentation. Applied in the files below because the brief ordered the bac
 **NEW:** Story 4.8, with the 9:12 AM ET ruling, the deferred-work cross-reference, and these acceptance criteria:
 
 - **AC — Control help.** Hover and keyboard focus on Approve, Edit, Reject, Accept/Strip per field, Submit turn, Revise draft, Steer pipeline, Record guidance, and the A/E/R hotkeys. Each help states what it does, whether it makes a paid model call, whether the result is public, and whether it can be undone. A `title` attribute alone is not enough. Fact (d) does not specify an undo or redraft design. The per-control facts are in the story.
-- **AC — Confirm the draft.** Before Approve sends, and before Confirm rejection sends, show the Draft's case, its entry number when it has one, and the first line. Entry 102 (`…481187549`) and entry 101 (`…481187548`) must be distinguishable without reading the raw id. Do not invent an entry number. Do not move the standing entry 101 publication.
+- **AC — Confirm the draft.** Before Approve sends, and before Confirm rejection sends, show the Draft's case, its entry number when it has one, and the first line. The Approve button's label, or its confirmation step, names the entry number, for example "Approve entry 102". When there is no entry number, that label or confirmation falls back to the case and the first line. Entry 102 (`…481187549`) and entry 101 (`…481187548`) must be distinguishable without reading the raw id. Do not invent an entry number. Do not move the standing entry 101 publication.
 - **AC — Mark private before submit.** The Mark private control and the reject flow state, before submit, whether the reason will be public. Private is a visible, explicit choice. Silence is not a private mark. This criterion does not rewrite the five public `dev` rejects.
 - Tests cover the four facts, hover and focus, the hotkey focus exception, the confirmation identity, and the named Mark-private criterion. No paid provider, staging, or production call.
 
@@ -143,7 +143,7 @@ Batch presentation. Applied in the files below because the brief ordered the bac
 
 **OLD:** Amendments stop at 2026-10-10. Epic 4 lists seven stories and UX-DR16, UX-DR18–19, and UX-DR25. UX-DR20 describes the queue keys and does not require help text.
 
-**NEW:** A 2026-10-11 scope amendment. The entry sentence keeps the 3.37 gate and adds story 4.8. UX-DR26 requires the help, the confirmation, and the explicit private choice, and points the undo/redraft gap at `deferred-work.md` through PR #76. UX-DR20 is unchanged.
+**NEW:** A 2026-10-11 scope amendment. The entry sentence keeps the 3.37 gate and adds story 4.8. UX-DR26 requires the help, the confirmation, the Approve entry-number label (or confirmation), and the explicit private choice, and points the undo/redraft gap at `deferred-work.md` through PR #76. UX-DR20 is unchanged.
 
 **Rationale:** A reader of the epic index should find 4.8 without opening sprint status. UX-DR20 stays the original queue contract so completed story 3.10 is not rewritten.
 
@@ -153,7 +153,7 @@ Batch presentation. Applied in the files below because the brief ordered the bac
 
 **OLD:** FR-14 ends at the public-by-default reject reason and the optional private mark. FR-15 ends at keyboard-accessible operator actions.
 
-**NEW:** FR-14 adds confirmation of case, entry number, and first line, and requires the private choice to be visible and explicit. FR-15 adds the four-fact help on hover and focus, and says story 4.8 does not add an undo or redraft path.
+**NEW:** FR-14 adds confirmation of case, entry number, and first line. The Approve label, or the approve confirmation, names the entry number (for example "Approve entry 102"), and falls back to the case and first line when there is no entry number. FR-14 also requires the private choice to be visible and explicit. FR-15 adds the four-fact help on hover and focus, and says story 4.8 does not add an undo or redraft path.
 
 **Rationale:** The help and the confirmation are requirements, not only copy. Public-by-default stays.
 
@@ -195,17 +195,19 @@ Batch presentation. Applied in the files below because the brief ordered the bac
 
 ## 5. Implementation handoff and success criteria
 
-**Scope:** Moderate backlog reorganization. One story is added. No completed story is reopened. Implementation is not started in this pass.
+**Scope:** Moderate. Backlog reorganization. One story is added. No completed story is reopened. This planning pass does not implement the story.
 
-- **Product owner / planning role:** This proposal is the record. The epic, PRD, UX, and sprint-status edits in section 4 are applied with it.
-- **Developer role:** Do not implement story 4.8 until this proposal is approved (step 5: yes) and the Epic 4 entry gate is open. Then implement only the three acceptance groups. Do not edit story 3.37, its spec, or `deferred-work.md`. Do not change entry 101 or the five `dev` rejects. Do not design the undo/redraft path.
+**Handoff:** Product Owner / Developer agents. Deliverables are this Sprint Change Proposal and the backlog entry.
+
+- **Product owner / planning role:** This proposal is the record. The epic, PRD, UX, and sprint-status edits in section 4 are applied with it. Story 4.8 remains `backlog`.
+- **Developer role:** Implement story 4.8 only after the Epic 4 entry gate opens (story 3.37 and accepted Epic 3 retrospective evidence). Implement the three acceptance groups, including the Approve label or confirmation that names the entry number. Do not edit story 3.37, its spec, or `deferred-work.md`. Do not change entry 101 or the five `dev` rejects. Do not design the undo/redraft path.
 - **PR #76:** Continues to own story 3.37 and the deferred-work entry. This proposal does not merge with that branch's files.
 
 Success for this planning change: story 4.8 appears once in `epics.md` and once in `sprint-status.yaml` as `backlog`; the proposal exists; story 3.37's text and status are unchanged; `deferred-work.md` is unchanged; no application code changes.
 
-Success for the later product change: an operator can read the four facts on every listed control by hover and by keyboard focus; approve and reject confirmation shows case, entry number, and first line; Mark private before submit makes the public-or-private outcome explicit. The entry 101 publication and the five public `dev` rejects remain as recorded on 2026-10-11.
+Success for the later product change: an operator can read the four facts on every listed control by hover and by keyboard focus; the Approve label or its confirmation names the entry number, or the case and first line when there is no entry number; reject confirmation shows case, entry number, and first line; Mark private before submit makes the public-or-private outcome explicit. The entry 101 publication and the five public `dev` rejects remain as recorded on 2026-10-11.
 
-Approval of this proposal, when given, authorizes implementation of story 4.8 under the entry gate. It does not authorize a deploy, a staging or production call, a paid provider call, or a change to the 3.37 rows.
+Approval authorizes implementation of story 4.8 under the Epic 4 entry gate. It does not authorize a deploy, a staging or production call, a paid provider call, or a change to the 3.37 rows.
 
 ## 6. Workflow checklist and approval record
 
@@ -215,10 +217,10 @@ Approval of this proposal, when given, authorizes implementation of story 4.8 un
 - [x] 4.1–4.4: Direct adjustment. Rollback and MVP reduction rejected.
 - [x] 5.1–5.5: Issue, impact, approach, edits, and handoff are in this document.
 - [x] 6.1–6.2: Checklist complete. The undo/redraft gap is a cross-reference to PR #76 only.
-- [!] 6.3: Step 4 document is written. Step 5 is not answered. Question: do you approve this Sprint Change Proposal for implementation? (yes / no / revise)
-- [x] 6.4: `4-8-admin-approver-control-help: backlog` applied. No other status changed.
-- [!] 6.5: Handoff is section 5. Implementation waits on yes.
+- [x] 6.3: PML Eng Manager approved on 2026-10-11 under the team's checkpoint routing. Step 4 choice: Continue, after applying the one revision to AC — Confirm the draft. Step 5 choice: yes.
+- [x] 6.4: `4-8-admin-approver-control-help: backlog` in `epics.md` and `sprint-status.yaml`. No other status changed.
+- [x] 6.5: Handoff is section 5. Scope is moderate. Routed to Product Owner / Developer. Next product step is story 4.8 after the Epic 4 entry gate. This pass does not implement it.
 
-Mode: batch. The brief asked for the proposal and the canonical planning edits in one pass, and the later rulings arrived before this document was written. They are included here rather than as a second proposal.
+Mode: batch. The brief asked for the proposal and the canonical planning edits in one pass. The 9:12 AM ET ruling and the approval revision are in this document.
 
-Activation prepend, append, and persistent facts were empty and were executed as empty. `workflow.on_complete` is empty and is not run, because step 6 waits on the step 5 answer. No code, infrastructure, paid call, or content publication was performed.
+Activation prepend, append, and persistent facts were empty and were executed as empty. Step 6 ran `workflow.on_complete`; the resolved value is empty. No code, infrastructure, paid call, or content publication was performed by this proposal.
