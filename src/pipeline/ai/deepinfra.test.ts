@@ -220,8 +220,15 @@ describe("DeepInfra central gateway", () => {
     expect(requestSignal?.aborted).toBe(true);
     expect(await accountingForRun(db, input.runId)).toMatchObject({
       totalCents: 16,
+      uncertainCents: 16,
       issueCount: 1
     });
+    expect(
+      await db
+        .prepare("SELECT state, issue FROM llm_operations WHERE run_id=?")
+        .bind(input.runId)
+        .first()
+    ).toEqual({ state: "uncertain", issue: "provider_outcome_unknown" });
     expect(inference).toHaveBeenCalledTimes(1);
   });
 
@@ -1197,5 +1204,301 @@ describe("DeepInfra pre-dispatch validation and HTTP failures", () => {
         .bind(input.runId)
         .first()
     ).toEqual({ state: "released", liability_cents: 0 });
+  });
+
+  function overloadBody(code: string) {
+    return {
+      error: {
+        type: "invalid_request_error",
+        code,
+        message: "Model busy, retry later"
+      }
+    };
+  }
+  function overloadResponse(
+    code = "engine_overloaded",
+    status = 429,
+    logId = "aig-overload"
+  ) {
+    return Response.json(overloadBody(code), {
+      status,
+      headers: { "cf-aig-log-id": logId }
+    });
+  }
+
+  it("retries a 429 engine_overloaded once and settles the same reservation", async () => {
+    const input = await setup();
+    const { inference } = http();
+    let calls = 0;
+    let entered!: () => void;
+    const reached = new Promise<void>((resolve) => (entered = resolve));
+    inference.mockImplementation(async () => {
+      calls += 1;
+      if (calls === 1) {
+        entered();
+        return overloadResponse();
+      }
+      return Response.json(responseBody(), {
+        headers: { "cf-aig-log-id": "aig-ok" }
+      });
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.useFakeTimers();
+    const pending = complete(deps(), input);
+    await reached;
+    await vi.advanceTimersByTimeAsync(5_000);
+    const result = await pending;
+    expect(result).toMatchObject({
+      provider: "deepinfra",
+      model: MODEL,
+      text: "PRIVATE completion"
+    });
+    expect(calls).toBe(2);
+    expect(
+      await db
+        .prepare("SELECT COUNT(*) AS n FROM llm_calls WHERE run_id=?")
+        .bind(input.runId)
+        .first()
+    ).toEqual({ n: 1 });
+    expect(
+      await db
+        .prepare(
+          "SELECT state, issue, liability_cents FROM llm_operations WHERE run_id=?"
+        )
+        .bind(input.runId)
+        .first()
+    ).toEqual({ state: "settled", issue: null, liability_cents: 0 });
+    const logged = warn.mock.calls.map(
+      (call) => call[0] as Record<string, unknown>
+    );
+    expect(logged).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "provider_call_failed",
+          attempt: 1,
+          status: 429,
+          errorCode: "engine_overloaded",
+          aigLogId: "aig-overload",
+          elapsedMs: expect.any(Number)
+        }),
+        expect.objectContaining({
+          event: "provider_call_attempt",
+          attempt: 2,
+          status: 200,
+          aigLogId: "aig-ok",
+          elapsedMs: expect.any(Number)
+        })
+      ])
+    );
+    warn.mockRestore();
+  });
+
+  it("releases a persistent 429 engine_overloaded with no uncertain cents", async () => {
+    const at = "2026-10-04T20:00:00.000Z";
+    const input = await setup();
+    await db
+      .prepare("INSERT INTO llm_periods VALUES (?,?,?,?,?)")
+      .bind(
+        `overload-${input.runId}`,
+        at,
+        "2026-10-04T21:00:00.000Z",
+        500,
+        "overload-test"
+      )
+      .run();
+    const localDeps = { ...deps(), now: () => at };
+    const { inference } = http();
+    let calls = 0;
+    let entered!: () => void;
+    const reached = new Promise<void>((resolve) => (entered = resolve));
+    inference.mockImplementation(async () => {
+      calls += 1;
+      if (calls === 1) entered();
+      return overloadResponse();
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.useFakeTimers();
+    const pending = complete(localDeps, input);
+    const failed = expect(pending).rejects.toMatchObject({
+      code: "provider_error",
+      message: "DeepInfra gateway request failed."
+    });
+    await reached;
+    await vi.advanceTimersByTimeAsync(5_000);
+    await vi.advanceTimersByTimeAsync(15_000);
+    await failed;
+    expect(calls).toBe(3);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(calls).toBe(3);
+    expect(await accountingForRun(db, input.runId)).toMatchObject({
+      uncertainCents: 0,
+      issueCount: 0,
+      totalCents: 0
+    });
+    const row = await db
+      .prepare(
+        "SELECT state, issue, liability_cents, response_evidence_json FROM llm_operations WHERE run_id=?"
+      )
+      .bind(input.runId)
+      .first<{
+        state: string;
+        issue: string | null;
+        liability_cents: number;
+        response_evidence_json: string;
+      }>();
+    expect(row?.state).toBe("released");
+    expect(row?.issue).toBeNull();
+    expect(row?.liability_cents).toBe(0);
+    expect(JSON.parse(row!.response_evidence_json)).toEqual({
+      reason: "provider_definite_refusal",
+      status: 429,
+      errorCode: "engine_overloaded",
+      aigLogId: "aig-overload"
+    });
+    const attempts = warn.mock.calls.map(
+      (call) => call[0] as Record<string, unknown>
+    );
+    expect(attempts.map((entry) => entry.attempt)).toEqual([1, 2, 3]);
+    for (const entry of attempts) {
+      expect(entry).toMatchObject({
+        event: "provider_call_failed",
+        status: 429,
+        errorCode: "engine_overloaded",
+        aigLogId: "aig-overload",
+        elapsedMs: expect.any(Number)
+      });
+    }
+    warn.mockRestore();
+    vi.useRealTimers();
+    await expect(complete(localDeps, input)).rejects.toMatchObject({
+      code: "result_unavailable"
+    });
+    expect(calls).toBe(3);
+    const other = await setup();
+    inference.mockImplementation(async () => Response.json(responseBody()));
+    await expect(
+      complete(localDeps, { ...other, operationKey: "draft:9:drafter" })
+    ).resolves.toMatchObject({ text: "PRIVATE completion" });
+  });
+
+  async function flushTasks() {
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+  }
+
+  it("does not retry a 429 engine_overloaded when under 80s would remain", async () => {
+    const input = await setup();
+    const { inference } = http();
+    let calls = 0;
+    let entered!: () => void;
+    const reached = new Promise<void>((resolve) => (entered = resolve));
+    inference.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          calls += 1;
+          entered();
+          setTimeout(() => resolve(overloadResponse()), 40_000);
+        })
+    );
+    vi.useFakeTimers();
+    const pending = complete(deps(), input);
+    const failed = expect(pending).rejects.toMatchObject({
+      code: "provider_error",
+      message: "DeepInfra gateway request failed."
+    });
+    await reached;
+    vi.advanceTimersByTime(40_000);
+    await flushTasks();
+    await failed;
+    expect(calls).toBe(1);
+    vi.advanceTimersByTime(5_000);
+    await flushTasks();
+    expect(calls).toBe(1);
+    expect(await accountingForRun(db, input.runId)).toMatchObject({
+      uncertainCents: 0,
+      issueCount: 0
+    });
+  });
+
+  it.each([
+    ["429 without engine_overloaded", () => overloadResponse("rate_limited")],
+    ["400", () => overloadResponse("engine_overloaded", 400)],
+    ["422", () => overloadResponse("invalid", 422)],
+    ["5xx", () => overloadResponse("engine_overloaded", 503)]
+  ])("keeps an uncertain reservation on %s", async (_label, respond) => {
+    const input = await setup();
+    const { inference } = http();
+    inference.mockImplementation(async () => respond());
+    await expect(complete(deps(), input)).rejects.toMatchObject({
+      code: "provider_error",
+      message: "DeepInfra gateway request failed."
+    });
+    expect(inference).toHaveBeenCalledTimes(1);
+    expect(await accountingForRun(db, input.runId)).toMatchObject({
+      totalCents: 16,
+      uncertainCents: 16,
+      issueCount: 1
+    });
+    expect(
+      await db
+        .prepare("SELECT state, issue FROM llm_operations WHERE run_id=?")
+        .bind(input.runId)
+        .first()
+    ).toEqual({ state: "uncertain", issue: "provider_outcome_unknown" });
+    await expect(complete(deps(), input)).rejects.toMatchObject({
+      code: "accounting_uncertain"
+    });
+  });
+
+  it("keeps an uncertain reservation when overload is followed by a 503", async () => {
+    const input = await setup();
+    const { inference } = http();
+    let calls = 0;
+    let entered!: () => void;
+    const reached = new Promise<void>((resolve) => (entered = resolve));
+    inference.mockImplementation(async () => {
+      calls += 1;
+      if (calls === 1) {
+        entered();
+        return overloadResponse();
+      }
+      return overloadResponse("server_error", 503, "aig-503");
+    });
+    vi.useFakeTimers();
+    const pending = complete(deps(), input);
+    const failed = expect(pending).rejects.toMatchObject({
+      code: "provider_error"
+    });
+    await reached;
+    await vi.advanceTimersByTimeAsync(5_000);
+    await failed;
+    expect(calls).toBe(2);
+    expect(
+      await db
+        .prepare("SELECT state, issue FROM llm_operations WHERE run_id=?")
+        .bind(input.runId)
+        .first()
+    ).toEqual({ state: "uncertain", issue: "provider_outcome_unknown" });
+    expect(await accountingForRun(db, input.runId)).toMatchObject({
+      uncertainCents: 16,
+      issueCount: 1
+    });
+  });
+
+  it("keeps an uncertain reservation when the chat fetch throws", async () => {
+    const input = await setup();
+    const { inference } = http();
+    inference.mockImplementation(async () => {
+      throw new TypeError("network down");
+    });
+    await expect(complete(deps(), input)).rejects.toMatchObject({
+      code: "provider_error"
+    });
+    expect(inference).toHaveBeenCalledTimes(1);
+    expect(
+      await db
+        .prepare("SELECT state, issue FROM llm_operations WHERE run_id=?")
+        .bind(input.runId)
+        .first()
+    ).toEqual({ state: "uncertain", issue: "provider_outcome_unknown" });
   });
 });
