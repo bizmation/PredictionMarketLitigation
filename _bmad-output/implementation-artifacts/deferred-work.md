@@ -331,3 +331,10 @@ Logged from story 3.36 acceptance Run `run-20261010-0005`. Neither item blocks t
 Does not block story 3.37. Patrick approves the live draft by hand.
 
 - The `thin_source_text` YOLO block from #74 only fires when `descriptionSource === 'recap_short_description'` (`isThinSourceText` in `src/pipeline/gate/yoloPolicy.ts`). On `run-20261010-0005`, New York entries 174, 175, and 176, plus Furcolo, carried one-line docket titles in `recap_documents.description`. The connector labelled those `recap_description`, so the thin check did not flag them. Extend the check to short RECAP descriptions, for example by text length, a short-title heuristic, or `description === short_description`.
+
+## Deferred from: story 3.37 publication (2026-10-11)
+
+Logged after Patrick accepted entry 101 (`de-case-il-cftc-481187548`) as the 3.37 publication. There is no undo or redraft control.
+
+- A published `docket_events` row cannot be cleanly reverted. The Approval Gate has no unpublish path.
+- A rejected entry cannot be redrafted. `seenEventIds` in `src/pipeline/connectors/courtListener.ts` treats an event as seen when a `docket_events` row exists or any draft already points at that id, whatever the draft outcome. A later Run skips it.

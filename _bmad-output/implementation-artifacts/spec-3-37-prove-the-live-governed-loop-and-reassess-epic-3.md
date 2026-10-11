@@ -64,7 +64,7 @@ The other five are `d:run-20261010-0005:CourtListener:docket_events:de-case-il-c
 
 **Execution:**
 - [ ] `src/surfaces/admin/ApprovalQueue.tsx` -- no code change. After Patrick's answers are locked, he performs the recorded queue actions on `https://build.predictionmarketlitigation.com/admin#queue` while signed in. An agent does not click Approve or Reject.
-- [ ] `_bmad-output/implementation-artifacts/spec-3-37-prove-the-live-governed-loop-and-reassess-epic-3.md` -- append the evidence below under Implementation Notes: decision response outcome, `decidedBy`, public `gate.decided` ids, Run status, the new `docket_events` and `sources` ids, staging tracker and ops URLs with HTTP status, spend still 12¢, and production brochure hashes unchanged from `bffcd5c604008e866cc2d71a0b9aa74478ba024167898f45fc910f3f0d41b270`.
+- [x] `_bmad-output/implementation-artifacts/spec-3-37-prove-the-live-governed-loop-and-reassess-epic-3.md` -- append the evidence below under Implementation Notes: decision response outcome, `decidedBy`, public `gate.decided` ids, Run status, the new `docket_events` and `sources` ids, staging tracker and ops URLs with HTTP status, spend still 12¢, and production brochure hashes unchanged from `bffcd5c604008e866cc2d71a0b9aa74478ba024167898f45fc910f3f0d41b270`.
 - [ ] `_bmad-output/implementation-artifacts/epic-3-retro-2026-09-22.md` -- append a 2026-10-11 reassessment with the retrospective sections (epic summary, findings sourced from `deferred-work.md` and this evidence, dispositions, action items, verdict). Keep prior findings. Do not auto-apply fixes.
 - [ ] `.agents/skills/bmad-retrospective/scripts/sprint_status.py` -- `update --file` the sprint status `--epic 3 --set-action-status` for `epic-3-retro-item-17-deploy-current-main-to-pml-build-after-t` (close from the 3.36 `run-20261010-0005` record) and `epic-3-retro-live-governed-loop-acceptance` (close only from this publication). Pass `--verdict` and `--ref` pointing at the retro. The script does not store the verdict or change `epic-3`. Set `epic-3: done` in `sprint-status.yaml` only when that verdict is `accepted` or `accepted-with-open-items`. Leave `epic-4: backlog` and do not start a story 4.x. A rejected verdict leaves `epic-3: in-progress` and names the blocker in the retro.
 
@@ -74,7 +74,7 @@ The other five are `d:run-20261010-0005:CourtListener:docket_events:de-case-il-c
 
 ## Implementation Notes
 
-Patrick's clicks are not in yet. These checks run only after he sends the results. No admin API call, queue click, steering turn, or publish has been made. Spend must stay 12¢ and `llm_calls` for this Run must stay 12.
+Read-only checks after Patrick's clicks, 2026-10-11. No admin API call was made. The 9:01 AM ET plan stays in the frozen Decisions section. What published is entry 101, recorded in the change log and the Observed column. Spend is 12¢. `llm_calls` for this Run is 12.
 
 **Staging D1** `pml-build` `9e83494a-016e-4bff-9e07-7fca3a159a83`, read-only:
 
@@ -128,24 +128,48 @@ SELECT json_extract(payload_json, '$.approvedText') = (
 
 ### Evidence table
 
-Observed cells stay blank until his click results arrive.
+Expected is the 9:01 AM ET plan. Observed is the read-only result.
 
 | Check | Expected | Observed |
 |---|---|---|
-| IL 101 reject `d:run-20261010-0005:CourtListener:docket_events:de-case-il-cftc-481187548` | `rejected`; `reject_reason` null; `reject_reason_private` `Not the named 3.37 publication.`; `gate.decided` reason null | |
-| NY 174 reject `d:run-20261010-0005:CourtListener:docket_events:de-case-ny-cftc-480884781` | same private reject | |
-| NY 175 reject `d:run-20261010-0005:CourtListener:docket_events:de-case-ny-cftc-481007743` | same private reject | |
-| NY 176 reject `d:run-20261010-0005:CourtListener:docket_events:de-case-ny-cftc-481153828` | same private reject | |
-| Furcolo reject `d:run-20261010-0005:CourtListener:docket_events:de-case-ri-furcolo-480886814` | same private reject | |
-| Approval `d:run-20261010-0005:CourtListener:docket_events:de-case-il-cftc-481187549` | `approved`; `acceptedFields` `kind`, `favors`; body not edited; `decidedBy` is his display name | |
-| `docket_events` `de-case-il-cftc-481187549` | one row; `kind` `procedural-order`; `favors` `none`; `provenance_kind` `human`; source `src-de-case-il-cftc-481187549` | |
-| Run `run-20261010-0005` | `published`; spend 12; `llm_calls` 12 | |
-| Public tracker | `GET /api/cases/case-il-cftc` lists entry 102; ops run page HTTP 200 | |
-| Production isolation | both brochure hashes `bffcd5c604008e866cc2d71a0b9aa74478ba024167898f45fc910f3f0d41b270` | |
-| Unsent steering on IL 102 | zero `steering.turn` and `steering.applied` rows for `run-20261010-0005`; zero `llm_calls` and `llm_operations` for that Run with `created_at` after `2026-10-11T13:01:00.000Z` | |
-| Published text vs draft body | `outcome` `approved`; `edited_body` null; `published_equals_diff_description` 1; `body_equals_caption_plus_published` 1; `approved_text_equals_body` 1. `published_equals_full_body` is 0: `docket_events.description` is the entry text, and `drafts.body` is the caption line plus that text | |
+| IL 101 `d:run-20261010-0005:CourtListener:docket_events:de-case-il-cftc-481187548` | `rejected`; private reason `Not the named 3.37 publication.` | `approved` at `2026-10-11T13:06:14.950Z`; `decided_by` Patrick; `edited_body` null; `reject_reason` null; `acceptedFields` `kind`, `favors` |
+| NY 174 `d:run-20261010-0005:CourtListener:docket_events:de-case-ny-cftc-480884781` | private reject | `rejected` at `2026-10-11T13:03:28.652Z`; public `reject_reason` `dev`; `reject_reason_private` null |
+| NY 175 `d:run-20261010-0005:CourtListener:docket_events:de-case-ny-cftc-481007743` | private reject | `rejected` at `2026-10-11T13:03:21.810Z`; public `reject_reason` `dev`; `reject_reason_private` null |
+| NY 176 `d:run-20261010-0005:CourtListener:docket_events:de-case-ny-cftc-481153828` | private reject | `rejected` at `2026-10-11T13:03:16.449Z`; public `reject_reason` `dev`; `reject_reason_private` null |
+| Furcolo `d:run-20261010-0005:CourtListener:docket_events:de-case-ri-furcolo-480886814` | private reject | `rejected` at `2026-10-11T13:03:04.239Z`; public `reject_reason` `dev`; `reject_reason_private` null |
+| IL 102 `d:run-20261010-0005:CourtListener:docket_events:de-case-il-cftc-481187549` | `approved`; `acceptedFields` `kind`, `favors`; body not edited; `decidedBy` Patrick | `rejected` at `2026-10-11T13:03:34.656Z`; public `reject_reason` `dev`; `reject_reason_private` null; `edited_body` null |
+| `docket_events` | one row `de-case-il-cftc-481187549`; `kind` `procedural-order`; `favors` `none` | one new row among the six ids: `de-case-il-cftc-481187548`; `kind` `other`; `favors` `none`; `provenance_kind` `human`; `published_at` `2026-10-11T13:06:14.950Z` |
+| Run `run-20261010-0005` | `published`; spend 12; `llm_calls` 12 | `published`; `spend_cents` 12; `llm_calls` 12 |
+| Public tracker | case API lists entry 102; ops run page HTTP 200 | `GET https://build.predictionmarketlitigation.com/api/cases/case-il-cftc` has `de-case-il-cftc-481187548` and not `481187549` (1 docket event). Ops run page HTTP 200 |
+| Production isolation | both brochure hashes `bffcd5c604008e866cc2d71a0b9aa74478ba024167898f45fc910f3f0d41b270` | both `https://predictionmarketlitigation.com/` and `https://ops.predictionmarketlitigation.com/` HTTP 200, 49404 bytes, SHA-256 `bffcd5c604008e866cc2d71a0b9aa74478ba024167898f45fc910f3f0d41b270` |
+| Steering and paid calls after 13:01Z | zero `steering.turn` and `steering.applied`; zero `llm_calls` and `llm_operations` after `2026-10-11T13:01:00.000Z` | steering events 0; `llm_calls` after the cutoff 0; `llm_operations` after the cutoff 0 |
+| Published text vs approved draft body | `approved`; `edited_body` null; published description equals the description inside `drafts.body`; `approvedText` equals `drafts.body` | See the body check below. `published_equals_full_body` 0; `published_equals_diff_description` 1; `body_equals_caption_plus_published` 1; `approved_text_equals_body` 1 |
+
+**Body check** on the approved draft `d:run-20261010-0005:CourtListener:docket_events:de-case-il-cftc-481187548`, joined to `docket_events` on `target_entity_id`. Read-only D1 `pml-build` `9e83494a-016e-4bff-9e07-7fca3a159a83`:
+
+```sql
+SELECT d.outcome, d.edited_body IS NULL AS edited_null,
+       d.body = e.description AS published_equals_full_body,
+       e.description = json_extract(d.diff_json, '$.description') AS published_equals_diff_description,
+       d.body = (
+         json_extract(d.diff_json, '$.context.caption') || ' — docket entry ' ||
+         json_extract(d.diff_json, '$.entryNumber') || ', filed ' ||
+         json_extract(d.diff_json, '$.occurredAt') || ': ' || e.description
+       ) AS body_equals_caption_plus_published
+  FROM drafts d
+  JOIN docket_events e ON e.id = d.target_entity_id
+ WHERE d.id = 'd:run-20261010-0005:CourtListener:docket_events:de-case-il-cftc-481187548';
+```
+
+Result: `outcome` `approved`, `edited_null` 1, `published_equals_full_body` 0, `published_equals_diff_description` 1, `body_equals_caption_plus_published` 1. `docket_events` has no `body` column. `description` is the entry text. `drafts.body` is the caption line plus that text, and that concatenation matches byte for byte. A second read of `gate.decided` for this draft has `json_extract(payload_json, '$.approvedText')` equal to `drafts.body` (`approved_text_equals_body` 1), `decidedBy` Patrick, and `acceptedFields` `["kind","favors"]`.
 
 ## Spec Change Log
+
+**2026-10-11.** Patrick meant to approve Illinois entry 102, draft `d:run-20261010-0005:CourtListener:docket_events:de-case-il-cftc-481187549`. He rejected that draft at `2026-10-11T13:03:34.656Z` and approved Illinois entry 101, draft `d:run-20261010-0005:CourtListener:docket_events:de-case-il-cftc-481187548`, at `2026-10-11T13:06:14.950Z`. The approval is unedited. `decided_by` is Patrick. All five rejects use the public reason `dev` and `reject_reason_private` null, so `dev` is on the staging evidence page. At 9:12 AM ET (13:12Z) he ruled: "Accept entry 101 as the 3.37 publication, with an honest note on the mix-up."
+
+The evidence table records that publication: one new `docket_events` row `de-case-il-cftc-481187548` (`kind` `other`, `favors` `none`, `published_at` `2026-10-11T13:06:14.950Z`). The Run is `published`. Period spend is unchanged at 12 cents. No steering events and no `llm_calls` after `2026-10-11T13:01:00Z`. Both production hashes are `bffcd5c604008e866cc2d71a0b9aa74478ba024167898f45fc910f3f0d41b270`.
+
+This note avoids treating entry 102 as the published row and avoids hiding the public reject reason. KEEP the 9:01 AM ET frozen wording verbatim. The Epic 3 retrospective and `epic-3: done` stay out of this pull request; they run after it merges.
 
 ## Review Triage Log
 
