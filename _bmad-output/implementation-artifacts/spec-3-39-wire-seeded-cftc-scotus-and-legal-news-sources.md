@@ -5,7 +5,7 @@ created: '2026-10-22'
 status: 'in-review'
 route: 'dispatch'
 baseline_commit: 'f234f8c3be99068b86a309cd602c45e650d91254'
-review_loop_iteration: 0
+review_loop_iteration: 1
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/3-39-wire-seeded-cftc-scotus-and-legal-news-sources.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context.md'
@@ -54,9 +54,9 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [x] `src/pipeline/connectors/publicSource.ts` — one same-origin fetch and the 20-second, 1_000_000-byte, and 8192-byte caps — shared by the three checks.
+- [x] `src/pipeline/connectors/publicSource.ts` — one same-origin fetch and the 20-second, 1_000_000-byte, and 8192-byte caps — shared by the three checks. A failure from `reader.read()` in `readSuccessBody` or `readAtMost` uses the fetch map: rethrow `AbortError`, `TimeoutError` becomes `timeout`, any other read error becomes `network`. `SourceUnavailableError` from the byte cap still propagates. Do not `cancel()` the unread remainder: in this runtime that drains the rest of the stream, which reads a redirect body and reads past 8192 bytes.
 - [x] `src/pipeline/connectors/cftcPress.ts`, `scotusDocket.ts`, `legalNewsLeads.ts` — thin factories for `https://www.cftc.gov`, `https://www.supremecourt.gov`, and `https://news.bloomberglaw.com`.
-- [x] `src/pipeline/connectors/publicSource.test.ts` — stub `fetch` and cover the matrix rows that do not need a full Run.
+- [x] `src/pipeline/connectors/publicSource.test.ts` — stub `fetch` and cover the matrix rows that do not need a full Run. Include a body-read `TypeError` that rejects with `network`, and an `AbortError` from `reader.read()` that is not wrapped.
 - [x] `src/pipeline/workflow/dailyRun.ts` — register the three checks.
 - [x] `src/pipeline/workflow/dailyRun.test.ts` — replace the CourtListener-only registry assertions and cover empty versus failed Runs, plus the token header.
 - [x] `src/shared/lib/timeouts.ts` — comment only.
@@ -70,7 +70,38 @@ context:
 
 ## Spec Change Log
 
+- Trigger: body-read failures (`readSuccessBody`, `readAtMost`) leave `fetchSeededPage`'s catch and `observe` records `run.failed { reason: "error" }`. Blind-hunter, edge-case-hunter, and verification-gap all reported it. A 403 whose body read throws also loses `http_403`.
+- Amended: the `publicSource.ts` task now maps those read errors the same way as `fetch` (`AbortError` rethrown, `TimeoutError` → `timeout`, anything else → `network`) and forbids `cancel()` of the unread remainder.
+- Known-bad state avoided: a named skip other than `not wired`, and not reading past the 8192-byte cap or a redirect body.
+- KEEP: one shared fetch; thin origin factories; `pollTimeoutMs` 20 seconds via `Object.assign`; `entities: []` on 200; `redirect: "manual"`; no `authorization`; `beforeRequest` after the origin guard; reuse `reasonForStatus` and `scrubResponseDetail`; caps 8192 and 1_000_000; `contentType` truncated to 120; registry order without the CourtListener token, wait, clock, or database; no `run-daily-step` config; CourtListener pacing unchanged; stubbed `fetch` only.
+
 ## Review Triage Log
+
+- Blind-hunter, unread bodies on early exit. Verdict `low`, rejected. Cloudflare's simultaneous-connection limit stops counting a fetch once headers arrive, and the cited page says `cancel()` frees memory. It does not document a held connection or a warning. In this runtime `reader.cancel()` drains the remainder, so the fix would read past the cap. Users do not meet a held connection, and the fix is not a direct deletion.
+- Blind-hunter, body-read errors escape the fetch catch. Verdict `medium`. `reader.read()` is outside `fetchSeededPage`, and `observe` maps a raw error to `run.failed { reason: "error" }` at `connector.ts`. Grouped with the edge-case and verification-gap body-read findings. Route `bad_spec`.
+- Blind-hunter, `SOURCE_FETCH_TIMEOUT_MS` does not cover the body. Verdict `false`. `fetchWithTimeout` is specified to bound the request. `observe` bounds the whole check with `pollTimeoutMs` of 20 seconds and records `DeadlineError` as `source.skipped` timeout.
+- Blind-hunter, status 0 and other 2xx. Verdict `false`. Workers `redirect: "manual"` returns the 3xx response. `reasonForStatus(204)` is `http_error`, which is the specified non-200 reason.
+- Blind-hunter, no User-Agent and likely daily 403s. Verdict `maybe-false`. The story says the Workers runtime supplies the User-Agent, and this story cannot make the live call that would show a CDN 403. If that 403 were real it would be `high`. Route `defer`, not processed on this loopback.
+- Blind-hunter, no content-type check or change hash. Verdict `false`. A 200 is specified to return `entities: []` plus status, bytes, and contentType. The fix would edit the frozen contract.
+- Blind-hunter, duplicated origin strings. Verdict `false`. The tasks require thin factories that pass the origin. A mismatch fails closed as `unsafe_url`.
+- Blind-hunter, dead `SourceUnavailableError` branch in `guardedUrl`. Verdict `low`. Nothing in the `try` throws that type. Route `patch`, not processed on this loopback.
+- Blind-hunter, CourtListener `.every()` is vacuous. Verdict `false`. The same test already requires an Illinois CourtListener URL before that assertion. With no such call, `new URL` throws.
+- Blind-hunter, `"tok"` substring. Verdict `low`. The token is the letters `tok`, so a later payload containing `token` fails the assertion for the wrong reason. Route `patch`, not processed on this loopback.
+- Blind-hunter, 403-beside-drafts expects `running`. Verdict `low`. `packageDailyRun` leaves a Run with drafts `running` for `reviewDailyRun`. The assertion matches that. A comment would be the fix. Route `patch`, not processed on this loopback.
+- Blind-hunter, failed-run test omits sibling evidence. Verdict `medium`. The test checks draft count and `failed` status only, so a registry that never fetched the other sources could still pass. Route `patch`, not processed on this loopback.
+- Blind-hunter, missing boundary tests. Verdict `low`, rejected. Everyday use does not hit an untested chunk boundary, and adding those cases is more than a direct correction.
+- Blind-hunter, 180-character expectation is implicit. Verdict `low`. The expected detail length is `scrubResponseDetail`'s cap, which the test does not name. Route `patch`, not processed on this loopback.
+- Blind-hunter, spec `in-review` versus sprint `in-progress`. Verdict `false`. Step 3 sets the sprint key and step 4 sets the spec status. They are different fields.
+- Blind-hunter, redirect test locks an open body. Verdict `false`. The test locks the required "do not read the redirect body" behavior.
+- Edge-case-hunter, body stream error. Verdict `medium`. Same `observe` mapping as the blind-hunter body-read finding. Route `bad_spec`.
+- Edge-case-hunter, 3xx body not cancelled. Verdict `low`, rejected. Same memory-versus-drain evidence as the unread-body finding.
+- Edge-case-hunter, `response_too_large` leaves the stream open. Verdict `low`, rejected. Same evidence.
+- Edge-case-hunter, `readAtMost` leaves the error stream open. Verdict `low`, rejected. Same evidence.
+- Edge-case-hunter, missing `context`. Verdict `false`. `observe` always passes `context`. The production caller is `runConnector`.
+- Edge-case-hunter claim, body-read failure contradicts the named-skip outcome. Verdict `medium`. `run.failed { reason: "error" }` is a third outcome. Route `bad_spec`.
+- Verification-gap, pre-parse URL rejection has no test. Verdict `medium`, pre-verified. Deleting the character checks would let `URL` normalize a backslash or a space, and no current test feeds those inputs. Filed disposition `patch`. Not processed on this loopback.
+- Verification-gap other finding, body-read failure is not a named skip. Verdict `medium`. Same `observe` path. Route `bad_spec`.
+- Verification-gap other finding, `connector.ts` still says other checks stay at 60 seconds. Verdict `medium`. The seeded checks set 20 seconds. A later edit that trusts the comment can drop `pollTimeoutMs` and overrun the 10-minute step. Route `patch`, not processed on this loopback.
 
 ## Verification
 

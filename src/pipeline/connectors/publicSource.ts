@@ -53,8 +53,7 @@ function guardedUrl(input: string, origin: string): string {
       throw new Error("invalid URL");
     }
     url = new URL(input);
-  } catch (err) {
-    if (err instanceof SourceUnavailableError) throw err;
+  } catch {
     throw new SourceUnavailableError("unsafe_url");
   }
   if (
@@ -78,6 +77,29 @@ function concatBytes(chunks: Uint8Array[], total: number): Uint8Array {
   return out;
 }
 
+function unavailable(
+  reason: string,
+  detail: Record<string, unknown>
+): SourceUnavailableError {
+  return new SourceUnavailableError(reason, detail);
+}
+
+/**
+ * `reader.read()` uses the same map as `fetch`. Do not `cancel()` the
+ * remainder: in this runtime that drains the rest of the stream.
+ */
+async function readChunk(
+  reader: ReadableStreamDefaultReader<Uint8Array>
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  try {
+    return await reader.read();
+  } catch (err) {
+    if (isAbortError(err)) throw err;
+    if (isTimeoutError(err)) throw unavailable("timeout", {});
+    throw unavailable("network", {});
+  }
+}
+
 /** Read at most `maxBytes` and leave the rest of the stream unread. */
 async function readAtMost(
   response: Response,
@@ -88,7 +110,7 @@ async function readAtMost(
   const chunks: Uint8Array[] = [];
   let total = 0;
   while (total < maxBytes) {
-    const { done, value } = await reader.read();
+    const { done, value } = await readChunk(reader);
     if (done) break;
     if (value == null || value.byteLength === 0) continue;
     const room = maxBytes - total;
@@ -120,7 +142,7 @@ async function readSuccessBody(response: Response): Promise<Uint8Array> {
   const chunks: Uint8Array[] = [];
   let total = 0;
   while (true) {
-    const { done, value } = await reader.read();
+    const { done, value } = await readChunk(reader);
     if (done) break;
     if (value == null || value.byteLength === 0) continue;
     if (total + value.byteLength > SEEDED_PAGE_MAX_BYTES) {
@@ -143,13 +165,6 @@ function contentTypeOf(response: Response): string | null {
 async function errorDetail(response: Response): Promise<string> {
   const bytes = await readAtMost(response, SEEDED_PAGE_ERROR_BODY_MAX_BYTES);
   return scrubResponseDetail(new TextDecoder().decode(bytes), "");
-}
-
-function unavailable(
-  reason: string,
-  detail: Record<string, unknown>
-): SourceUnavailableError {
-  return new SourceUnavailableError(reason, detail);
 }
 
 async function fetchSeededPage(

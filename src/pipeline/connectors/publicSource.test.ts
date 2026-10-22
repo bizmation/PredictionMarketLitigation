@@ -30,6 +30,17 @@ function page(
   return new Response(body, { status, headers });
 }
 
+function streamThatThrows(err: Error): ReadableStream<Uint8Array> {
+  return new ReadableStream(
+    {
+      pull() {
+        throw err;
+      }
+    },
+    { highWaterMark: 0 }
+  );
+}
+
 describe("seeded page checks", () => {
   afterEach(() => vi.unstubAllGlobals());
 
@@ -296,6 +307,74 @@ describe("seeded page checks", () => {
       "fetch",
       vi.fn(async () => {
         throw new TypeError("boom");
+      })
+    );
+    await expect(createCftcPressCheck()(CFTC, context())).rejects.toMatchObject(
+      { reason: "network" }
+    );
+  });
+
+  it("maps a body-read TypeError to network and does not wrap AbortError", async () => {
+    const typeError = new TypeError("read failed");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        return {
+          status: 200,
+          headers: new Headers({ "content-type": "text/html" }),
+          body: streamThatThrows(typeError)
+        } as Response;
+      })
+    );
+    await expect(createCftcPressCheck()(CFTC, context())).rejects.toMatchObject(
+      { reason: "network" }
+    );
+
+    const timeout = new DOMException("read timed out", "TimeoutError");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        return {
+          status: 200,
+          headers: new Headers(),
+          body: streamThatThrows(timeout)
+        } as Response;
+      })
+    );
+    await expect(createCftcPressCheck()(CFTC, context())).rejects.toMatchObject(
+      { reason: "timeout" }
+    );
+
+    const abort = new DOMException("aborted", "AbortError");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        return {
+          status: 200,
+          headers: new Headers(),
+          body: streamThatThrows(abort)
+        } as Response;
+      })
+    );
+    const caught = await Promise.resolve(
+      createCftcPressCheck()(CFTC, context())
+    ).then(
+      () => {
+        throw new Error("abort was swallowed");
+      },
+      (err: unknown) => err
+    );
+    expect(caught).toBe(abort);
+    expect(caught).not.toBeInstanceOf(SourceUnavailableError);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        return {
+          status: 403,
+          headers: new Headers(),
+          body: streamThatThrows(new TypeError("error body failed"))
+        } as Response;
       })
     );
     await expect(createCftcPressCheck()(CFTC, context())).rejects.toMatchObject(
