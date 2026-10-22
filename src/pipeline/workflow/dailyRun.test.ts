@@ -36,6 +36,7 @@ import {
   timezoneOffsetMs
 } from "./schedule";
 import type { SourceCheck } from "../connectors/connector";
+import { POLL_SOURCES } from "../connectors/sources";
 
 const testEnv = env as Env;
 
@@ -622,15 +623,17 @@ describe("sourceChecksFromEnv (story 3.21)", () => {
     };
   }
 
-  it("wires exactly CourtListener; the other sources stay not wired", async () => {
+  it("registers CourtListener and the three seeded sources in poll order", async () => {
     const checks = sourceChecksFromEnv(
       { COURTLISTENER_API_TOKEN: undefined },
       testEnv.DB
     );
-    expect(Object.keys(checks)).toEqual(["CourtListener"]);
+    expect(Object.keys(checks)).toEqual(
+      POLL_SOURCES.map((source) => source.name)
+    );
   });
 
-  it("records source.skipped unconfigured for CourtListener and not wired for the rest when the token is absent", async () => {
+  it("fetches the seeded pages when the CourtListener token is absent", async () => {
     const id = "run-20260901-0e00";
     await runsRepo.insertRun(testEnv.DB, {
       id,
@@ -645,7 +648,16 @@ describe("sourceChecksFromEnv (story 3.21)", () => {
       scheduledFor: "2026-09-01"
     });
     await attachSnapshot(testEnv.DB, id);
-    const fetchMock = vi.fn();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("courtlistener.com")) {
+        throw new Error("CourtListener must not be fetched");
+      }
+      return new Response("<html></html>", {
+        status: 200,
+        headers: { "content-type": "text/html" }
+      });
+    });
     vi.stubGlobal("fetch", fetchMock);
     const packaged = await packageDailyRun(
       testEnv.DB,
@@ -664,22 +676,36 @@ describe("sourceChecksFromEnv (story 3.21)", () => {
       draftCount: 0,
       anyFailure: true
     });
-    expect(fetchMock).not.toHaveBeenCalled();
-    const skipped = (await evidenceRepo.listByRun(testEnv.DB, id)).filter(
-      (e) => e.event === "source.skipped"
-    );
-    const reasons = Object.fromEntries(
-      skipped.map((e) => [
-        (e.payload as { source: string }).source,
-        (e.payload as { reason: string }).reason
-      ])
-    );
-    expect(reasons).toEqual({
-      CourtListener: "unconfigured",
-      "CFTC press": "not wired",
-      "SCOTUS docket": "not wired",
-      "Legal news leads": "not wired"
-    });
+    expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual([
+      "https://www.cftc.gov/PressRoom/PressReleases",
+      "https://www.supremecourt.gov/docket/",
+      "https://news.bloomberglaw.com/securities-law"
+    ]);
+    const evidence = await evidenceRepo.listByRun(testEnv.DB, id);
+    const skipped = evidence.filter((e) => e.event === "source.skipped");
+    expect(
+      skipped.map((e) => (e.payload as { source: string }).source)
+    ).toEqual(["CourtListener"]);
+    expect(skipped[0]?.payload).toMatchObject({ reason: "unconfigured" });
+    const fetched = evidence.filter((e) => e.event === "source.fetched");
+    expect(
+      fetched.map((e) => (e.payload as { source: string }).source)
+    ).toEqual(["CFTC press", "SCOTUS docket", "Legal news leads"]);
+    for (const event of fetched) {
+      expect(event.payload).toMatchObject({
+        itemCount: 0,
+        failed: false,
+        status: 200,
+        pollSourcesVersion: 0
+      });
+      expect(event.payload).not.toMatchObject({ reason: "not wired" });
+    }
+    expect(fetched.map((e) => (e.payload as { tier: string }).tier)).toEqual([
+      "tier1",
+      "tier1",
+      "tier2"
+    ]);
+    expect(await draftsRepo.listByRun(testEnv.DB, id)).toEqual([]);
     expect((await runsRepo.getRunById(testEnv.DB, id))?.status).toBe("failed");
   });
 
@@ -774,12 +800,223 @@ describe("sourceChecksFromEnv (story 3.21)", () => {
       newEntries: 1
     });
     expect(illinois).not.toHaveProperty("skippedOlder");
-    const authHeaders = fetchMock.mock.calls.map((call) =>
-      new Headers((call[1] as RequestInit | undefined)?.headers).get(
-        "authorization"
-      )
+    const calls = fetchMock.mock.calls.map((call) => ({
+      url: String(call[0]),
+      authorization: new Headers(
+        (call[1] as RequestInit | undefined)?.headers
+      ).get("authorization")
+    }));
+    const seeded = calls.filter(
+      (call) =>
+        call.url.startsWith("https://www.cftc.gov/") ||
+        call.url.startsWith("https://www.supremecourt.gov/") ||
+        call.url.startsWith("https://news.bloomberglaw.com/")
     );
-    expect(authHeaders.every((h) => h === "Token tok")).toBe(true);
+    expect(seeded.map((call) => call.authorization)).toEqual([
+      null,
+      null,
+      null
+    ]);
+    expect(
+      calls
+        .filter((call) => call.url.includes("courtlistener.com"))
+        .every((call) => call.authorization === "Token tok")
+    ).toBe(true);
+    const evidenceText = JSON.stringify(
+      await evidenceRepo.listByRun(testEnv.DB, id)
+    );
+    expect(evidenceText).not.toContain("tok");
+  });
+
+  function courtListenerRows(input: RequestInfo | URL): Response {
+    const url = new URL(String(input));
+    const docket = url.searchParams.get("docket");
+    const floor = url.searchParams.get("date_filed__gte");
+    const rows = [
+      {
+        id: 33901,
+        entry_number: 3,
+        date_filed: "2026-09-20",
+        description: "MINUTE ENTRY: status conference held."
+      }
+    ].filter((row) => floor == null || row.date_filed >= floor);
+    return Response.json({
+      results: docket === "73133459" ? rows : []
+    });
+  }
+
+  async function seedRun(id: string): Promise<void> {
+    await runsRepo.insertRun(testEnv.DB, {
+      id,
+      origin: "scheduled",
+      mode: "hitl",
+      status: "running",
+      startedAt: NOW,
+      completedAt: null,
+      spendCents: 0,
+      spendCurrency: "USD",
+      budgetCents: null,
+      scheduledFor: "2026-09-01"
+    });
+    await attachSnapshot(testEnv.DB, id);
+  }
+
+  function checksWithToken() {
+    return sourceChecksFromEnv(
+      {
+        COURTLISTENER_API_TOKEN: "cl-seeded-page-token",
+        FIRST_FETCH_WINDOW_DAYS: 3,
+        courtListenerWait: async () => {},
+        now: () => "2026-09-20T16:00:00.000Z"
+      },
+      testEnv.DB
+    );
+  }
+
+  it("finishes empty when CourtListener and the seeded pages have nothing new", async () => {
+    const id = "run-20260901-0e02";
+    await seedRun(id);
+    const before = await testEnv.DB.prepare(
+      "SELECT COUNT(*) AS n FROM docket_events"
+    ).first<{ n: number }>();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("courtlistener.com")) {
+          return Response.json({ results: [] });
+        }
+        return new Response(
+          "<html>index mentions 1:26-cv-03659 and nothing else</html>",
+          { status: 200, headers: { "content-type": "text/html" } }
+        );
+      })
+    );
+    const packaged = await packageDailyRun(
+      testEnv.DB,
+      id,
+      {
+        db: testEnv.DB,
+        costPolicy: fixtureCostPolicy,
+        provider: provider(),
+        now: () => NOW
+      },
+      checksWithToken()
+    );
+    expect(packaged).toMatchObject({
+      skip: false,
+      draftCount: 0,
+      anyFailure: false
+    });
+    const fetched = (await evidenceRepo.listByRun(testEnv.DB, id)).filter(
+      (event) => event.event === "source.fetched"
+    );
+    expect(fetched).toHaveLength(4);
+    for (const event of fetched) {
+      expect(event.payload).toMatchObject({ itemCount: 0, failed: false });
+    }
+    expect(await draftsRepo.listByRun(testEnv.DB, id)).toEqual([]);
+    const after = await testEnv.DB.prepare(
+      "SELECT COUNT(*) AS n FROM docket_events"
+    ).first<{ n: number }>();
+    expect(after?.n).toBe(before?.n);
+    expect((await runsRepo.getRunById(testEnv.DB, id))?.status).toBe("empty");
+    expect(
+      JSON.stringify(await evidenceRepo.listByRun(testEnv.DB, id))
+    ).not.toContain("cl-seeded-page-token");
+  });
+
+  it("keeps CourtListener drafts when one seeded page returns 403", async () => {
+    const id = "run-20260901-0e03";
+    await seedRun(id);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("https://www.cftc.gov/")) {
+        return new Response("denied", { status: 403 });
+      }
+      if (
+        url.startsWith("https://www.supremecourt.gov/") ||
+        url.startsWith("https://news.bloomberglaw.com/")
+      ) {
+        return new Response("<html>ok</html>", { status: 200 });
+      }
+      return courtListenerRows(input);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const packaged = await packageDailyRun(
+      testEnv.DB,
+      id,
+      {
+        db: testEnv.DB,
+        costPolicy: fixtureCostPolicy,
+        provider: provider(),
+        now: () => NOW
+      },
+      checksWithToken()
+    );
+    expect(packaged).toMatchObject({ draftCount: 1, anyFailure: true });
+    const drafts = await draftsRepo.listByRun(testEnv.DB, id);
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0]).toMatchObject({
+      targetEntityType: "docket_events",
+      targetEntityId: "de-case-il-cftc-33901"
+    });
+    const evidence = await evidenceRepo.listByRun(testEnv.DB, id);
+    const cftc = evidence.find(
+      (event) =>
+        event.event === "source.skipped" &&
+        (event.payload as { source?: string }).source === "CFTC press"
+    );
+    expect(cftc?.payload).toMatchObject({
+      reason: "http_403",
+      failed: true,
+      status: 403
+    });
+    const courtListener = evidence.find(
+      (event) =>
+        event.event === "source.fetched" &&
+        (event.payload as { source?: string }).source === "CourtListener"
+    );
+    expect(courtListener?.payload).toMatchObject({ failed: false });
+    expect(
+      fetchMock.mock.calls.filter((call) =>
+        String(call[0]).startsWith("https://www.cftc.gov/")
+      )
+    ).toHaveLength(1);
+    expect(JSON.stringify(evidence)).not.toContain("cl-seeded-page-token");
+    expect((await runsRepo.getRunById(testEnv.DB, id))?.status).toBe("running");
+  });
+
+  it("fails the Run when a seeded page is blocked and nothing was drafted", async () => {
+    const id = "run-20260901-0e04";
+    await seedRun(id);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.startsWith("https://www.cftc.gov/")) {
+          return new Response("denied", { status: 403 });
+        }
+        if (url.includes("courtlistener.com")) {
+          return Response.json({ results: [] });
+        }
+        return new Response("<html>ok</html>", { status: 200 });
+      })
+    );
+    const packaged = await packageDailyRun(
+      testEnv.DB,
+      id,
+      {
+        db: testEnv.DB,
+        costPolicy: fixtureCostPolicy,
+        provider: provider(),
+        now: () => NOW
+      },
+      checksWithToken()
+    );
+    expect(packaged).toMatchObject({ draftCount: 0, anyFailure: true });
+    expect(await draftsRepo.listByRun(testEnv.DB, id)).toEqual([]);
+    expect((await runsRepo.getRunById(testEnv.DB, id))?.status).toBe("failed");
   });
 });
 
