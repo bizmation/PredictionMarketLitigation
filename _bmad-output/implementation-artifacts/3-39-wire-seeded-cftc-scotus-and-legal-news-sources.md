@@ -19,36 +19,39 @@ so that a day with no new CourtListener entries is empty only when those sources
 1. **Given** poll-sources version 0 names CourtListener, CFTC press, SCOTUS docket, and Legal news leads, **when** a Run packages those four sources, **then** CFTC press and SCOTUS docket are consulted as Tier-1, and Legal news leads is consulted as Tier-2. Tiers come from the snapshotted `PollSource`, not from a hard-coded override.
 2. **And** each of those three emits `source.fetched` or `source.skipped` with a scrubbed reason other than `not wired`.
 3. **And** a blocked or disallowed fetch records the skip and does not invent entries. No Draft is inserted for that source. No row is written to `cases`, `docket_events`, `sources`, or any other F1 table by the connector.
-4. **And** material items from a consulted source become Drafts with tier labels under the story 3.4 package, and still cannot write live F1. For these three sources a successful fetch has **no material items** (see Dev Notes). `runConnector` remains the only path that turns `entities` into Drafts, and it still does not write live F1.
-5. **And** CourtListener keeps story 3.38 pacing and story 3.23's fail-on-first behavior for 401, 403, 5xx, network, and timeout. Do not edit `courtListener.ts` pacing, retry, or poll deadline.
-6. **And** an access failure on one of the three does not by itself fail CourtListener. `monitorAndPackage` still runs every snapshotted source. CourtListener's own observation stays whatever that check returned.
-7. **And** fixture tests cover a fetch, a named access skip, and a CourtListener-only registry no longer being the success path for these three names. `vi.stubGlobal("fetch")` only. No live HTTP.
-8. **And** this story does not deploy, call staging or production, or make a paid model call. Tests keep the fake provider. Do not run `npm run deploy` or `npm run deploy:build`.
+4. **And** material items from a consulted source become Drafts with tier labels only through `runConnector`, under the story 3.4 package. That path still cannot write live F1. These three checks do not return entities.
+5. **And** a successful fetch from CFTC press, SCOTUS docket, or Legal news leads returns `entities: []`. A 200 body that contains a seeded docket number such as `1:26-cv-03659` still inserts zero Drafts and zero `docket_events` rows.
+6. **And** CourtListener keeps story 3.38 pacing and story 3.23's fail-on-first behavior for 401, 403, 5xx, network, and timeout. Do not edit `courtListener.ts` pacing, retry, or poll deadline.
+7. **And** an access failure on one of the three does not by itself fail CourtListener. `monitorAndPackage` still runs every snapshotted source. CourtListener's own observation stays whatever that check returned.
+8. **And** fixture tests cover a fetch, a named access skip, and a CourtListener-only registry no longer being the success path for these three names. `vi.stubGlobal("fetch")` only. No live HTTP.
+9. **And** this story does not deploy, call staging or production, or make a paid model call. Tests keep the fake provider. Do not run `npm run deploy` or `npm run deploy:build`.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Register the three seeded checks** (AC: 1, 2, 5, 6)
+- [ ] **Task 1: Register the three seeded checks** (AC: 1, 2, 6, 7)
   - [ ] Add `createCftcPressCheck`, `createScotusDocketCheck`, and `createLegalNewsLeadsCheck`. Each returns a `SourceCheck` with `pollTimeoutMs` set to `SEEDED_PAGE_POLL_TIMEOUT_MS` (20 seconds) via `Object.assign`, the same attachment `createCourtListenerCheck` uses.
   - [ ] Implement the fetch once in `src/pipeline/connectors/publicSource.ts`. The three modules are thin wrappers that pass the seeded origin for that name. Architecture names `cftcPress.ts`, `scotusDocket.ts`, and `legalNewsLeads.ts`.
   - [ ] `sourceChecksFromEnv` returns CourtListener plus these three, keyed by the exact `POLL_SOURCES` names, in that order. An unknown name still falls through to `stubCheck` inside `monitorAndPackage`.
   - [ ] Do not pass `COURTLISTENER_API_TOKEN`, `courtListenerWait`, or `now` into the new checks. Do not give them a database handle.
-- [ ] **Task 2: One bounded public fetch per source** (AC: 2, 3, 5, 6)
+- [ ] **Task 2: One bounded public fetch per source** (AC: 2, 3, 4, 5, 6, 7)
   - [ ] Fetch only the snapshotted `source.url`, and only after it passes the origin guard. `redirect: "manual"`. No `authorization` header. Call `context.beforeRequest()` immediately before `fetch`, after the guard.
   - [ ] Use `fetchWithTimeout` with `SOURCE_FETCH_TIMEOUT_MS` (12 seconds). Map `TimeoutError` to `SourceUnavailableError("timeout")`. Rethrow `AbortError`. Map other fetch failures to `SourceUnavailableError("network")`.
   - [ ] 3xx: `SourceUnavailableError("redirect", { status })`. Do not read the body or `Location`.
-  - [ ] 401, 403, 429, and 5xx: `SourceUnavailableError(reasonForStatus(status), { status, detail })` on the first response. No retry and no CourtListener pace clock. `detail` is `scrubResponseDetail(body, "")` (180-character cap, no token to redact).
-  - [ ] Other non-200: `SourceUnavailableError("http_error", { status })` with the same scrubbed detail. Do not invent entries.
-  - [ ] 200: read at most `SEEDED_PAGE_MAX_BYTES` (1_000_000). If `Content-Length` or the bytes read exceed that, `SourceUnavailableError("response_too_large")` and do not parse. Otherwise return one `SourceItem`: `{ entities: [], fetched: { status: 200, contentType, bytes } }`.
-- [ ] **Task 3: Tests** (AC: 1–8)
+  - [ ] 401, 403, 429, and 5xx: `SourceUnavailableError(reasonForStatus(status), { status, detail })` on the first response. No retry and no CourtListener pace clock. Read at most `SEEDED_PAGE_ERROR_BODY_MAX_BYTES` (8192) before `scrubResponseDetail(body, "")`. Do not call `response.text()` on the full error page. The scrub still caps detail at 180 characters and has no token to redact.
+  - [ ] Other non-200: `SourceUnavailableError("http_error", { status })` with that same capped, scrubbed detail. Do not invent entries.
+  - [ ] 200: read at most `SEEDED_PAGE_MAX_BYTES` (1_000_000). If `Content-Length` or the bytes read exceed that, `SourceUnavailableError("response_too_large")` and do not parse. Otherwise return one `SourceItem`: `{ entities: [], fetched: { status: 200, contentType, bytes } }`. `contentType` is the header value truncated to 120 characters, or `null`.
+- [ ] **Task 3: Tests** (AC: 1–9)
   - [ ] Replace the story 3.21 registry assertion. Keys are `CourtListener`, `CFTC press`, `SCOTUS docket`, `Legal news leads`.
   - [ ] Token absent: CourtListener is `unconfigured` and its URL is not fetched. The other three are fetched or skipped with a reason other than `not wired`. A stubbed 200 yields `source.fetched`, `failed: false`, `itemCount: 0`, and zero Drafts.
   - [ ] A stubbed 403 on one of the three is `source.skipped` with `reason: "http_403"`, `failed: true`, zero Drafts for that source, and no token-like text in evidence. CourtListener's fixture entries still become its own Drafts.
+  - [ ] When `COURTLISTENER_API_TOKEN` is set, the three fetches send no `authorization` header and the token string is absent from evidence.
+  - [ ] A stubbed 429 performs one fetch and skips with `http_429`. A stubbed 5xx performs one fetch and skips with `http_5xx`. Neither retries.
   - [ ] CourtListener zero new entries plus a 200 from each of the three finishes the Run `empty`. CourtListener zero new entries plus a 403 from one of the three finishes the Run `failed` (existing `completeDailyStep` rule). Do not special-case that to `empty`.
   - [ ] A 200 body that contains a seeded docket number (for example `1:26-cv-03659`) still inserts zero Drafts and zero `docket_events` rows.
   - [ ] `redirect: "manual"` is set. A 302 does not produce a second fetch. A foreign-origin URL throws `unsafe_url` and does not call `fetch`.
   - [ ] `COURTLISTENER_POLL_TIMEOUT_MS + 3 * SEEDED_PAGE_POLL_TIMEOUT_MS` is less than 10 minutes. `dailyRunRecovery.test.ts` still sees no config object on `run-daily-step`.
   - [ ] `npm run check` and `npm test` exit 0.
-- [ ] **Task 4: Leave the rest alone** (AC: 5, 8)
+- [ ] **Task 4: Leave the rest alone** (AC: 6, 9)
   - [ ] Do not rename `run-daily-step` or pass a `StepConfig` to it. Do not add a dependency, a D1 table, a migration, or a secret. Do not implement story 3.40. Do not deploy.
 
 ## Dev Notes
@@ -101,13 +104,13 @@ Shared helper, one request:
 1. Resolve the allowed origin from `POLL_SOURCES` by exact `source.name` (`https://www.cftc.gov`, `https://www.supremecourt.gov`, `https://news.bloomberglaw.com`). If the name is not one of those three, throw `SourceUnavailableError("unsafe_url")` and do not fetch.
 2. Reject the snapshotted URL when it is empty, contains `\`, has a bad `%` escape, or contains a character at code 0x20 or below or 0x7f. Reject unless `protocol` is `https:`, `origin` equals that seeded origin, and `username` and `password` are empty. Same-origin path changes are allowed (a steered `poll_sources` URL). A different origin is `unsafe_url`. Do not put the rejected URL in the error detail.
 3. `await context?.beforeRequest()` then `fetchWithTimeout(url, { signal, redirect: "manual", headers: { accept: "text/html, application/xhtml+xml, application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.8" } }, SOURCE_FETCH_TIMEOUT_MS)`. No `authorization`. No CourtListener token. Workers supplies the User-Agent. Do not add a new header library.
-4. Status handling as in Task 2. Reuse `reasonForStatus` and `scrubResponseDetail` from `courtListener.ts`. Do not copy the pace loop, `Retry-After`, or pagination validator.
+4. Status handling is Task 2. Reuse `reasonForStatus` and `scrubResponseDetail` from `courtListener.ts`. Do not copy the pace loop, `Retry-After`, or pagination validator.
 5. On 200, if `Content-Length` parses to a number greater than `SEEDED_PAGE_MAX_BYTES`, skip `response_too_large` without reading. Otherwise read with a reader and stop at the cap. Exceeding the cap is `response_too_large`. Do not parse a partial body into entries.
-6. Return `{ entities: [], fetched: { status: 200, contentType, bytes } }`. `contentType` is the header value or `null`. `bytes` is the number read. Do not put the body, titles, or links in `fetched`. `scrubPayload` still runs, but the summary must already be safe.
+6. Return `{ entities: [], fetched: { status: 200, contentType, bytes } }`. `contentType` is the header value truncated to 120 characters, or `null`. `bytes` is the number read. Do not put the body, titles, or links in `fetched`. `scrubPayload` still runs, but the summary must already be safe.
 
 `SEEDED_PAGE_POLL_TIMEOUT_MS` is 20_000. `observe` uses it instead of 60 seconds for these three checks only. CourtListener stays at 8 minutes. The default `step.do` timeout is 10 minutes ([Cloudflare Workflows, Sleeping and retrying](https://developers.cloudflare.com/workflows/build/sleeping-and-retrying/)). 8 minutes + 3 × 20 seconds = 9 minutes, which leaves margin for the D1 writes inside the same step. Do not raise that poll budget, and do not set `pollTimeoutMs` to `CONNECTOR_TIMEOUT_MS` on these checks: 8 minutes + 3 × 60 seconds overruns the step. Do not pass a timeout config into `run-daily-step` to "fix" that. Update the comment in `src/shared/lib/timeouts.ts` so it no longer says the only per-check exception is CourtListener. Do not change `CONNECTOR_TIMEOUT_MS` or `SOURCE_FETCH_TIMEOUT_MS`.
 
-No second request. No `robots.txt` fetch, no pagination, no RSS URL substituted for the seeded URL. FR-9's access rule is the named skip on 401, 403, 429, redirect, unsafe URL, timeout, network, and oversize body. A 200 HTML page, including a paywall document, is `source.fetched` with zero entities. Do not sniff the body for the word "paywall".
+No second request. No `robots.txt` fetch, no pagination, no RSS URL substituted for the seeded URL. A 200 HTML page, including a paywall document, is `source.fetched` with zero entities. Do not sniff the body for the word "paywall".
 
 ### CourtListener must keep working
 
@@ -119,6 +122,7 @@ Do not change `createCourtListenerCheck`, `COURTLISTENER_MIN_INTERVAL_MS`, attem
 
 - `"wires exactly CourtListener; the other sources stay not wired"` expects `Object.keys(checks)` to equal `["CourtListener"]`. Change it to the four names in `POLL_SOURCES` order.
 - `"records source.skipped unconfigured for CourtListener and not wired for the rest when the token is absent"` stubs `fetch` and expects it **not** to be called, and expects the three reasons to be `not wired`. After this story the three checks fetch even when the token is absent. Stub their responses. CourtListener must still not be fetched. Reasons for the three must not be `not wired`.
+- With `COURTLISTENER_API_TOKEN` set, those three requests still have no `authorization` header, and the token string does not appear in evidence.
 
 `src/pipeline/connectors/connector.test.ts` passes its own check maps. The case that expects `POLL_SOURCES.length - 2` leftovers with `not wired` supplies only CourtListener and CFTC press. Those leftovers are still `stubCheck` because the map, not `sourceChecksFromEnv`, is what `monitorAndPackage` uses. Leave that assertion. Do not point that test at `sourceChecksFromEnv`.
 
@@ -128,7 +132,7 @@ Story 3.4 tests that pass `{}` still record `not wired` for every source. That r
 
 New files:
 
-- `src/pipeline/connectors/publicSource.ts` — origin guard, one fetch, constants `SEEDED_PAGE_POLL_TIMEOUT_MS` and `SEEDED_PAGE_MAX_BYTES`
+- `src/pipeline/connectors/publicSource.ts` — origin guard, one fetch, constants `SEEDED_PAGE_POLL_TIMEOUT_MS`, `SEEDED_PAGE_MAX_BYTES`, and `SEEDED_PAGE_ERROR_BODY_MAX_BYTES`
 - `src/pipeline/connectors/cftcPress.ts`
 - `src/pipeline/connectors/scotusDocket.ts`
 - `src/pipeline/connectors/legalNewsLeads.ts`

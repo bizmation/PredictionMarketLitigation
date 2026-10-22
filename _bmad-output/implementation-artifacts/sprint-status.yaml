@@ -1,5 +1,5 @@
 # generated: 2026-08-09
-# last_updated: 2026-10-11
+# last_updated: 2026-10-22
 # project: PML
 # project_key: NOKEY
 # tracking_system: file-system
@@ -36,7 +36,7 @@
 # - Source epics: _bmad-output/planning-artifacts/epics.md; 3.14–3.21 backfill tracked in 3.26.
 
 generated: 2026-08-09
-last_updated: 10-11-2026 22:52
+last_updated: 10-22-2026 12:55
 project: PML
 project_key: NOKEY
 tracking_system: file-system
@@ -115,7 +115,7 @@ development_status:
   3-38-pace-courtlistener-requests-and-recover-from-http-429: done
   3-37-prove-the-live-governed-loop-and-reassess-epic-3: done
   # Added by approved sprint-change-proposal-2026-10-11T1823Z. Checklist 6.4.
-  3-39-wire-seeded-cftc-scotus-and-legal-news-sources: backlog
+  3-39-wire-seeded-cftc-scotus-and-legal-news-sources: ready-for-dev
   3-40-add-further-web-and-publication-sources: backlog
   # Retrospective 2026-10-11 human override: accepted-with-open-items. Machine verdict was rejected.
   epic-3-retrospective: done
