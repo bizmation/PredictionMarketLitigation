@@ -345,3 +345,7 @@ Patrick ruled at 10:07 AM ET on 2026-10-11, verbatim: "Accept Epic 3 with open i
 
 - Do a reviewed V4-Flash cost-policy refresh before 2026-10-17. The failure instant is `2026-10-18T00:10:57Z` (2026-10-17 20:10:57 ET). After that instant, runs fail with `cost_policy_invalid` whatever the budget says. Review a successor `llm_periods` row in the same change. A policy refresh alone does not add a shared cap: `reserve` admits a timestamp covered by zero periods, so paid calls would continue under only the per-Run budget.
 - After `2026-10-18T00:10:57Z` a reservation attaches to no period (`endId` returns `[]`). That is harmless only because the cost policy also expires then. It is the same gap as the successor-period note above: once a refreshed policy is valid past that instant, a reservation with no covering period has no shared cap.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-39-wire-seeded-cftc-scotus-and-legal-news-sources.md`
+  summary: The standalone review prompts inline the whole baseline diff, so each round nests the previous prompts and breaks the backtick span.
+  evidence: Step 4 had no subagents, and its fallback substitutes the diff and the reviewer instructions into the prompt text. The diff since `f234f8c3` includes `review-3-39-*.md`, so round 2's prompts embed round 1's prompts. The fix is in that workflow fallback, not in the seeded-page checks.

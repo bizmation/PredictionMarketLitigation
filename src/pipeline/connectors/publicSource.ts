@@ -132,14 +132,14 @@ function declaredLength(response: Response): number | null {
   return Number.isSafeInteger(value) ? value : null;
 }
 
-async function readSuccessBody(response: Response): Promise<Uint8Array> {
+/** The 200 path keeps only the count. The bytes themselves are not returned. */
+async function readSuccessBody(response: Response): Promise<number> {
   const declared = declaredLength(response);
   if (declared != null && declared > SEEDED_PAGE_MAX_BYTES) {
     throw new SourceUnavailableError("response_too_large");
   }
   const reader = response.body?.getReader();
-  if (!reader) return new Uint8Array(0);
-  const chunks: Uint8Array[] = [];
+  if (!reader) return 0;
   let total = 0;
   while (true) {
     const { done, value } = await readChunk(reader);
@@ -148,10 +148,9 @@ async function readSuccessBody(response: Response): Promise<Uint8Array> {
     if (total + value.byteLength > SEEDED_PAGE_MAX_BYTES) {
       throw new SourceUnavailableError("response_too_large");
     }
-    chunks.push(value);
     total += value.byteLength;
   }
-  return concatBytes(chunks, total);
+  return total;
 }
 
 function contentTypeOf(response: Response): string | null {
@@ -216,7 +215,7 @@ export function createSeededPageCheck(origin: string): SourceCheck {
     return [
       {
         entities: [],
-        fetched: { status: 200, contentType, bytes: bytes.byteLength }
+        fetched: { status: 200, contentType, bytes }
       }
     ];
   };

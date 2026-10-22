@@ -2,7 +2,7 @@
 title: '3.39 — Wire seeded CFTC, SCOTUS, and legal-news sources'
 type: 'feature'
 created: '2026-10-22'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 baseline_commit: 'f234f8c3be99068b86a309cd602c45e650d91254'
 review_loop_iteration: 1
@@ -102,6 +102,29 @@ context:
 - Verification-gap, pre-parse URL rejection has no test. Verdict `medium`, pre-verified. Deleting the character checks would let `URL` normalize a backslash or a space, and no current test feeds those inputs. Filed disposition `patch`. Not processed on this loopback.
 - Verification-gap other finding, body-read failure is not a named skip. Verdict `medium`. Same `observe` path. Route `bad_spec`.
 - Verification-gap other finding, `connector.ts` still says other checks stay at 60 seconds. Verdict `medium`. The seeded checks set 20 seconds. A later edit that trusts the comment can drop `pollTimeoutMs` and overrun the 10-minute step. Route `patch`, not processed on this loopback.
+
+Round 2, head `8bd8ba6a17392a59141cd8c4549b0d87bf9f84fc`:
+
+- Blind-hunter, a non-200 body-read error becomes `network` and loses `http_403`. Verdict `low`, rejected. `errorDetail` reaches `readChunk`, which maps a throwing body to `SourceUnavailableError("network")` before `reasonForStatus`. The amended task requires that map. A 403 whose body reads still records `http_403`. A throwing error body is not an everyday response, and keeping the status reason would change the task.
+- Blind-hunter, the triage log still calls the `guardedUrl` catch an unprocessed patch. Verdict `low`, rejected. The re-derive left that catch bare, so the branch the earlier row described is not in the file. Updating the earlier row would edit this spec.
+- Blind-hunter, `network` skips drop the error name. Verdict `low`, rejected. `fetchSeededPage` and `readChunk` both pass an empty detail, which is the fetch map the task requires. Adding a name would put a new field on public evidence.
+- Blind-hunter, `readSuccessBody` retains chunks only to read `byteLength`. Verdict `low`. The 200 path copies up to 1_000_000 bytes twice and then discards them. Route `patch`.
+- Blind-hunter, the poll-budget test ignores the rest of the step. Verdict `false`. The acceptance criterion is the sum of the four poll budgets, and the test checks that sum. `draft-and-review` is a separate step with its own 20-minute timeout, so provider calls are not inside `run-daily-step`.
+- Blind-hunter, the inlined diff shows the round-0 review prompts. Verdict `medium`. That diff was captured before this round's prompts were written, so it still contains the earlier prompt files. The committed prompts are the round-2 files, and they embed that snapshot. Grouped with the nesting and backtick findings. Route `defer`.
+- Blind-hunter, each prompt contains the previous prompts. Verdict `medium`. The baseline diff includes `review-3-39-*.md`, and the no-subagent fallback inlines that diff. Same prompt-generation defect. Route `defer`.
+- Blind-hunter, the prompt's backtick span breaks on the diff. Verdict `medium`. The fallback substitutes the diff and the reviewer instructions into a single-backtick span. Same prompt-generation defect. Route `defer`.
+- Blind-hunter, open patch and defer rows are only in prose. Verdict `false`. This log records each row and that the `bad_spec` loopback left it unprocessed. `deferred-work.md` is written when a defer entry is processed, which that loopback forbids.
+- Blind-hunter, `connector.ts` still says other checks stay at 60 seconds. Verdict `medium`. carried The seeded checks set 20 seconds and the comment still says every other check stays at 60 seconds. Route `patch`, not processed again.
+- Blind-hunter, the failed-run test omits sibling evidence. Verdict `medium`. carried The test checks draft count and `failed` status only, so a registry that never fetched the other sources could still pass. Route `patch`, not processed again.
+- Blind-hunter, `TextDecoder` ignores the error-page charset. Verdict `low`, rejected. The default UTF-8 decoder inserts a replacement character when an 8192-byte cut splits a multibyte sequence. That is one character inside a scrubbed prefix, and charset sniffing is more than a direct correction.
+- Blind-hunter, `last_updated` is not ISO. Verdict `false`. The field was already `10-22-2026 12:55` before this story changed the time to `13:24`. The diff does not introduce the format.
+- Blind-hunter, nothing records that `cancel()` drains the body. Verdict `false`. The `publicSource.ts` task and the Spec Change Log both state that this runtime drains on `cancel()`. The redirect and 8192 tests lock the unread remainder.
+- Edge-case-hunter, a non-200 body-read failure loses the status reason. Verdict `low`, rejected. Same path as the blind-hunter `network` row. The task maps that read error to `network`.
+- Edge-case-hunter, an `AbortError` while the observe signal is not aborted becomes `run.failed`. Verdict `low`, rejected. `withAbortableDeadline` swallows a rejection once its signal is aborted and rejects with `DeadlineError`, which `observe` records as `timeout`. An `AbortError` while that signal is still live is rethrown, and `observe` records `run.failed { reason: "error" }`. The task requires that rethrow, and a live-signal `AbortError` is not an everyday fetch failure. Mapping it to `network` would wrap the error the task forbids.
+- Edge-case-hunter, `"tok"` is a substring. Verdict `low`. carried The token is the letters `tok`, so a later payload containing `token` fails the assertion for the wrong reason. Route `patch`, not processed again.
+- Edge-case-hunter claim, a live-signal `AbortError` is a third outcome. Verdict `low`, rejected. Same `observe` path as the `AbortError` row. The story and the task both require the rethrow.
+- Verification-gap, pre-parse URL rejection has no test. Verdict `medium`, pre-verified. carried Deleting the character checks would let `URL` normalize a backslash or a space, and no current test feeds those inputs. Filed disposition `patch`. Not processed again.
+- Verification-gap other finding, `connector.ts` still says other checks stay at 60 seconds. Verdict `medium`. carried The seeded checks set 20 seconds. A later edit that trusts the comment can drop `pollTimeoutMs` and overrun the 10-minute step. Route `patch`, not processed again.
 
 ## Verification
 
