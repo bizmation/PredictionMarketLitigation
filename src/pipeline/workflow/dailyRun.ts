@@ -16,6 +16,9 @@ import {
   firstFetchWindowDays,
   type CourtListenerWait
 } from "../connectors/courtListener";
+import { createCftcPressCheck } from "../connectors/cftcPress";
+import { createLegalNewsLeadsCheck } from "../connectors/legalNewsLeads";
+import { createScotusDocketCheck } from "../connectors/scotusDocket";
 import { llmProvidersFromEnv, type GatewayDeps } from "../ai/gateway";
 import {
   ensureRun,
@@ -87,10 +90,12 @@ export function gatewayDepsFromEnv(
 }
 
 /**
- * Story 3.21 — the live connector registry, keyed on the exact source name
+ * Live connector registry, keyed on the exact source name
  * (3.17 makes names operator-editable; an unknown name falls back to
- * `stubCheck` → `"not wired"`). The token is a per-Worker secret typed as
- * optional on `Env`; absent → `source.skipped { reason: "unconfigured" }`.
+ * `stubCheck` → `"not wired"`). The CourtListener token is a per-Worker
+ * secret typed as optional on `Env`; absent →
+ * `source.skipped { reason: "unconfigured" }`. The seeded page checks do
+ * not receive that token, the wait, the clock, or the database.
  */
 export function sourceChecksFromEnv(
   env: Pick<Env, "COURTLISTENER_API_TOKEN" | "FIRST_FETCH_WINDOW_DAYS"> & {
@@ -112,7 +117,10 @@ export function sourceChecksFromEnv(
       firstFetchWindowDays: firstFetchWindowDays(env.FIRST_FETCH_WINDOW_DAYS),
       ...(env.courtListenerWait ? { wait: env.courtListenerWait } : {}),
       ...(env.now ? { now: env.now } : {})
-    })
+    }),
+    "CFTC press": createCftcPressCheck(),
+    "SCOTUS docket": createScotusDocketCheck(),
+    "Legal news leads": createLegalNewsLeadsCheck()
   };
 }
 
