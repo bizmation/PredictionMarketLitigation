@@ -4,7 +4,7 @@ baseline_commit: 31ed902fcf4a0dab98004e853e5b85030934ebdc
 
 # Story 3.39: Wire seeded CFTC, SCOTUS, and legal-news sources
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -28,31 +28,52 @@ so that a day with no new CourtListener entries is empty only when those sources
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Register the three seeded checks** (AC: 1, 2, 6, 7)
-  - [ ] Add `createCftcPressCheck`, `createScotusDocketCheck`, and `createLegalNewsLeadsCheck`. Each returns a `SourceCheck` with `pollTimeoutMs` set to `SEEDED_PAGE_POLL_TIMEOUT_MS` (20 seconds) via `Object.assign`, the same attachment `createCourtListenerCheck` uses.
-  - [ ] Implement the fetch once in `src/pipeline/connectors/publicSource.ts`. The three modules are thin wrappers that pass the seeded origin for that name. Architecture names `cftcPress.ts`, `scotusDocket.ts`, and `legalNewsLeads.ts`.
-  - [ ] `sourceChecksFromEnv` returns CourtListener plus these three, keyed by the exact `POLL_SOURCES` names, in that order. An unknown name still falls through to `stubCheck` inside `monitorAndPackage`.
-  - [ ] Do not pass `COURTLISTENER_API_TOKEN`, `courtListenerWait`, or `now` into the new checks. Do not give them a database handle.
-- [ ] **Task 2: One bounded public fetch per source** (AC: 2, 3, 4, 5, 6, 7)
-  - [ ] Fetch only the snapshotted `source.url`, and only after it passes the origin guard. `redirect: "manual"`. No `authorization` header. Call `context.beforeRequest()` immediately before `fetch`, after the guard.
-  - [ ] Use `fetchWithTimeout` with `SOURCE_FETCH_TIMEOUT_MS` (12 seconds). Map `TimeoutError` to `SourceUnavailableError("timeout")`. Rethrow `AbortError`. Map other fetch failures to `SourceUnavailableError("network")`.
-  - [ ] 3xx: `SourceUnavailableError("redirect", { status })`. Do not read the body or `Location`.
-  - [ ] 401, 403, 429, and 5xx: `SourceUnavailableError(reasonForStatus(status), { status, detail })` on the first response. No retry and no CourtListener pace clock. Read at most `SEEDED_PAGE_ERROR_BODY_MAX_BYTES` (8192) before `scrubResponseDetail(body, "")`. Do not call `response.text()` on the full error page. The scrub still caps detail at 180 characters and has no token to redact.
-  - [ ] Other non-200: `SourceUnavailableError("http_error", { status })` with that same capped, scrubbed detail. Do not invent entries.
-  - [ ] 200: read at most `SEEDED_PAGE_MAX_BYTES` (1_000_000). If `Content-Length` or the bytes read exceed that, `SourceUnavailableError("response_too_large")` and do not parse. Otherwise return one `SourceItem`: `{ entities: [], fetched: { status: 200, contentType, bytes } }`. `contentType` is the header value truncated to 120 characters, or `null`.
-- [ ] **Task 3: Tests** (AC: 1–9)
-  - [ ] Replace the story 3.21 registry assertion. Keys are `CourtListener`, `CFTC press`, `SCOTUS docket`, `Legal news leads`.
-  - [ ] Token absent: CourtListener is `unconfigured` and its URL is not fetched. The other three are fetched or skipped with a reason other than `not wired`. A stubbed 200 yields `source.fetched`, `failed: false`, `itemCount: 0`, and zero Drafts.
-  - [ ] A stubbed 403 on one of the three is `source.skipped` with `reason: "http_403"`, `failed: true`, zero Drafts for that source, and no token-like text in evidence. CourtListener's fixture entries still become its own Drafts.
-  - [ ] When `COURTLISTENER_API_TOKEN` is set, the three fetches send no `authorization` header and the token string is absent from evidence.
-  - [ ] A stubbed 429 performs one fetch and skips with `http_429`. A stubbed 5xx performs one fetch and skips with `http_5xx`. Neither retries.
-  - [ ] CourtListener zero new entries plus a 200 from each of the three finishes the Run `empty`. CourtListener zero new entries plus a 403 from one of the three finishes the Run `failed` (existing `completeDailyStep` rule). Do not special-case that to `empty`.
-  - [ ] A 200 body that contains a seeded docket number (for example `1:26-cv-03659`) still inserts zero Drafts and zero `docket_events` rows.
-  - [ ] `redirect: "manual"` is set. A 302 does not produce a second fetch. A foreign-origin URL throws `unsafe_url` and does not call `fetch`.
-  - [ ] `COURTLISTENER_POLL_TIMEOUT_MS + 3 * SEEDED_PAGE_POLL_TIMEOUT_MS` is less than 10 minutes. `dailyRunRecovery.test.ts` still sees no config object on `run-daily-step`.
-  - [ ] `npm run check` and `npm test` exit 0.
-- [ ] **Task 4: Leave the rest alone** (AC: 6, 9)
-  - [ ] Do not rename `run-daily-step` or pass a `StepConfig` to it. Do not add a dependency, a D1 table, a migration, or a secret. Do not implement story 3.40. Do not deploy.
+- [x] **Task 1: Register the three seeded checks** (AC: 1, 2, 6, 7)
+  - [x] Add `createCftcPressCheck`, `createScotusDocketCheck`, and `createLegalNewsLeadsCheck`. Each returns a `SourceCheck` with `pollTimeoutMs` set to `SEEDED_PAGE_POLL_TIMEOUT_MS` (20 seconds) via `Object.assign`, the same attachment `createCourtListenerCheck` uses.
+  - [x] Implement the fetch once in `src/pipeline/connectors/publicSource.ts`. The three modules are thin wrappers that pass the seeded origin for that name. Architecture names `cftcPress.ts`, `scotusDocket.ts`, and `legalNewsLeads.ts`.
+  - [x] `sourceChecksFromEnv` returns CourtListener plus these three, keyed by the exact `POLL_SOURCES` names, in that order. An unknown name still falls through to `stubCheck` inside `monitorAndPackage`.
+  - [x] Do not pass `COURTLISTENER_API_TOKEN`, `courtListenerWait`, or `now` into the new checks. Do not give them a database handle.
+- [x] **Task 2: One bounded public fetch per source** (AC: 2, 3, 4, 5, 6, 7)
+  - [x] Fetch only the snapshotted `source.url`, and only after it passes the origin guard. `redirect: "manual"`. No `authorization` header. Call `context.beforeRequest()` immediately before `fetch`, after the guard.
+  - [x] Use `fetchWithTimeout` with `SOURCE_FETCH_TIMEOUT_MS` (12 seconds). Map `TimeoutError` to `SourceUnavailableError("timeout")`. Rethrow `AbortError`. Map other fetch failures to `SourceUnavailableError("network")`.
+  - [x] 3xx: `SourceUnavailableError("redirect", { status })`. Do not read the body or `Location`.
+  - [x] 401, 403, 429, and 5xx: `SourceUnavailableError(reasonForStatus(status), { status, detail })` on the first response. No retry and no CourtListener pace clock. Read at most `SEEDED_PAGE_ERROR_BODY_MAX_BYTES` (8192) before `scrubResponseDetail(body, "")`. Do not call `response.text()` on the full error page. The scrub still caps detail at 180 characters and has no token to redact.
+  - [x] Other non-200: `SourceUnavailableError("http_error", { status })` with that same capped, scrubbed detail. Do not invent entries.
+  - [x] 200: read at most `SEEDED_PAGE_MAX_BYTES` (1_000_000). If `Content-Length` or the bytes read exceed that, `SourceUnavailableError("response_too_large")` and do not parse. Otherwise return one `SourceItem`: `{ entities: [], fetched: { status: 200, contentType, bytes } }`. `contentType` is the header value truncated to 120 characters, or `null`.
+- [x] **Task 3: Tests** (AC: 1–9)
+  - [x] Replace the story 3.21 registry assertion. Keys are `CourtListener`, `CFTC press`, `SCOTUS docket`, `Legal news leads`.
+  - [x] Token absent: CourtListener is `unconfigured` and its URL is not fetched. The other three are fetched or skipped with a reason other than `not wired`. A stubbed 200 yields `source.fetched`, `failed: false`, `itemCount: 0`, and zero Drafts.
+  - [x] A stubbed 403 on one of the three is `source.skipped` with `reason: "http_403"`, `failed: true`, zero Drafts for that source, and no token-like text in evidence. CourtListener's fixture entries still become its own Drafts.
+  - [x] When `COURTLISTENER_API_TOKEN` is set, the three fetches send no `authorization` header and the token string is absent from evidence.
+  - [x] A stubbed 429 performs one fetch and skips with `http_429`. A stubbed 5xx performs one fetch and skips with `http_5xx`. Neither retries.
+  - [x] CourtListener zero new entries plus a 200 from each of the three finishes the Run `empty`. CourtListener zero new entries plus a 403 from one of the three finishes the Run `failed` (existing `completeDailyStep` rule). Do not special-case that to `empty`.
+  - [x] A 200 body that contains a seeded docket number (for example `1:26-cv-03659`) still inserts zero Drafts and zero `docket_events` rows.
+  - [x] `redirect: "manual"` is set. A 302 does not produce a second fetch. A foreign-origin URL throws `unsafe_url` and does not call `fetch`.
+  - [x] `COURTLISTENER_POLL_TIMEOUT_MS + 3 * SEEDED_PAGE_POLL_TIMEOUT_MS` is less than 10 minutes. `dailyRunRecovery.test.ts` still sees no config object on `run-daily-step`.
+  - [x] `npm run check` and `npm test` exit 0.
+- [x] **Task 4: Leave the rest alone** (AC: 6, 9)
+  - [x] Do not rename `run-daily-step` or pass a `StepConfig` to it. Do not add a dependency, a D1 table, a migration, or a secret. Do not implement story 3.40. Do not deploy.
+
+### Review Findings
+
+- [x] [Review][Patch] Remove the inlined review prompts so the next baseline diff does not pick them up [_bmad-output/implementation-artifacts/review-3-39-blind-hunter.md]
+- [x] [Review][Patch] Pin `guardedUrl`'s pre-parse rejections with an `it.each` [src/pipeline/connectors/publicSource.test.ts]
+- [x] [Review][Patch] The failed-run test must show the CFTC `http_403` skip and the other three `source.fetched` events [src/pipeline/workflow/dailyRun.test.ts:990]
+- [x] [Review][Patch] Use a distinctive CourtListener token and require at least one CourtListener call before `every()` [src/pipeline/workflow/dailyRun.test.ts:820]
+- [x] [Review][Patch] Record the real task state, file list, and check/test results, and set story, spec, and sprint status through the workflow [3-39-wire-seeded-cftc-scotus-and-legal-news-sources.md]
+- [x] [Review][Defer] No User-Agent beyond the Workers default, and live CDN or paywall behavior is unmeasured [src/pipeline/connectors/publicSource.ts] — deferred: unverified until the first staging Run
+- [x] [Review][Defer] `connector.ts` still says every other check stays at 60 seconds [src/pipeline/connectors/connector.ts:121] — deferred: the spec forbids changing `connector.ts`
+- [x] [Review][Defer] An operator rename of a seeded source falls back to `stubCheck` / `not wired` [src/pipeline/connectors/publicSource.ts] — deferred: pre-existing 3.21 name-keyed design
+- [x] [Review][Defer] The Epic 3 context cache dropped later handoffs, the timeout policy, the staging topology, and the do-not-deploy rule [_bmad-output/implementation-artifacts/epic-3-context.md] — deferred: unverified against the planning artifacts
+
+#### Rejected
+
+- spec — Following same-origin redirects, cancelling unread bodies, treating other 2xx statuses as success, a content-type or paywall check on 200s, counting a 200 body without keeping the bytes, and recording a 403 whose body fails to read as `http_403` rather than `network` would edit the frozen spec.
+- false — Status 0 or opaqueredirect: Workers `redirect: "manual"` returns the 3xx.
+- false — The poll-budget test: the acceptance criterion is the sum of the budgets.
+- low — An AbortError not caused by the deadline, the comment claiming a 12-second timeout on body reads, the error-detail charset, mixed error-helper use, and the deferred-entry format.
+- low — The `running` status in the 403-beside-drafts test matches `packageDailyRun`.
+- low — The baseline-commit mismatch.
 
 ## Dev Notes
 
@@ -218,16 +239,38 @@ Latest `main` commits at story creation:
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Grok 4.7
 
 ### Debug Log References
 
 ### Completion Notes List
 
 - Ultimate context engine analysis completed - comprehensive developer guide created
+- The three seeded checks share one same-origin fetch. A 200 returns `entities: []` and a byte count, and the body is not retained. Body-read failures use the fetch map. `npm run check` exited 0. `npm test` exited 0: 1,671 passed, 6 skipped, 68 files. No deploy, staging, production, or paid-provider call.
+- ✅ Resolved review finding [high]: Removed the three inlined review prompts.
+- ✅ Resolved review finding [medium]: Pre-parse URL rejections are pinned by `it.each`.
+- ✅ Resolved review finding [medium]: The blocked zero-draft Run asserts the CFTC `http_403` skip and `source.fetched` for SCOTUS docket, Legal news leads, and CourtListener.
+- ✅ Resolved review finding [medium]: The poll test uses `cl-review-token-7f3a` and requires a CourtListener call before `every()`.
+- ✅ Resolved review finding [medium]: Tasks, the file list, and these check/test results are recorded. Story status and sprint status are set by the code-review status step. The spec was already `done`.
+- Code-review verification: `npm run check` exited 0. `npm test` exited 0: 1,671 passed, 6 skipped, 68 files. No deploy, staging, production, or paid-provider call. Deferred items were recorded and rejected findings were left unchanged.
 
 ### File List
+
+- `_bmad-output/implementation-artifacts/3-39-wire-seeded-cftc-scotus-and-legal-news-sources.md`
+- `_bmad-output/implementation-artifacts/spec-3-39-wire-seeded-cftc-scotus-and-legal-news-sources.md`
+- `_bmad-output/implementation-artifacts/sprint-status.yaml`
+- `_bmad-output/implementation-artifacts/deferred-work.md`
+- `_bmad-output/implementation-artifacts/epic-3-context.md`
+- `src/pipeline/connectors/publicSource.ts`
+- `src/pipeline/connectors/publicSource.test.ts`
+- `src/pipeline/connectors/cftcPress.ts`
+- `src/pipeline/connectors/scotusDocket.ts`
+- `src/pipeline/connectors/legalNewsLeads.ts`
+- `src/pipeline/workflow/dailyRun.ts`
+- `src/pipeline/workflow/dailyRun.test.ts`
+- `src/shared/lib/timeouts.ts`
 
 ## Change Log
 
 - 2026-10-16: Created story 3.39 from sprint auto-discover. Status ready-for-dev.
+- 2026-10-22: Code review patches applied. Review prompts removed. Story status set to done.

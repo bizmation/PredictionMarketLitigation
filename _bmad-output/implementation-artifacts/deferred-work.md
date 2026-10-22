@@ -349,3 +349,10 @@ Patrick ruled at 10:07 AM ET on 2026-10-11, verbatim: "Accept Epic 3 with open i
 - source_spec: `_bmad-output/implementation-artifacts/spec-3-39-wire-seeded-cftc-scotus-and-legal-news-sources.md`
   summary: The standalone review prompts inline the whole baseline diff, so each round nests the previous prompts and breaks the backtick span.
   evidence: Step 4 had no subagents, and its fallback substitutes the diff and the reviewer instructions into the prompt text. The diff since `f234f8c3` includes `review-3-39-*.md`, so round 2's prompts embed round 1's prompts. The fix is in that workflow fallback, not in the seeded-page checks.
+
+## Deferred from: code review of 3-39-wire-seeded-cftc-scotus-and-legal-news-sources.md (2026-10-22)
+
+- No User-Agent beyond the Workers default, and the live CDN or paywall behavior of cftc.gov, supremecourt.gov, and news.bloomberglaw.com is unmeasured. A daily 403 would turn quiet days from `empty` to `failed`. Unverified until the first staging Run.
+- The comment at `connector.ts:121` still says every other check stays at 60 seconds. The spec forbids changing `connector.ts`, so a later story fixes the comment.
+- The allowed origin comes from `SEEDED_NAMES` plus `POLL_SOURCES` by name, so an operator rename of a seeded source falls back to `stubCheck` and reports `not wired`. That is the pre-existing 3.21 name-keyed design.
+- The `epic-3-context.md` cache recompile dropped the 3.30–3.38 handoffs, the timeout policy, the `pml-build`/`ops-build` topology, and the do-not-run `npm run deploy` rule. Check that those facts live in the planning artifacts, since the cache is compiled from there. Unverified.

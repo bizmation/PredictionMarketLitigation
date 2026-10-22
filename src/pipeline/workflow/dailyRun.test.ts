@@ -760,7 +760,7 @@ describe("sourceChecksFromEnv (story 3.21)", () => {
       },
       sourceChecksFromEnv(
         {
-          COURTLISTENER_API_TOKEN: "tok",
+          COURTLISTENER_API_TOKEN: "cl-review-token-7f3a",
           FIRST_FETCH_WINDOW_DAYS: 3,
           courtListenerWait: async () => {},
           now: () => "2026-09-20T16:00:00.000Z"
@@ -817,15 +817,19 @@ describe("sourceChecksFromEnv (story 3.21)", () => {
       null,
       null
     ]);
+    const courtListenerCalls = calls.filter((call) =>
+      call.url.includes("courtlistener.com")
+    );
+    expect(courtListenerCalls.length).toBeGreaterThan(0);
     expect(
-      calls
-        .filter((call) => call.url.includes("courtlistener.com"))
-        .every((call) => call.authorization === "Token tok")
+      courtListenerCalls.every(
+        (call) => call.authorization === "Token cl-review-token-7f3a"
+      )
     ).toBe(true);
     const evidenceText = JSON.stringify(
       await evidenceRepo.listByRun(testEnv.DB, id)
     );
-    expect(evidenceText).not.toContain("tok");
+    expect(evidenceText).not.toContain("cl-review-token-7f3a");
   });
 
   function courtListenerRows(input: RequestInfo | URL): Response {
@@ -1016,6 +1020,25 @@ describe("sourceChecksFromEnv (story 3.21)", () => {
     );
     expect(packaged).toMatchObject({ draftCount: 0, anyFailure: true });
     expect(await draftsRepo.listByRun(testEnv.DB, id)).toEqual([]);
+    const evidence = await evidenceRepo.listByRun(testEnv.DB, id);
+    const cftc = evidence.find(
+      (event) =>
+        event.event === "source.skipped" &&
+        (event.payload as { source?: string }).source === "CFTC press"
+    );
+    expect(cftc?.payload).toMatchObject({
+      reason: "http_403",
+      failed: true
+    });
+    for (const name of ["SCOTUS docket", "Legal news leads", "CourtListener"]) {
+      expect(
+        evidence.some(
+          (event) =>
+            event.event === "source.fetched" &&
+            (event.payload as { source?: string }).source === name
+        )
+      ).toBe(true);
+    }
     expect((await runsRepo.getRunById(testEnv.DB, id))?.status).toBe("failed");
   });
 });

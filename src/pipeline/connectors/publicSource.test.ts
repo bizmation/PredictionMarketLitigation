@@ -218,6 +218,25 @@ describe("seeded page checks", () => {
     expect(pulled).toBe(false);
   });
 
+  it.each([
+    ["backslash", "https://www.cftc.gov\\PressRoom\\PressReleases"],
+    ["embedded space", "https://www.cftc.gov/Press Room"],
+    ["leading space", " https://www.cftc.gov/PressRoom/PressReleases"],
+    ["trailing newline", "https://www.cftc.gov/PressRoom/PressReleases\n"],
+    ["malformed percent", "https://www.cftc.gov/PressRoom/%zz"],
+    ["empty", ""],
+    ["non-https", "http://www.cftc.gov/PressRoom/PressReleases"]
+  ])("rejects a %s URL before fetch", async (_label, url) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const before = vi.fn(async () => {});
+    await expect(
+      createCftcPressCheck()({ ...CFTC, url }, context(before))
+    ).rejects.toMatchObject({ reason: "unsafe_url", detail: {} });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(before).not.toHaveBeenCalled();
+  });
+
   it("rejects a foreign origin before fetch and omits the URL", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

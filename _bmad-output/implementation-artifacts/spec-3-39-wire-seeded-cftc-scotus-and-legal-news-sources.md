@@ -126,6 +126,8 @@ Round 2, head `8bd8ba6a17392a59141cd8c4549b0d87bf9f84fc`:
 - Verification-gap, pre-parse URL rejection has no test. Verdict `medium`, pre-verified. carried Deleting the character checks would let `URL` normalize a backslash or a space, and no current test feeds those inputs. Filed disposition `patch`. Not processed again.
 - Verification-gap other finding, `connector.ts` still says other checks stay at 60 seconds. Verdict `medium`. carried The seeded checks set 20 seconds. A later edit that trusts the comment can drop `pollTimeoutMs` and overrun the 10-minute step. Route `patch`, not processed again.
 
+Code review of `d9b90b31` applied the pre-parse URL tests, the failed-run sibling evidence, and the distinctive CourtListener token, and removed the inlined review prompts. The connector comment, the User-Agent question, the operator-rename fallback, and the Epic 3 context cache are recorded in `deferred-work.md`. Spec status stays `done`.
+
 ## Verification
 
 **Commands:**
