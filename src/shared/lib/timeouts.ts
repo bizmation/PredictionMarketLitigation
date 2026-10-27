@@ -24,8 +24,9 @@
  * (`provider_error`, `source.skipped { reason: "timeout" }`).
  *
  * No retries and no backoff live in this module. These constants stay
- * fixed. CourtListener is the per-check exception: `observe` uses that
- * check's `pollTimeoutMs` instead of `CONNECTOR_TIMEOUT_MS` (story 3.38).
+ * fixed. `observe` uses a check's `pollTimeoutMs` when the check sets one,
+ * instead of `CONNECTOR_TIMEOUT_MS`. CourtListener sets an 8 minute budget
+ * (story 3.38). Each seeded page check sets 20 seconds (story 3.39).
  * Pacing and 429 waits live in the CourtListener connector.
  */
 
